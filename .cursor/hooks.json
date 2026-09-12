@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "cmd /c env\\Scripts\\python.exe .cursor\\hooks\\format_python.py",
+        "timeout": 15
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "cmd /c env\\Scripts\\python.exe .cursor\\hooks\\audit_mcp.py",
+        "timeout": 10
+      }
+    ]
+  }
+}
