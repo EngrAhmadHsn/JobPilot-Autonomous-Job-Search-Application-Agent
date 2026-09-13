@@ -1,33 +1,47 @@
 ---
 name: agent-architecture
-description: Designs LangGraph workflows, agent boundaries, structured outputs, retries, and human approval. Use when adding agents, graphs, tools, orchestration, or deciding whether an LLM or deterministic Python is appropriate.
+description: Designs LangGraph workflows, agent boundaries, structured outputs, retries, and human approval for the Autonomous AI Job Application Agent.
 ---
 
 # Agent Architecture
 
-Development-time Cursor guidance for this repo. Not a runtime agent.
+This repo is a serious agentic system, not a single chatbot wrapper. The goal is a production-oriented pipeline for resume parsing, job search, matching, tailoring, browser automation, and application verification.
 
 ## Default choice
 
-Prefer deterministic Python over LLM reasoning. Do not wrap a single LLM call in an agent. Do not create an agent merely because an LLM is involved.
+- Prefer deterministic Python over model reasoning for parsing, validation, scoring, normalization, and business rules.
+- Use an agent or LangGraph only when the work requires state, branching, persistent progress, retries, human approval, or multi-step orchestration.
+- Do not create an agent for simple CRUD, schema checks, or straightforward transformations.
+- Keep prompts narrow and business logic in Python modules.
 
-Use an agent or LangGraph when the work needs state, branching, persistence, retries, human approval, long-running execution, recovery, or multi-step orchestration.
+## Repo boundaries
 
-Do not use an agent for simple CRUD, schema validation, database inserts, deterministic calculations, or basic transforms.
+- Cursor tools such as MCP servers, rules, skills, and hooks help build the product.
+- The product runtime is a separate system: FastAPI, PostgreSQL, LangGraph, browser automation clients, and orchestration services.
+- Cursor Playwright MCP is development tooling; it is not the runtime browser layer.
+- Browser Use is optional and should not block the project if it remains broken or unconfigured.
 
-## When implementing
+## Architecture principles
 
-1. Put business logic in Python modules, not prompts.
-2. Represent workflow state with Pydantic models.
-3. Use LangGraph for stateful graphs, not ad-hoc prompt chains.
-4. Give tools narrow contracts and structured outputs.
-5. Set retries, timeouts, and explicit failure states.
-6. Stop for human approval before irreversible actions (especially application submission).
-7. Persist graph state so runs can resume.
-8. Log every external action for observability and evaluation.
+1. Model domain state using Pydantic.
+2. Use LangGraph for graph-based orchestration when workflow state matters.
+3. Keep validation and filtering deterministic whenever possible.
+4. Treat every external action as observable and auditable.
+5. Require human approval before irreversible application submission in early phases.
+6. Persist workflow progress so a run can resume after partial failure.
+7. Log all important external actions and decisions.
+8. Fail closed on ambiguous or unsafe automation conditions.
 
-## Boundaries
+## Workflow expectations
 
-- Cursor skills/rules/hooks/MCPs help **build** the product.
-- The product runtime (FastAPI, LangGraph, Playwright client, DB) is separate.
-- Cursor Playwright MCP is not the runtime browser layer.
+- Resume parsing should produce a validated `CandidateProfile`, not guessed data.
+- Job discovery should normalize all raw job data into a shared canonical shape.
+- Matching should combine deterministic scoring with targeted LLM assistance only where useful.
+- Browser automation should be used only when a human-safe, verification-first workflow is possible.
+
+## Implementation posture
+
+- Do not start application logic before completing Phase 0 checks.
+- Keep the design modular and explainable.
+- Prefer structured outputs and explicit state transitions over opaque prompt chains.
+- Use tests for critical logic and evaluation before scaling the system.

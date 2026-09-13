@@ -1,43 +1,45 @@
 ---
 name: job-matching
-description: Implements hybrid job matching with configurable weights and score explanations. Use when scoring jobs, ranking listings, building match engines, or adding embeddings alongside skill and constraint checks.
+description: Implements deterministic-first hybrid job matching with explicit explanations and configurable weights.
 ---
 
 # Job Matching
 
-Development-time Cursor guidance. Not a runtime agent.
+Matching should be explainable and grounded in structured data. The system should not rely on embeddings or model guesses alone.
 
-## Do not rely on embeddings alone
+## Matching goals
 
-```text
-Final Score =
-    semantic similarity
-    + skill overlap
-    + experience compatibility
-    + seniority compatibility
-    + location compatibility
-    + work-mode compatibility
-    + salary compatibility
-    + candidate preferences
-    + domain relevance
-```
+Compute a job score from a combination of:
 
-Weights must be configurable and evaluated empirically.
+- semantic similarity
+- skill overlap
+- experience compatibility
+- seniority compatibility
+- location compatibility
+- work mode compatibility
+- salary compatibility
+- candidate preferences
+- domain relevance
 
-## Every score must explain why
+## Rules
 
-Return component scores plus missing vs strong matches, for example:
+- Start with deterministic scoring from structured `CandidateProfile` and `JobListing` objects.
+- Add LLM reasoning only where it improves explanation or handles ambiguity.
+- Every score must explain why it was high or low.
+- Keep weights configurable and measurable.
+- Never claim a candidate has a skill or qualification unless it is supported by validated profile data.
+
+## Output format
+
+Each match should return a score and an explanation such as:
 
 ```text
 Job Match: 87/100
 Skills: 92% | Experience: 88% | Seniority: 95% | Semantic: 84%
+Strong: Python, FastAPI, SQL, REST APIs
 Missing: Kubernetes, AWS
-Strong: Python, REST APIs, PostgreSQL
 ```
 
-## Implementation order
+## Repo principle
 
-1. Deterministic scoring from structured `CandidateProfile` + `JobListing`.
-2. Then LLM reasoning only where it improves explanation or ambiguous cases.
-3. Never claim a skill match just because the job description lists it.
-4. Keep matching logic in code; prompts must not invent profile facts.
+Deterministic logic should handle the bulk of matching. The LLM is an assistive layer for explainability and edge cases, not a source of fabricated experience or invented qualifications.

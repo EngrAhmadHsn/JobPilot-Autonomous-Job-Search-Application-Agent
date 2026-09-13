@@ -1,31 +1,30 @@
 ---
 name: agent-evaluation
-description: Defines measurable evaluation metrics for extraction, matching, tailoring, and browser application flows. Use when adding tests, benchmarks, eval harnesses, or claims that the system is autonomous or accurate.
+description: Defines measurable evaluation metrics for extraction, matching, tailoring, and application workflows.
 ---
 
 # Agent Evaluation
 
-Development-time Cursor guidance. Not a runtime agent.
-
-Do not call the system autonomous without measured results.
+This project must not claim to be autonomous or accurate without measurable evidence. All critical flows should be evaluated with repeatable tests or benchmark fixtures.
 
 ## What to measure
 
-Resume extraction: field extraction accuracy.
+- Resume extraction accuracy for structured fields.
+- Job retrieval quality: precision@k, recall@k, duplicate rate.
+- Matching quality: ranking quality, false positive / false negative rate.
+- Tailoring quality: factual consistency, hallucination rate, job relevance.
+- Browser automation quality: form completion success, navigation failures, verification rates.
+- Application flow quality: successful vs failed applications, human intervention rate, verification confidence.
 
-Job retrieval: precision@k, recall@k, duplicate rate.
+## Implementation rules
 
-Job matching: ranking quality, false positive rate, false negative rate.
+1. Prefer fixtures and local test jobs over live employer sites during early evaluation.
+2. Store eval datasets under `tests/` or `docs/evaluations/` when applicable.
+3. Evaluate measurable outcomes for each workflow step, not just the final output.
+4. Make each automation step verifiable before claiming success.
+5. Log failures and reasons explicitly.
+6. Report the component-level scores, not a single opaque quality score.
 
-Resume tailoring: factual consistency, keyword coverage, job relevance, hallucination rate.
+## Core principle
 
-Browser automation: form completion success, navigation failure rate, verification success rate.
-
-Application system: successful vs failed applications, human intervention rate, incorrect submissions.
-
-## How to implement
-
-1. Prefer tests against fixtures and fake/local ATS sites, not live employer sites first.
-2. Store eval datasets and expected outputs under `tests/` / `docs/evaluations/` when those exist.
-3. Every LangGraph path that mutates the world needs a verifiable outcome check.
-4. Report component scores, not a single opaque "quality" number.
+Do not treat model output as truth without checking it against source documents, job descriptions, and candidate data. Evaluation must protect against fabricated candidate details, over-matching, and unsafe browser automation.
