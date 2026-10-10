@@ -1,0 +1,71 @@
+"""Tests for the deterministic resume parser against the real DOCX fixture."""
+
+from pathlib import Path
+
+import pytest
+
+from src.resume.parser import parse_resume
+
+FIXTURES = Path(__file__).parent / "fixtures"
+RESUME_DOCX = FIXTURES / "Ahmad_Hassan_AI_Engineer_Resume.docx"
+
+
+@pytest.fixture(scope="module")
+def profile() -> dict:
+    return parse_resume(str(RESUME_DOCX))
+
+
+def test_personal_information_extracted(profile: dict) -> None:
+    info = profile["personal_information"]
+    assert info["name"] == "Ahmad Hassan"
+    assert info["email"].endswith("@gmail.com")
+    assert info["phone"].startswith("+92")
+    assert "Pakistan" in info["location"]
+
+
+def test_skills_extracted_from_categories(profile: dict) -> None:
+    skills = profile["skills"]
+    assert "Python" in skills
+    assert "Django" in skills
+    assert "Prompt Engineering" in skills
+    assert "MySQL" in skills
+    categories = profile["skill_categories"]
+    assert "Languages" in categories
+    assert "AI & Machine Learning" in categories
+
+
+def test_summary_extracted(profile: dict) -> None:
+    assert "large language model integration" in profile["summary"]
+
+
+def test_education_extracted(profile: dict) -> None:
+    education = profile["education"]
+    assert any("Bachelor of Computer Science" in e.get("degree", "") for e in education)
+    assert any("Islamia University" in e.get("institution", "") for e in education)
+    assert any(e.get("gpa") == "3.99/4.0" for e in education)
+
+
+def test_projects_extracted_with_bullets(profile: dict) -> None:
+    projects = {p["name"]: p for p in profile["projects"]}
+    assert "SmartDiet" in projects
+    assert "PowerEye" in projects
+    assert "ExpenseTracker" in projects
+    assert len(projects["SmartDiet"]["bullets"]) >= 3
+    assert "Groq API" in projects["SmartDiet"]["tech"]
+
+
+def test_certifications_and_achievements_extracted(profile: dict) -> None:
+    assert any("DataCamp" in cert for cert in profile["certifications"])
+    assert any("3.99" in achievement for achievement in profile["achievements"])
+
+
+def test_unsupported_format_raises(tmp_path: Path) -> None:
+    fake_pdf = tmp_path / "resume.pdf"
+    fake_pdf.write_bytes(b"%PDF-1.4 fake")
+    with pytest.raises(ValueError, match="Unsupported resume format"):
+        parse_resume(str(fake_pdf))
+
+
+def test_missing_file_raises() -> None:
+    with pytest.raises(ValueError, match="not found"):
+        parse_resume("tests/fixtures/does_not_exist.docx")
