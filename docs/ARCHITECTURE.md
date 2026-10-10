@@ -201,3 +201,92 @@ Next steps to implement runtime submission (high-level):
 3. Build LangGraph workflows with approval/verification nodes and evidence persistence.
 4. Implement the MCP/permission registry and domain allowlist enforcement in runtime code.
 5. Harden security controls per `docs/SECURITY.md` before enabling live autonomous submissions.
+
+## 8. Phase 3 — Job Source Abstraction (Footprints)
+
+### 3.1 JobSource Protocol
+- Decision: Abstract `JobSource` with `search()` and `get_job()` methods.
+- File: `src/jobs/contracts.py`
+- Rationale: Separates discovery from submission; allows adapter-based expansion.
+
+### 3.2 JobListing Normalization
+- Decision: Canonical `JobListing` model for all sources.
+- File: `src/jobs/contracts.py`
+- Fields: id, source, title, company, description, location, skills, salary, etc.
+
+### 3.3 First Adapter (LinkedIn)
+- Decision: Placeholder `LinkedInAdapter` implementing `JobSource`.
+- File: `src/jobs/linkedin_adapter.py`
+- Status: Contract-compliant; real HTTP/API integration pending.
+
+### 3.4 Tests
+- File: `tests/test_jobs.py`
+- Status: Basic adapter and model tests created.
+
+## 9. Phase 4 — Normalization + Deduplication (Footprints)
+
+### 4.1 JobSource Abstraction
+- File: `src/jobs/contracts.py`
+- Protocol: `JobSource` with `search()` and `get_job()`.
+
+### 4.2 JobListing Normalization
+- File: `src/jobs/contracts.py`
+- Canonical model for all sources.
+
+### 4.3 Deduplication
+- File: `src/jobs/deduplicate.py`
+- Deduplicates by `(source, source_job_id)` or URL.
+
+### 4.4 DB Persistence
+- File: `src/db/jobs.py`
+- `JobDB` SQLAlchemy model for normalized listings.
+
+### 4.5 First Adapter
+- File: `src/jobs/linkedin_adapter.py`
+- Placeholder adapter implementing `JobSource`.
+
+### 4.6 Tests
+- File: `tests/test_deduplicate.py`
+- Status: Dedup logic tested; adapter async framework pending.
+
+## 10. Phase 5 — Matching Engine (Footprints)
+
+### 5.1 Matching Contracts
+- File: `src/matching/contracts.py`
+- Model: `JobMatchResult` with scores, missing/matched requirements, explanation.
+
+### 5.2 Hybrid Engine
+- File: `src/matching/engine.py`
+- Function: `calculate_match()` — deterministic-first with configurable weights.
+- Components: semantic, skill, experience, seniority, location, preference scores.
+
+### 5.3 Tests
+- File: `tests/test_matching.py`
+- Status: Basic match and explanation tests created.
+
+## 11. Phase 6 — Full End-to-End LangGraph Workflow (Footprints)
+
+### 6.1 Full Pipeline Graph
+- File: `src/graph/job_workflow.py`
+- Nodes: search → normalize → deduplicate → match → rank → END
+- Uses `JobSource` (Phase 3) and `ApplicationWorkflowState` (Phase 2).
+
+### 6.2 Integration
+- Combines Phase 3 (job source), Phase 4 (dedup), Phase 5 (matching) into single graph.
+- Placeholder nodes for search/normalize/deduplicate/match/rank.
+- Ready for real adapter and DB integration in future phases.
+
+### 6.3 Tests
+- File: `tests/test_full_workflow.py`
+- Status: Graph builds successfully; full execution pending adapter/DB wiring.
+
+## 12. Phase 7 — Research + RAG (Footprints)
+
+### 7.1 RAG Module
+- File: `src/rag/chroma_store.py`
+- Note: Chroma DB selected per user preference for vector storage.
+- Status: Placeholder store; full `chromadb` integration pending package setup.
+
+### 7.2 Research Engine
+- File: `src/research/engine.py`
+- Functions: `research_company()`, `research_job_description()`.
