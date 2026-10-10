@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -37,8 +36,8 @@ class ApplicationSubmitRequest(BaseModel):
     email: str = Field(..., description="Email address")
     phone: str = Field(..., description="Phone number")
 
-    resume_path: Optional[str] = Field(None, description="File path to candidate resume")
-    cover_letter: Optional[str] = Field(None, description="Cover letter text or path")
+    resume_path: str | None = Field(None, description="File path to candidate resume")
+    cover_letter: str | None = Field(None, description="Cover letter text or path")
 
     custom_fields: dict = Field(default_factory=dict, description="Additional form fields")
 
@@ -58,10 +57,10 @@ class ApplicationSubmitResponse(BaseModel):
     status: str = Field(..., description="Status: submitted, verified, rejected, etc.")
     message: str = Field(..., description="Human-readable status message")
 
-    evidence: Optional[dict] = Field(
+    evidence: dict | None = Field(
         None, description="Submission evidence (URL, confirmation text, etc.)"
     )
-    metadata: Optional[dict] = Field(None, description="Additional metadata")
+    metadata: dict | None = Field(None, description="Additional metadata")
 
 
 @router.post("/submit", response_model=ApplicationSubmitResponse)
@@ -173,12 +172,11 @@ def submit_application(req: ApplicationSubmitRequest) -> ApplicationSubmitRespon
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
-            f"[{workflow_id}] Unexpected error during application submit: {str(e)}",
-            extra={"workflow_id": workflow_id, "error": str(e)},
-            exc_info=True,
+        logger.exception(
+            "[applications] Unexpected error during application submit",
+            extra={"workflow_id": workflow_id},
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Application submission failed: {str(e)}",
+            detail=f"Application submission failed: {e!s}",
         )
