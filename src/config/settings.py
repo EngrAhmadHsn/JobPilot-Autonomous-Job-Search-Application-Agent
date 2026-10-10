@@ -20,6 +20,18 @@ class Settings:
         raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000")
         self.cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
+        # LLM "brain" called from LangGraph nodes (never logged)
+        self.llm_provider = os.getenv("LLM_PROVIDER", "")
+        self.llm_api_key = os.getenv("LLM_API_KEY", "")
+        self.llm_model = os.getenv("LLM_MODEL", "")
+        self.llm_base_url = os.getenv("LLM_BASE_URL", "") or None
+        self.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+
+        # LangSmith tracing for LangGraph runs (optional)
+        self.llm_tracing = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+        self.langsmith_api_key = os.getenv("LANGSMITH_API_KEY", "")
+        self.langsmith_project = os.getenv("LANGSMITH_PROJECT", "agentic-job-applier")
+
 
 @lru_cache
 def get_settings() -> Settings:
