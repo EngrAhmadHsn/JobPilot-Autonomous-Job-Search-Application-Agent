@@ -208,6 +208,15 @@ tempCodeRunnerFile.py
 # Cursor hook audit logs
 .cursor/hooks/logs/
 
+# ZCode hook audit logs
+.zcode/hooks/logs/
+
+# Runtime SQLite database
+app.db
+
+# External reference project (kept locally only, never committed)
+reference_project/
+
 # Ruff stuff:
 .ruff_cache/
 

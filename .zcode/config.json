@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "PostToolUse": [
+        {
+          "matcher": "Edit|Write",
+          "hooks": [
+            {
+              "type": "process",
+              "command": "${ZCODE_PROJECT_DIR}/env/Scripts/python.exe",
+              "enabled": true,
+              "statusMessage": "Formatting edited Python file with ruff",
+              "args": [
+                "${ZCODE_PROJECT_DIR}/.zcode/hooks/format_python.py"
+              ],
+              "timeoutMs": 15000
+            }
+          ]
+        },
+        {
+          "matcher": "^mcp__",
+          "hooks": [
+            {
+              "type": "process",
+              "command": "${ZCODE_PROJECT_DIR}/env/Scripts/python.exe",
+              "enabled": true,
+              "statusMessage": "Writing redacted MCP audit record",
+              "args": [
+                "${ZCODE_PROJECT_DIR}/.zcode/hooks/audit_mcp.py"
+              ],
+              "timeoutMs": 10000
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
