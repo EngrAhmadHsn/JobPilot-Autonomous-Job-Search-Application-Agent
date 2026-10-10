@@ -1,4 +1,4 @@
-"""Deterministic resume parser: DOCX/TXT -> structured candidate profile.
+"""Deterministic resume parser: DOCX/TXT -> CandidateProfile.
 
 Extracts only what the document actually says, section by section. There is no
 fabricated fallback: if a file cannot be read, the parser raises instead of
@@ -10,6 +10,14 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+
+from src.resume.profile import (
+    CandidateProfile,
+    EducationEntry,
+    ExperienceEntry,
+    PersonalInformation,
+    ProjectEntry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,11 +237,13 @@ def _parse_list_section(rows: list[tuple[str, bool]]) -> list[str]:
     return [_clean_bullet(text) if is_bullet else text for text, is_bullet in rows]
 
 
-def parse_resume(file_path: str) -> dict:
-    """Parse a resume file and return a structured candidate profile.
+def parse_resume(file_path: str) -> CandidateProfile:
+    """Parse a resume file into a validated Pydantic candidate profile.
 
     Supports .docx (primary) and .txt/.md. All content is taken verbatim from
-    the document; missing sections are simply absent or empty.
+    the document; missing sections are simply empty. Run
+    ``validate_candidate_profile`` on the result for the pipeline's
+    validation step.
 
     Raises:
         ValueError: If the file does not exist or the format is unsupported.
@@ -243,22 +253,26 @@ def parse_resume(file_path: str) -> dict:
     skills, categories = _parse_skills(sections["skills"]) if sections.get("skills") else ([], {})
 
     summary_texts = [text for text, _ in sections.get("summary", [])]
-    return {
-        "personal_information": _parse_header(header),
-        "summary": " ".join(summary_texts),
-        "skills": skills,
-        "skill_categories": categories,
-        "education": _parse_education(sections["education"]) if sections.get("education") else [],
-        "experience": _parse_experience(sections["experience"])
+    return CandidateProfile(
+        personal_information=PersonalInformation(**_parse_header(header)),
+        summary=" ".join(summary_texts),
+        skills=skills,
+        skill_categories=categories,
+        education=[EducationEntry(**entry) for entry in _parse_education(sections["education"])]
+        if sections.get("education")
+        else [],
+        experience=[ExperienceEntry(**entry) for entry in _parse_experience(sections["experience"])]
         if sections.get("experience")
         else [],
-        "projects": _parse_projects(sections["projects"]) if sections.get("projects") else [],
-        "certifications": (
+        projects=[ProjectEntry(**entry) for entry in _parse_projects(sections["projects"])]
+        if sections.get("projects")
+        else [],
+        certifications=(
             _parse_list_section(sections["certifications"])
             if sections.get("certifications")
             else []
         ),
-        "achievements": _parse_list_section(sections["achievements"])
+        achievements=_parse_list_section(sections["achievements"])
         if sections.get("achievements")
         else [],
-    }
+    )

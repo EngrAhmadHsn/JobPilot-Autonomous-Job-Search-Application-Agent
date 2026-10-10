@@ -1,14 +1,15 @@
 """Factuality-first resume tailoring backed by the LLM brain.
 
-The LLM may only select, emphasize, and rephrase facts that exist in the
-candidate profile. A deterministic validator strips anything else (unknown
-skills, unknown employers, inflated years) before the result is returned, per
-the project rule: never fabricate candidate data.
+Implements the plan's #25 pipeline: Job -> requirement extraction -> tailored
+resume -> factuality validation. The LLM may only select, emphasize, and
+rephrase facts that exist in the candidate profile. A deterministic validator
+strips anything else (unknown skills, unknown employers, inflated years)
+before the result is returned, per the project rule: never fabricate
+candidate data.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections.abc import Callable
@@ -17,7 +18,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.jobs.contracts import JobListing
+from src.jobs.requirements import extract_requirements
 from src.llm.client import get_client
+from src.resume.profile import CandidateProfile
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +128,12 @@ def _strip_exaggerated_years(text: str, max_years: int | None, violations: list[
     return " ".join(kept)
 
 
-def _build_prompt(profile: dict, job: JobListing) -> str:
-    safe_profile = {k: v for k, v in profile.items() if k != "raw_text_preview"}
+def _build_prompt(profile: CandidateProfile, job: JobListing) -> str:
+    requirements = extract_requirements(job, profile.skills)
     return (
         f"{SYSTEM_RULES}\n"
-        f"Target job listing:\n{job.model_dump_json()}\n\n"
-        f"Candidate profile:\n{json.dumps(safe_profile)}"
+        f"Extracted job requirements (plan #25 stage):\n{requirements.model_dump_json()}\n\n"
+        f"Candidate profile:\n{profile.model_dump_json()}"
     )
 
 
@@ -139,7 +142,7 @@ def _default_generate[T: BaseModel](prompt: str, schema: type[T]) -> T:
 
 
 def tailor_resume(
-    profile: dict,
+    profile: CandidateProfile,
     job: JobListing,
     *,
     generate: GenerateFn | None = None,
@@ -147,7 +150,7 @@ def tailor_resume(
     """Tailor resume content for a job using only facts from the profile.
 
     Args:
-        profile: Structured candidate profile (as produced by the resume parser).
+        profile: Candidate profile as produced by the resume parser.
         job: Normalized job listing to tailor for.
         generate: Optional injection point for structured generation
             (prompt, schema) -> schema instance; defaults to the configured LLM.
@@ -160,13 +163,10 @@ def tailor_resume(
     generate_fn = generate if generate is not None else _default_generate
     draft: TailoredResume = generate_fn(_build_prompt(profile, job), TailoredResume)
 
-    profile_skills = [str(s) for s in profile.get("skills", [])]
-    experience_entries = profile.get("experience", []) or []
-    known_companies = [str(e.get("company", "")) for e in experience_entries if e.get("company")]
-    known_projects = [
-        str(p.get("name", "")) for p in (profile.get("projects", []) or []) if p.get("name")
-    ]
-    years_values = [int(e["years"]) for e in experience_entries if isinstance(e.get("years"), int)]
+    profile_skills = list(profile.skills)
+    known_companies = [e.company for e in profile.experience if e.company]
+    known_projects = [p.name for p in profile.projects if p.name]
+    years_values = [e.years for e in profile.experience if isinstance(e.years, int)]
     max_years: int | None = max(years_values) if years_values else None
 
     violations: list[str] = []

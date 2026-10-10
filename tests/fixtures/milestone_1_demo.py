@@ -20,8 +20,8 @@ def main():
     # 1. Resume parsing
     print("\n[1] Parsing resume...")
     profile = parse_resume("tests/fixtures/Ahmad_Hassan_AI_Engineer_Resume.docx")
-    print(f"    Candidate: {profile['personal_information']['name']}")
-    print(f"    Skills: {profile['skills']}")
+    print(f"    Candidate: {profile.personal_information.name}")
+    print(f"    Skills: {profile.skills}")
 
     # 2. Job search (placeholder adapter)
     print("\n[2] Searching jobs (placeholder adapter)...")
@@ -66,7 +66,7 @@ def main():
 
     # 5. Hybrid matching
     print("\n[5] Running hybrid match engine...")
-    candidate_skills = profile["skills"]
+    candidate_skills = profile.skills
     results = []
     for job in unique_jobs:
         match_result = calculate_match(job, candidate_skills)

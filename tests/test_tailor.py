@@ -1,6 +1,12 @@
 """Tests for factuality-first resume tailoring (offline, fake LLM)."""
 
 from src.jobs.contracts import JobListing
+from src.resume.profile import (
+    CandidateProfile,
+    ExperienceEntry,
+    PersonalInformation,
+    ProjectEntry,
+)
 from src.resume.tailor import (
     TailoredExperience,
     TailoredProject,
@@ -8,16 +14,16 @@ from src.resume.tailor import (
     tailor_resume,
 )
 
-PROFILE = {
-    "personal_information": {"name": "Ahmad Hassan", "email": "ahmad@example.com"},
-    "experience": [{"title": "AI Engineer", "company": "Agentic Labs", "years": 5}],
-    "skills": ["python", "langgraph", "pydantic", "fastapi", "playwright", "sqlalchemy"],
-    "projects": [
-        {"name": "Autonomous Job Agent", "description": "Agentic AI job application system"}
+PROFILE = CandidateProfile(
+    personal_information=PersonalInformation(name="Ahmad Hassan", email="ahmad@example.com"),
+    experience=[ExperienceEntry(title="AI Engineer", company="Agentic Labs", years=5)],
+    skills=["python", "langgraph", "pydantic", "fastapi", "playwright", "sqlalchemy"],
+    projects=[
+        ProjectEntry(name="Autonomous Job Agent", bullets=["Agentic AI job application system"])
     ],
-    "certifications": ["AWS Certified ML Specialist"],
-    "achievements": ["Built autonomous agent pipeline with LangGraph"],
-}
+    certifications=["AWS Certified ML Specialist"],
+    achievements=["Built autonomous agent pipeline with LangGraph"],
+)
 
 JOB = JobListing(
     id="job-1",
