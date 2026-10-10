@@ -1,0 +1,25 @@
+Jane Doe
+Software Engineer | ML Engineer
+jane@example.com | +1 555-1234
+
+EDUCATION
+BS Computer Science — State University (2018-2022)
+
+EXPERIENCE
+Software Engineer — Tech Corp (2022-Present)
+- Built autonomous agent pipeline for job applications
+- Developed Python backend with FastAPI and LangGraph
+- Implemented Playwright browser automation for form submission
+
+SKILLS
+Python, SQL, AWS, React, PostgreSQL, LangGraph, Playwright, Pydantic
+
+PROJECTS
+Agentic Job System — Autonomous AI job application agent with hybrid matching
+
+CERTIFICATIONS
+AWS Certified Developer
+
+PREFERENCES
+Remote / Hybrid preferred
+San Francisco or Remote
