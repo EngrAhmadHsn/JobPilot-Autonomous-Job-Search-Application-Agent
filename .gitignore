@@ -211,8 +211,11 @@ tempCodeRunnerFile.py
 # ZCode hook audit logs
 .zcode/hooks/logs/
 
-# Runtime SQLite database
+# Runtime SQLite database (legacy root location; new default lives under data/)
 app.db
+
+# All runtime state: SQLite dev DB, evidence, resume uploads, vector store
+data/
 
 # External reference project (kept locally only, never committed)
 reference_project/

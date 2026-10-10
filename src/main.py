@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes.applications import router as applications_router
 from src.api.routes.health import router as health_router
@@ -15,6 +16,14 @@ app = FastAPI(
     version="0.1.0",
     description="Autonomous AI Job Application Agent",
     debug=settings.app_debug,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)
