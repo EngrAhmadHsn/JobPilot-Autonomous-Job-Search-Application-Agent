@@ -2801,3 +2801,69 @@ Will add:
 - Database schema for ApplicationSubmission records
 - Evidence storage for screenshots, traces, confirmation text
 - Audit event log for compliance and debugging
+
+## PHASE 8 (PARTIAL) COMPLETION STATUS
+
+**DONE (PARTIAL)** - Oct 11, 2026
+
+Implemented the core of Phase 8 (Resume Tailoring) plus the real parser from Phase 2, at user
+direction to enable the first live scenario test. Phases 3-7 real implementations remain
+footprints; this phase-order deviation was user-directed and accepted.
+
+### Components Delivered
+
+1. **Real Resume Parser** (`src/resume/parser.py`)
+   - DOCX (python-docx) + TXT parsing: section detection, contact extraction, skill
+     categories, education, experience, projects (name/subtitle/tech/bullets),
+     certifications, achievements.
+   - Replaces the earlier hardcoded placeholder; no fabricated fallback (unreadable
+     files raise `ValueError`).
+   - Emits a validated Pydantic `CandidateProfile` (`src/resume/profile.py`) per the
+     PHASE 2 pipeline (Parser -> CandidateProfile -> Validation);
+     `validate_candidate_profile()` implements the validation step.
+   - `python-docx>=1.1.0` added to dependencies.
+
+2. **Gemini LLM Client** (`src/llm/client.py`)
+   - Not in the original plan; user-directed addition (2026-10-11, Google AI Studio /
+     `gemini-3.8-flash` via the `gemini-api-dev` skill).
+   - google-genai Interactions API with Pydantic structured output (`response_format`).
+   - `store=False` on every call — candidate data is never retained by the provider.
+   - Config via `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` (+ optional `LLM_BASE_URL`);
+     the key is never logged or committed.
+
+3. **Factuality-First Tailoring** (`src/resume/tailor.py`)
+   - Implements the `# 25. RESUME TAILORING` pipeline: requirement extraction
+     (`src/jobs/requirements.py`, deterministic — structured listing fields are
+     authoritative, description scanned for skill mentions) -> tailored resume ->
+     factuality validation.
+   - `TailoredResume` schema (summary / highlighted_skills / experience / projects /
+     cover_letter); the system rules mirror the plan's "never invent" rules verbatim.
+   - Deterministic `FactualityReport` validator strips unknown skills, unknown
+     employers, unknown projects, and sentences claiming inflated years of experience
+     — implements the plan's "Factuality Validator: reject unsupported claims".
+   - Verified live rule enforcement: the LLM attempted to claim "REST APIs" from the
+     job listing's requirements; the validator removed it (plan rule: never claim a
+     skill merely because it appears in the job description).
+
+4. **Live Verification** (2026-10-11, real API + real resume fixture)
+   - Real resume tailored for a realistic AI Engineer listing through the configured
+     Gemini key; zero fabricated facts passed through; empty experience correctly
+     preserved (student resume — projects used instead of invented employment).
+
+### Test Status
+
+- 68 tests passing: 8 parser tests pinned to the real DOCX fixture (including
+  validation-step tests), 6 tailoring tests with an offline fake LLM, 4
+  requirement-extraction tests, 2 LLM client configuration tests.
+
+### Deviations From Plan (open gaps)
+
+- Phase order: Phase 8 core built before real Phase 3-7 implementations
+  (user-directed for the live test).
+- PDF resume support not implemented (DOCX/TXT only; plan says "PDF/DOCX as
+  appropriate").
+- ATS/keyword analysis stage (`# 26. ATS ANALYSIS`) not implemented.
+- Tailoring evaluation metrics (factual consistency, keyword coverage, hallucination
+  rate) not yet measured.
+- Database persistence of `CandidateProfile` not wired (model + validation done;
+  storage pending Phase 2 #4 evidence/DB work).
