@@ -66,10 +66,11 @@ def main():
 
     # 5. Hybrid matching
     print("\n[5] Running hybrid match engine...")
-    candidate_skills = profile.skills
     results = []
     for job in unique_jobs:
-        match_result = calculate_match(job, candidate_skills)
+        # semantic_score=None -> degraded mode (demo runs without embeddings;
+        # the live pipeline passes the Chroma similarity instead).
+        match_result = calculate_match(job, profile, semantic_score=None)
         results.append(
             (match_result.overall_score, job.title, job.company, match_result.explanation)
         )
