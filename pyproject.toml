@@ -20,6 +20,7 @@ dependencies = [
     "pydantic>=2.13.5",
     "python-docx>=1.1.0",
     "python-dotenv>=1.0.1",
+    "python-multipart>=0.0.20",
     "ruff>=0.16.7",
     "sqlalchemy>=2.0.52",
     "pytest>=8.4.0",

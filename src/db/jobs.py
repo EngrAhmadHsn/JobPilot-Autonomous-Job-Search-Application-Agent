@@ -9,11 +9,10 @@ from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
+from src.jobs.contracts import JobListing
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import sessionmaker
-
-    from src.jobs.contracts import JobListing
 
 
 class JobDB(Base):
@@ -41,6 +40,32 @@ class JobDB(Base):
     company_url: Mapped[str | None] = mapped_column(String, nullable=True)
     posted_at: Mapped[str | None] = mapped_column(String, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+def listing_from_row(row: JobDB) -> JobListing:
+    """Rebuild the canonical JobListing from a stored row."""
+    return JobListing(
+        id=row.id,
+        source=row.source,
+        source_job_id=row.source_job_id,
+        title=row.title,
+        company=row.company,
+        description=row.description,
+        location=row.location,
+        remote_policy=row.remote_policy,
+        employment_type=row.employment_type,
+        salary=row.salary,
+        currency=row.currency,
+        seniority=row.seniority,
+        required_skills=list(row.required_skills or []),
+        preferred_skills=list(row.preferred_skills or []),
+        experience_requirements=row.experience_requirements,
+        education_requirements=row.education_requirements,
+        application_url=row.application_url,
+        company_url=row.company_url,
+        posted_at=row.posted_at,
+        metadata=dict(row.extra_metadata or {}),
+    )
 
 
 def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | None = None) -> int:

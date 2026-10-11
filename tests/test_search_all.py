@@ -277,3 +277,41 @@ async def test_search_all_persistence_failure_returns_listings_anyway(
 
     assert len(result) == 1  # results survive the persistence failure
     assert any("persist" in record.message.lower() for record in caplog.records)
+
+
+# ------------------------------------------------------- search_all_detailed (WS-04)
+
+
+@pytest.mark.asyncio
+async def test_search_all_detailed_reports_source_errors():
+    """Failures land in the error map; answering sources still contribute."""
+    good = FakeSource([_listing("1", "greenhouse")])
+    bad = FakeSource(RuntimeError("board down"))
+    listings, errors = await registry.search_all_detailed(
+        [
+            SourceQuery(source="greenhouse", query="x"),
+            SourceQuery(source="lever", query="x"),
+        ],
+        sources={"greenhouse": good, "lever": bad},
+    )
+    assert [listing.id for listing in listings] == ["greenhouse:1"]
+    assert errors == {"lever": "RuntimeError: board down"}
+
+
+@pytest.mark.asyncio
+async def test_search_all_detailed_returns_raw_listings_without_dedup():
+    """Detailed mode does not dedup: the pipeline owns that as an explicit node."""
+    source = FakeSource([_listing("1", "greenhouse"), _listing("1", "greenhouse")])
+    listings, errors = await registry.search_all_detailed(
+        [SourceQuery(source="greenhouse", query="a"), SourceQuery(source="greenhouse", query="b")],
+        sources={"greenhouse": source},
+    )
+    assert len(listings) == 4  # raw, un-deduplicated
+    assert errors == {}
+
+
+@pytest.mark.asyncio
+async def test_search_all_detailed_empty_queries():
+    listings, errors = await registry.search_all_detailed([], sources={})
+    assert listings == []
+    assert errors == {}
