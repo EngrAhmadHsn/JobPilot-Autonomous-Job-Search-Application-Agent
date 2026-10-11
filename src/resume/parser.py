@@ -17,6 +17,7 @@ from src.resume.profile import (
     ExperienceEntry,
     PersonalInformation,
     ProjectEntry,
+    WorkPreferences,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,221 @@ def _parse_list_section(rows: list[tuple[str, bool]]) -> list[str]:
     return [_clean_bullet(text) if is_bullet else text for text, is_bullet in rows]
 
 
+# --- Work-preference extraction (WS-03) -------------------------------------
+#
+# Precision-first per the project rule (never fabricate): a preference is
+# captured only from an explicit statement — either a preference-labeled line
+# ("Preferences: …", "Salary expectation: …", "Preferred locations: …")
+# anywhere in the document, or a preference phrase inside the summary/objective
+# section. Skills, titles and employment history never produce preferences.
+
+_PREFERENCE_LINE_RE = re.compile(r"^(?:work\s+)?preferences?\s*[:\-]\s*(.+)$", re.IGNORECASE)
+_SALARY_LINE_RE = re.compile(
+    r"^(?:salary|compensation|pay)"
+    r"(?:\s+(?:expectation|expectations|requirement|requirements|target|floor|range))?"
+    r"\s*[:\-]\s*(.+)$",
+    re.IGNORECASE,
+)
+_LOCATION_LINE_RE = re.compile(
+    r"^(?:preferred\s+locations?|locations?\s+preference|target\s+locations?)\s*[:\-]\s*(.+)$",
+    re.IGNORECASE,
+)
+
+# Labeled lines provide context, so their values may be a bare number.
+_SALARY_VALUE_RE = re.compile(r"[$€£]?\s*[\d][\d,]*(?:\.\d+)?\s*[kKmM]?")
+
+# Summary phrases must name a salary-ish label AND a currency/suffix value.
+_SALARY_PHRASE_RE = re.compile(
+    r"\b(?:salary|compensation|pay)\s+(?:expectations?|requirements?|targets?|floors?|range)?\s*"
+    r"(?:of\s+|from\s+|minimum\s+|at\s+least\s+|min\.?\s+)?[:\-]?\s*"
+    r"((?:[$€£]|PKR|USD|EUR|GBP)\s*[\d,]+(?:\.\d+)?\s*[kKmM]?|[\d,]+\s*[kKmM]\b)",
+    re.IGNORECASE,
+)
+
+_PREFERENCE_VERB = r"(?:open to|prefer(?:s|ring)?|seeking|looking for|interested in|want(?:s)?)"
+_REMOTE_PHRASE_RE = re.compile(
+    rf"\b{_PREFERENCE_VERB}\b[^.;]*?\bremote\b|\bremote\s+(?:work|position|role|job|opportunit(?:y|ies))\b",
+    re.IGNORECASE,
+)
+_HYBRID_PHRASE_RE = re.compile(
+    rf"\b{_PREFERENCE_VERB}\b[^.;]*?\bhybrid\b|\bhybrid\s+(?:work|position|role|environment|arrangement)\b",
+    re.IGNORECASE,
+)
+_ONSITE_PHRASE_RE = re.compile(
+    rf"\b{_PREFERENCE_VERB}\b[^.;]*?\bon[- ]?site\b"
+    rf"|\b(?:on[- ]?site|in[- ]?office)\s+(?:work|position|role)\b",
+    re.IGNORECASE,
+)
+_EMPLOYMENT_PHRASE_RE = re.compile(
+    rf"\b{_PREFERENCE_VERB}\b[^.;]*?\b"
+    r"(full[- ]?time|part[- ]?time|contracts?|contractors?|freelance|internship|temporary|permanent)\b",
+    re.IGNORECASE,
+)
+_SPONSORSHIP_REQUIRED_RE = re.compile(
+    r"\b(?:requires?|need(?:s|ed)?|will\s+need|seeking)\s+(?:a\s+)?(?:visa\s+)?sponsorship\b",
+    re.IGNORECASE,
+)
+_NO_SPONSORSHIP_RE = re.compile(
+    r"\bno\s+sponsorship\s+(?:required|needed)\b|\bwithout\s+sponsorship\b", re.IGNORECASE
+)
+_RELOCATE_RE = re.compile(
+    r"\b(?:willing\s+to\s+relocate|open\s+to\s+relocation|relocating|relocate)\s+(?:to\s+|[:\-]\s*)([^.;\n]+)",
+    re.IGNORECASE,
+)
+
+# Fragments that appear in preference lines but are not places.
+_NON_PLACE_TOKENS = {
+    "yes",
+    "no",
+    "remote",
+    "hybrid",
+    "onsite",
+    "on-site",
+    "on site",
+    "anywhere",
+    "flexible",
+}
+_EMPLOYMENT_ALIASES = {
+    "contractor": "contract",
+    "contracts": "contract",
+    "contract": "contract",
+    "full-time": "full-time",
+    "fulltime": "full-time",
+    "part-time": "part-time",
+    "parttime": "part-time",
+}
+
+
+def _normalize_employment_type(value: str) -> str | None:
+    token = re.sub(r"[\s_]+", "-", value.strip().casefold())
+    if not token:
+        return None
+    return _EMPLOYMENT_ALIASES.get(token, token)
+
+
+def _split_places(text: str) -> list[str]:
+    places: list[str] = []
+    for fragment in re.split(r",|/|\band\b", text, flags=re.IGNORECASE):
+        place = fragment.strip(" .'’")
+        if not place or any(ch.isdigit() for ch in place):
+            continue
+        if place.casefold() in _NON_PLACE_TOKENS:
+            continue
+        if place not in places:
+            places.append(place)
+    return places[:5]
+
+
+def _classify_preference_fragments(content: str, prefs: dict) -> None:
+    """Classify comma/semicolon fragments of an explicit preference line."""
+    for fragment in re.split(r"[;,]", content):
+        cf = fragment.strip().casefold()
+        if not cf:
+            continue
+        if "remote" in cf:
+            if prefs["remote_preference"] is None:
+                prefs["remote_preference"] = "remote"
+        elif "hybrid" in cf:
+            if prefs["remote_preference"] is None:
+                prefs["remote_preference"] = "hybrid"
+        elif re.search(r"\bon[- ]?site\b|\bin[- ]?office\b", cf):
+            if prefs["remote_preference"] is None:
+                prefs["remote_preference"] = "onsite"
+        elif "sponsorship" in cf:
+            if prefs["work_authorization"] is None:
+                prefs["work_authorization"] = (
+                    "no sponsorship required"
+                    if "no " in cf or "without" in cf or "not " in cf
+                    else "requires sponsorship"
+                )
+        elif value := _SALARY_VALUE_RE.search(fragment):
+            if prefs["min_salary"] is None and any(ch.isdigit() for ch in value.group(0)):
+                prefs["min_salary"] = value.group(0).strip()
+        elif match := _EMPLOYMENT_PHRASE_RE.search(fragment):
+            token = _normalize_employment_type(match.group(1))
+            if token and token not in prefs["employment_types"]:
+                prefs["employment_types"].append(token)
+        else:
+            for place in _split_places(fragment):
+                if place not in prefs["preferred_locations"]:
+                    prefs["preferred_locations"].append(place)
+
+
+def _extract_work_preferences(
+    lines: list[tuple[str, bool]], summary_lines: list[str]
+) -> WorkPreferences:
+    """Extract stated work preferences deterministically.
+
+    Sources, in precedence order: (1) labeled preference lines anywhere in the
+    document, (2) preference phrases in the summary/objective. Within each
+    source, conflicting remote/hybrid/onsite statements resolve to the
+    earliest match. Anything not explicitly stated stays None/empty.
+    """
+    prefs: dict = {
+        "remote_preference": None,
+        "preferred_locations": [],
+        "min_salary": None,
+        "work_authorization": None,
+        "employment_types": [],
+    }
+
+    labeled_contents: list[str] = []
+    for text, _is_bullet in lines:
+        if match := _PREFERENCE_LINE_RE.match(text):
+            labeled_contents.append(match.group(1))
+            _classify_preference_fragments(match.group(1), prefs)
+        elif match := _SALARY_LINE_RE.match(text):
+            labeled_contents.append(match.group(1))
+            if prefs["min_salary"] is None and (value := _SALARY_VALUE_RE.search(match.group(1))):
+                prefs["min_salary"] = value.group(0).strip()
+        elif match := _LOCATION_LINE_RE.match(text):
+            labeled_contents.append(match.group(1))
+            for place in _split_places(match.group(1)):
+                if place not in prefs["preferred_locations"]:
+                    prefs["preferred_locations"].append(place)
+
+    scan_text = "\n".join([*summary_lines, *labeled_contents])
+
+    # Remote/hybrid/onsite: earliest explicit phrase wins; when phrases share
+    # a start position ("open to remote work and hybrid"), the pattern order
+    # (remote, hybrid, onsite) breaks the tie.
+    position_candidates: list[tuple[int, int, str]] = []
+    for priority, (value, pattern) in enumerate(
+        (
+            ("remote", _REMOTE_PHRASE_RE),
+            ("hybrid", _HYBRID_PHRASE_RE),
+            ("onsite", _ONSITE_PHRASE_RE),
+        )
+    ):
+        if match := pattern.search(scan_text):
+            position_candidates.append((match.start(), priority, value))
+    if prefs["remote_preference"] is None and position_candidates:
+        prefs["remote_preference"] = min(position_candidates)[2]
+
+    if prefs["min_salary"] is None and (match := _SALARY_PHRASE_RE.search(scan_text)):
+        prefs["min_salary"] = match.group(1).strip()
+
+    if prefs["work_authorization"] is None:
+        if _NO_SPONSORSHIP_RE.search(scan_text):
+            prefs["work_authorization"] = "no sponsorship required"
+        elif _SPONSORSHIP_REQUIRED_RE.search(scan_text):
+            prefs["work_authorization"] = "requires sponsorship"
+
+    if not prefs["employment_types"]:
+        for match in _EMPLOYMENT_PHRASE_RE.finditer(scan_text):
+            token = _normalize_employment_type(match.group(1))
+            if token and token not in prefs["employment_types"]:
+                prefs["employment_types"].append(token)
+
+    for source in (source for source in scan_text.splitlines() if source.strip()):
+        if match := _RELOCATE_RE.search(source):
+            for place in _split_places(match.group(1)):
+                if place not in prefs["preferred_locations"]:
+                    prefs["preferred_locations"].append(place)
+
+    return WorkPreferences(**prefs)
+
+
 def parse_resume(file_path: str) -> CandidateProfile:
     """Parse a resume file into a validated Pydantic candidate profile.
 
@@ -275,4 +491,5 @@ def parse_resume(file_path: str) -> CandidateProfile:
         achievements=_parse_list_section(sections["achievements"])
         if sections.get("achievements")
         else [],
+        work_preferences=_extract_work_preferences(lines, summary_texts),
     )

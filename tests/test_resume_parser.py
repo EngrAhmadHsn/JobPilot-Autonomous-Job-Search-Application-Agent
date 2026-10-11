@@ -61,7 +61,15 @@ def test_certifications_and_achievements_extracted(profile: CandidateProfile) ->
 
 
 def test_validation_passes_on_real_resume(profile: CandidateProfile) -> None:
-    assert validate_candidate_profile(profile) == []
+    # The fixture resume is otherwise complete but has no experience section
+    # and states no work preferences, so the documented neutral-scoring
+    # warning (WS-03) is expected and nothing else.
+    assert validate_candidate_profile(profile) == [
+        (
+            "Profile states no work preferences and has no experience entries; "
+            "location/preference/seniority scoring will use neutral defaults"
+        )
+    ]
 
 
 def test_validation_flags_empty_profile() -> None:

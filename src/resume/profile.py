@@ -44,6 +44,32 @@ class ProjectEntry(BaseModel):
     bullets: list[str] = Field(default_factory=list)
 
 
+class WorkPreferences(BaseModel):
+    """Work preferences the resume explicitly states.
+
+    Every field stays ``None``/empty unless the document states it — the
+    parser never infers or invents preferences. ``min_salary`` and
+    ``work_authorization`` are kept verbatim and parsed on demand.
+    """
+
+    remote_preference: str | None = None  # "remote" | "hybrid" | "onsite"
+    preferred_locations: list[str] = Field(default_factory=list)
+    min_salary: str | None = None  # verbatim string, e.g. "$120,000" or "120k"
+    work_authorization: str | None = None  # verbatim, e.g. "requires sponsorship"
+    employment_types: list[str] = Field(default_factory=list)  # e.g. ["full-time"]
+
+
+def work_preferences_stated(prefs: WorkPreferences) -> bool:
+    """True when at least one preference field was captured from the resume."""
+    return bool(
+        prefs.remote_preference
+        or prefs.preferred_locations
+        or prefs.min_salary
+        or prefs.work_authorization
+        or prefs.employment_types
+    )
+
+
 class CandidateProfile(BaseModel):
     """Structured candidate profile produced by the resume parser."""
 
@@ -56,6 +82,7 @@ class CandidateProfile(BaseModel):
     projects: list[ProjectEntry] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
+    work_preferences: WorkPreferences = Field(default_factory=WorkPreferences)
 
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -79,4 +106,9 @@ def validate_candidate_profile(profile: CandidateProfile) -> list[str]:
         warnings.append("Profile has no summary")
     if not profile.experience and not profile.projects:
         warnings.append("Profile has neither experience nor projects")
+    if not work_preferences_stated(profile.work_preferences) and not profile.experience:
+        warnings.append(
+            "Profile states no work preferences and has no experience entries; "
+            "location/preference/seniority scoring will use neutral defaults"
+        )
     return warnings
