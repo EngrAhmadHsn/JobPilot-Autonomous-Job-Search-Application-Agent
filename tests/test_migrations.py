@@ -61,6 +61,27 @@ EVIDENCE_COLUMNS = {
     "recorded_at",
 }
 
+CANDIDATE_PROFILE_COLUMNS = {
+    "id",
+    "name",
+    "email",
+    "phone",
+    "location",
+    "title",
+    "profile_json",
+    "file_path",
+    "created_at",
+}
+
+JOB_MATCHES_COLUMNS = {
+    "id",
+    "profile_id",
+    "job_id",
+    "scores",
+    "explanation",
+    "created_at",
+}
+
 
 @pytest.fixture
 def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, str]:
@@ -87,7 +108,13 @@ def test_upgrade_head_creates_jobs_and_evidence(
     cfg, url = migration_env
     command.upgrade(cfg, "head")
     tables = _table_names(url)
-    assert {"jobs", "application_evidence", "alembic_version"} <= tables
+    assert {
+        "jobs",
+        "application_evidence",
+        "candidate_profiles",
+        "job_matches",
+        "alembic_version",
+    } <= tables
 
     engine = create_engine(url)
     try:
@@ -96,11 +123,18 @@ def test_upgrade_head_creates_jobs_and_evidence(
         assert jobs_cols == JOBS_COLUMNS
         evidence_cols = {col["name"] for col in inspector.get_columns("application_evidence")}
         assert evidence_cols == EVIDENCE_COLUMNS
+        # WS-04 tables.
+        profile_cols = {col["name"] for col in inspector.get_columns("candidate_profiles")}
+        assert profile_cols == CANDIDATE_PROFILE_COLUMNS
+        match_cols = {col["name"] for col in inspector.get_columns("job_matches")}
+        assert match_cols == JOB_MATCHES_COLUMNS
         # Indexes declared on the models.
         jobs_indexes = {ix["name"] for ix in inspector.get_indexes("jobs")}
         assert {"ix_jobs_source", "ix_jobs_company"} <= jobs_indexes
         evidence_indexes = {ix["name"] for ix in inspector.get_indexes("application_evidence")}
         assert "ix_application_evidence_workflow_id" in evidence_indexes
+        match_indexes = {ix["name"] for ix in inspector.get_indexes("job_matches")}
+        assert {"ix_job_matches_profile_id", "ix_job_matches_job_id"} <= match_indexes
     finally:
         engine.dispose()
 
@@ -112,15 +146,27 @@ def test_downgrade_base_removes_tables(migration_env: tuple[Config, str]) -> Non
     tables = _table_names(url)
     assert "jobs" not in tables
     assert "application_evidence" not in tables
+    assert "candidate_profiles" not in tables
+    assert "job_matches" not in tables
 
 
 def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
     cfg, url = migration_env
     for _ in range(2):
         command.upgrade(cfg, "head")
-        assert {"jobs", "application_evidence"} <= _table_names(url)
+        assert {
+            "jobs",
+            "application_evidence",
+            "candidate_profiles",
+            "job_matches",
+        } <= _table_names(url)
         command.downgrade(cfg, "base")
-        assert not {"jobs", "application_evidence"} & _table_names(url)
+        assert not {
+            "jobs",
+            "application_evidence",
+            "candidate_profiles",
+            "job_matches",
+        } & _table_names(url)
 
 
 def _offline_ddl(monkeypatch: pytest.MonkeyPatch, url: str) -> str:
@@ -145,10 +191,14 @@ def test_json_columns_render_portably_on_sqlite(
     ddl = _offline_ddl(monkeypatch, url)
     assert "CREATE TABLE jobs" in ddl
     assert "CREATE TABLE application_evidence" in ddl
+    assert "CREATE TABLE candidate_profiles" in ddl
+    assert "CREATE TABLE job_matches" in ddl
     # JSON columns render as plain JSON, not dialect-specific types.
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
     assert re.search(r"\bmetadata\s+JSON", ddl)
+    assert re.search(r"profile_json\s+JSON", ddl)
+    assert re.search(r"scores\s+JSON", ddl)
 
 
 def test_json_columns_render_portably_on_postgres(
@@ -161,9 +211,13 @@ def test_json_columns_render_portably_on_postgres(
     )
     assert "CREATE TABLE jobs" in ddl
     assert "CREATE TABLE application_evidence" in ddl
+    assert "CREATE TABLE candidate_profiles" in ddl
+    assert "CREATE TABLE job_matches" in ddl
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
     assert re.search(r"\bmetadata\s+JSON", ddl)
+    assert re.search(r"profile_json\s+JSON", ddl)
+    assert re.search(r"scores\s+JSON", ddl)
 
 
 def _import_app_subprocess(env_overrides: dict[str, str]) -> subprocess.CompletedProcess[str]:
