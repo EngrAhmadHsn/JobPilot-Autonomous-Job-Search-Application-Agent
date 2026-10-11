@@ -203,3 +203,35 @@ def test_real_call_path_wraps_each_text_and_pins_dimensionality(tmp_path):
 
     assert api.calls[0]["contents"] == ["first", "second"]  # unwrapped by the fake
     assert recorded == {"output_dimensionality": 768}
+
+
+# ------------------------------------------------------- batch-size cap (live finding)
+
+
+def test_documents_chunked_at_api_batch_cap(tmp_path) -> None:
+    """>100 misses are split into <=100-request batches (live API rejects larger)."""
+    api = FakeEmbeddingsAPI()
+    embedding = make_embedding(tmp_path, api)
+    texts = [f"job listing {i} python backend" for i in range(250)]
+
+    vectors = embedding.embed_documents(texts)
+
+    assert len(vectors) == 250
+    assert [len(call["contents"]) for call in api.calls] == [100, 100, 50]
+    # Order alignment across chunk boundaries.
+    first_of_each_chunk = [call["contents"][0] for call in api.calls]
+    assert first_of_each_chunk == [texts[0], texts[100], texts[200]]
+
+
+def test_cached_documents_produce_no_extra_batches(tmp_path) -> None:
+    """A second run is fully served from the cache: zero API calls."""
+    api = FakeEmbeddingsAPI()
+    embedding = make_embedding(tmp_path, api)
+    texts = [f"job listing {i} python backend" for i in range(150)]
+    embedding.embed_documents(texts)
+    calls_after_first = len(api.calls)
+
+    embedding.embed_documents(texts)
+
+    assert calls_after_first == 2  # 100 + 50
+    assert len(api.calls) == calls_after_first

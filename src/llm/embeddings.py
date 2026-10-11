@@ -124,6 +124,8 @@ class GeminiEmbedding:
     MODEL_PREFIX_DOC = MODEL_PREFIX_DOC
     MODEL_PREFIX_QUERY = MODEL_PREFIX_QUERY
     MAX_TEXT_CHARS = MAX_TEXT_CHARS
+    # Live-verified cap (2026-10-11): BatchEmbedContentsRequest rejects >100.
+    API_BATCH_SIZE = 100
 
     def __init__(
         self,
@@ -172,8 +174,10 @@ class GeminiEmbedding:
         """Embed N documents, returning exactly N vectors in input order.
 
         Cache hits never touch the API; only misses are sent, each as its own
-        ``contents`` entry in one call (the aggregation gotcha: a joined
-        string would come back as a single blended vector).
+        ``contents`` entry (the aggregation gotcha: a joined string would come
+        back as a single blended vector). Misses are sent in batches of
+        ``API_BATCH_SIZE`` — the live API caps a batch at 100 requests and
+        rejects larger calls outright (found live at 4,314-job scale).
         """
         if not texts:
             return []
@@ -188,7 +192,13 @@ class GeminiEmbedding:
             else:
                 misses.append((index, text))
         if misses:
-            fresh = self._embed_api([text for _, text in misses])
+            fresh: list[list[float]] = []
+            for start in range(0, len(misses), self.API_BATCH_SIZE):
+                fresh.extend(
+                    self._embed_api(
+                        [text for _, text in misses[start : start + self.API_BATCH_SIZE]]
+                    )
+                )
             if len(fresh) != len(misses):
                 raise LLMError(
                     f"Embedding API returned {len(fresh)} vectors for "
