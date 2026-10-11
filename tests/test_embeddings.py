@@ -235,3 +235,152 @@ def test_cached_documents_produce_no_extra_batches(tmp_path) -> None:
 
     assert calls_after_first == 2  # 100 + 50
     assert len(api.calls) == calls_after_first
+
+
+# ------------------------------------------------- FU-4 quota budget/pacing
+
+
+class ScriptedEmbeddingsAPI(FakeEmbeddingsAPI):
+    """Fake that raises a scripted exception per call before succeeding."""
+
+    def __init__(self, errors: list[Exception | None], vector: list[float] | None = None):
+        super().__init__(vector=vector)
+        self._script = list(errors)
+
+    def embed_content(self, model, contents, config=None):
+        self.calls.append(
+            {"model": model, "contents": [self._entry_text(c) for c in contents], "config": config}
+        )
+        if self._script:
+            error = self._script.pop(0)
+            if error is not None:
+                raise error
+        count = self.result_count if self.result_count is not None else len(contents)
+        return SimpleNamespace(
+            embeddings=[SimpleNamespace(values=list(self.vector)) for _ in range(count)]
+        )
+
+
+class _FakeTypesModule:
+    """Minimal stand-in for google.genai.types on the real call path."""
+
+    class Part:
+        def __init__(self, text):
+            self.text = text
+
+    class Content:
+        def __init__(self, role, parts):
+            self.role = role
+            self.parts = parts
+
+    class EmbedContentConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+
+def _real_path_embedding(tmp_path, api, **kwargs):
+    """make_embedding flipped onto the real (paced/budgeted) call path."""
+    embedding = make_embedding(tmp_path, api, **kwargs)
+    embedding._injected_client = None  # noqa: SLF001
+    embedding._client = SimpleNamespace(models=api)  # noqa: SLF001
+    embedding._types = _FakeTypesModule  # noqa: SLF001
+    return embedding
+
+
+def test_daily_quota_429_raises_llm_daily_quota_exhausted(tmp_path, monkeypatch):
+    from src.llm.client import LLMDailyQuotaExhausted
+
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    api = ScriptedEmbeddingsAPI(
+        [Exception("429 RESOURCE_EXHAUSTED quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier")]
+    )
+    embedding = _real_path_embedding(tmp_path, api)
+
+    with pytest.raises(LLMDailyQuotaExhausted):
+        embedding.embed_documents(["text one", "text two"])
+    assert len(api.calls) == 1  # daily exhaustion: no retry spam
+
+
+def test_per_minute_429_retries_bounded_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    api = ScriptedEmbeddingsAPI(
+        [Exception("429 quota: GenerateRequestsPerMinute"), None],
+        vector=[0.5, 0.5],
+    )
+    embedding = _real_path_embedding(tmp_path, api)
+
+    vectors = embedding.embed_documents(["text one"])
+
+    assert len(api.calls) == 2  # one retry, then success
+    assert vectors == [[0.5, 0.5]]
+
+
+def test_per_minute_429_bounded_retries_then_raises(tmp_path, monkeypatch):
+    from src.llm.client import LLMRateLimited
+
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    error = Exception("429 quota: GenerateRequestsPerMinute")
+    api = ScriptedEmbeddingsAPI(
+        [error] * (1 + GeminiEmbedding.RATE_LIMIT_RETRIES)  # never succeeds
+    )
+    embedding = _real_path_embedding(tmp_path, api)
+
+    with pytest.raises(LLMRateLimited):
+        embedding.embed_documents(["text one"])
+    # initial call + RATE_LIMIT_RETRIES retries, then fail fast.
+    assert len(api.calls) == 1 + GeminiEmbedding.RATE_LIMIT_RETRIES
+
+
+def test_daily_budget_gate_blocks_call_before_it_happens(tmp_path, monkeypatch):
+    from src.llm.client import LLMDailyQuotaExhausted
+
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    api = FakeEmbeddingsAPI()
+    embedding = _real_path_embedding(tmp_path, api, rpd_limit=2)
+    embedding._cache.record_api_request()
+    embedding._cache.record_api_request()
+
+    with pytest.raises(LLMDailyQuotaExhausted):
+        embedding.embed_documents(["text one"])
+    assert api.calls == []  # budget spent: the call is refused client-side
+    assert embedding.remaining_daily_budget() == 0
+
+
+def test_successful_batch_requests_recorded_and_budget_decrements(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    api = FakeEmbeddingsAPI()
+    embedding = _real_path_embedding(tmp_path, api, rpd_limit=20)
+    assert embedding.remaining_daily_budget() == 20
+
+    embedding.embed_documents([f"job {i} python" for i in range(150)])  # 2 batches
+
+    assert len(api.calls) == 2
+    assert embedding.remaining_daily_budget() == 18  # persistent counter
+    assert embedding._cache.requests_today() == 2
+
+
+def test_estimate_api_requests_counts_cache_misses_in_batches(tmp_path):
+    api = FakeEmbeddingsAPI()
+    embedding = make_embedding(tmp_path, api, rpd_limit=20)
+    texts = [f"job {i} python" for i in range(150)]
+
+    assert embedding.estimate_api_requests([]) == 0
+    assert embedding.estimate_api_requests(texts) == 2  # 150 misses -> 2 batches
+
+    embedding.embed_documents(texts)
+    assert embedding.estimate_api_requests(texts) == 0  # all cached now
+    assert embedding.estimate_api_requests(texts[:1] + ["brand new text"]) == 1
+
+
+def test_injected_clients_are_never_paced_or_gated(tmp_path):
+    """Tests/fakes bypass pacing and the budget gate: a scripted 429 surfaces
+    immediately with no retries and no counter writes."""
+    from src.llm.client import LLMDailyQuotaExhausted
+
+    api = ScriptedEmbeddingsAPI([Exception("429 quota: GenerateRequestsPerDay")])
+    embedding = make_embedding(tmp_path, api)  # injected client path
+
+    with pytest.raises(LLMDailyQuotaExhausted):
+        embedding.embed_documents(["text one"])
+    assert len(api.calls) == 1  # fail fast: no bounded-retry loop on this path
+    assert embedding._cache.requests_today() == 0  # nothing recorded

@@ -97,8 +97,12 @@ class GreenhouseJobAdapter:
             return self._boards
         return get_settings().greenhouse_boards
 
-    def _board_url(self, token: str) -> str:
-        return f"{GREENHOUSE_BASE_URL}/{token}/jobs?content=true"
+    def _board_url(self, token: str, *, content: bool = True) -> str:
+        """Board listing URL. ``content=False`` gives the ~11x lighter listing
+        payload (verified live 2026-10-11: 7,512 B -> 666 B per job on stripe):
+        same jobs, ``title``/``location``/``absolute_url`` survive, only the
+        ``content`` HTML body is omitted."""
+        return f"{GREENHOUSE_BASE_URL}/{token}/jobs" + ("?content=true" if content else "")
 
     def _job_url(self, token: str, job_id: str) -> str:
         return f"{GREENHOUSE_BASE_URL}/{token}/jobs/{job_id}?content=true"
@@ -147,6 +151,16 @@ class GreenhouseJobAdapter:
             return await self._search_with(client, tokens)
 
     async def _search_with(self, client: httpx.AsyncClient, tokens: list[str]) -> list[JobListing]:
+        if not tokens:
+            # No filter to apply: a light list would still force fetching
+            # content for every job, so go single-pass (the refresh path).
+            return await self._search_single_pass(client, tokens)
+        return await self._search_two_pass(client, tokens)
+
+    async def _search_single_pass(
+        self, client: httpx.AsyncClient, tokens: list[str]
+    ) -> list[JobListing]:
+        """One full-content fetch per board, then the title+description filter."""
         listings: list[JobListing] = []
         for token in self._resolve_boards():
             if not _is_valid_board_token(token):
@@ -162,6 +176,59 @@ class GreenhouseJobAdapter:
                 continue
             for job in payload.get("jobs") or []:
                 listing = self._normalize(job, token)
+                if listing is not None and _matches_query(listing, tokens):
+                    listings.append(listing)
+        return listings
+
+    async def _search_two_pass(
+        self, client: httpx.AsyncClient, tokens: list[str]
+    ) -> list[JobListing]:
+        """Light list first, full content only for title-filter survivors (FU-3).
+
+        Pass 1 fetches the no-content listing per board (~11x lighter) and
+        keeps jobs whose *title* matches any query token. Pass 2 fetches
+        ``?content=true`` for the survivors only and re-applies the full
+        title+description filter. Trade-off, documented in 04 doc FU-3: the
+        light list carries no descriptions, so a job whose description matches
+        but whose title does not is never fetched (narrowed recall vs
+        single-pass); empty-token runs bypass this path entirely.
+        """
+        listings: list[JobListing] = []
+        for token in self._resolve_boards():
+            if not _is_valid_board_token(token):
+                logger.warning("Skipping invalid Greenhouse board token %r", token)
+                continue
+            try:
+                response = await guarded_get(client, self._board_url(token, content=False))
+                payload = response.json()
+            except (SourceError, ValueError) as exc:
+                logger.warning("Greenhouse board %r unavailable: %s", token, exc)
+                continue
+            jobs = payload.get("jobs") or []
+            survivors = [
+                job
+                for job in jobs
+                if any(tok in (job.get("title") or "").lower() for tok in tokens)
+            ]
+            logger.info(
+                "Greenhouse board %r: %d jobs -> %d title survivors -> content fetch",
+                token,
+                len(jobs),
+                len(survivors),
+            )
+            for job in survivors:
+                source_job_id = str(job.get("id") or "")
+                if not source_job_id:
+                    continue
+                try:
+                    detail = await guarded_get(client, self._job_url(token, source_job_id))
+                    listing = self._normalize(detail.json(), token)
+                except (SourceError, ValueError) as exc:
+                    # A survivor whose content fetch fails degrades alone.
+                    logger.warning(
+                        "Greenhouse content fetch failed for %s:%s: %s", token, source_job_id, exc
+                    )
+                    continue
                 if listing is not None and _matches_query(listing, tokens):
                     listings.append(listing)
         return listings

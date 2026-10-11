@@ -31,7 +31,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.config.settings import get_settings
 from src.db.jobs import JobDB, listing_from_row
-from src.llm.client import LLMRateLimited
+from src.llm.client import LLMDailyQuotaExhausted, LLMRateLimited
 from src.llm.embeddings import GeminiEmbedding
 from src.rag.chroma_store import ChromaVectorStore
 
@@ -73,6 +73,17 @@ def main() -> int:
             try:
                 embeddings.embed_documents(documents)
                 break
+            except LLMDailyQuotaExhausted:
+                # FU-4: the class paces and distinguishes daily exhaustion;
+                # stop cleanly, the cache keeps every completed batch.
+                logger.warning(
+                    "Daily embedding quota exhausted at batch %d; exiting — "
+                    "re-run tomorrow to resume (completed batches stay cached)",
+                    start // BATCH_SIZE + 1,
+                )
+                logger.info("Backfill partial: %d/%d jobs embedded and cached", done, len(rows))
+                engine.dispose()
+                return 0
             except LLMRateLimited:
                 logger.warning(
                     "Rate limited at batch %d; sleeping %.0fs (cache keeps prior batches)",

@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COLLECTION_NAME = "job_listings"
 
+# Embedding/upsert chunk size: aligned with the API batch cap so a fully
+# missed chunk is exactly one batch request (FU-1 resumability, FU-4 budget).
+EMBED_BATCH_SIZE = 100
+
 # Description text is truncated before embedding (the API silently truncates
 # beyond its token cap; see src/llm/embeddings.py).
 MAX_DESCRIPTION_CHARS = 6_000
@@ -161,21 +165,38 @@ class ChromaVectorStore:
         }
 
     def upsert_jobs(self, listings: list[JobListing]) -> int:
-        """Embed and upsert listings (id-stable); returns the number written."""
+        """Embed and upsert listings (id-stable); returns the number written.
+
+        Embedding and upserting proceed in ``EMBED_BATCH_SIZE`` chunks so a
+        daily-quota stop (FU-4) mid-corpus leaves every completed chunk in the
+        store — the next run re-embeds the rest from cache hits and only pays
+        for the remainder. One fully-missed chunk costs one API batch request.
+        """
         if not listings:
             return 0
-        documents = [self.document_text(job) for job in listings]
-        vectors = self._embedding_fn.embed_documents(documents)
-        self._collection.upsert(
-            ids=[job.id for job in listings],
-            embeddings=vectors,
-            documents=documents,
-            metadatas=[self.job_metadata(job) for job in listings],
-        )
+        written = 0
+        for start in range(0, len(listings), EMBED_BATCH_SIZE):
+            chunk = listings[start : start + EMBED_BATCH_SIZE]
+            documents = [self.document_text(job) for job in chunk]
+            vectors = self._embedding_fn.embed_documents(documents)
+            self._collection.upsert(
+                ids=[job.id for job in chunk],
+                embeddings=vectors,
+                documents=documents,
+                metadatas=[self.job_metadata(job) for job in chunk],
+            )
+            written += len(chunk)
+            if len(listings) > EMBED_BATCH_SIZE:
+                logger.info(
+                    "Upserted %d/%d jobs into Chroma collection %s",
+                    written,
+                    len(listings),
+                    self.collection_name,
+                )
         logger.info(
             "Upserted %d jobs into Chroma collection %s", len(listings), self.collection_name
         )
-        return len(listings)
+        return written
 
     # -- read path -----------------------------------------------------------
 

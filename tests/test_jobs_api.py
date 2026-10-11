@@ -208,3 +208,105 @@ def test_matches_history_empty_for_fresh_profile(api: TestClient, profile_id: st
     response = api.get(f"/api/profiles/{profile_id}/matches")
     assert response.status_code == 200
     assert response.json()["matches"] == []
+
+
+# ------------------------------------------------------------- FU-1 --------
+
+
+class RecordingRefreshExecutor:
+    """Refresh executor double returning a fixture refresh report."""
+
+    def __init__(self, report) -> None:
+        self._report = report
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return self._report
+
+
+def _fixture_refresh_report():
+    from src.graph.job_executor import JobRefreshReport, JobRefreshStats
+
+    return JobRefreshReport(
+        stats=JobRefreshStats(
+            found=12, dropped=1, deduped=10, persisted=10, embedded=9
+        ),
+        source_errors={"broken": "RuntimeError: down"},
+        embedding_requests_planned=1,
+        embedding_requests_used=1,
+        quota_exhausted=False,
+        degraded_embedding=False,
+    )
+
+
+def test_refresh_endpoint_returns_summary(api: TestClient) -> None:
+    from src.api.routes import jobs as jobs_route
+
+    executor = RecordingRefreshExecutor(_fixture_refresh_report())
+    app.dependency_overrides[jobs_route.get_job_refresh_executor] = lambda: executor
+
+    response = api.post("/api/jobs/refresh")
+
+    app.dependency_overrides.pop(jobs_route.get_job_refresh_executor, None)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stats"]["persisted"] == 10
+    assert body["stats"]["embedded"] == 9
+    assert body["source_errors"] == {"broken": "RuntimeError: down"}
+    assert body["embedding_requests_planned"] == 1
+    assert body["quota_exhausted"] is False
+    assert executor.calls == 1
+
+
+def test_refresh_endpoint_quota_stop_passes_through(api: TestClient) -> None:
+    from src.api.routes import jobs as jobs_route
+    from src.graph.job_executor import JobRefreshReport, JobRefreshStats
+
+    report = JobRefreshReport(
+        stats=JobRefreshStats(found=5, dropped=0, deduped=5, persisted=5, embedded=0),
+        embedding_requests_planned=3,
+        embedding_requests_used=2,
+        quota_exhausted=True,
+    )
+    app.dependency_overrides[jobs_route.get_job_refresh_executor] = (
+        lambda: RecordingRefreshExecutor(report)
+    )
+
+    response = api.post("/api/jobs/refresh")
+
+    app.dependency_overrides.pop(jobs_route.get_job_refresh_executor, None)
+    assert response.status_code == 200  # a quota stop is a valid outcome
+    assert response.json()["quota_exhausted"] is True
+
+
+def test_search_defaults_to_store_only_executor(api: TestClient, tmp_path: Path, profile_id: str) -> None:
+    """Without an override, /api/jobs/search must run the store-only path:
+    persisted rows are matched, no board source is contacted."""
+    from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store
+
+    engine = create_engine(f"sqlite:///{(tmp_path / 'api.db').as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    save_jobs(FIXTURE_JOBS, session_factory=factory)
+
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(FIXTURE_JOBS)
+
+    import src.rag.chroma_store as chroma_module
+
+    original = chroma_module.ChromaVectorStore
+    monkey_target = lambda *args, **kwargs: store  # noqa: E731
+    chroma_module.ChromaVectorStore = monkey_target
+    try:
+        response = api.post("/api/jobs/search", json={"profile_id": profile_id})
+    finally:
+        chroma_module.ChromaVectorStore = original
+    engine.dispose()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stats"]["found"] == 0  # no sources contacted
+    assert body["stats"]["stored"] == len(FIXTURE_JOBS)
+    assert body["degraded"] is False
+    assert len(body["results"]) == len(FIXTURE_JOBS)  # top_n clamps to corpus size

@@ -52,6 +52,7 @@ class Settings:
         self.lever_companies = [
             c.strip() for c in os.getenv("LEVER_COMPANIES", "").split(",") if c.strip()
         ]
+        self.ashby_orgs = [o.strip() for o in os.getenv("ASHBY_ORGS", "").split(",") if o.strip()]
         self.job_source_timeout = float(os.getenv("JOB_SOURCE_TIMEOUT", "15"))
         self.job_source_min_interval = float(
             os.getenv("JOB_SOURCE_MIN_INTERVAL", "1.0")
@@ -60,6 +61,11 @@ class Settings:
         # Matching / embeddings (WS-03)
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2")
         self.embedding_dimensionality = int(os.getenv("EMBEDDING_DIMENSIONALITY", "768"))
+        # Free-tier Gemini embedding quota (AI Studio dashboard, 2026-10-11):
+        # RPM 5, RPD 20. Defaults match the live limits; overridable for other
+        # plans or providers (FU-4 budget/pacing).
+        self.embedding_rpm_limit = int(os.getenv("EMBEDDING_RPM_LIMIT", "5"))
+        self.embedding_rpd_limit = int(os.getenv("EMBEDDING_RPD_LIMIT", "20"))
         self.chroma_dir = os.getenv("CHROMA_DIR", "./data/chroma")
         self.match_weights = self._parse_match_weights(os.getenv("MATCH_WEIGHTS"))
 

@@ -239,3 +239,126 @@ the API silently truncates at 8,192 *tokens*, so text is pre-truncated to 6,000
 one description's tail. Raising the constant would change every cache key and force
 a full re-embed (~2–3 days of free-tier quota) for negligible gain — accepted
 behavior, do not change.
+
+## Execution plan (added 2026-10-11 — implementation of FU-1..FU-6)
+
+Live probes done before coding (2026-10-11), two corrections to the plan above:
+
+- **FU-2 confirmed:** `https://api.ashbyhq.com/posting-api/job-board/{org}` returns
+  `{jobs, apiVersion}` with per-job keys `id` (uuid), `title`, `department`, `team`,
+  `employmentType` (`FullTime`/`Contract`/`Intern`), `location` (plain string),
+  `secondaryLocations`, `publishedAt` (ISO), `isListed`, `isRemote`, `workplaceType`
+  (`Hybrid`/`None`), `jobUrl`, `applyUrl`, `descriptionHtml`, **and `descriptionPlain`
+  (populated on 132/132 Notion jobs)** — so the adapter prefers `descriptionPlain`
+  verbatim and falls back to `html_to_text(descriptionHtml)`. Live counts: openai 815,
+  notion 132.
+- **FU-3 correction:** Greenhouse *does* have a light listing mode — omitting
+  `content=true` returns the same job list without the `content` field
+  (7,512 B → 666 B per job on the stripe board, ~11x reduction; `title`,
+  `location`, `absolute_url`, `metadata`, `company_name` survive). **Lever has
+  no light mode**: `mode=json` is the only accepted value (`all`/`raw` → HTTP
+  406). Two-pass therefore applies to Greenhouse only; Lever stays single-pass.
+- **FU-3 identity caveat (by construction):** the light list has no descriptions,
+  so the pass-1 filter runs on titles only. A listing whose *description* matches a
+  token but whose title does not is invisible in pass 1 and cannot be rescued in
+  pass 2 — two-pass narrows recall exactly to title-visible matches, while pass 2
+  re-applies the full title+description filter on fetched content. Single-pass
+  semantics are unchanged for: empty-query runs (no tokens → fetch everything,
+  full content), which is what the FU-1 refresh uses, and everything stored
+  server-side. Search-after-FU-1 never fetches boards at all, so the corpus and
+  store-only searches are unaffected by the recall difference.
+
+Phases, in dependency order (each phase: implement → unit tests → full offline
+suite → live verification where the phase claims one):
+
+1. **Phase A — FU-2 (Ashby adapter).** `src/jobs/ashby_adapter.py` following the
+   Lever pattern (org-slug validation, DI `client=`/`orgs=`, `ASHBY_ORGS` env +
+   settings + `.env.example`, registry + planner registration). Field mapping as
+   probed above; canonical id `ashby:{org}:{uuid}`; `get_job` scans the board once
+   (Ashby's public API has no single-job endpoint — Remotive trade-off). Recorded
+   trimmed fixture `tests/fixtures/sources/ashby.json` (2 real jobs, verbatim
+   shapes) replayed via MockTransport. Live acceptance: adapter returns
+   openai/notion listings over HTTP.
+2. **Phase B — FU-3 (Greenhouse two-pass).** `GreenhouseJobAdapter.search`:
+   empty token set (refresh path) → single-pass `content=true`; otherwise pass 1
+   light list, title filter, pass 2 per-survivor `?content=true` fetches
+   (sequential, existing 1 s/host limiter), full filter, per-survivor failure
+   degrades that survivor only. Lever untouched (no light mode). Tests:
+   MockTransport asserting request sequence (light list first, no `content=true`
+   board fetch), fixture parity for title-visible matches, survivor-fetch failure
+   tolerance.
+3. **Phase C — FU-4 (quota budget in `GeminiEmbedding`).** `classify_provider_error`
+   distinguishes daily exhaustion (`…PerDay…` quota ids in SDK exception text) →
+   new `LLMDailyQuotaExhausted(LLMRateLimited)` (still retryable, next day). The
+   embedding class gains: batch pacing at ≤ RPM limit (12 s default between API
+   batch calls, `EMBEDDING_RPM_LIMIT`), bounded per-minute 429 retries then raise
+   (interactive calls degrade instead of hanging), immediate clean raise on daily
+   exhaustion, an `api_requests` table in the existing `embedding_cache.sqlite`
+   (UTC-day counters, survives restarts) exposing `remaining_daily_budget()`, and
+   `estimate_api_requests(texts)` = cache-miss count ÷ 100 for refresh planning.
+   `EMBEDDING_RPD_LIMIT` default 20. The backfill script's outer retry loop keeps
+   working unchanged (class raises, script retries across days).
+4. **Phase D — FU-1 (decouple refresh from search).** New executor functions in
+   `src/graph/job_executor.py`: `refresh_jobs()` (fan out empty-query plans →
+   normalize filter → dedup → `save_jobs` upsert → Chroma upsert, which embeds
+   **only new/changed texts via the content-hash cache**; daily-quota exhaustion
+   mid-run returns a partial, resumable report) and `search_stored_jobs()`
+   (load `JobDB` rows → hybrid match vs Chroma → rank → top-N; zero board
+   fetches, 1 query-embedding request). `run_job_search` keeps its current shape
+   for tests/demo. API: `POST /api/jobs/refresh` (dependency-seamed, sync def) +
+   `scripts/refresh_jobs.py` cron/Task-Scheduler wrapper. Tests: store-only
+   search proves zero source calls with a call-recording fake; refresh is
+   idempotent (second run embeds nothing new); suite stays offline.
+5. **Phase E — verification + docs.** Full suite green; live run: Ashby over
+   HTTP, one real `refresh_jobs()` against the configured boards, one
+   `search_stored_jobs()` from the persisted corpus; doc statuses updated here;
+   FU-5/FU-6 remain deferred per their sections above (FU-5 waits for WS-09's
+   nDCG harness; FU-6 waits for a UI consumer).
+
+### Implementation status (2026-10-11 — all phases complete, live-verified)
+
+Suite: **332 passing** (was 297), offline, two consecutive green runs.
+
+- **FU-2 done.** `src/jobs/ashby_adapter.py` registered in SOURCES + planner;
+  `ASHBY_ORGS` in settings/.env/.env.example; recorded fixture
+  `tests/fixtures/sources/ashby.json`. Live: notion 73 + openai 696 listings
+  matched for "engineer" over the real API with correct field mapping
+  (`descriptionPlain` verbatim, CamelCase employmentType normalized,
+  `isRemote`/`workplaceType` → remote_policy, department/team in metadata).
+- **FU-3 done, with the documented Lever exception.** Greenhouse two-pass
+  (`content`-less light list → title filter → per-survivor content fetches);
+  empty-token runs stay single-pass (the refresh path). Live on stripe:
+  728 jobs → 163 title survivors → 163 content fetches, no board-level
+  content fetch. Live fixture data also proved the recall caveat is real:
+  "python" on stripe matches only in descriptions (4 single-pass, 0 two-pass)
+  — asserted as documented behavior in tests.
+- **FU-4 done.** `LLMDailyQuotaExhausted` classification (per-day quota ids in
+  SDK 429 text), batch pacing at `60/EMBEDDING_RPM_LIMIT`, bounded per-minute
+  retries, persistent UTC-day request counter in `embedding_cache.sqlite`
+  (`remaining_daily_budget()`), `estimate_api_requests()` for planning,
+  backfill script stops cleanly on daily exhaustion. Live: the refresh's first
+  batch 429'd on the per-day quota (the backfill had spent it) → immediate
+  clean stop, no retry spam.
+- **FU-1 done.** `refresh_jobs()` / `search_stored_jobs()` in the executor;
+  `POST /api/jobs/refresh`; `POST /api/jobs/search` now defaults to the
+  store-only executor bound to the request-scoped DB; `scripts/refresh_jobs.py`
+  for cron. `run_job_search` unchanged for tests/demo. Live: one real refresh
+  fetched **5,287 listings (zero source errors — the +973 are the rescued
+  Ashby boards), planned 45 embedding requests, persisted all rows, stopped
+  cleanly on the daily quota (quota_exhausted, exit 0, resumable)**;
+  `search_stored_jobs` matched 5,290 stored listings with zero board fetches.
+- **Resumability hardening found by the live run:** the store upsert is now
+  chunked (embed 100 → upsert 100), so a quota stop keeps every completed
+  chunk in Chroma (`embedded` counts partial progress; the next run pays only
+  for the remainder). Without this, nothing reached the store until a day
+  with enough quota for the whole corpus.
+- FU-5/FU-6: still deferred as documented. The live degraded search again
+  showed FU-5's neutral-inflation ties (OpenAI roles all at 85.0) — the
+  mitigation remains filling the vector store, and the WS-09 nDCG harness
+  remains the decision point.
+
+Known flake (pre-existing, not FU-related): the SSRF guard in
+`src/jobs/http_client.py` resolves adapter hostnames via real DNS even under
+MockTransport, so a transient DNS hiccup can fail remotive/greenhouse/lever
+fixture tests in a full-suite run; isolated reruns pass. Not changed —
+SEC-11 behavior deserves an explicit decision.

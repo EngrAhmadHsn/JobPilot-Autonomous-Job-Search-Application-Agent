@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from src.resume.profile import CandidateProfile
 
 # Sources planned for by default; the registry owns the actual adapters.
-PLANNED_SOURCES: tuple[str, ...] = ("greenhouse", "lever", "remotive")
+PLANNED_SOURCES: tuple[str, ...] = ("greenhouse", "lever", "remotive", "ashby")
 
 _MAX_QUERIES = 3
 _SKILLS_PER_QUERY = 3

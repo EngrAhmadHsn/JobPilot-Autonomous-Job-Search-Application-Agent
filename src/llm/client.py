@@ -31,6 +31,15 @@ class LLMRateLimited(LLMError):
     """429 / quota exhausted — retryable with backoff."""
 
 
+class LLMDailyQuotaExhausted(LLMRateLimited):
+    """The per-DAY quota is spent (distinct from per-minute throttling).
+
+    Still retryable — tomorrow, after the daily window resets. Callers use
+    the subclass to stop cleanly and resume the next day instead of
+    retry-spamming until reset (FU-4).
+    """
+
+
 class LLMUnavailable(LLMError):
     """5xx / transport failure — retryable with backoff."""
 
@@ -50,6 +59,9 @@ _RATE_LIMIT_TOKENS = (
     "resource_exhausted",
     "too many requests",
 )
+# A 429 naming the per-day quota id means the whole day's budget is spent —
+# checked before the generic rate-limit tokens (both match "quota").
+_DAILY_QUOTA_TOKENS = ("perday", "per_day", "per day")
 _UNAVAILABLE_TOKENS = (
     "500",
     "502",
@@ -67,9 +79,14 @@ def classify_provider_error(exc: Exception) -> LLMError:
     """Map a provider SDK exception onto the retryable-error taxonomy.
 
     The key is never included: exception text comes from the SDK, which does
-    not echo request contents, and we add no request data of our own.
+    not echo request contents, and we add no request data of our own. Quota
+    metadata (e.g. ``GenerateRequestsPerDay…`` quota ids in Google SDK 429
+    details) is provider-generated, not request data, and drives the
+    daily-vs-minute split the embedding budget relies on (FU-4).
     """
     text = f"{type(exc).__name__}: {exc}".lower()
+    if any(token in text for token in _DAILY_QUOTA_TOKENS):
+        return LLMDailyQuotaExhausted(f"LLM daily quota exhausted: {type(exc).__name__}: {exc}")
     if any(token in text for token in _RATE_LIMIT_TOKENS):
         return LLMRateLimited(f"LLM rate limited: {type(exc).__name__}: {exc}")
     if any(token in text for token in _UNAVAILABLE_TOKENS):

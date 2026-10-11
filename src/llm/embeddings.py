@@ -24,20 +24,33 @@ docs/implementation/03-matching-engine.md):
 
 Every vector is cached in ``data/embedding_cache.sqlite`` keyed by
 ``sha256(model|dim|text)``; identical text (under the same model and
-dimensionality) never triggers a second API call.
+dimensionality) never triggers a second API call. The same database keeps a
+persistent UTC-day counter of successful API batch requests (FU-4): the
+embedding class paces batches at the configured RPM limit, refuses to call
+once the day's request budget is spent (raising ``LLMDailyQuotaExhausted``
+so callers stop cleanly and resume after the reset), and exposes
+``estimate_api_requests`` so the daily refresh can plan its spend.
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from array import array
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol
 
 from src.config.settings import ensure_dir, get_settings
-from src.llm.client import LLMConfigError, LLMError, classify_provider_error
+from src.llm.client import (
+    LLMDailyQuotaExhausted,
+    LLMConfigError,
+    LLMError,
+    LLMRateLimited,
+    classify_provider_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +86,10 @@ class EmbeddingCache:
     Vectors are stored as little-endian float32 blobs. Keys include the model
     name and dimensionality so a model or dimension change can never read a
     vector from an incompatible embedding space.
+
+    The same database holds the persistent ``api_requests`` UTC-day counter
+    (FU-4): successful API batch requests, counted across process restarts so
+    the daily budget is accurate even when the backfill and the app alternate.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -87,7 +104,16 @@ class EmbeddingCache:
             " vector BLOB NOT NULL,"
             " created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
         )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS api_requests ("
+            " day TEXT PRIMARY KEY,"
+            " count INTEGER NOT NULL)"
+        )
         self._conn.commit()
+
+    @staticmethod
+    def _utc_day() -> str:
+        return datetime.now(timezone.utc).date().isoformat()
 
     @staticmethod
     def key(model: str, dim: int, text: str) -> str:
@@ -109,6 +135,27 @@ class EmbeddingCache:
         )
         self._conn.commit()
 
+    def record_api_request(self) -> int:
+        """Count one successful API batch request for the current UTC day.
+
+        Returns the day's running total.
+        """
+        day = self._utc_day()
+        self._conn.execute(
+            "INSERT INTO api_requests (day, count) VALUES (?, 1) "
+            "ON CONFLICT(day) DO UPDATE SET count = count + 1",
+            (day,),
+        )
+        self._conn.commit()
+        row = self._conn.execute("SELECT count FROM api_requests WHERE day = ?", (day,)).fetchone()
+        return int(row[0])
+
+    def requests_today(self) -> int:
+        row = self._conn.execute(
+            "SELECT count FROM api_requests WHERE day = ?", (self._utc_day(),)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
         self._conn.close()
 
@@ -119,6 +166,15 @@ class GeminiEmbedding:
     The genai client is created lazily (and never when one is injected), so
     constructing this class is safe without configuration; only an actual
     embed call without a key raises ``LLMConfigError``.
+
+    FU-4 quota management (real API path only — injected test clients are
+    neither paced nor budget-gated): batches are paced at
+    ``60 / EMBEDDING_RPM_LIMIT`` seconds, the persistent daily counter gates
+    calls once ``EMBEDDING_RPD_LIMIT`` successful batch requests are spent
+    (raising ``LLMDailyQuotaExhausted`` so callers stop cleanly and resume
+    after the UTC-day reset), and per-minute 429s are retried a bounded
+    number of times before raising so interactive callers degrade instead of
+    hanging.
     """
 
     MODEL_PREFIX_DOC = MODEL_PREFIX_DOC
@@ -126,6 +182,10 @@ class GeminiEmbedding:
     MAX_TEXT_CHARS = MAX_TEXT_CHARS
     # Live-verified cap (2026-10-11): BatchEmbedContentsRequest rejects >100.
     API_BATCH_SIZE = 100
+    # Per-minute 429 handling: bounded retries (65s respects RPM 5 with
+    # margin), then raise — a search must degrade, not stall for hours.
+    RATE_LIMIT_RETRIES = 2
+    RATE_LIMIT_WAIT_SECONDS = 65.0
 
     def __init__(
         self,
@@ -135,10 +195,16 @@ class GeminiEmbedding:
         dimensionality: int | None = None,
         cache_path: str | Path | None = None,
         client: Any = None,
+        rpm_limit: int | None = None,
+        rpd_limit: int | None = None,
     ) -> None:
         settings = get_settings()
         self.model = model or settings.embedding_model
         self.dimensionality = dimensionality or settings.embedding_dimensionality
+        self._rpm_limit = rpm_limit or settings.embedding_rpm_limit
+        self._rpd_limit = rpd_limit or settings.embedding_rpd_limit
+        self._min_request_interval = 60.0 / max(1, self._rpm_limit)
+        self._last_request_at: float | None = None
         self._api_key = api_key if api_key is not None else settings.llm_api_key
         self._injected_client = client
         self._client: Any = None
@@ -195,7 +261,7 @@ class GeminiEmbedding:
             fresh: list[list[float]] = []
             for start in range(0, len(misses), self.API_BATCH_SIZE):
                 fresh.extend(
-                    self._embed_api(
+                    self._embed_with_quota(
                         [text for _, text in misses[start : start + self.API_BATCH_SIZE]]
                     )
                 )
@@ -216,6 +282,81 @@ class GeminiEmbedding:
 
     def embed_query(self, text: str) -> list[float]:
         return self.embed_documents([self._truncate(text)])[0]
+
+    # -- quota budget (FU-4) --------------------------------------------------
+
+    def remaining_daily_budget(self) -> int:
+        """Successful API batch requests left today (persistent UTC counter)."""
+        return max(0, self._rpd_limit - self._cache.requests_today())
+
+    def estimate_api_requests(self, texts: list[str]) -> int:
+        """How many API batch requests ``texts`` would cost right now.
+
+        Counts cache misses (identical preparation to ``embed_documents``) in
+        ``API_BATCH_SIZE``-sized batches — the daily refresh (FU-1) uses this
+        to plan the day's embedding spend before spending it.
+        """
+        if not texts:
+            return 0
+        misses = 0
+        for text in texts:
+            prepared = self._truncate(text)
+            if (
+                self._cache.get(EmbeddingCache.key(self.model, self.dimensionality, prepared))
+                is None
+            ):
+                misses += 1
+        return -(-misses // self.API_BATCH_SIZE)  # ceil division
+
+    def _throttle(self) -> None:
+        """Space real API calls at least ``60 / rpm_limit`` seconds apart."""
+        if self._last_request_at is not None:
+            remaining = self._min_request_interval - (time.monotonic() - self._last_request_at)
+            if remaining > 0:
+                time.sleep(remaining)
+        self._last_request_at = time.monotonic()
+
+    def _embed_with_quota(self, texts: list[str]) -> list[list[float]]:
+        """One batch call under pacing + daily budget (real API path only).
+
+        Injected test clients skip pacing, budget gating, and recording —
+        their call patterns are asserted directly by tests.
+        """
+        real_path = self._injected_client is None
+        if real_path:
+            if self.remaining_daily_budget() <= 0:
+                raise LLMDailyQuotaExhausted(
+                    f"Embedding daily budget spent ({self._rpd_limit} batch requests/day); "
+                    "stopping cleanly — resume after the daily reset (cache keeps progress)"
+                )
+            self._throttle()
+        attempts = 0
+        while True:
+            try:
+                vectors = self._embed_api(texts)
+                break
+            except LLMDailyQuotaExhausted:
+                raise  # the provider itself says the day is spent: stop now
+            except LLMRateLimited:
+                if not real_path or attempts >= self.RATE_LIMIT_RETRIES:
+                    raise
+                attempts += 1
+                logger.warning(
+                    "Embedding rate limited (attempt %d/%d); sleeping %.0fs before retry",
+                    attempts,
+                    self.RATE_LIMIT_RETRIES,
+                    self.RATE_LIMIT_WAIT_SECONDS,
+                )
+                time.sleep(self.RATE_LIMIT_WAIT_SECONDS)
+                self._throttle()
+        if real_path:
+            used = self._cache.record_api_request()
+            logger.info(
+                "Embedding API batch request recorded: %d/%d used today (UTC counter)",
+                used,
+                self._rpd_limit,
+            )
+        return vectors
 
     # -- internals ----------------------------------------------------------
 

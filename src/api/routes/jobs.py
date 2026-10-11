@@ -1,17 +1,21 @@
-"""Job search and match API (WS-04).
+"""Job search and match API (WS-04 + FU-1).
 
-``POST /api/jobs/search`` loads a stored profile, runs the full search→rank
-pipeline (``src.graph.job_executor.run_job_search``), persists one
-``job_matches`` row per returned result, and responds with the ranked
-( job, match ) pairs, per-source errors, and pipeline stats. ``GET
-/api/jobs/{id}`` returns a stored listing; ``GET
-/api/profiles/{id}/matches`` returns persisted match history.
+``POST /api/jobs/search`` is **store-only** (FU-1): it loads a stored profile,
+matches it against the persisted job corpus (``search_stored_jobs`` — zero
+board fetches, one query-embedding request), persists one ``job_matches`` row
+per returned result, and responds with the ranked ( job, match ) pairs and
+stats. ``POST /api/jobs/refresh`` runs the decoupled daily refresh (fetch
+boards → normalize → dedup → persist → embed new/changed texts); cron/Task
+Scheduler should prefer the ``scripts/refresh_jobs.py`` CLI wrapper, which is
+the same call without HTTP timeout concerns. ``GET /api/jobs/{id}`` returns a
+stored listing; ``GET /api/profiles/{id}/matches`` returns persisted match
+history.
 
-The executor is exposed as a FastAPI dependency so tests (and later
-deployments) can override it without touching the route logic. The route is
-synchronous on purpose: the pipeline's nodes use ``asyncio.run`` internally,
-which requires a thread without a running event loop (FastAPI runs sync
-endpoints in a threadpool).
+Executors are exposed as FastAPI dependencies so tests (and later
+deployments) can override them without touching the route logic. Routes are
+synchronous on purpose: pipeline internals use ``asyncio.run``, which
+requires a thread without a running event loop (FastAPI runs sync endpoints
+in a threadpool).
 """
 
 from __future__ import annotations
@@ -28,7 +32,14 @@ from src.db.jobs import JobDB, listing_from_row
 from src.db.matches import JobMatchDB, build_match_rows, match_row_to_dict
 from src.db.profiles import CandidateProfileDB, profile_from_row
 from src.db.session import get_db
-from src.graph.job_executor import JobSearchReport, JobSearchStats, run_job_search
+from src.graph.job_executor import (
+    JobRefreshReport,
+    JobRefreshStats,
+    JobSearchReport,
+    JobSearchStats,
+    refresh_jobs,
+    search_stored_jobs,
+)
 from src.graph.job_state import JobMatchPair
 
 logger = logging.getLogger(__name__)
@@ -38,11 +49,15 @@ profiles_router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 
 class JobSearchRequest(BaseModel):
-    """Request body for a full pipeline job search."""
+    """Request body for a store-only job search (FU-1)."""
 
     profile_id: str = Field(..., description="Id returned by POST /api/resumes")
-    query: str | None = Field(None, description="Optional explicit search query")
-    location: str | None = Field(None, description="Optional location filter")
+    query: str | None = Field(
+        None, description="Optional client-side corpus filter (ANY token in title+description)"
+    )
+    location: str | None = Field(
+        None, description="Optional case-insensitive location substring filter"
+    )
     top_n: int = Field(10, ge=1, description="Size of the ranked slice (clamped server-side)")
 
 
@@ -56,6 +71,17 @@ class JobSearchResponse(BaseModel):
     degraded: bool = False
 
 
+class JobRefreshResponse(BaseModel):
+    """Summary of one decoupled refresh run (FU-1)."""
+
+    stats: JobRefreshStats
+    source_errors: dict[str, str] = Field(default_factory=dict)
+    embedding_requests_planned: int
+    embedding_requests_used: int
+    quota_exhausted: bool
+    degraded_embedding: bool
+
+
 class MatchesHistoryResponse(BaseModel):
     """Persisted matches for one profile (history across searches)."""
 
@@ -63,9 +89,58 @@ class MatchesHistoryResponse(BaseModel):
     matches: list[dict]
 
 
-def get_job_search_executor() -> Callable[..., JobSearchReport]:
-    """Dependency seam for the search executor (tests override this)."""
-    return run_job_search
+def get_job_search_executor(
+    db: Annotated[Session, Depends(get_db)],
+) -> Callable[..., JobSearchReport]:
+    """Dependency seam for the store-only search executor (tests override this).
+
+    The default executor is bound to the request-scoped database (the same
+    engine ``get_db`` injected), so searches always read the DB the API serves
+    — never an ambient SessionLocal.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    def execute(profile, query, location, top_n) -> JobSearchReport:
+        factory = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)
+        return search_stored_jobs(profile, query, location, top_n, session_factory=factory)
+
+    return execute
+
+
+def get_job_refresh_executor() -> Callable[[], JobRefreshReport]:
+    """Dependency seam for the refresh executor (tests override this)."""
+    return refresh_jobs
+
+
+@router.post("/refresh", response_model=JobRefreshResponse)
+def refresh_jobs_endpoint(
+    executor: Annotated[Callable[[], JobRefreshReport], Depends(get_job_refresh_executor)],
+) -> JobRefreshResponse:
+    """Run the decoupled daily refresh: boards → normalize → dedup → persist → embed.
+
+    Idempotent and resumable: only new or changed listings cost embedding
+    requests (content-hash cache), and a daily-quota stop (``quota_exhausted``)
+    leaves everything persisted for the next run. This can take minutes with
+    real boards — scheduled runs should use ``scripts/refresh_jobs.py``.
+    """
+    report = executor()
+    logger.info(
+        "Job refresh requested over API",
+        extra={
+            "persisted": report.stats.persisted,
+            "embedded": report.stats.embedded,
+            "quota_exhausted": report.quota_exhausted,
+            "failed_sources": sorted(report.source_errors),
+        },
+    )
+    return JobRefreshResponse(
+        stats=report.stats,
+        source_errors=report.source_errors,
+        embedding_requests_planned=report.embedding_requests_planned,
+        embedding_requests_used=report.embedding_requests_used,
+        quota_exhausted=report.quota_exhausted,
+        degraded_embedding=report.degraded_embedding,
+    )
 
 
 @router.post("/search", response_model=JobSearchResponse)
@@ -74,11 +149,13 @@ def search_jobs(
     db: Annotated[Session, Depends(get_db)],
     executor: Annotated[Callable[..., JobSearchReport], Depends(get_job_search_executor)],
 ) -> JobSearchResponse:
-    """Run the full pipeline for one stored profile and persist the matches.
+    """Match one stored profile against the persisted corpus (store-only, FU-1).
 
-    A failing job source degrades the report, not the request: the response
-    is HTTP 200 with ``source_errors`` populated (plan §35). Match rows are
-    persisted for the returned results so history survives restarts.
+    Zero board fetches: listings come from the ``jobs`` table, semantics from
+    the vector store (one query-embedding request for the candidate text).
+    Match rows are persisted for the returned results so history survives
+    restarts. Listings without vectors yet (backfill in flight) score without
+    semantics and flip ``degraded``.
     """
     profile_row = db.get(CandidateProfileDB, req.profile_id)
     if profile_row is None:

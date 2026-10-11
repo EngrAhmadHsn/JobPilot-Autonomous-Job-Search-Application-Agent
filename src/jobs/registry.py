@@ -13,6 +13,7 @@ import asyncio
 import logging
 from collections.abc import Mapping, Sequence
 
+from src.jobs.ashby_adapter import AshbyJobAdapter
 from src.jobs.contracts import JobListing, JobSource
 from src.jobs.deduplicate import deduplicate
 from src.jobs.greenhouse_adapter import GreenhouseJobAdapter
@@ -26,6 +27,7 @@ SOURCES: dict[str, JobSource] = {
     "greenhouse": GreenhouseJobAdapter(),
     "lever": LeverJobAdapter(),
     "remotive": RemotiveJobAdapter(),
+    "ashby": AshbyJobAdapter(),
 }
 
 # The LinkedIn placeholder adapter exists in the tree but is deliberately
