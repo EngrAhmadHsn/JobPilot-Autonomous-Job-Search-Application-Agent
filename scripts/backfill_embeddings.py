@@ -1,12 +1,14 @@
 """Backfill the embedding cache for every persisted job listing.
 
-The Gemini free tier effectively allows ~100 embedded texts per minute (the
-per-minute quota counts each batched Content as a request), so embedding a
-full multi-thousand-job corpus in one pipeline run trips RESOURCE_EXHAUSTED.
-This script walks the persisted jobs in API-sized batches (100 texts, the
-live batch cap), retries rate-limited batches after a paced wait, and lets
-``GeminiEmbedding`` write every vector to the SQLite content-hash cache. A
-pipeline run after a completed backfill makes zero embedding API calls.
+Free-tier embedding quota (AI Studio dashboard, verified 2026-10-11):
+RPM 5, TPM ~250K (never binding at ~1.5K tokens/job), RPD 20. With the
+100-text live batch cap that is ~2,000 embeddable texts per DAY, so a full
+multi-thousand-job corpus is a multi-day background trickle, not an
+in-pipeline operation. This script walks the persisted jobs in API-sized
+batches (100 texts), waits out rate-limited windows (self-healing across
+the daily quota reset), and lets ``GeminiEmbedding`` write every vector to
+the SQLite content-hash cache. A pipeline run after a completed backfill
+makes zero embedding API calls. See 04-pipeline-and-api.md FU-1/FU-4.
 
 Usage:
     python scripts/backfill_embeddings.py            # all persisted jobs
@@ -37,7 +39,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("backfill_embeddings")
 
 BATCH_SIZE = 100  # live API batch cap (see src/llm/embeddings.py)
-RATE_LIMIT_WAIT_SECONDS = 60.0  # free-tier window; err on the safe side
+# 60s respects RPM 5 on 429s; after the DAILY quota (RPD 20) is spent the
+# retries keep failing until the quota window resets, then resume automatically.
+RATE_LIMIT_WAIT_SECONDS = 60.0
 
 
 def main() -> int:
