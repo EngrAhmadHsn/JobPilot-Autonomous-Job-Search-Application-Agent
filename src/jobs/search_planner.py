@@ -14,6 +14,8 @@ configured source; adapters use or ignore them as their API allows.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import BaseModel
 
 from src.resume.profile import CandidateProfile
@@ -48,15 +50,21 @@ def _derive_query_strings(profile: CandidateProfile) -> list[str]:
     return queries
 
 
-def plan_queries(profile: CandidateProfile) -> list[SourceQuery]:
-    """Derive 1-3 queries per configured source from a candidate profile.
+def plan_queries(
+    profile: CandidateProfile, sources: Sequence[str] = PLANNED_SOURCES
+) -> list[SourceQuery]:
+    """Derive 1-3 queries per source from a candidate profile.
+
+    Args:
+        profile: Parsed candidate profile driving the derivation.
+        sources: Source names to plan for; defaults to the production
+            sources. The pipeline passes its actually-registered sources so
+            fixture/injected adapters get queries too (WS-04).
 
     An empty query string means "fetch everything the source offers with no
     text filter" — used when the profile has neither a title nor skills.
     """
     query_strings = _derive_query_strings(profile) or [""]
     return [
-        SourceQuery(source=source, query=query)
-        for query in query_strings
-        for source in PLANNED_SOURCES
+        SourceQuery(source=source, query=query) for query in query_strings for source in sources
     ]

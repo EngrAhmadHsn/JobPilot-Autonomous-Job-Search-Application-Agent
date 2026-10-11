@@ -33,6 +33,58 @@ SOURCES: dict[str, JobSource] = {
 # LinkedIn (see docs/implementation/00-OVERVIEW.md, out-of-scope list).
 
 
+async def _fan_out(
+    queries: Sequence[SourceQuery],
+    active_sources: Mapping[str, JobSource],
+) -> tuple[list[JobListing], dict[str, str]]:
+    """Run every planned query concurrently, tolerating per-source failures.
+
+    Returns the raw (un-deduplicated) listings from every source that
+    answered plus a ``source -> error message`` map for the sources that
+    raised (plan §35: a failing source degrades the search, never fails it).
+    """
+    planned: list[tuple[str, JobSource, SourceQuery]] = []
+    for query in queries:
+        adapter = active_sources.get(query.source)
+        if adapter is None:
+            logger.warning("No adapter registered for source %r; skipping query", query.source)
+            continue
+        planned.append((query.source, adapter, query))
+
+    if not planned:
+        return [], {}
+
+    results = await asyncio.gather(
+        *(adapter.search(query.query, query.location) for _source, adapter, query in planned),
+        return_exceptions=True,
+    )
+
+    listings: list[JobListing] = []
+    source_errors: dict[str, str] = {}
+    for (source, _adapter, _query), result in zip(planned, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("Job source %s failed and was skipped: %s", source, result)
+            source_errors[source] = f"{type(result).__name__}: {result}"
+            continue
+        listings.extend(result)
+    return listings, source_errors
+
+
+async def search_all_detailed(
+    queries: Sequence[SourceQuery],
+    sources: Mapping[str, JobSource] | None = None,
+) -> tuple[list[JobListing], dict[str, str]]:
+    """Search sources and report per-source errors alongside the raw listings.
+
+    WS-04 pipeline primitive (``src.graph.job_workflow`` search node): unlike
+    :func:`search_all` it does not deduplicate or persist — the pipeline owns
+    those as explicit nodes — and it surfaces which sources failed instead of
+    only logging, so the failure is visible in the search report.
+    """
+    active_sources = sources if sources is not None else SOURCES
+    return await _fan_out(queries, active_sources)
+
+
 async def search_all(
     queries: Sequence[SourceQuery],
     sources: Mapping[str, JobSource] | None = None,
@@ -53,28 +105,7 @@ async def search_all(
         Deduplicated listings from every source that answered.
     """
     active_sources = sources if sources is not None else SOURCES
-    planned: list[tuple[str, JobSource, SourceQuery]] = []
-    for query in queries:
-        adapter = active_sources.get(query.source)
-        if adapter is None:
-            logger.warning("No adapter registered for source %r; skipping query", query.source)
-            continue
-        planned.append((query.source, adapter, query))
-
-    if not planned:
-        return []
-
-    results = await asyncio.gather(
-        *(adapter.search(query.query, query.location) for _source, adapter, query in planned),
-        return_exceptions=True,
-    )
-
-    listings: list[JobListing] = []
-    for (source, _adapter, _query), result in zip(planned, results, strict=True):
-        if isinstance(result, BaseException):
-            logger.warning("Job source %s failed and was skipped: %s", source, result)
-            continue
-        listings.extend(result)
+    listings, _errors = await _fan_out(queries, active_sources)
 
     unique = deduplicate(listings)
     if persist and unique:
