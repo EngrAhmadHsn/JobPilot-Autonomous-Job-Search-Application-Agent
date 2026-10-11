@@ -2,9 +2,10 @@
 
 Persists normalized listings as embedding vectors in a Chroma persistent
 collection and answers candidate-vs-listing semantic queries. Embeddings flow
-through the shared ``EmbeddingFn`` (``GeminiEmbedding`` in production), so the
-SQLite content-hash cache applies to every store write and query — a repeat
-run makes zero API calls.
+through the shared ``EmbeddingFn`` (``build_embedding_fn`` picks the
+production provider; FastembedEmbedding by default since FU-7), so the SQLite
+content-hash cache applies to every store write and query on the Gemini path —
+a repeat run makes zero API calls.
 
 Design points:
 
@@ -29,7 +30,12 @@ from chromadb.errors import NotFoundError
 
 from src.config.settings import Settings, ensure_dir, get_settings
 from src.jobs.contracts import JobListing
-from src.llm.embeddings import EmbeddingFn, GeminiEmbedding, build_document_text, build_query_text
+from src.llm.embeddings import (
+    EmbeddingFn,
+    build_document_text,
+    build_embedding_fn,
+    build_query_text,
+)
 from src.resume.profile import CandidateProfile
 
 logger = logging.getLogger(__name__)
@@ -88,9 +94,16 @@ class ChromaVectorStore:
     ) -> None:
         settings = settings or get_settings()
         self.collection_name = collection_name
-        self.embedding_model = settings.embedding_model
-        self.dimension = settings.embedding_dimensionality
-        self._embedding_fn = embedding_fn or GeminiEmbedding()
+        self._embedding_fn = embedding_fn or build_embedding_fn(settings)
+        # FU-7: identity comes from the provider actually constructed, not from
+        # settings alone — the env selecting fastembed while stale settings say
+        # gemini must surface as a VectorStoreMismatch, never as silent
+        # degradation (the store-wide except in job_workflow would hide it).
+        # Fakes without identity attributes keep their settings-based semantics.
+        self.embedding_model = getattr(self._embedding_fn, "model", settings.embedding_model)
+        self.dimension = getattr(
+            self._embedding_fn, "dimensionality", settings.embedding_dimensionality
+        )
 
         self._client = chromadb.PersistentClient(
             path=str(ensure_dir(persist_dir or settings.chroma_dir))
@@ -117,11 +130,12 @@ class ChromaVectorStore:
             if stored_model != self.embedding_model or stored_dim != self.dimension:
                 raise VectorStoreMismatch(
                     f"Chroma collection {self.collection_name!r} was built with embedding "
-                    f"model {stored_model!r} (dimension {stored_dim}) but settings specify "
-                    f"{self.embedding_model!r} (dimension {self.dimension}). Embedding spaces "
-                    f"are version-locked and cannot be mixed. Remediation: delete the chroma "
-                    f"data directory (default data/chroma) and re-run upsert_jobs to re-embed "
-                    f"all listings with the configured model."
+                    f"model {stored_model!r} (dimension {stored_dim}) but the constructed "
+                    f"embedding provider specifies {self.embedding_model!r} (dimension "
+                    f"{self.dimension}). Embedding spaces are version-locked and cannot be "
+                    f"mixed. Remediation: delete the chroma data directory (default "
+                    f"data/chroma) and re-run upsert_jobs to re-embed all listings with the "
+                    f"configured model."
                 )
             return existing
         return self._client.get_or_create_collection(

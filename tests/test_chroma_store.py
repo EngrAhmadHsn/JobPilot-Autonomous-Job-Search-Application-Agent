@@ -173,6 +173,48 @@ def test_model_dimension_drift_raises_with_remediation(tmp_path):
         make_store(tmp_path, dimension=4)
 
 
+class IdentityEmbeddingFn(FakeEmbeddingFn):
+    """Fake that exposes the provider-identity attributes (FU-7 fastembed/gemini)."""
+
+    def __init__(self, model: str, dimensionality: int = DIM) -> None:
+        super().__init__()
+        self.model = model
+        self.dimensionality = dimensionality
+
+
+def test_drift_guard_uses_constructed_provider_identity_over_settings(tmp_path):
+    """FU-7: the guard compares the collection against the provider actually
+    constructed — a fn whose identity differs from settings must win both ways."""
+    settings = make_settings(tmp_path, model="gemini-embedding-2")  # stale on purpose
+    store = ChromaVectorStore(
+        settings=settings, embedding_fn=IdentityEmbeddingFn("google/embeddinggemma-2@int8")
+    )
+    store.upsert_jobs([PYTHON_JOB])
+
+    # Same provider identity reopens cleanly despite stale settings.
+    reopened = ChromaVectorStore(
+        settings=make_settings(tmp_path, model="gemini-embedding-2"),
+        embedding_fn=IdentityEmbeddingFn("google/embeddinggemma-2@int8"),
+    )
+    assert reopened.count() == 1
+
+    # A different provider identity mismatches even though settings did not change.
+    with pytest.raises(VectorStoreMismatch, match="google/embeddinggemma-2@fp32"):
+        ChromaVectorStore(
+            settings=make_settings(tmp_path, model="gemini-embedding-2"),
+            embedding_fn=IdentityEmbeddingFn("google/embeddinggemma-2@fp32"),
+        )
+
+
+def test_fakes_without_identity_keep_settings_semantics(tmp_path):
+    """FakeEmbeddingFn has no .model/.dimensionality: the guard falls back to
+    settings, so existing test doubles keep their semantics."""
+    store, _ = make_store(tmp_path)  # settings say gemini-embedding-2 / DIM
+    store.upsert_jobs([PYTHON_JOB])
+    reopened, _ = make_store(tmp_path)
+    assert reopened.count() == 1  # no mismatch raised
+
+
 def test_same_model_same_dimension_reopens_cleanly(tmp_path):
     store, _ = make_store(tmp_path)
     store.upsert_jobs([PYTHON_JOB])

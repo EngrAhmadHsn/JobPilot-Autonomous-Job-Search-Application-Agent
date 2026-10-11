@@ -34,7 +34,7 @@ New dependencies**.
 | LLM brain (unplanned addition) | Working | Gemini via google-genai Interactions API, structured output, `store=False` (`src/llm/client.py`); temperature config dead; google-only |
 | Job sources + adapters (Ph 3) | ~90% | Real Greenhouse/Lever/Remotive adapters with recorded-JSON fixtures, SSRF-guarded HTTP client, planner + registry (WS-02); LinkedIn deliberately unregistered |
 | Normalization + dedup (Ph 4) | ~90% | Normalization at the source boundary, real dedup + JobDB upsert both wired into the live search path (registry persist + the WS-04 pipeline's persist node) |
-| Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`); semantic wiring live since WS-04 |
+| Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`); semantic wiring live since WS-04; FU-7 switched embeddings to the local fastembed provider (EmbeddingGemma-2 int8, default) with Gemini kept selectable |
 | End-to-end job workflow (Ph 6) | 100% | Real LangGraph pipeline search→normalize→deduplicate→persist→match→rank over a dedicated Pydantic state (`src/graph/job_workflow.py`, `job_state.py`), executed by `run_job_search` with report/stats/degradation; **M1 verified live over HTTP 2026-10-11** |
 | Research + RAG (Ph 7) | ~40% | Real Chroma vector store done in WS-03 (`src/rag/chroma_store.py`, chromadb installed); `src/research/engine.py` remains a placeholder (WS-05) |
 | Tailoring + factuality (Ph 8) | ~75% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction; ATS analysis and DOCX output missing |
@@ -112,6 +112,7 @@ M5  Controlled live pilot + docs
 | `chromadb` | 03 | Plan-sanctioned vector store (user-selected in Phase 7) for semantic matching and RAG |
 | `httpx` (explicit) | 02 | Async HTTP client for job-source adapters; already a transitive dependency via Starlette's TestClient — making it explicit is correction, not addition |
 | `python-multipart` | 04 | Required by FastAPI `UploadFile` for resume upload |
+| `fastembed>=0.9.0` | 04 (FU-7) | Local in-process embedding provider (EmbeddingGemma-2 int8 ONNX): removes the free-tier Gemini embedding quota entirely; adds only the wrapper plus ~300 MiB model weights (pattern-restricted download; onnxruntime + tokenizers already present via chromadb) |
 
 Retries, backoff, rate limiting, SSRF guards, and audit sanitization are implemented by hand — no `tenacity`, no `slowapi`, per the no-unjustified-dependencies rule.
 

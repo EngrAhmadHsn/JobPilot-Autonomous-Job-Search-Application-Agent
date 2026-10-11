@@ -126,6 +126,9 @@ Log-with-context (no PII beyond parsed counts) on upload, search start/complete 
 ## New dependencies
 
 - `python-multipart` (FastAPI `UploadFile` requirement — explicitly declared, per the dependencies rule).
+- `fastembed>=0.9.0` — **added, FU-7** (local embedding provider): thin in-process
+  ONNX wrapper; onnxruntime + tokenizers already present via chromadb, so this adds
+  only the wrapper plus model weights (~300 MiB int8, pattern-restricted download).
 
 ---
 
@@ -239,6 +242,267 @@ the API silently truncates at 8,192 *tokens*, so text is pre-truncated to 6,000
 one description's tail. Raising the constant would change every cache key and force
 a full re-embed (~2–3 days of free-tier quota) for negligible gain — accepted
 behavior, do not change.
+
+### FU-7 · Local embedding provider — fastembed + EmbeddingGemma-2 text-only int8 (ADOPT — user decision, researched 2026-10-11; spec written, implementation pending)
+
+**Context.** The FU-4 live run confirmed the free-tier binding constraint:
+RPD 20 × 100-text batches ≈ 2,000 embeddable texts/day — the 4,314-job corpus
+is a multi-day backfill and the daily refresh spends the budget every run. A
+local in-process embedder removes the quota entirely (embed happens when code
+calls `embed_documents`, costs milliseconds of CPU, zero marginal cost, no
+second process/service/container — same in-process pattern as the SQLite
+cache). **User decisions (2026-10-11):** adopt the local provider as the
+*default* once installed and validated (Gemini stays selectable for A/B and
+fallback); target model **EmbeddingGemma-2 (text-only), int8 ONNX**; runtime
+**fastembed 0.9.0 with custom registration**.
+
+**Model choice — verified facts (researched 2026-10-11 against
+ai.google.dev/gemma/docs/embeddinggemma/model_card_2, the HF API for
+`onnx-community/embeddinggemma-2-ONNX`, and the fastembed v0.9.0 source):**
+
+- `google/embeddinggemma-2`: 740M total, **270M text-only backbone**
+  (vision 170M / audio 300M are separate, officially optional). MTEB(eng, v2)
+  **mean 68.46** vs EmbeddingGemma-300M's 64.2. 768-dim native (MRL
+  512/256/128). Ungated, Apache-2.0 tagged (base model carries Gemma terms).
+- **int8 ONNX variant is `onnx/model_quantized.onnx`** (495 KB graph) +
+  **`onnx/model_quantized.onnx_data` (~299 MiB)** — there is no
+  `model_int8.onnx`. fp32 reference: `model.onnx` + `.onnx_data` (~1.01 GiB).
+  fp16 variants exist but are **forbidden** by the model card (fp16 overflow
+  → NaNs); never register them.
+- The text graph outputs **both** `last_hidden_state` (token-level) and
+  **`sentence_embedding`** — mean-pooled **and L2-normalized inside the
+  graph** (per model card; verify at implementation, see open items). Dim 768.
+- Prefix scheme is identical to the repo's existing constants (and fastembed
+  does **not** apply prompts itself — verified in
+  `builtin_sentence_embedding.py`): query
+  `task: search result | query: {content}`, document
+  `title: {title | 'none'} | text: {content}`. `MODEL_PREFIX_QUERY` /
+  `MODEL_PREFIX_DOC` are reused verbatim.
+- fastembed 0.9.0 does **not** ship embeddinggemma-2 (only the 300M builtin);
+  custom registration is the sanctioned path (`TextEmbedding.add_custom_model`).
+  The stale qdrant docs page omits even the 300M — trust the source registry.
+
+**Rejected alternatives (recorded so this decision is auditable):**
+
+- *fastembed built-in 300M* — zero custom code, but −4.26 MTEB mean, 2,048-
+  token cap, and Gemma-licensed HF source. Remains the fallback if the gemma-2
+  custom registration hits a blocker.
+- *sentence-transformers / torch* — pulls ~2.5 GB of PyTorch for no quality
+  gain over the ONNX graph.
+- *electroglyph uint8-output build* — single-author graph surgery, zero third-
+  party validation, benefit (smaller vectors) worthless at 4.3k-job cache scale.
+- *LiteRT/TFLite* — transfers tokenization/pooling/normalization ownership to
+  us; onnxruntime is already in the venv (chromadb), so LiteRT *adds* footprint.
+
+**Spec 1 — dependency (`pyproject.toml`).** Add `"fastembed>=0.9.0"`
+alphabetically between `chromadb` and `fastapi` (house `>=` floor style).
+onnxruntime + tokenizers are already present via chromadb — fastembed adds the
+wrapper plus weights only. Update the `## New dependencies` section below.
+
+**Spec 2 — settings (`src/config/settings.py`, embedding block ~L61-69).**
+
+- `EMBEDDING_PROVIDER` env, default **`"fastembed"`** (user decision);
+  accepted values `fastembed | gemini`, anything else → `RuntimeError`
+  (house fail-fast style).
+- When provider is `fastembed`, `embedding_model` defaults to
+  **`google/embeddinggemma-2@int8`** (the `@int8` suffix is *identity, not
+  decoration*: it flows into every cache key and the Chroma collection
+  metadata, so a future fp32/q4 switch is structurally forced into a clean
+  re-embed instead of silently mixing spaces). When `gemini`, default stays
+  `gemini-embedding-2`. Explicit `EMBEDDING_MODEL` still overrides.
+- `EMBEDDING_DIMENSIONALITY` stays `768`. RPM/RPD limits remain Gemini-only.
+
+**Spec 3 — registration + provider class (`src/llm/embeddings.py`).**
+
+- Registration (runs once, inside the local class's lazy-init; fastembed
+  downloads **only** the pattern-restricted files — the vision/audio encoders
+  are never fetched because `download_model` allow-lists `model_file`,
+  `additional_files`, and tokenizer/config files):
+
+  ```python
+  TextEmbedding.add_custom_model(
+      model="onnx-community/embeddinggemma-2-ONNX:int8",
+      pooling=PoolingType.DISABLED,      # graph mean-pools internally
+      normalization=False,               # graph L2-normalizes internally
+      sources=ModelSource(hf="onnx-community/embeddinggemma-2-ONNX"),
+      dim=768,
+      model_file="onnx/model_quantized.onnx",
+      additional_files=["onnx/model_quantized.onnx_data"],
+      output_name="sentence_embedding",  # explicit: validated at load time
+  )
+  ```
+
+  `pooling=DISABLED` + `normalization=False` are correct **only because**
+  `sentence_embedding` is pooled+normalized in-graph; if the open-item check
+  below disproves that, flip to `pooling=MEAN, normalization=True,
+  output_name="last_hidden_state"` instead (do not silently change one flag).
+- New class `FastembedEmbedding` implementing `EmbeddingFn` (structural, like
+  `GeminiEmbedding`): `TextEmbedding` built lazily in `_ensure_model`
+  (mirrors `_ensure_client`), so construction without the model on disk is
+  safe; **injected-double param `text_embedding=`** for offline tests
+  (mirrors `client=`); model cache dir via `FASTEMBED_CACHE_PATH` env
+  (documented in `.env.example`); CPU provider explicit
+  (`providers=["CPUExecutionProvider"]`). `embed_documents` applies
+  `MODEL_PREFIX_DOC` + `_truncate` (MAX_TEXT_CHARS stays 6,000 — ~1,500
+  tokens fits even the 2,048-token truncation cap), then one fastembed
+  `embed` call (it handles its own batching; no API batching semantics
+  apply); `embed_query` applies `MODEL_PREFIX_QUERY`. Floats cast to `float`
+  lists. **No** `remaining_daily_budget` / `estimate_api_requests` — the
+  refresh's `getattr`-guarded hooks (job_executor.py:255, 265) already
+  tolerate absence (planned/used stay 0, `quota_exhausted` False).
+- Provider factory `build_embedding_fn(settings)` in the same module; both
+  production construction sites call it instead of hardcoding
+  `GeminiEmbedding()`: `src/rag/chroma_store.py:93` and
+  `src/graph/job_executor.py:252-254`; `scripts/backfill_embeddings.py:64`
+  switches to it too. FU-4 pacing/budget code in `GeminiEmbedding` is kept
+  **dormant, not deleted** (Gemini path remains selectable and A/B-able).
+
+**Spec 4 — drift-guard consistency (`src/rag/chroma_store.py:91-92`).**
+The store currently reads `embedding_model`/`dimension` from settings only.
+Change it to prefer the injected fn's identity:
+`getattr(embedding_fn, "model", settings.embedding_model)` and likewise for
+dimensionality — so the guard compares the collection against **the provider
+actually constructed**, closing the silent-degradation trap where the env
+selects fastembed but stale settings say gemini (the blanket
+`except Exception` in `_get_store`, job_workflow.py:206-216, would turn that
+into degraded search with no visible error). `FakeEmbeddingFn` lacks `.model`
+→ falls back to settings, so all existing tests keep their semantics.
+
+**Spec 5 — warm-up.** First real embed loads the model (a few seconds).
+`FastembedEmbedding` uses fastembed's `lazy_load=False` (default) so the
+refresh constructs it up front; the API app's startup path performs one
+`embed_query("warmup")` so the first user search never pays load latency.
+
+**Spec 6 — one-time migration runbook (performed once, deliberate).**
+
+1. Validate int8 quality (gate below). 2. Install fastembed, set
+`EMBEDDING_PROVIDER=fastembed` + `EMBEDDING_MODEL=google/embeddinggemma-2@int8`.
+3. Delete `data/chroma/` (the `VectorStoreMismatch` guard will demand exactly
+this — schedule it, don't discover it). 4. Re-embed via refresh or
+`scripts/backfill_embeddings.py` — **~4,314 docs, ~300 MiB model, CPU,
+budget 10–30 min** (not the API's 2–3 days). 5. Verify: search returns
+`degraded=false`, corpus count matches, cache populates under the new
+`@int8` key space (old Gemini keys remain on disk, unused).
+
+**Spec 7 — int8 validation gate (mandatory before flipping the default).**
+Quantized (q8/dynamic) ONNX costs a small, unmeasured amount of quality.
+Before migration: register the fp32 variant the same way
+(`model.onnx` + `model.onnx_data`) and embed ~200 stored documents + 20
+sample queries under both variants; compare top-10 rankings. **Gate: ≥90%
+of queries with ≥9/10 top-10 overlap**, else fall back to fp32 (identity
+`google/embeddinggemma-2@fp32`) and record the numbers here.
+
+**Spec 8 — tests (suite stays offline, per repo convention).**
+
+- `tests/test_embeddings.py` additions: `FastembedEmbedding` with an injected
+  fake `TextEmbedding` double — prefix application (doc/query strings passed
+  to the double verbatim), truncation at `MAX_TEXT_CHARS`, float-list
+  conversion, determinism, identity `model`/`dimensionality` exposure.
+- Factory test: `build_embedding_fn` returns `FastembedEmbedding` /
+  `GeminiEmbedding` per settings; unknown provider → `RuntimeError`.
+- Drift-guard test: store built with a fn exposing `model="google/
+  embeddinggemma-2@int8"` raises/accepts per collection metadata (extends the
+  existing `VectorStoreMismatch` tests in `tests/test_chroma_store.py`).
+- Refresh test: with a budget-less local double, report fields
+  `embedding_requests_planned/used` are 0 and `quota_exhausted` is False.
+- Live smoke (manual, **not** in the default suite): real ~300 MiB download,
+  real embed of a sample doc, one real re-embed + store-only search.
+
+**Acceptance:**
+
+- [x] `fastembed>=0.9.0` in pyproject with a New-dependencies entry; suite
+  green and offline (fastembed imported lazily, tests use injected doubles).
+- [x] `EMBEDDING_PROVIDER` selects the provider at both construction sites;
+  default `fastembed`; unknown value fails fast.
+- [x] Chroma metadata and cache keys carry `google/embeddinggemma-2@int8`;
+  drift guard reflects the constructed provider, not stale settings.
+- [x] int8-vs-fp32 gate numbers recorded in this section before migration.
+- [x] Live: corpus re-embedded locally (≥4,300 docs), store-only search
+  `degraded=false`, zero embedding API requests logged for the run.
+
+**Open items to verify at implementation time (do not assume):**
+
+1. `sentence_embedding` is truly L2-normalized in-graph (embed the same text
+   twice + check norm ≈ 1.0; if not, use the MEAN/last_hidden_state recipe).
+2. The graph's optional multimodal inputs run with only `input_ids` +
+   `attention_mask` (fastembed introspects input names; the card's text-only
+   usage implies defaults exist — confirm with one real session).
+3. fastembed tolerates the repo's missing `special_tokens_map.json`.
+4. Truncation cap: official card says 8,192-token context, the ONNX card
+   mentions 2,048-token truncation — 6,000 chars (~1,500 tokens) fits either;
+   confirm empirically which applies (over-cap behavior = truncation, not
+   error) before raising any constant.
+5. Reproducibility: `add_custom_model` pins no HF revision (files come from
+   latest). Mitigation: record the downloaded `files_metadata.json` blob ids
+   here after first download; production uses `FASTEMBED_CACHE_PATH` +
+   `HF_HUB_OFFLINE=1` after the first fetch. Cache integrity is verified by
+   fastembed against stored file metadata (`CorruptedCacheError` on drift).
+
+**Implementation notes (2026-10-12 — implemented, gate passed, migration run).**
+
+Suite: **345 passing** (was 332), offline, ruff clean. All five open items
+settled empirically (`scripts/validate_int8_gate.py`, kept for re-runs):
+
+1. `sentence_embedding` **is** mean-pooled and L2-normalized in-graph:
+   output norm 1.0000002, deterministic across calls. Spec 3's
+   `pooling=DISABLED, normalization=False` recipe confirmed correct.
+2. **Spec's assumption was false**: the fused multimodal graph *requires*
+   `image_features`/`video_features`/`audio_features` (`[num_tokens, 512]`
+   each); fastembed feeds only `input_ids` + `attention_mask`, so every
+   text-only call is rejected. Fix: `_TextOnlySession` shim in
+   `src/llm/embeddings.py` wraps the onnxruntime session and injects
+   zero-filled `[0, 512]` tensors — verified live to yield norm-1.0 outputs,
+   byte-identical for 0 and 1 filler rows.
+3. fastembed tolerates the missing `special_tokens_map.json` (empty-map
+   fallback) — but NOT the sentinel `model_max_length` (~1e30) the export
+   shipped: first load raised `ValueError`. Fix: `ensure_tokenizer_context`
+   patches the cached tokenizer config **byte-length-preservingly** (sentinel
+   digits → `8192` + padding spaces; resizing the file makes fastembed's
+   remote-size verification flag every later download "corrupted" — found
+   live the hard way). The upstream repo has since shipped a corrected
+   tokenizer config (8,192); the shim remains as a no-op defense. Model card
+   context is 8,192 (the "2,048" in the research notes was the hidden dim).
+4. Truncation: far over-cap input (56k chars) embeds cleanly — tokenizer
+   truncation, not an error; cap confirmed 8,192.
+5. Downloaded revision `daa72c51243991dfcaf9f9137d2c573d8f7790c0`; blob ids
+   (from `files_metadata.json`): config `b267dcb2…`, preprocessor `97ebeb96…`,
+   tokenizer.json `8562f6c9…`, tokenizer_config `a9afd12f…`,
+   model.onnx `158f4f33…` + model.onnx_data `051a412d…`.
+
+**Spec 7 gate (recorded before migration, as required):** 200 persisted
+documents + 20 held-out title+company queries, cosine top-10 per variant —
+**20/20 queries with ≥9/10 overlap (100%)**, gate ≥90% → **PASS**, int8
+adopted (`google/embeddinggemma-2@int8`). fp32: 783 s / 200 docs; int8: 822 s
+/ 200 docs on 12 CPUs (memory-bandwidth-bound; `threads` scaling flat).
+
+**Deviations from the spec (each forced by a live finding):**
+
+- *No prefix application inside the provider.* Spec 3 had
+  `embed_documents` apply `MODEL_PREFIX_DOC`; but the store and query path
+  already compose prefixed text (same contract as `GeminiEmbedding`), so
+  re-applying would double-prefix. `FastembedEmbedding` mirrors
+  `GeminiEmbedding` exactly: callers prefix, the provider truncates — the two
+  providers see byte-identical inputs and A/B comparisons are exact.
+- *`FASTEMBED_BATCH_SIZE = 8`.* fastembed's default (256) OOMs outright on
+  ~2,000-token documents (~2.4 GB single buffer); 16 still OOMs the int8
+  graph's `MatMulNBits` dequantization buffers (9 GiB free); 8 verified safe.
+- *One shared ONNX session per variant* (module-level cache): two resident
+  sessions exhaust RAM mid-batch (live-verified); the API warm-up, the store,
+  and the executor all construct their own `FastembedEmbedding`.
+- *Warm-up skips when the weights are not downloaded yet* (cache dir empty):
+  a fresh install or the test suite must never trigger the ~300 MiB download
+  from app startup. After the first download the warm-up runs at startup
+  (lifespan hook in `src/main.py`).
+- *Throughput reality*: ~4.3 s/doc (not the 10–30 min/corpus the spec
+  budgeted) — the 5,290-listing corpus fill is a multi-hour one-time CPU run,
+  still ~10× faster than the 2–3-day Gemini path. Resumable via the store's
+  chunked upserts (re-embed, not re-download, on restart).
+
+**Migration (Spec 6) performed 2026-10-12:** `.env` set to
+`EMBEDDING_PROVIDER=fastembed` + `EMBEDDING_MODEL=google/embeddinggemma-2@int8`
++ `FASTEMBED_CACHE_PATH=./data/fastembed`; `data/chroma/` deleted (held only
+184 KB — the Gemini backfill had been quota-stopped long before completion);
+corpus re-embedded via `scripts/refresh_jobs.py`.
 
 ## Execution plan (added 2026-10-11 — implementation of FU-1..FU-6)
 

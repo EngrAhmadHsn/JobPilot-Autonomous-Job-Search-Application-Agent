@@ -1,7 +1,19 @@
 """Embedding layer for semantic matching (WS-03).
 
-Wraps the Gemini embedding API behind a small protocol so callers (the Chroma
-store, the matching pipeline) can swap in deterministic fakes for tests.
+Two interchangeable ``EmbeddingFn`` providers sit behind a small protocol so
+callers (the Chroma store, the matching pipeline) swap providers and test
+fakes freely:
+
+- ``FastembedEmbedding`` (FU-7 default): EmbeddingGemma-2 (text-only, int8
+  ONNX) runs locally in-process via fastembed — milliseconds of CPU per call,
+  zero marginal cost, no API quota. The model is downloaded once into
+  ``FASTEMBED_CACHE_PATH`` (default ``data/fastembed``) and loaded lazily.
+- ``GeminiEmbedding``: the Gemini embedding API, kept selectable for A/B and
+  fallback (free-tier RPD 20 x 100-text batches ~= 2,000 texts/day). Its FU-4
+  quota management stays dormant but fully functional.
+
+``build_embedding_fn(settings)`` is the single factory both production
+construction sites call; ``EMBEDDING_PROVIDER`` selects the provider.
 
 Verified ``gemini-embedding-2`` facts this module relies on (docs checked
 2026-10-11 and **confirmed against the live API on 2026-10-11**; see
@@ -22,31 +34,38 @@ docs/implementation/03-matching-engine.md):
   part of every cache key, and the Chroma store persists them as collection
   metadata so a model change is detected instead of silently mixing spaces.
 
-Every vector is cached in ``data/embedding_cache.sqlite`` keyed by
-``sha256(model|dim|text)``; identical text (under the same model and
-dimensionality) never triggers a second API call. The same database keeps a
-persistent UTC-day counter of successful API batch requests (FU-4): the
-embedding class paces batches at the configured RPM limit, refuses to call
-once the day's request budget is spent (raising ``LLMDailyQuotaExhausted``
-so callers stop cleanly and resume after the reset), and exposes
-``estimate_api_requests`` so the daily refresh can plan its spend.
+Both providers share the same text contract as ``gemini-embedding-2``:
+asymmetric ``MODEL_PREFIX_DOC`` / ``MODEL_PREFIX_QUERY`` prefixes are applied
+by the *callers* (``build_document_text`` / ``build_query_text``, the Chroma
+store), never inside the provider, so the two providers see byte-identical
+inputs and A/B comparisons are exact. Every vector a Gemini call produces is
+cached in ``data/embedding_cache.sqlite`` keyed by ``sha256(model|dim|text)``;
+the same database keeps a persistent UTC-day counter of successful API batch
+requests (FU-4): the Gemini path paces batches at the configured RPM limit,
+refuses to call once the day's request budget is spent (raising
+``LLMDailyQuotaExhausted`` so callers stop cleanly and resume after the
+reset), and exposes ``estimate_api_requests`` so the daily refresh can plan
+its spend. The local provider needs neither cache nor budget hooks — it makes
+no API requests at all, and the refresh's ``getattr``-guarded accounting
+hooks already tolerate their absence (planned/used stay 0).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import time
 from array import array
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol
 
-from src.config.settings import ensure_dir, get_settings
+from src.config.settings import Settings, ensure_dir, get_settings
 from src.llm.client import (
-    LLMDailyQuotaExhausted,
     LLMConfigError,
+    LLMDailyQuotaExhausted,
     LLMError,
     LLMRateLimited,
     classify_provider_error,
@@ -60,6 +79,351 @@ MODEL_PREFIX_QUERY = "task: search result | query: {text}"
 # The API silently truncates beyond 8,192 tokens; ~6,000 characters of
 # description stays comfortably inside the cap together with the prefix.
 MAX_TEXT_CHARS = 6_000
+
+# -- FU-7: local provider (fastembed + EmbeddingGemma-2, text-only) -------------
+
+# HF repo holding the official ONNX exports. The fp16 variants in this repo
+# are FORBIDDEN by the model card (fp16 overflow -> NaNs); only the int8 and
+# fp32 graphs below may ever be registered.
+FASTEMBED_HF_REPO = "onnx-community/embeddinggemma-2-ONNX"
+
+# Embedding identity (settings/cache keys) -> ONNX graph files. The @variant
+# suffix is identity, not decoration: it flows into every cache key and the
+# Chroma collection metadata, so a variant switch is structurally forced into
+# a clean re-embed instead of silently mixing embedding spaces.
+FASTEMBED_VARIANT_FILES: dict[str, tuple[str, list[str]]] = {
+    "int8": ("onnx/model_quantized.onnx", ["onnx/model_quantized.onnx_data"]),
+    "fp32": ("onnx/model.onnx", ["onnx/model.onnx_data"]),
+}
+FASTEMBED_DIMENSION = 768
+
+# Open-item finding (FU-7, verified live 2026-10-11): the ONNX export ships
+# transformers' "unknown" sentinel as model_max_length (1e30-ish), and
+# fastembed refuses to guess a truncation limit from it — first load raises
+# ValueError. The model card documents an 8,192-token context window, so the
+# LOCAL CACHE COPY of tokenizer_config.json is patched to the real cap before
+# load. Safe against fastembed's cache-integrity check: only the ONNX graph
+# and its external data file are size-verified strictly; other files load
+# best-effort. 6,000-char inputs (~1,500-2,000 tokens) stay well inside it.
+FASTEMBED_TOKENIZER_CONTEXT = 8_192
+
+# Registered per process (fastembed keeps a module-level registry; a second
+# registration of the same name raises).
+_fastembed_registered: set[str] = set()
+
+# One loaded ONNX session per registered variant (shared across instances).
+_fastembed_loaded_models: dict[str, Any] = {}
+
+
+def parse_gemma_identity(model: str) -> str | None:
+    """``google/embeddinggemma-2@<variant>`` -> variant, else None."""
+    prefix = "google/embeddinggemma-2@"
+    if not model.startswith(prefix):
+        return None
+    return model[len(prefix) :]
+
+
+def fastembed_cache_dir(settings: Settings | None = None) -> str:
+    """Model-weights cache directory (FASTEMBED_CACHE_PATH or data/fastembed).
+
+    Shared by the provider and the API warm-up so both resolve the same
+    location and the warm-up's is-cached check is authoritative.
+    """
+    settings = settings or get_settings()
+    return os.getenv("FASTEMBED_CACHE_PATH") or str(Path(settings.data_dir) / "fastembed")
+
+
+def ensure_tokenizer_context(cache_dir: str, hf_repo: str = FASTEMBED_HF_REPO) -> None:
+    """Patch a sentinel ``model_max_length`` in the cached tokenizer config.
+
+    Open-item finding (FU-7, verified live 2026-10-11): the ONNX export ships
+    transformers' "unknown" sentinel (~1e30) as ``model_max_length`` and
+    fastembed refuses to guess a truncation limit from it — first load raises
+    ValueError. The model card documents an 8,192-token context window.
+
+    The patch is **byte-length-preserving**: the sentinel digits are replaced
+    in place with the real cap padded by spaces (valid JSON whitespace). This
+    matters because fastembed's post-download verification compares local file
+    sizes against REMOTE sizes — a resized tokenizer_config.json makes every
+    later download report "corrupted" (found live the hard way). Runs before
+    every ``TextEmbedding`` construction; no-op when the model is not
+    downloaded yet or the cap is already usable. Idempotent.
+    """
+    import re
+    import sys
+
+    snapshots = Path(cache_dir) / f"models--{hf_repo.replace('/', '--')}" / "snapshots"
+    if not snapshots.exists():
+        return
+    for snapshot in snapshots.iterdir():
+        config_path = snapshot / "tokenizer_config.json"
+        if not config_path.is_file():
+            continue
+        try:
+            raw = config_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r'"model_max_length"\s*:\s*(\d+)', raw)
+        if match is None:
+            continue
+        value = int(match.group(1))
+        if 0 < value <= sys.maxsize:
+            continue  # already usable
+        cap_digits = str(FASTEMBED_TOKENIZER_CONTEXT)
+        sentinel_digits = match.group(1)
+        if len(sentinel_digits) < len(cap_digits):
+            # Sentinel shorter than the cap cannot be padded in place; the
+            # transformers sentinel is 31 digits, so this is unreachable in
+            # practice — leave the cache untouched rather than break the
+            # size-verified download.
+            logger.error(
+                "Cannot patch %s in place (sentinel shorter than cap); local model load may fail",
+                config_path,
+            )
+            continue
+        replacement = cap_digits + " " * (len(sentinel_digits) - len(cap_digits))
+        try:
+            config_path.write_text(
+                raw[: match.start(1)] + replacement + raw[match.end(1) :], encoding="utf-8"
+            )
+        except OSError:
+            logger.warning("Could not patch %s; load may fail on the context cap", config_path)
+            continue
+        logger.warning(
+            "Patched %s: model_max_length sentinel -> %d (model card context window, "
+            "byte-length-preserving)",
+            config_path,
+            FASTEMBED_TOKENIZER_CONTEXT,
+        )
+
+
+def _register_gemma_variant(variant: str) -> str:
+    """Register one EmbeddingGemma-2 ONNX variant with fastembed (idempotent).
+
+    Mirrors FU-7 Spec 3: the graph mean-pools and L2-normalizes internally, so
+    fastembed post-processing is disabled and the ``sentence_embedding``
+    output is selected explicitly (validated at load time by fastembed).
+    The download is pattern-restricted: only the named graph, its external
+    data file, and tokenizer/config JSONs are ever fetched — the vision/audio
+    encoders in the same repo are not.
+    """
+    registration_name = f"{FASTEMBED_HF_REPO}:{variant}"
+    if registration_name in _fastembed_registered:
+        return registration_name
+    try:
+        from fastembed import TextEmbedding
+        from fastembed.common.model_description import ModelSource, PoolingType
+    except ImportError as exc:  # pragma: no cover - environment issue
+        raise LLMConfigError(
+            "fastembed is not installed; add it to the environment (pyproject declares it)"
+        ) from exc
+    if variant not in FASTEMBED_VARIANT_FILES:
+        raise LLMConfigError(
+            f"Unsupported EmbeddingGemma-2 variant {variant!r}; supported: "
+            f"{sorted(FASTEMBED_VARIANT_FILES)} (fp16 is forbidden by the model card)"
+        )
+    model_file, additional_files = FASTEMBED_VARIANT_FILES[variant]
+    try:
+        TextEmbedding.add_custom_model(
+            model=registration_name,
+            pooling=PoolingType.DISABLED,  # graph mean-pools internally
+            normalization=False,  # graph L2-normalizes internally
+            sources=ModelSource(hf=FASTEMBED_HF_REPO),
+            dim=FASTEMBED_DIMENSION,
+            model_file=model_file,
+            additional_files=additional_files,
+            output_name="sentence_embedding",  # explicit: validated at load time
+        )
+    except ValueError as exc:
+        # Re-registration inside one process (e.g. two embedders built) is fine;
+        # anything else is a real registration problem.
+        if "already registered" not in str(exc):
+            raise
+    _fastembed_registered.add(registration_name)
+    return registration_name
+
+
+class _TextOnlySession:
+    """Session shim making the fused multimodal graph text-only (FU-7 open item 2).
+
+    Open-item finding, verified live 2026-10-11: the embeddinggemma-2 ONNX
+    graph *requires* ``image_features``/``video_features``/``audio_features``
+    ([num_tokens, 512] each) — fastembed feeds only ``input_ids`` +
+    ``attention_mask``, so the raw session rejects every text-only call. The
+    shim injects zero-filled [0, 512] feature tensors for the missing inputs;
+    verified live, a zero-fill run is L2-normalized (norm 1.0) and produces
+    byte-identical sentence embeddings for 0 and 1 filler rows, i.e. the
+    features are genuinely unused for text-only inputs.
+    """
+
+    # onnxruntime only exposes .run() to fastembed's embed path; the
+    # accessors are forwarded so any introspection keeps working.
+    def __init__(self, session: Any) -> None:
+        import numpy as np
+
+        self._np = np
+        self._session = session
+        self._feature_shapes = {
+            item.name: item.shape
+            for item in session.get_inputs()
+            if item.name not in ("input_ids", "attention_mask")
+        }
+
+    def run(self, output_names: Any, feed: dict) -> Any:
+        for name, shape in self._feature_shapes.items():
+            if name in feed:
+                continue
+            dims = [dim if isinstance(dim, int) and dim > 0 else 0 for dim in shape]
+            feed[name] = self._np.zeros(dims, dtype=self._np.float32)
+        return self._session.run(output_names, feed)
+
+    def get_inputs(self):
+        return self._session.get_inputs()
+
+    def get_outputs(self):
+        return self._session.get_outputs()
+
+    def get_modelmeta(self):
+        return self._session.get_modelmeta()
+
+
+class FastembedEmbedding:
+    """Local in-process EmbeddingFn: fastembed + EmbeddingGemma-2 (FU-7 default).
+
+    No API, no quota, no cache: every embed call is milliseconds of CPU. The
+    ONNX model is loaded lazily (so constructing the class is safe without the
+    weights on disk — construction never downloads), the weights live under
+    ``FASTEMBED_CACHE_PATH`` (default ``data/fastembed``), and offline tests
+    inject a ``text_embedding`` double (mirroring ``GeminiEmbedding``'s
+    ``client=``).
+
+    Text contract is identical to ``GeminiEmbedding``: callers apply the
+    asymmetric prefixes (``build_document_text`` / ``build_query_text``), this
+    class only truncates at ``MAX_TEXT_CHARS`` — the two providers therefore
+    see byte-identical inputs and A/B comparisons are exact.
+    """
+
+    MODEL_PREFIX_DOC = MODEL_PREFIX_DOC
+    MODEL_PREFIX_QUERY = MODEL_PREFIX_QUERY
+    MAX_TEXT_CHARS = MAX_TEXT_CHARS
+    # fastembed's own default (256) OOMs outright on ~2,000-token job documents
+    # (live-verified: ~2.4 GB single buffer); the int8 graph's MatMulNBits
+    # dequantization buffers still exhaust 9 GiB free at 16 (live-verified), so
+    # 8 is the largest verified-safe batch. Local CPU embed cost is dominated
+    # by per-document compute, so the small batch costs nothing.
+    FASTEMBED_BATCH_SIZE = 8
+
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        dimensionality: int | None = None,
+        cache_dir: str | None = None,
+        text_embedding: Any = None,
+    ) -> None:
+        settings = get_settings()
+        self.model = model or settings.embedding_model
+        self.dimensionality = dimensionality or settings.embedding_dimensionality
+        self._cache_dir = cache_dir or fastembed_cache_dir(settings)
+        self._injected_model = text_embedding
+        self._model: Any = None
+
+    def _ensure_model(self) -> Any:
+        if self._model is not None:
+            return self._model
+        if self._injected_model is not None:
+            self._model = self._injected_model
+            return self._model
+        variant = parse_gemma_identity(self.model)
+        if variant is None:
+            raise LLMConfigError(
+                f"EMBEDDING_MODEL {self.model!r} is not a supported local identity "
+                f"(google/embeddinggemma-2@{sorted(FASTEMBED_VARIANT_FILES)}); "
+                "set EMBEDDING_PROVIDER=gemini for API models"
+            )
+        if self.dimensionality != FASTEMBED_DIMENSION:
+            raise LLMConfigError(
+                f"EmbeddingGemma-2 is {FASTEMBED_DIMENSION}-dimensional; "
+                f"EMBEDDING_DIMENSIONALITY is {self.dimensionality}"
+            )
+        from fastembed import TextEmbedding
+
+        ensure_tokenizer_context(self._cache_dir)
+        registration_name = _register_gemma_variant(variant)
+        shared = _fastembed_loaded_models.get(registration_name)
+        if shared is not None:
+            self._model = shared
+            return self._model
+        logger.info(
+            "Loading local embedding model %s (weights cached under %s)",
+            registration_name,
+            self._cache_dir,
+        )
+        self._model = TextEmbedding(
+            model_name=registration_name,
+            cache_dir=self._cache_dir,
+            providers=["CPUExecutionProvider"],
+        )
+        # The fused graph needs multimodal feature inputs fastembed never feeds
+        # (verified live): wrap the onnxruntime session (TextEmbedding.model is
+        # the embedding object; its .model is the session) so every text-only
+        # call succeeds.
+        self._model.model.model = _TextOnlySession(self._model.model.model)
+        # One shared session per variant: the ONNX arenas are large (two
+        # resident fp32 sessions exhausted RAM mid-batch, live-verified), and
+        # the API warm-up, the store, and the executor all build their own
+        # FastembedEmbedding instances.
+        _fastembed_loaded_models[registration_name] = self._model
+        return self._model
+
+    # -- public API ---------------------------------------------------------
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed N documents, returning exactly N vectors in input order."""
+        if not texts:
+            return []
+        prepared = [self._truncate(text) for text in texts]
+        raw = self._ensure_model().embed(prepared, batch_size=self.FASTEMBED_BATCH_SIZE)
+        vectors = [[float(value) for value in vector] for vector in raw]
+        if len(vectors) != len(texts):
+            raise LLMError(
+                f"Local embedder returned {len(vectors)} vectors for {len(texts)} inputs; "
+                "refusing to misalign results"
+            )
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([self._truncate(text)])[0]
+
+    # -- internals ----------------------------------------------------------
+
+    def _truncate(self, text: str) -> str:
+        if len(text) > self.MAX_TEXT_CHARS:
+            logger.warning(
+                "Embedding input truncated from %d to %d chars (model input cap)",
+                len(text),
+                self.MAX_TEXT_CHARS,
+            )
+            return text[: self.MAX_TEXT_CHARS]
+        return text
+
+
+def build_embedding_fn(settings: Settings | None = None) -> EmbeddingFn:
+    """Single factory for production embedding providers (FU-7).
+
+    ``EMBEDDING_PROVIDER`` selects: ``fastembed`` (local, default) or
+    ``gemini`` (API, A/B + fallback). Settings already fail fast on unknown
+    values; the re-check here keeps the factory safe for direct callers.
+    """
+    settings = settings or get_settings()
+    if settings.embedding_provider == "fastembed":
+        return FastembedEmbedding()
+    if settings.embedding_provider == "gemini":
+        return GeminiEmbedding()
+    raise LLMConfigError(
+        f"Unknown EMBEDDING_PROVIDER {settings.embedding_provider!r}; "
+        "expected 'fastembed' or 'gemini'"
+    )
 
 
 def build_document_text(title: str, body: str) -> str:
@@ -113,7 +477,7 @@ class EmbeddingCache:
 
     @staticmethod
     def _utc_day() -> str:
-        return datetime.now(timezone.utc).date().isoformat()
+        return datetime.now(UTC).date().isoformat()
 
     @staticmethod
     def key(model: str, dim: int, text: str) -> str:

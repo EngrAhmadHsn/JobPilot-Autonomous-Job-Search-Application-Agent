@@ -281,9 +281,9 @@ class _FakeTypesModule:
 def _real_path_embedding(tmp_path, api, **kwargs):
     """make_embedding flipped onto the real (paced/budgeted) call path."""
     embedding = make_embedding(tmp_path, api, **kwargs)
-    embedding._injected_client = None  # noqa: SLF001
-    embedding._client = SimpleNamespace(models=api)  # noqa: SLF001
-    embedding._types = _FakeTypesModule  # noqa: SLF001
+    embedding._injected_client = None
+    embedding._client = SimpleNamespace(models=api)
+    embedding._types = _FakeTypesModule
     return embedding
 
 
@@ -292,7 +292,11 @@ def test_daily_quota_429_raises_llm_daily_quota_exhausted(tmp_path, monkeypatch)
 
     monkeypatch.setattr("time.sleep", lambda _s: None)
     api = ScriptedEmbeddingsAPI(
-        [Exception("429 RESOURCE_EXHAUSTED quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier")]
+        [
+            Exception(
+                "429 RESOURCE_EXHAUSTED quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+            )
+        ]
     )
     embedding = _real_path_embedding(tmp_path, api)
 
@@ -384,3 +388,268 @@ def test_injected_clients_are_never_paced_or_gated(tmp_path):
         embedding.embed_documents(["text one"])
     assert len(api.calls) == 1  # fail fast: no bounded-retry loop on this path
     assert embedding._cache.requests_today() == 0  # nothing recorded
+
+
+# --------------------------------------------- FU-7 local provider (fastembed)
+
+
+class FakeTextEmbedding:
+    """Duck-typed fastembed ``TextEmbedding`` double: records inputs.
+
+    Returns a fixed vector per call so float conversion, alignment, and
+    verbatim-text passing are directly assertable — no model download, no
+    fastembed import on the embed path.
+    """
+
+    def __init__(self, vector: list[float] | None = None, error: Exception | None = None):
+        self.embedded: list[list[str]] = []
+        self.vector = vector or [1.0, 0.5, -0.25]
+        self.error = error
+
+    def embed(self, texts, **kwargs):
+        self.embedded.append(list(texts))
+        if self.error is not None:
+            raise self.error
+        return [self.vector for _ in texts]
+
+
+def make_fastembed(tmp_path, double=None, **kwargs):
+    from src.llm.embeddings import FastembedEmbedding
+
+    defaults = {
+        "model": "google/embeddinggemma-2@int8",
+        "dimensionality": 768,
+        "cache_dir": str(tmp_path / "fastembed"),
+    }
+    defaults.update(kwargs)
+    return FastembedEmbedding(text_embedding=double or FakeTextEmbedding(), **defaults)
+
+
+def test_fastembed_inputs_pass_verbatim_and_vectors_cast_to_floats(tmp_path):
+    """Callers own the prefixes (same contract as GeminiEmbedding): the doc/query
+    strings reach the double verbatim; outputs come back as plain float lists."""
+    double = FakeTextEmbedding()
+    embedding = make_fastembed(tmp_path, double)
+
+    vectors = embedding.embed_documents(["title: Dev | text: Builds APIs", "second"])
+
+    assert double.embedded == [["title: Dev | text: Builds APIs", "second"]]
+    assert vectors == [[1.0, 0.5, -0.25], [1.0, 0.5, -0.25]]
+    assert all(isinstance(value, float) for vector in vectors for value in vector)
+
+
+def test_fastembed_query_truncates_at_max_text_chars(tmp_path):
+    from src.llm.embeddings import MAX_TEXT_CHARS
+
+    double = FakeTextEmbedding()
+    embedding = make_fastembed(tmp_path, double)
+    long_text = "y" * 7_000
+
+    embedding.embed_documents([long_text])
+    assert double.embedded[0] == ["y" * MAX_TEXT_CHARS]
+
+    embedding.embed_query(long_text)
+    assert double.embedded[1] == ["y" * MAX_TEXT_CHARS]
+
+
+def test_fastembed_empty_input_makes_no_call(tmp_path):
+    double = FakeTextEmbedding()
+    embedding = make_fastembed(tmp_path, double)
+    assert embedding.embed_documents([]) == []
+    assert double.embedded == []
+
+
+def test_fastembed_identity_and_determinism(tmp_path):
+    embedding = make_fastembed(tmp_path)
+    assert embedding.model == "google/embeddinggemma-2@int8"
+    assert embedding.dimensionality == 768
+    first = embedding.embed_query("python backend")
+    assert embedding.embed_query("python backend") == first
+
+
+def test_fastembed_vector_count_mismatch_raises(tmp_path):
+    class ShortDouble(FakeTextEmbedding):
+        def embed(self, texts, **kwargs):
+            super().embed(texts)
+            return [self.vector]  # one vector for two inputs
+
+    embedding = make_fastembed(tmp_path, ShortDouble())
+    with pytest.raises(LLMError, match="misalign"):
+        embedding.embed_documents(["one", "two"])
+
+
+def test_fastembed_real_path_rejects_unsupported_identity(tmp_path):
+    """Without an injected double, an unknown model identity fails fast —
+    before any fastembed import or download."""
+    from src.llm.embeddings import FastembedEmbedding
+
+    embedding = FastembedEmbedding(
+        model="text-embedding-004", dimensionality=768, cache_dir=str(tmp_path)
+    )
+    with pytest.raises(LLMConfigError, match="google/embeddinggemma-2"):
+        embedding.embed_documents(["text"])
+
+
+def test_fastembed_real_path_rejects_dimensionality_mismatch(tmp_path):
+    from src.llm.embeddings import FastembedEmbedding
+
+    embedding = FastembedEmbedding(
+        model="google/embeddinggemma-2@int8", dimensionality=1536, cache_dir=str(tmp_path)
+    )
+    with pytest.raises(LLMConfigError, match="768"):
+        embedding.embed_documents(["text"])
+
+
+def test_parse_gemma_identity_variants():
+    from src.llm.embeddings import parse_gemma_identity
+
+    assert parse_gemma_identity("google/embeddinggemma-2@int8") == "int8"
+    assert parse_gemma_identity("google/embeddinggemma-2@fp32") == "fp32"
+    assert parse_gemma_identity("gemini-embedding-2") is None
+    assert parse_gemma_identity("google/embeddinggemma@int8") is None
+
+
+# ------------------------------------------------- FU-7 live findings: shims
+
+
+def test_ensure_tokenizer_context_patches_sentinel_length_preserving(tmp_path):
+    """The live finding: the export ships a ~1e30 sentinel model_max_length and
+    fastembed refuses it. The patch replaces the digits in place — byte length
+    must be preserved or fastembed's remote-size verification flags the cache
+    corrupted (found live the hard way)."""
+    import json
+
+    from src.llm.embeddings import FASTEMBED_TOKENIZER_CONTEXT, ensure_tokenizer_context
+
+    snapshot = tmp_path / "models--onnx-community--embeddinggemma-2-ONNX" / "snapshots" / "abc"
+    snapshot.mkdir(parents=True)
+    original = json.dumps(
+        {"model_max_length": 1000000000000000019884624838656, "tokenizer_class": "GemmaTokenizer"}
+    )
+    config_path = snapshot / "tokenizer_config.json"
+    config_path.write_text(original, encoding="utf-8")
+
+    ensure_tokenizer_context(str(tmp_path))
+
+    patched = config_path.read_text(encoding="utf-8")
+    assert len(patched) == len(original)  # byte-length-preserving
+    assert json.loads(patched)["model_max_length"] == FASTEMBED_TOKENIZER_CONTEXT
+
+    # Idempotent: a second run is a no-op.
+    ensure_tokenizer_context(str(tmp_path))
+    assert config_path.read_text(encoding="utf-8") == patched
+
+
+def test_ensure_tokenizer_context_skips_usable_cap_and_missing_model(tmp_path):
+    import json
+
+    from src.llm.embeddings import ensure_tokenizer_context
+
+    # Model not downloaded: no-op, no error.
+    ensure_tokenizer_context(str(tmp_path))
+
+    snapshot = tmp_path / "models--onnx-community--embeddinggemma-2-ONNX" / "snapshots" / "abc"
+    snapshot.mkdir(parents=True)
+    usable = json.dumps({"model_max_length": 8192})
+    config_path = snapshot / "tokenizer_config.json"
+    config_path.write_text(usable, encoding="utf-8")
+
+    ensure_tokenizer_context(str(tmp_path))
+    assert config_path.read_text(encoding="utf-8") == usable  # untouched
+
+
+def test_text_only_session_injects_zero_features():
+    """Live finding: the fused graph requires image/video/audio feature inputs
+    fastembed never feeds. The shim fills them with zero-shaped tensors."""
+    from types import SimpleNamespace
+
+    from src.llm.embeddings import _TextOnlySession
+
+    recorded = {}
+
+    class FakeSession:
+        def get_inputs(self):
+            return [
+                SimpleNamespace(name="input_ids", shape=["batch", "seq"]),
+                SimpleNamespace(name="attention_mask", shape=["batch", "seq"]),
+                SimpleNamespace(name="image_features", shape=["num_image_tokens", 512]),
+                SimpleNamespace(name="video_features", shape=["num_video_tokens", 512]),
+                SimpleNamespace(name="audio_features", shape=["num_audio_tokens", 512]),
+            ]
+
+        def run(self, output_names, feed):
+            recorded.update(feed)
+            return [[1.0, 2.0]]
+
+    shim = _TextOnlySession(FakeSession())
+    feed = {"input_ids": [[1, 2]], "attention_mask": [[1, 1]]}
+    assert shim.run(["sentence_embedding"], feed) == [[1.0, 2.0]]
+
+    import numpy as np
+
+    for name in ("image_features", "video_features", "audio_features"):
+        assert name in recorded
+        assert recorded[name].shape == (0, 512)  # dynamic dim -> zero rows
+        assert recorded[name].dtype == np.float32
+    # Explicitly provided inputs are never overwritten.
+    assert recorded["input_ids"] == [[1, 2]]
+
+
+def test_register_gemma_variant_rejects_forbidden_fp16():
+    from src.llm.embeddings import _register_gemma_variant
+
+    with pytest.raises(LLMConfigError, match="fp16 is forbidden"):
+        _register_gemma_variant("fp16")
+
+
+def test_register_gemma_variant_is_idempotent_per_process():
+    """The registration runs once inside the lazy init; a second embedder over
+    the same variant must not raise (fastembed rejects duplicate names)."""
+    from src.llm.embeddings import _register_gemma_variant
+
+    first = _register_gemma_variant("int8")
+    assert first == "onnx-community/embeddinggemma-2-ONNX:int8"
+    assert _register_gemma_variant("int8") == first
+
+
+def test_fastembed_cache_dir_env_override(tmp_path, monkeypatch):
+    from src.llm.embeddings import fastembed_cache_dir
+
+    monkeypatch.setenv("FASTEMBED_CACHE_PATH", str(tmp_path / "custom"))
+    assert fastembed_cache_dir() == str(tmp_path / "custom")
+    monkeypatch.delenv("FASTEMBED_CACHE_PATH")
+    assert fastembed_cache_dir().endswith("fastembed")
+
+
+def test_build_embedding_fn_selects_provider_per_settings(tmp_path):
+    from types import SimpleNamespace
+
+    from src.llm.client import LLMConfigError
+    from src.llm.embeddings import FastembedEmbedding, GeminiEmbedding, build_embedding_fn
+
+    fast = build_embedding_fn(
+        SimpleNamespace(
+            embedding_provider="fastembed",
+            embedding_model="google/embeddinggemma-2@int8",
+            embedding_dimensionality=768,
+            data_dir=str(tmp_path),
+        )
+    )
+    assert isinstance(fast, FastembedEmbedding)
+
+    gemini = build_embedding_fn(
+        SimpleNamespace(
+            embedding_provider="gemini",
+            embedding_model="gemini-embedding-2",
+            embedding_dimensionality=768,
+            data_dir=str(tmp_path / "gemini"),
+            llm_api_key="",
+            embedding_rpm_limit=5,
+            embedding_rpd_limit=20,
+        )
+    )
+    assert isinstance(gemini, GeminiEmbedding)
+    gemini._cache.close()
+
+    with pytest.raises(LLMConfigError, match="EMBEDDING_PROVIDER"):
+        build_embedding_fn(SimpleNamespace(embedding_provider="openai"))

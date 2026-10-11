@@ -59,7 +59,26 @@ class Settings:
         )  # seconds/host
 
         # Matching / embeddings (WS-03)
-        self.embedding_model = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2")
+        # Embedding provider (FU-7): "fastembed" runs EmbeddingGemma-2 locally,
+        # in-process (no API, no quota); "gemini" keeps the Gemini embedding
+        # API selectable for A/B and fallback (free-tier RPD 20 x 100-text
+        # batches ~= 2,000 texts/day). Unknown values fail fast: a silent
+        # provider mismatch would poison every cache key and vector space.
+        self.embedding_provider = os.getenv("EMBEDDING_PROVIDER", "fastembed").strip().lower()
+        if self.embedding_provider not in ("fastembed", "gemini"):
+            raise RuntimeError(
+                f"EMBEDDING_PROVIDER must be 'fastembed' or 'gemini', got "
+                f"{self.embedding_provider!r}. Refusing to start."
+            )
+        # The @int8 suffix is identity, not decoration: it flows into every
+        # cache key and the Chroma collection metadata, so a future fp32/q4
+        # switch is structurally forced into a clean re-embed instead of
+        # silently mixing embedding spaces.
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "") or (
+            "google/embeddinggemma-2@int8"
+            if self.embedding_provider == "fastembed"
+            else "gemini-embedding-2"
+        )
         self.embedding_dimensionality = int(os.getenv("EMBEDDING_DIMENSIONALITY", "768"))
         # Free-tier Gemini embedding quota (AI Studio dashboard, 2026-10-11):
         # RPM 5, RPD 20. Defaults match the live limits; overridable for other

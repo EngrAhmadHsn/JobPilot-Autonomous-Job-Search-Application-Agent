@@ -28,7 +28,7 @@ logger = logging.getLogger("refresh_jobs")
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    args = parser.parse_args()
+    parser.parse_args()
 
     try:
         report = refresh_jobs()

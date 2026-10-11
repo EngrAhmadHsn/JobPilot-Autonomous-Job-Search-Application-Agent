@@ -249,9 +249,9 @@ def refresh_jobs(
     if unique:
         embedding = embedding_fn
         if embedding is None:
-            from src.llm.embeddings import GeminiEmbedding
+            from src.llm.embeddings import build_embedding_fn
 
-            embedding = GeminiEmbedding()
+            embedding = build_embedding_fn()
         budget_remaining = getattr(embedding, "remaining_daily_budget", None)
         budget_before = budget_remaining() if budget_remaining else None
         store = None
@@ -277,7 +277,7 @@ def refresh_jobs(
                 if store is not None:
                     try:
                         embedded = store.count()  # partial progress is real progress
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - count is best-effort only
                         embedded = 0
                 logger.warning(
                     "Refresh stopped on daily embedding quota after %d embedded; "

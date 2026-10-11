@@ -766,5 +766,5 @@ async def test_ashby_get_job_not_found_or_foreign(ashby_payload):
     raw = ashby_payload["jobs"][0]
     async with _ashby_mock_client(ashby_payload) as client:
         adapter = AshbyJobAdapter(client=client, orgs=["notion"])
-        assert await adapter.get_job(f"ashby:notion:does-not-exist") is None
+        assert await adapter.get_job("ashby:notion:does-not-exist") is None
         assert await adapter.get_job(f"remotive:{raw['id']}") is None

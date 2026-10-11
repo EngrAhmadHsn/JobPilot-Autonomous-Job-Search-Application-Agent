@@ -296,7 +296,7 @@ def test_search_defaults_to_store_only_executor(api: TestClient, tmp_path: Path,
     import src.rag.chroma_store as chroma_module
 
     original = chroma_module.ChromaVectorStore
-    monkey_target = lambda *args, **kwargs: store  # noqa: E731
+    monkey_target = lambda *args, **kwargs: store
     chroma_module.ChromaVectorStore = monkey_target
     try:
         response = api.post("/api/jobs/search", json={"profile_id": profile_id})

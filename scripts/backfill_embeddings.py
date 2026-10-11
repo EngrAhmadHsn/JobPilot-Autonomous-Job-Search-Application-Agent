@@ -1,14 +1,18 @@
-"""Backfill the embedding cache for every persisted job listing.
+"""Backfill the embedding cache for every persisted job listing (Gemini path).
 
-Free-tier embedding quota (AI Studio dashboard, verified 2026-10-11):
-RPM 5, TPM ~250K (never binding at ~1.5K tokens/job), RPD 20. With the
-100-text live batch cap that is ~2,000 embeddable texts per DAY, so a full
-multi-thousand-job corpus is a multi-day background trickle, not an
-in-pipeline operation. This script walks the persisted jobs in API-sized
-batches (100 texts), waits out rate-limited windows (self-healing across
-the daily quota reset), and lets ``GeminiEmbedding`` write every vector to
-the SQLite content-hash cache. A pipeline run after a completed backfill
-makes zero embedding API calls. See 04-pipeline-and-api.md FU-1/FU-4.
+With ``EMBEDDING_PROVIDER=gemini``, the free-tier quota (AI Studio dashboard,
+verified 2026-10-11: RPM 5, TPM ~250K, RPD 20; 100-text batch cap) makes a
+multi-thousand-job corpus a multi-day trickle: this script walks the persisted
+jobs in API-sized batches (100 texts), waits out rate-limited windows (self-
+healing across the daily quota reset), and lets ``GeminiEmbedding`` write
+every vector to the SQLite content-hash cache.
+
+With the FU-7 default (``EMBEDDING_PROVIDER=fastembed``) this script has
+nothing to do — the local provider has no API cache to warm; corpus
+(embedding + vector-store) population goes through ``refresh_jobs`` (see
+``scripts/refresh_jobs.py``), which completes locally in one run. The
+constructor goes through ``build_embedding_fn`` so the script stays
+provider-aware either way.
 
 Usage:
     python scripts/backfill_embeddings.py            # all persisted jobs
@@ -32,7 +36,7 @@ from sqlalchemy.orm import sessionmaker
 from src.config.settings import get_settings
 from src.db.jobs import JobDB, listing_from_row
 from src.llm.client import LLMDailyQuotaExhausted, LLMRateLimited
-from src.llm.embeddings import GeminiEmbedding
+from src.llm.embeddings import build_embedding_fn
 from src.rag.chroma_store import ChromaVectorStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -61,7 +65,7 @@ def main() -> int:
         logger.info("No persisted jobs found in %s", settings.database_url)
         return 0
 
-    embeddings = GeminiEmbedding()
+    embeddings = build_embedding_fn()
     logger.info("Backfilling embeddings for %d persisted jobs", len(rows))
 
     done = 0

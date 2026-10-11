@@ -21,6 +21,7 @@ SETTINGS_ENV_VARS = [
     "LEVER_COMPANIES",
     "JOB_SOURCE_TIMEOUT",
     "JOB_SOURCE_MIN_INTERVAL",
+    "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONALITY",
     "CHROMA_DIR",
@@ -49,8 +50,9 @@ def test_defaults_parse_correctly(clean_env: None) -> None:
     assert settings.lever_companies == []
     assert settings.job_source_timeout == 15.0
     assert settings.job_source_min_interval == 1.0
-    # Matching / embeddings (WS-03)
-    assert settings.embedding_model == "gemini-embedding-2"
+    # Matching / embeddings (WS-03); provider default is fastembed (FU-7)
+    assert settings.embedding_provider == "fastembed"
+    assert settings.embedding_model == "google/embeddinggemma-2@int8"
     assert settings.embedding_dimensionality == 768
     assert settings.chroma_dir == "./data/chroma"
     # Submission policy (WS-06)
@@ -109,6 +111,36 @@ def test_custom_values_parse(clean_env: None, monkeypatch: pytest.MonkeyPatch) -
     assert settings.data_dir == "./state"
     assert settings.evidence_dir == "./state/evidence"
     assert settings.resume_upload_dir == "./state/resumes"
+
+
+def test_embedding_provider_gemini_selects_gemini_model_default(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    settings = Settings()
+    assert settings.embedding_provider == "gemini"
+    assert settings.embedding_model == "gemini-embedding-2"
+
+
+def test_embedding_provider_explicit_model_overrides_provider_default(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for provider, model in (
+        ("fastembed", "google/embeddinggemma-2@fp32"),
+        ("gemini", "text-embedding-004"),
+    ):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", provider)
+        monkeypatch.setenv("EMBEDDING_MODEL", model)
+        settings = Settings()
+        assert settings.embedding_model == model
+
+
+def test_embedding_provider_unknown_value_fails_fast(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    with pytest.raises(RuntimeError, match="EMBEDDING_PROVIDER"):
+        Settings()
 
 
 def test_ensure_dir_creates_nested_dirs_and_is_idempotent(tmp_path):  # type: ignore[no-untyped-def]

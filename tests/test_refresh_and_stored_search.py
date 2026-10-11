@@ -27,9 +27,9 @@ from src.llm.client import LLMDailyQuotaExhausted
 from src.resume.profile import CandidateProfile, PersonalInformation
 from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store
 from tests.fixtures.fake_source import (
+    FIXTURE_JOBS,
     FailingJobSource,
     FakeJobSource,
-    FIXTURE_JOBS,
     make_listing,
 )
 
@@ -76,6 +76,34 @@ class QuotaExhaustedEmbedding:
 
     def embed_query(self, text):
         raise LLMDailyQuotaExhausted("daily budget spent")
+
+
+class LocalProviderEmbedding:
+    """FU-7 double: budget-less local provider (no accounting hooks at all)."""
+
+    def embed_documents(self, texts):
+        return [[0.0] * 8 for _ in texts]
+
+    def embed_query(self, text):
+        return [0.0] * 8
+
+
+def test_refresh_with_local_provider_reports_zero_api_accounting(tmp_path, tmp_session_factory):
+    """FU-7 acceptance: the fastembed path plans/spends no API batch requests
+    and can never trip the quota flag — the getattr-guarded hooks stay 0."""
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    report = refresh_jobs(
+        sources={"fixture": FakeJobSource()},
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+        embedding_fn=LocalProviderEmbedding(),
+    )
+
+    assert report.stats.embedded == len(FIXTURE_JOBS)
+    assert report.embedding_requests_planned == 0
+    assert report.embedding_requests_used == 0
+    assert report.quota_exhausted is False
+    assert report.degraded_embedding is False
 
 
 # ----------------------------------------------------------------- refresh --
@@ -316,16 +344,12 @@ class PartialQuotaEmbedding(FakeEmbeddingFn):
         return self.budget
 
 
-def test_refresh_quota_stop_keeps_completed_chunks_in_store(
-    tmp_path, tmp_session_factory
-):
+def test_refresh_quota_stop_keeps_completed_chunks_in_store(tmp_path, tmp_session_factory):
     """250 listings -> 3 chunks of 100: two chunks embed+upsert, the third
     hits the wall. The store keeps the 200 completed listings and the report
     counts them as partial progress (FU-1 resumability)."""
     many = [
-        make_listing(
-            str(i), f"Role {i} python", f"Company {i}", source="fixture"
-        )
+        make_listing(str(i), f"Role {i} python", f"Company {i}", source="fixture")
         for i in range(250)
     ]
     embedding = PartialQuotaEmbedding()
