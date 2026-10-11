@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01, WS-02 and WS-03 done (2026-10-11); next: WS-04 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01 through WS-04 done (2026-10-11; M1 achieved, live over HTTP); next: WS-05 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -30,12 +30,12 @@ New dependencies**.
 
 | Feature (plan phase) | Extent | Key evidence |
 |---|---|---|
-| Resume parsing → CandidateProfile (Ph 2) | ~85% | Real deterministic DOCX/TXT/MD parser (`src/resume/parser.py`), validated Pydantic profile (`src/resume/profile.py`); no PDF, no persistence, no upload API |
+| Resume parsing → CandidateProfile (Ph 2) | ~90% | Real deterministic DOCX/TXT/MD parser (`src/resume/parser.py`), validated Pydantic profile (`src/resume/profile.py`); persisted + upload API (WS-04); no PDF parsing |
 | LLM brain (unplanned addition) | Working | Gemini via google-genai Interactions API, structured output, `store=False` (`src/llm/client.py`); temperature config dead; google-only |
-| Job sources + adapters (Ph 3) | ~15% | `JobSource` protocol + canonical `JobListing` exist; `LinkedInAdapter.search()` returns `[]`; zero real retrieval |
-| Normalization + dedup (Ph 4) | ~60% | `src/jobs/deduplicate.py` real and tested; `JobDB` model exists but nothing writes to it in a live path |
-| Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`, `src/llm/embeddings.py`); semantic wiring into the live pipeline lands with WS-04 |
-| End-to-end job workflow (Ph 6) | ~5% | `src/graph/job_workflow.py` nodes log-and-return placeholders |
+| Job sources + adapters (Ph 3) | ~90% | Real Greenhouse/Lever/Remotive adapters with recorded-JSON fixtures, SSRF-guarded HTTP client, planner + registry (WS-02); LinkedIn deliberately unregistered |
+| Normalization + dedup (Ph 4) | ~90% | Normalization at the source boundary, real dedup + JobDB upsert both wired into the live search path (registry persist + the WS-04 pipeline's persist node) |
+| Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`); semantic wiring live since WS-04 |
+| End-to-end job workflow (Ph 6) | 100% | Real LangGraph pipeline search→normalize→deduplicate→persist→match→rank over a dedicated Pydantic state (`src/graph/job_workflow.py`, `job_state.py`), executed by `run_job_search` with report/stats/degradation; **M1 verified live over HTTP 2026-10-11** |
 | Research + RAG (Ph 7) | ~40% | Real Chroma vector store done in WS-03 (`src/rag/chroma_store.py`, chromadb installed); `src/research/engine.py` remains a placeholder (WS-05) |
 | Tailoring + factuality (Ph 8) | ~75% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction; ATS analysis and DOCX output missing |
 | Application workflow graph (Ph 2#3) | ~80% | Full LangGraph prepare→approval→submit→verify with evidence DB write; the most complete area |
@@ -45,7 +45,7 @@ New dependencies**.
 | Application tracking (Ph 12) | ~10% | `ApplicationEvidence` table only; no Application/ApplicationEvent lifecycle |
 | Evaluation (Ph 13) | 0% | No datasets, no metrics, no reports |
 | Runtime security controls (SEC-01…16) | ~10% | `src/security/allowlist.py` never called anywhere; substring host matching is spoofable; `PermissionRegistry` unwired |
-| API surface | minimal | `/`, `/health`, `POST /api/applications/submit` only; no resume/jobs/matches endpoints; CORS settings parsed but middleware never added |
+| API surface | M1 surface live | `/`, `/health`, `POST /api/applications/submit`, plus WS-04: `POST /api/resumes` (upload+validation), `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`; CORS middleware on; no auth (WS-06) |
 
 ## Guiding principles (from AGENTS.md — binding for every workstream)
 
@@ -61,11 +61,14 @@ New dependencies**.
 ## Milestone sequence
 
 ```text
-M1  First real milestone (PROJECT_PLAN §42)
+M1  First real milestone (PROJECT_PLAN §42) — ✅ DONE 2026-10-11
     01 foundation ─► 02 discovery ─► 03 matching ─► 04 pipeline + API
     (10 LLM hardening: embedding-relevant parts land here, rest in M3)
     Outcome: resume upload → real job search (3 sources) → dedup → ranked
     top-10 with explanations, over HTTP. No submission changes.
+    Verified live (uvicorn + curl): upload → profile_id → search (54 found /
+    18 deduped / top-10 with real embeddings) → job detail → match history,
+    surviving a server restart.
 
 M2  Tailoring complete (§43)
     05 ATS analyzer + DOCX rendering + research engine

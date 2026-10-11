@@ -1,6 +1,34 @@
 # WS-04 · Pipeline Wiring + API Surface
 
-Status: **Not started** · Milestone: **M1** · Depends on: [01](01-data-foundation.md), [02](02-job-discovery.md), [03](03-matching-engine.md) · Blocks: [05](05-tailoring-and-research.md), [09](09-evaluation.md)
+Status: **Done (2026-10-11)** · Milestone: **M1** · Depends on: [01](01-data-foundation.md), [02](02-job-discovery.md), [03](03-matching-engine.md) · Blocks: [05](05-tailoring-and-research.md), [09](09-evaluation.md)
+
+> **Completion notes (2026-10-11).** All tasks delivered; 297 tests green (from 262),
+> ruff clean, **First Milestone verified live over HTTP**: real DOCX upload →
+> `profile_id` → search hit Remotive live (54 found / 18 deduped / 18 persisted /
+> top-10 with real `gemini-embedding-2` semantics, `degraded=false`) → job detail →
+> match history; profile + match rows survived a server restart (SQLite, migrated
+> via Alembic `b8e2c94d1f57`). Deviations worth knowing:
+>
+> 1. **`plan_queries(profile, sources=...)`** gained a `sources` parameter: the
+>    original hardcoded `PLANNED_SOURCES` meant injected/fixture adapters never got
+>    queries planned for them — tests and the demo inject their own sources.
+> 2. **`registry.search_all_detailed()`** added next to `search_all` (behavior
+>    unchanged): the pipeline needs *which* source failed in the report, and
+>    `search_all` only logged it. Detailed mode also skips dedup/persist — the
+>    pipeline owns those as explicit nodes.
+> 3. **Match-node semantics**: the literal spec reading ("query the store with the
+>    job's own text") returns the job's *self*-similarity. Implemented as: upsert the
+>    run's jobs into Chroma, then one `query_similar(candidate_query_text(profile))`
+>    maps every job id to its candidate-vs-listing similarity; any store failure
+>    (construction/embedding/query) degrades the whole run per WS-03.
+> 4. **Sync endpoints, `asyncio.run` in the search node**: the adapters are async;
+>    the pipeline nodes are sync and bridge with `asyncio.run`, which requires a
+>    thread without a running event loop — so `POST /api/jobs/search` is a sync
+>    endpoint (FastAPI threadpool), consistent with the applications executor.
+> 5. `python-multipart` added to dependencies (FastAPI `UploadFile` requirement).
+> 6. Match rows carry no foreign keys by design (history may outlive profile/job
+>    rows); `candidate_profiles` keeps personal-info columns + full profile JSON so
+>    the schema survives `CandidateProfile` evolution without migrations.
 
 ## Goal
 
@@ -81,12 +109,12 @@ Log-with-context (no PII beyond parsed counts) on upload, search start/complete 
 
 ## Acceptance criteria
 
-- [ ] Over HTTP: upload a DOCX resume → `profile_id`; search → top-10 ranked matches with per-component explanations; job detail fetchable. This is the plan's First Milestone, demonstrated by the updated demo script.
-- [ ] `src/graph/job_workflow.py` contains no placeholder nodes; grep for "Placeholder" in `src/graph/` matches only the application workflow comments.
-- [ ] A failing job source degrades the report, not the request (HTTP 200 with `source_errors` populated).
-- [ ] Profiles and matches survive a server restart (SQLite persistence).
-- [ ] Oversized/wrong-type uploads rejected with 400 and a clear message.
-- [ ] All prior tests remain green; new endpoints covered.
+- [x] Over HTTP: upload a DOCX resume → `profile_id`; search → top-10 ranked matches with per-component explanations; job detail fetchable. This is the plan's First Milestone, demonstrated by the updated demo script. **Verified live (2026-10-11): uvicorn + curl against real Remotive + real embeddings.**
+- [x] `src/graph/job_workflow.py` contains no placeholder nodes; grep for "Placeholder" in `src/graph/` returns zero matches.
+- [x] A failing job source degrades the report, not the request (HTTP 200 with `source_errors` populated) — `test_failing_source_recorded_not_fatal`, `test_search_source_errors_pass_through`.
+- [x] Profiles and matches survive a server restart (SQLite persistence) — verified in the live smoke (restart → profile + 10 match rows fetchable).
+- [x] Oversized/wrong-type uploads rejected with 400 and a clear message — rejection matrix in `tests/test_resumes_api.py`.
+- [x] All prior tests remain green; new endpoints covered (297 passing; workflow, resumes API, jobs API, migrations, registry).
 
 ## Tests
 
