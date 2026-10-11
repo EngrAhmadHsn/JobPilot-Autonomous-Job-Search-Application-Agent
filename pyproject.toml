@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.16.0",
+    "chromadb>=1.0",
     "fastapi>=0.141.1",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
@@ -28,6 +29,12 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+filterwarnings = [
+    # chromadb 1.5.9 routes custom embedding functions through a config path it
+    # itself marks deprecated. Our EF never relies on config-based
+    # reconstruction: the store always passes explicit embeddings.
+    "ignore:legacy embedding function config:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100
