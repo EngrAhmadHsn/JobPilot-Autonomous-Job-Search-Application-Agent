@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from src.matching.weights import validate_weights
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -26,9 +29,7 @@ class Settings:
         self.database_url = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
         self._raw_cors_origins = os.getenv("CORS_ORIGINS")
         raw_origins = (
-            self._raw_cors_origins
-            if self._raw_cors_origins is not None
-            else _DEFAULT_CORS_ORIGINS
+            self._raw_cors_origins if self._raw_cors_origins is not None else _DEFAULT_CORS_ORIGINS
         )
         self.cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
@@ -60,6 +61,7 @@ class Settings:
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2")
         self.embedding_dimensionality = int(os.getenv("EMBEDDING_DIMENSIONALITY", "768"))
         self.chroma_dir = os.getenv("CHROMA_DIR", "./data/chroma")
+        self.match_weights = self._parse_match_weights(os.getenv("MATCH_WEIGHTS"))
 
         # Submission policy (WS-06)
         self.submission_policy = os.getenv("SUBMISSION_POLICY", "REQUIRE_APPROVAL")
@@ -75,6 +77,24 @@ class Settings:
         self.resume_upload_dir = os.getenv("RESUME_UPLOAD_DIR", "./data/resumes")
 
         self._validate_production_cors()
+
+    @staticmethod
+    def _parse_match_weights(raw: str | None) -> dict[str, float] | None:
+        """Parse MATCH_WEIGHTS JSON, failing fast on invalid configuration."""
+        if raw is None or not raw.strip():
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"MATCH_WEIGHTS is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            # RuntimeError, not TypeError: this is environment misconfiguration,
+            # consistent with the other fail-fast config checks in this module.
+            raise RuntimeError("MATCH_WEIGHTS must be a JSON object of component weights")  # noqa: TRY004
+        try:
+            return validate_weights({str(key): value for key, value in parsed.items()})
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid MATCH_WEIGHTS: {exc}") from exc
 
     def _validate_production_cors(self) -> None:
         """Fail fast on unsafe CORS configuration when APP_ENV=production.

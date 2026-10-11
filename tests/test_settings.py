@@ -24,6 +24,7 @@ SETTINGS_ENV_VARS = [
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONALITY",
     "CHROMA_DIR",
+    "MATCH_WEIGHTS",
     "SUBMISSION_POLICY",
     "ALLOWED_DOMAINS",
     "DATA_DIR",
@@ -82,9 +83,7 @@ def test_comma_split_lists_ignore_empty_segments(
     assert settings.allowed_domains == []
 
 
-def test_custom_values_parse(
-    clean_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_custom_values_parse(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GREENHOUSE_BOARDS", "acme-corp,globex")
     monkeypatch.setenv("LEVER_COMPANIES", "netflix")
     monkeypatch.setenv("JOB_SOURCE_TIMEOUT", "30")
@@ -159,3 +158,58 @@ def test_production_allows_explicit_origins(
         "https://app.example.com",
         "https://admin.example.com",
     ]
+
+
+VALID_WEIGHTS = (
+    '{"semantic":0.2,"skill":0.3,"experience":0.2,"seniority":0.1,"location":0.1,"preference":0.1}'
+)
+
+
+def test_match_weights_unset_is_none(clean_env: None) -> None:
+    assert Settings().match_weights is None
+
+
+def test_match_weights_valid_json_parses(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MATCH_WEIGHTS", VALID_WEIGHTS)
+    weights = Settings().match_weights
+    assert weights == {
+        "semantic": 0.2,
+        "skill": 0.3,
+        "experience": 0.2,
+        "seniority": 0.1,
+        "location": 0.1,
+        "preference": 0.1,
+    }
+
+
+def test_match_weights_invalid_json_fails_fast(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MATCH_WEIGHTS", "{not json")
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        Settings()
+
+
+def test_match_weights_non_object_fails_fast(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MATCH_WEIGHTS", "[0.2, 0.3]")
+    with pytest.raises(RuntimeError, match="JSON object"):
+        Settings()
+
+
+def test_match_weights_bad_sum_fails_fast(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "MATCH_WEIGHTS",
+        '{"semantic":0.5,"skill":0.5,"experience":0.2,"seniority":0.1,"location":0.1,"preference":0.1}',
+    )
+    with pytest.raises(RuntimeError, match="sum"):
+        Settings()
+
+
+def test_match_weights_unknown_component_fails_fast(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MATCH_WEIGHTS", '{"charisma":1.0}')
+    with pytest.raises(RuntimeError, match="Unknown"):
+        Settings()
