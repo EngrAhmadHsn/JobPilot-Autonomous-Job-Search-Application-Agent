@@ -1,6 +1,28 @@
 # WS-03 · Matching Engine v2 (real semantic + real scorers)
 
-Status: **Not started** · Milestone: **M1** · Depends on: [01](01-data-foundation.md), [02](02-job-discovery.md), [10](10-llm-client-hardening.md) · Blocks: [04](04-pipeline-and-api.md), [05](05-tailoring-and-research.md), [09](09-evaluation.md)
+Status: **Done (2026-10-11)** · Milestone: **M1** · Depends on: [01](01-data-foundation.md), [02](02-job-discovery.md), [10](10-llm-client-hardening.md) · Blocks: [04](04-pipeline-and-api.md), [05](05-tailoring-and-research.md), [09](09-evaluation.md)
+
+> **Completion notes (2026-10-11).** All tasks delivered as specified; 262 tests green
+> (from 182), ruff clean. Two deviations found by **live-API verification** against
+> `gemini-embedding-2` (free-tier key, one batched call, then cached):
+>
+> 1. **Aggregation gotcha is stricter than documented**: passing N *bare strings* in one
+>    `contents` call returns **ONE aggregated embedding** (the SDK treats them as parts of
+>    a single content) — the doc's "N Content objects / N strings" is half right. The
+>    correct batch form is N `types.Content(role="user", parts=[Part(text)])` objects,
+>    which returns N vectors. Locked by `tests/test_embeddings.py` and noted in
+>    `src/llm/embeddings.py` module docstring.
+> 2. **Cache precision**: vectors are cached as float64 blobs — float32 made cached runs
+>    return slightly different vectors than fresh ones.
+>
+> Also live-verified: default 3072-dim / configured 768-dim output, cosine-space sanity
+> (python job ≈ 0.70 vs chef job ≈ 0.48 against a python query), cache-hit runs make zero
+> API calls, and the real `ChromaVectorStore` (persistent, model-metadata drift guard)
+> ranks related listings above unrelated ones end-to-end.
+>
+> Scope note: WS-10's error taxonomy (`LLMConfigError`/`LLMRateLimited`/`LLMUnavailable`/
+> `LLMInvalidOutput` + `classify_provider_error`) landed in `src/llm/client.py` as this
+> workstream's embedding-relevant slice; WS-10 still owns retries/temperature/usage.
 
 ## Goal
 
@@ -90,12 +112,12 @@ Signature change: `calculate_match(job: JobListing, profile: CandidateProfile, *
 
 ## Acceptance criteria
 
-- [ ] `calculate_match` computes **all six components from data**; grep for the old hardcoded constants returns nothing.
-- [ ] Chroma store upserts fixture listings and returns sensible similarities (related job > unrelated job) using **cached** embeddings; a second run makes zero API calls.
-- [ ] `len(embed_documents(5 texts)) == 5` (aggregation gotcha locked by test).
-- [ ] Model/dimension mismatch raises `VectorStoreMismatch` with clear remediation.
-- [ ] Deterministic test path: with a `FakeEmbeddingFn` (fixed vectors), full pipeline produces identical scores across runs — no LLM/network in tests.
-- [ ] Profile preferences are extracted only from resume text that states them (fabrication test: resume without preferences → empty `WorkPreferences`, no warnings about missing data beyond the documented ones).
+- [x] `calculate_match` computes **all six components from data**; grep for the old hardcoded constants returns nothing.
+- [x] Chroma store upserts fixture listings and returns sensible similarities (related job > unrelated job) using **cached** embeddings; a second run makes zero API calls.
+- [x] `len(embed_documents(5 texts)) == 5` (aggregation gotcha locked by test).
+- [x] Model/dimension mismatch raises `VectorStoreMismatch` with clear remediation.
+- [x] Deterministic test path: with a `FakeEmbeddingFn` (fixed vectors), full pipeline produces identical scores across runs — no LLM/network in tests.
+- [x] Profile preferences are extracted only from resume text that states them (fabrication test: resume without preferences → empty `WorkPreferences`, no warnings about missing data beyond the documented ones).
 
 ## Tests
 

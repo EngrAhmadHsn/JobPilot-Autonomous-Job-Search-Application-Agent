@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01 and WS-02 done (2026-10-11); next: WS-03 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01, WS-02 and WS-03 done (2026-10-11); next: WS-04 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -34,9 +34,9 @@ New dependencies**.
 | LLM brain (unplanned addition) | Working | Gemini via google-genai Interactions API, structured output, `store=False` (`src/llm/client.py`); temperature config dead; google-only |
 | Job sources + adapters (Ph 3) | ~15% | `JobSource` protocol + canonical `JobListing` exist; `LinkedInAdapter.search()` returns `[]`; zero real retrieval |
 | Normalization + dedup (Ph 4) | ~60% | `src/jobs/deduplicate.py` real and tested; `JobDB` model exists but nothing writes to it in a live path |
-| Hybrid matching engine (Ph 5) | ~30% | `src/matching/engine.py` — only skill overlap is real; semantic=50, experience=60, seniority=70, preference=50 hardcoded placeholders |
+| Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`, `src/llm/embeddings.py`); semantic wiring into the live pipeline lands with WS-04 |
 | End-to-end job workflow (Ph 6) | ~5% | `src/graph/job_workflow.py` nodes log-and-return placeholders |
-| Research + RAG (Ph 7) | 0% | `src/research/engine.py` and `src/rag/chroma_store.py` are empty placeholders; chromadb not installed |
+| Research + RAG (Ph 7) | ~40% | Real Chroma vector store done in WS-03 (`src/rag/chroma_store.py`, chromadb installed); `src/research/engine.py` remains a placeholder (WS-05) |
 | Tailoring + factuality (Ph 8) | ~75% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction; ATS analysis and DOCX output missing |
 | Application workflow graph (Ph 2#3) | ~80% | Full LangGraph prepare→approval→submit→verify with evidence DB write; the most complete area |
 | Browser automation runtime (Ph 9) | ~25% | `src/applications/fake_ats_adapter.py` is real Playwright but fake-ATS-only; Greenhouse/Lever submit placeholders return `success=True` unconditionally |
