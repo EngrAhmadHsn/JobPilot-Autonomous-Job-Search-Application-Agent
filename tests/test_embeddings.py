@@ -129,7 +129,7 @@ def test_cache_hit_miss_accounting(tmp_path):
 def test_long_input_truncated_with_warning(tmp_path, caplog):
     api = FakeEmbeddingsAPI()
     embedding = make_embedding(tmp_path, api)
-    long_text = "x" * 7_000
+    long_text = "x" * 10_000
 
     with caplog.at_level("WARNING", logger="src.llm.embeddings"):
         embedding.embed_documents([long_text])
@@ -443,7 +443,7 @@ def test_fastembed_query_truncates_at_max_text_chars(tmp_path):
 
     double = FakeTextEmbedding()
     embedding = make_fastembed(tmp_path, double)
-    long_text = "y" * 7_000
+    long_text = "y" * 10_000
 
     embedding.embed_documents([long_text])
     assert double.embedded[0] == ["y" * MAX_TEXT_CHARS]

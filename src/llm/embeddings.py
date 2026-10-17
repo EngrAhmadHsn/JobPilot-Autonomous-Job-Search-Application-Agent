@@ -76,9 +76,9 @@ logger = logging.getLogger(__name__)
 MODEL_PREFIX_DOC = "title: {title} | text: {body}"
 MODEL_PREFIX_QUERY = "task: search result | query: {text}"
 
-# The API silently truncates beyond 8,192 tokens; ~6,000 characters of
-# description stays comfortably inside the cap together with the prefix.
-MAX_TEXT_CHARS = 6_000
+# The local EmbeddingGemma-2 model has an 8,192-token context window;
+# ~8,000 characters of description stays comfortably within ~2,000 tokens.
+MAX_TEXT_CHARS = 8_000
 
 # -- FU-7: local provider (fastembed + EmbeddingGemma-2, text-only) -------------
 

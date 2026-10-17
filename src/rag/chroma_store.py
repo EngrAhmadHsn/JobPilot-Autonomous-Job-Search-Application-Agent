@@ -46,9 +46,7 @@ DEFAULT_COLLECTION_NAME = "job_listings"
 # missed chunk is exactly one batch request (FU-1 resumability, FU-4 budget).
 EMBED_BATCH_SIZE = 100
 
-# Description text is truncated before embedding (the API silently truncates
-# beyond its token cap; see src/llm/embeddings.py).
-MAX_DESCRIPTION_CHARS = 6_000
+MAX_DESCRIPTION_CHARS = 8_000
 
 
 class VectorStoreMismatch(RuntimeError):

@@ -154,7 +154,7 @@ def test_document_text_format(tmp_path):
 def test_long_description_truncated_before_embedding(tmp_path):
     job = make_job("long-1", "Title", "word " * 3_000)  # ~15k chars
     text = ChromaVectorStore.document_text(job)
-    assert len(text) < 6_400  # prefix + skills + 6k description cap
+    assert len(text) < 8_400  # prefix + skills + 8k description cap
 
 
 def test_empty_store_query_returns_empty(tmp_path):
