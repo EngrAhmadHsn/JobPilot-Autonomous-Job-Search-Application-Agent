@@ -1,0 +1,1 @@
+goal: Write a detailed FU-7 plan + specs section into docs/implementation/04-pipeline-and-api.md (doc only — no code changes in this task)
