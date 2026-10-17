@@ -59,3 +59,13 @@ Authoritative planning documents: `docs/PROJECT_PLAN.md`, `docs/ARCHITECTURE.md`
 - Protect auditability and verification for every external step.
 - Several recent modules are **not yet committed** to git (`src/graph/`, `src/jobs/`, `src/matching/`, `src/security/`, `src/rag/`, `src/research/`, `src/resume/`, `src/db/evidence.py`, `src/db/jobs.py`, most `tests/`, and doc updates) — do not modify or revert them without explicit instruction.
 - `reference_project/` is a separate project placed in this workspace for later reference; ignore it unless instructed otherwise.
+
+## Development environment
+
+- The Python virtual environment is at `env/` (not `.venv/`). Always use `env\Scripts\python.exe` on Windows.
+- `pytest` is NOT on the system PATH. Run tests with `cmd.exe /c "env\Scripts\python.exe -m pytest ..."`. PowerShell `activate.bat` does not propagate PATH correctly in non-interactive sessions; prefer `cmd.exe /c` for all Python commands.
+- The local embedding model is EmbeddingGemma-2 (via fastembed/ONNX). Max input is 8,000 characters. The previous cloud Gemini embedding model is no longer used.
+- Batch embedding of more than ~8 jobs at once can OOM the ONNX runtime. For small gap-fills, embed one job at a time.
+- The 6 Remotive test failures (`tests/test_remotive*.py`) are a **known DNS flake** — the SSRF guard resolves real DNS under `httpx.MockTransport`, and transient `gaierror` on `remotive.com` causes `SSRFBlockedError`. This is environmental, not a regression. Do not debug or attempt to fix unless explicitly asked.
+- The fastembed warning `"Local file sizes do not match the metadata"` is benign — caused by the `ensure_tokenizer_context` byte-preserving patch. Ignore it.
+- Chroma's `query()` with `n_results` equal to `collection.count()` may return `count - 1` results. This is a known Chroma edge case. The `degraded` flag in `search_stored_jobs()` will be `true` on unfiltered full-corpus searches due to this. Filtered searches work correctly.
