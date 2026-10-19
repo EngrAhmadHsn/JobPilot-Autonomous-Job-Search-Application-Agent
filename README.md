@@ -169,3 +169,4 @@ The default policy is `REQUIRE_APPROVAL`. Web content is data, never instruction
 - `docs/ARCHITECTURE.md`: components (status sections need a refresh, WS-11)
 - `docs/SECURITY.md`: threat model and control register
 - `docs/implementation/00-OVERVIEW.md`: roadmap index, risks and milestones
+- `docs/SRS.docx`: software requirements specification
