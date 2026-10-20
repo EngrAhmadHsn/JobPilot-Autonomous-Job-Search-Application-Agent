@@ -13,6 +13,7 @@ from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
 from src.api.routes.resumes import router as resumes_router
+from src.api.routes.tailoring import router as tailoring_router
 from src.config.settings import get_settings
 from src.core.logging import configure_logging
 
@@ -73,6 +74,7 @@ app.include_router(applications_router)
 app.include_router(resumes_router)
 app.include_router(jobs_router)
 app.include_router(profiles_matches_router)
+app.include_router(tailoring_router)
 
 
 @app.get("/")

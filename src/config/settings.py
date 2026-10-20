@@ -100,6 +100,8 @@ class Settings:
         self.data_dir = os.getenv("DATA_DIR", "./data")
         self.evidence_dir = os.getenv("EVIDENCE_DIR", "./data/evidence")
         self.resume_upload_dir = os.getenv("RESUME_UPLOAD_DIR", "./data/resumes")
+        # Rendered tailored resumes (WS-05); defaults under the data dir.
+        self.tailored_dir = os.getenv("TAILORED_DIR", "") or str(Path(self.data_dir) / "tailored")
 
         self._validate_production_cors()
 
