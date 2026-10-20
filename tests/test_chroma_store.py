@@ -223,6 +223,31 @@ def test_same_model_same_dimension_reopens_cleanly(tmp_path):
     assert reopened.query_similar("python apis") != []
 
 
+def test_similarities_for_all_covers_every_listing(tmp_path):
+    """FU-7: the store-only path needs a score for every listing. Chroma's
+    query() drops one row when n_results == count (known edge case), which
+    used to report a phantom gap and flip `degraded`."""
+    store, _ = make_store(tmp_path)
+    store.upsert_jobs([PYTHON_JOB, ML_JOB, CHEF_JOB])
+
+    scores = store.similarities_for_all("python backend engineer building apis")
+
+    assert set(scores) == {"py-1", "ml-1", "chef-1"}
+    assert all(0.0 <= similarity <= 100.0 for similarity in scores.values())
+    assert scores["py-1"] > scores["chef-1"]
+
+
+def test_similarities_for_all_on_empty_store(tmp_path):
+    store, _ = make_store(tmp_path)
+    assert store.similarities_for_all("anything") == {}
+
+
+def test_stored_ids_lists_every_vector(tmp_path):
+    store, _ = make_store(tmp_path)
+    store.upsert_jobs([PYTHON_JOB, ML_JOB])
+    assert store.stored_ids() == {"py-1", "ml-1"}
+
+
 def test_candidate_query_text_composition():
     profile = CandidateProfile(
         personal_information=PersonalInformation(title="AI Engineer"),

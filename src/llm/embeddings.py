@@ -320,6 +320,7 @@ class FastembedEmbedding:
         dimensionality: int | None = None,
         cache_dir: str | None = None,
         text_embedding: Any = None,
+        cache_path: str | Path | None = None,
     ) -> None:
         settings = get_settings()
         self.model = model or settings.embedding_model
@@ -327,6 +328,14 @@ class FastembedEmbedding:
         self._cache_dir = cache_dir or fastembed_cache_dir(settings)
         self._injected_model = text_embedding
         self._model: Any = None
+        # The same content-hash cache the Gemini path uses. The local provider
+        # makes no API calls, but the cache is what keeps the daily refresh
+        # (FU-1) incremental: without it every refresh would re-embed the
+        # whole corpus (~4.3 s/doc locally), instead of embedding only the
+        # new or changed listings.
+        if cache_path is None:
+            cache_path = Path(settings.data_dir) / "embedding_cache.sqlite"
+        self._cache = EmbeddingCache(cache_path)
 
     def _ensure_model(self) -> Any:
         if self._model is not None:
@@ -379,18 +388,46 @@ class FastembedEmbedding:
     # -- public API ---------------------------------------------------------
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed N documents, returning exactly N vectors in input order."""
+        """Embed N documents, returning exactly N vectors in input order.
+
+        Cache hits never reach the model: the shared content-hash cache
+        (``sha256(model|dim|text)``) makes a repeat corpus embedding free and
+        keeps the daily refresh incremental. The cache key carries the model
+        identity, so the local (``@int8``) and Gemini spaces can never mix.
+        """
         if not texts:
             return []
         prepared = [self._truncate(text) for text in texts]
-        raw = self._ensure_model().embed(prepared, batch_size=self.FASTEMBED_BATCH_SIZE)
-        vectors = [[float(value) for value in vector] for vector in raw]
-        if len(vectors) != len(texts):
-            raise LLMError(
-                f"Local embedder returned {len(vectors)} vectors for {len(texts)} inputs; "
-                "refusing to misalign results"
-            )
-        return vectors
+        keys = [EmbeddingCache.key(self.model, self.dimensionality, text) for text in prepared]
+        vectors: dict[int, list[float]] = {}
+        misses: list[tuple[int, str]] = []
+        for index, (key, text) in enumerate(zip(keys, prepared)):
+            cached = self._cache.get(key)
+            if cached is not None:
+                vectors[index] = cached
+            else:
+                misses.append((index, text))
+        if misses:
+            fresh = self._embed_local([text for _, text in misses])
+            if len(fresh) != len(misses):
+                raise LLMError(
+                    f"Local embedder returned {len(fresh)} vectors for {len(misses)} inputs; "
+                    "refusing to misalign results"
+                )
+            for (index, text), vector in zip(misses, fresh):
+                vectors[index] = vector
+                self._cache.put(
+                    EmbeddingCache.key(self.model, self.dimensionality, text),
+                    self.model,
+                    self.dimensionality,
+                    vector,
+                )
+        return [vectors[index] for index in range(len(texts))]
+
+    def _embed_local(self, texts: list[str]) -> list[list[float]]:
+        """Run the local model over texts that missed the cache."""
+        raw = self._ensure_model().embed(texts, batch_size=self.FASTEMBED_BATCH_SIZE)
+        return [[float(value) for value in vector] for vector in raw]
 
     def embed_query(self, text: str) -> list[float]:
         return self.embed_documents([self._truncate(text)])[0]

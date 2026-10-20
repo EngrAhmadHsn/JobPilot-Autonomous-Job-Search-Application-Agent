@@ -386,8 +386,10 @@ def search_stored_jobs(
         from src.rag.chroma_store import candidate_query_text
 
         try:
-            hits = store.query_similar(candidate_query_text(profile), n=max(1, store.count()))
-            similarities = dict(hits)
+            # Exact similarities for every stored listing (FU-7): Chroma's
+            # query() drops one row when n_results == count, which used to
+            # report a phantom gap and flip `degraded`.
+            similarities = store.similarities_for_all(candidate_query_text(profile))
             degraded = any(job.id not in similarities for job in jobs)
             if degraded:
                 logger.warning(

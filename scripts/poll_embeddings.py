@@ -7,7 +7,7 @@ Logs to embeddings_poll.log and stdout.
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 DB = Path(__file__).resolve().parent.parent / "data" / "embedding_cache.sqlite"
@@ -36,7 +36,7 @@ def log(msg):
         f.write(line + "\n")
 
 
-log(f"=== poller started {datetime.now():%Y-%m-%d %H:%M:%S} (interval {INTERVAL}s) ===")
+log(f"=== poller started {datetime.now(UTC):%Y-%m-%d %H:%M:%S} (interval {INTERVAL}s) ===")
 prev = None
 while True:
     try:
@@ -44,10 +44,10 @@ while True:
         delta = "" if prev is None else f" (+{total - prev} since last poll)"
         models = ", ".join(f"{m}={c}" for m, c in by_model)
         log(
-            f"{datetime.now():%Y-%m-%d %H:%M:%S} | total vectors: {total}{delta} "
+            f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S} | total vectors: {total}{delta} "
             f"| new in last ~{INTERVAL}s: {recent} | models: {models}"
         )
         prev = total
-    except Exception as exc:
-        log(f"{datetime.now():%Y-%m-%d %H:%M:%S} | ERROR: {exc}")
+    except Exception as exc:  # noqa: BLE001 - poller must survive a transient DB error
+        log(f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S} | ERROR: {exc}")
     time.sleep(INTERVAL)

@@ -502,7 +502,46 @@ adopted (`google/embeddinggemma-2@int8`). fp32: 783 s / 200 docs; int8: 822 s
 `EMBEDDING_PROVIDER=fastembed` + `EMBEDDING_MODEL=google/embeddinggemma-2@int8`
 + `FASTEMBED_CACHE_PATH=./data/fastembed`; `data/chroma/` deleted (held only
 184 KB — the Gemini backfill had been quota-stopped long before completion);
-corpus re-embedded via `scripts/refresh_jobs.py`.
+corpus re-embedded via `scripts/refresh_jobs.py` (5,284 listings, **zero
+embedding API requests**: `planned 0, used 0`).
+
+**Live acceptance (2026-10-21, over HTTP on 127.0.0.1:8010):** real DOCX
+upload → `profile_id` → `POST /api/jobs/search` (store-only) → **HTTP 200 in
+~7–10 s**, `degraded=false`, `source_errors={}`, 5,293 stored listings scored
+with real local semantics (top-10 semantic 70.5–72.7, overall 82.1–82.5) →
+`GET /api/jobs/{id}` returns the listing → `GET /api/profiles/{id}/matches`
+returns persisted match rows → results identical across a server restart.
+The Gemini `api_requests` counter in `embedding_cache.sqlite` is **empty**:
+the run made zero embedding API calls.
+
+**Post-migration fixes (same workstream, 2026-10-21):**
+
+1. **The local provider needed the shared content-hash cache.** Without it
+   every daily refresh would re-embed the whole corpus (~4.3 s/doc locally) —
+   the cache is what makes the refresh incremental, exactly as it does for
+   the Gemini path. `FastembedEmbedding` now uses `EmbeddingCache` with the
+   same `sha256(model|dim|text)` keys, so the two providers stay
+   interchangeable and the spaces can never mix.
+2. **`scripts/backfill_cache_from_store.py`** (new): seeds the cache from the
+   vectors already persisted in Chroma (no model load, no embedding), so a
+   provider switch or a cache wipe does not force a full re-embed. The seed
+   truncates exactly like the provider before hashing, so a cache entry never
+   claims a vector computed from a different input than its key.
+3. **`scripts/embed_store_gaps.py`** (new): embeds persisted listings that no
+   board returns anymore but that still sit in the jobs table — without it
+   they keep the store-only search permanently degraded.
+4. **`ChromaVectorStore.similarities_for_all()`** (new): the store-only path
+   needs a score for *every* listing, and Chroma's `query()` drops one row
+   when `n_results == count` (the known edge case in AGENTS.md) — which made
+   the search report a phantom gap and flip `degraded`. The exact cosine over
+   the persisted vectors replaces that query; `degraded` now means a real
+   coverage gap.
+5. **Embedding input cap raised to 8,000 chars** (commit `a9558f3`, another
+   workstream) to use more of the local model's 8,192-token window. The
+   corpus was embedded at the previous 6,000-char cap, so the `@int8` cache
+   rows were invalidated and the corpus re-embedded at the new cap — mixing
+   vectors computed from different inputs inside one collection is exactly
+   the silent inconsistency the drift guard exists to prevent.
 
 ## Execution plan (added 2026-10-11 — implementation of FU-1..FU-6)
 

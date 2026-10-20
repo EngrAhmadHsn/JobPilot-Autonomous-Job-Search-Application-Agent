@@ -420,6 +420,9 @@ def make_fastembed(tmp_path, double=None, **kwargs):
         "model": "google/embeddinggemma-2@int8",
         "dimensionality": 768,
         "cache_dir": str(tmp_path / "fastembed"),
+        # Every test gets its own content-hash cache: the shared one lives in
+        # data/ and must never be touched by the offline suite.
+        "cache_path": str(tmp_path / "embedding_cache.sqlite"),
     }
     defaults.update(kwargs)
     return FastembedEmbedding(text_embedding=double or FakeTextEmbedding(), **defaults)
@@ -443,13 +446,14 @@ def test_fastembed_query_truncates_at_max_text_chars(tmp_path):
 
     double = FakeTextEmbedding()
     embedding = make_fastembed(tmp_path, double)
-    long_text = "y" * 10_000
+    long_doc = "y" * (MAX_TEXT_CHARS + 1_000)
+    long_query = "z" * (MAX_TEXT_CHARS + 500)
 
-    embedding.embed_documents([long_text])
+    embedding.embed_documents([long_doc])
     assert double.embedded[0] == ["y" * MAX_TEXT_CHARS]
 
-    embedding.embed_query(long_text)
-    assert double.embedded[1] == ["y" * MAX_TEXT_CHARS]
+    embedding.embed_query(long_query)
+    assert double.embedded[1] == ["z" * MAX_TEXT_CHARS]
 
 
 def test_fastembed_empty_input_makes_no_call(tmp_path):
@@ -484,7 +488,10 @@ def test_fastembed_real_path_rejects_unsupported_identity(tmp_path):
     from src.llm.embeddings import FastembedEmbedding
 
     embedding = FastembedEmbedding(
-        model="text-embedding-004", dimensionality=768, cache_dir=str(tmp_path)
+        model="text-embedding-004",
+        dimensionality=768,
+        cache_dir=str(tmp_path),
+        cache_path=str(tmp_path / "cache.sqlite"),
     )
     with pytest.raises(LLMConfigError, match="google/embeddinggemma-2"):
         embedding.embed_documents(["text"])
@@ -494,10 +501,39 @@ def test_fastembed_real_path_rejects_dimensionality_mismatch(tmp_path):
     from src.llm.embeddings import FastembedEmbedding
 
     embedding = FastembedEmbedding(
-        model="google/embeddinggemma-2@int8", dimensionality=1536, cache_dir=str(tmp_path)
+        model="google/embeddinggemma-2@int8",
+        dimensionality=1536,
+        cache_dir=str(tmp_path),
+        cache_path=str(tmp_path / "cache.sqlite"),
     )
     with pytest.raises(LLMConfigError, match="768"):
         embedding.embed_documents(["text"])
+
+
+def test_fastembed_cache_hit_skips_the_model(tmp_path):
+    """The content-hash cache is what keeps the daily refresh incremental: a
+    repeated text must not reach the model again."""
+    double = FakeTextEmbedding()
+    embedding = make_fastembed(tmp_path, double)
+
+    first = embedding.embed_documents(["title: Dev | text: Builds APIs"])
+    second = embedding.embed_documents(["title: Dev | text: Builds APIs"])
+
+    assert len(double.embedded) == 1  # the model ran once
+    assert second == first  # identical vectors, from the cache
+
+
+def test_fastembed_cache_keeps_provider_spaces_separate(tmp_path):
+    """Cache keys carry the model identity: an int8 vector must never be served
+    for an fp32 identity (the same rule the Gemini path follows)."""
+    double = FakeTextEmbedding()
+    int8 = make_fastembed(tmp_path, double, model="google/embeddinggemma-2@int8")
+    fp32 = make_fastembed(tmp_path, double, model="google/embeddinggemma-2@fp32")
+
+    int8.embed_documents(["same text"])
+    fp32.embed_documents(["same text"])
+
+    assert len(double.embedded) == 2  # two identities, two embeds
 
 
 def test_parse_gemma_identity_variants():

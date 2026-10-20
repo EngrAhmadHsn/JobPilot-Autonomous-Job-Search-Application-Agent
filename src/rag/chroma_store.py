@@ -231,6 +231,44 @@ class ChromaVectorStore:
     def count(self) -> int:
         return self._collection.count()
 
+    def stored_ids(self) -> set[str]:
+        """Ids of every listing that has a vector in the collection."""
+        result = self._collection.get(include=[])
+        return set(result.get("ids") or [])
+
+    def similarities_for_all(self, query_text: str) -> dict[str, float]:
+        """Similarity 0-100 for **every** stored listing.
+
+        Chroma's ``query()`` drops one row when ``n_results`` equals the
+        collection count (known Chroma edge case), which made the store-only
+        search report a phantom gap and flip ``degraded``. That path needs a
+        score for every listing anyway, so it computes the cosine against the
+        persisted vectors directly — exact, complete, free of the off-by-one.
+        """
+        if self._collection.count() == 0:
+            return {}
+        vector = self._embedding_fn.embed_query(build_query_text(query_text))
+        result = self._collection.get(include=["embeddings"])
+        ids = result.get("ids") or []
+        embeddings = result.get("embeddings")
+        if embeddings is None:  # numpy array: `or []` would raise on truthiness
+            embeddings = []
+        scores: dict[str, float] = {}
+        for job_id, embedding in zip(ids, embeddings):
+            scores[job_id] = self._cosine_similarity(vector, embedding)
+        return scores
+
+    @staticmethod
+    def _cosine_similarity(left, right) -> float:
+        left_values = [float(value) for value in left]
+        right_values = [float(value) for value in right]
+        dot = sum(a * b for a, b in zip(left_values, right_values))
+        left_norm = sum(value * value for value in left_values) ** 0.5
+        right_norm = sum(value * value for value in right_values) ** 0.5
+        if not left_norm or not right_norm:
+            return 0.0
+        return max(0.0, min(100.0, (dot / (left_norm * right_norm)) * 100.0))
+
     def get_job_metadata(self, job_id: str) -> dict | None:
         """Persisted metadata for one listing, or None when absent."""
         result = self._collection.get(ids=[job_id], include=["metadatas"])

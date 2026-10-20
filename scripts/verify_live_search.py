@@ -1,5 +1,6 @@
+
 import httpx
-import json
+
 
 def main():
     url = "http://127.0.0.1:8010/api/jobs/search"
