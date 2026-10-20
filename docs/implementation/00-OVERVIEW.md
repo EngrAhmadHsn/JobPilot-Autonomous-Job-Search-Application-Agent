@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01 through WS-04 done (2026-10-11; M1 achieved, live over HTTP); next: WS-05 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01 through WS-05 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified); next: WS-06 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -36,8 +36,8 @@ New dependencies**.
 | Normalization + dedup (Ph 4) | ~90% | Normalization at the source boundary, real dedup + JobDB upsert both wired into the live search path (registry persist + the WS-04 pipeline's persist node) |
 | Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`); semantic wiring live since WS-04; FU-7 switched embeddings to the local fastembed provider (EmbeddingGemma-2 int8, default) with Gemini kept selectable |
 | End-to-end job workflow (Ph 6) | 100% | Real LangGraph pipeline search→normalize→deduplicate→persist→match→rank over a dedicated Pydantic state (`src/graph/job_workflow.py`, `job_state.py`), executed by `run_job_search` with report/stats/degradation; **M1 verified live over HTTP 2026-10-11** |
-| Research + RAG (Ph 7) | ~40% | Real Chroma vector store done in WS-03 (`src/rag/chroma_store.py`, chromadb installed); `src/research/engine.py` remains a placeholder (WS-05) |
-| Tailoring + factuality (Ph 8) | ~75% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction; ATS analysis and DOCX output missing |
+| Research + RAG (Ph 7) | ~85% | Real Chroma vector store (WS-03) + a grounded research engine (WS-05: `src/research/engine.py` — listing facts verified by a deterministic grounding/injection filter); web research still deferred behind SSRF controls |
+| Tailoring + factuality (Ph 8) | ~95% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction, plus the WS-05 ATS analyzer (`src/resume/ats.py`), DOCX renderer (`src/resume/render.py`), persistence and `POST /api/tailor` |
 | Application workflow graph (Ph 2#3) | ~80% | Full LangGraph prepare→approval→submit→verify with evidence DB write; the most complete area |
 | Browser automation runtime (Ph 9) | ~25% | `src/applications/fake_ats_adapter.py` is real Playwright but fake-ATS-only; Greenhouse/Lever submit placeholders return `success=True` unconditionally |
 | Human approval gate (Ph 10) | ~40% | Fail-closed default, but approval is a single `approval: bool` flag on the submit request; no `SubmissionPolicy`, no approver identity |
@@ -45,7 +45,7 @@ New dependencies**.
 | Application tracking (Ph 12) | ~10% | `ApplicationEvidence` table only; no Application/ApplicationEvent lifecycle |
 | Evaluation (Ph 13) | 0% | No datasets, no metrics, no reports |
 | Runtime security controls (SEC-01…16) | ~10% | `src/security/allowlist.py` never called anywhere; substring host matching is spoofable; `PermissionRegistry` unwired |
-| API surface | M1 surface live | `/`, `/health`, `POST /api/applications/submit`, plus WS-04: `POST /api/resumes` (upload+validation), `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`; CORS middleware on; no auth (WS-06) |
+| API surface | M1 surface live | `/`, `/health`, `POST /api/applications/submit`, plus WS-04: `POST /api/resumes` (upload+validation), `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`; CORS middleware on; no auth (WS-06) |
 
 ## Guiding principles (from AGENTS.md — binding for every workstream)
 
@@ -70,7 +70,7 @@ M1  First real milestone (PROJECT_PLAN §42) — ✅ DONE 2026-10-11
     18 deduped / top-10 with real embeddings) → job detail → match history,
     surviving a server restart.
 
-M2  Tailoring complete (§43)
+M2  Tailoring complete (§43) — ✅ DONE 2026-10-21
     05 ATS analyzer + DOCX rendering + research engine
     Outcome: tailored, factuality-checked, ATS-scored DOCX per job.
 
