@@ -137,7 +137,7 @@ class LLMClient:
             response_format={
                 "type": "text",
                 "mime_type": "application/json",
-                "schema": schema.model_json_schema(),
+                "schema": strict_json_schema(schema),
             },
         )
         raw = interaction.output_text or ""
@@ -147,6 +147,30 @@ class LLMClient:
             raise LLMInvalidOutput(
                 f"LLM returned invalid JSON for {schema.__name__}: {exc}"
             ) from exc
+
+
+def strict_json_schema(schema: type[BaseModel]) -> dict:
+    """The JSON schema of a model with every property required and no defaults.
+
+    Pydantic marks fields that have a default (including ``default_factory``)
+    as optional in the JSON schema, and a provider that honours the schema
+    treats a non-required property as one it may simply leave out. The result
+    is silent data loss: a structured call can come back with a field the
+    caller asked for missing, and the Pydantic default quietly fills it in.
+
+    Requiring every property closes that hole — the provider has to emit the
+    whole object — while the model keeps its defaults for direct construction
+    in code and tests.
+    """
+    raw = schema.model_json_schema()
+    for definition in (raw, *raw.get("$defs", {}).values()):
+        properties = definition.get("properties")
+        if not properties:
+            continue
+        definition["required"] = list(properties)
+        for prop in properties.values():
+            prop.pop("default", None)
+    return raw
 
 
 _client: LLMClient | None = None
