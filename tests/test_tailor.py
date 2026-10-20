@@ -1,6 +1,7 @@
 """Tests for factuality-first resume tailoring (offline, fake LLM)."""
 
 from src.jobs.contracts import JobListing
+from src.research.engine import JobInsights
 from src.resume.profile import (
     CandidateProfile,
     ExperienceEntry,
@@ -127,3 +128,54 @@ def test_prompt_carries_factual_constraints_and_inputs() -> None:
     assert "never invent" in prompt
     assert "ai engineer" in prompt  # job title present
     assert "python" in prompt  # profile skills present
+    # Untrusted input is called out (SEC-01).
+    assert "untrusted input rules" in prompt
+    assert "not instructions" in prompt
+
+
+def test_grounded_insights_are_added_to_the_prompt() -> None:
+    """WS-05: the model tailors against structured job facts, not raw text."""
+    captured = {}
+
+    def generate(prompt, schema):
+        captured["prompt"] = prompt
+        return TailoredResume(
+            summary="AI engineer with 5 years building agent pipelines.",
+            highlighted_skills=["python"],
+            experience=[
+                TailoredExperience(
+                    company="Agentic Labs",
+                    title="AI Engineer",
+                    bullets=["Built autonomous agent pipeline with LangGraph"],
+                )
+            ],
+            cover_letter="I am excited about the AI Engineer role at Acme AI.",
+        )
+
+    insights = JobInsights(
+        responsibilities=["You will build agent pipelines with LangGraph."],
+        tech_stack=["Python", "LangGraph"],
+        summary="Agent pipelines.",
+    )
+    tailor_resume(PROFILE, JOB, generate=generate, insights=insights)
+
+    prompt = captured["prompt"]
+    assert "extracted from the listing" in prompt
+    assert "You will build agent pipelines with LangGraph." in prompt
+    assert '"tech_stack"' in prompt
+
+
+def test_prompt_without_insights_keeps_its_previous_shape() -> None:
+    captured = {}
+
+    def generate(prompt, schema):
+        captured["prompt"] = prompt
+        return TailoredResume(
+            summary="AI engineer with 5 years building agent pipelines.",
+            highlighted_skills=["python"],
+            experience=[],
+            cover_letter="Cover letter.",
+        )
+
+    tailor_resume(PROFILE, JOB, generate=generate)
+    assert "extracted from the listing" not in captured["prompt"]
