@@ -88,3 +88,20 @@ def test_unsupported_format_raises(tmp_path: Path) -> None:
 def test_missing_file_raises() -> None:
     with pytest.raises(ValueError, match="not found"):
         parse_resume("tests/fixtures/does_not_exist.docx")
+
+
+def test_website_is_not_taken_from_the_email_domain(tmp_path: Path) -> None:
+    """An address such as ahmad@example.com must not become the website."""
+    resume = tmp_path / "resume.txt"
+    resume.write_text(
+        "Ahmad Hassan\n"
+        "AI Engineer\n"
+        "ahmad@example.com | +49 30 1234567 | Berlin | ahmad.dev\n"
+        "\n"
+        "Professional Summary\n"
+        "AI engineer building agent systems.\n",
+        encoding="utf-8",
+    )
+    info = parse_resume(str(resume)).personal_information
+    assert info.email == "ahmad@example.com"
+    assert info.website == "ahmad.dev"

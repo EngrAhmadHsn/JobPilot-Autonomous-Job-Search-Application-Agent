@@ -124,7 +124,11 @@ def _parse_header(header: list[str]) -> dict:
             info["email"] = email.group(0)
         if phone := _PHONE_RE.search(line):
             info["phone"] = phone.group(0).strip()
-        if website := re.search(r"\b[\w.-]+\.(?:com|io|dev|net|org|me)\b", line):
+        # The email address is removed before the website is looked for: an
+        # address such as "ahmad@example.com" would otherwise be read as the
+        # candidate's website.
+        without_email = _EMAIL_RE.sub(" ", line)
+        if website := re.search(r"\b[\w.-]+\.(?:com|io|dev|net|org|me)\b", without_email):
             info["website"] = website.group(0)
     contact = next((line for line in header if _EMAIL_RE.search(line)), "")
     if contact:
