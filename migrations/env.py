@@ -29,13 +29,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from src.config.settings import get_settings
+
 # Import model modules so they register on Base.metadata before autogenerate.
 # New model modules added by later workstreams must be imported here too.
-import src.db.evidence
-import src.db.jobs
-import src.db.matches
-import src.db.profiles  # noqa: F401 (WS-04)
-from src.config.settings import get_settings
+from src.db import evidence, jobs, matches, profiles, tailored  # noqa: F401
 from src.db.base import Base
 from src.db.session import ensure_sqlite_parent_dir
 

@@ -82,6 +82,18 @@ JOB_MATCHES_COLUMNS = {
     "created_at",
 }
 
+TAILORED_RESUMES_COLUMNS = {
+    "id",
+    "profile_id",
+    "job_id",
+    "tailored",
+    "factuality",
+    "ats_report",
+    "insights",
+    "docx_path",
+    "created_at",
+}
+
 
 @pytest.fixture
 def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, str]:
@@ -113,6 +125,7 @@ def test_upgrade_head_creates_jobs_and_evidence(
         "application_evidence",
         "candidate_profiles",
         "job_matches",
+        "tailored_resumes",
         "alembic_version",
     } <= tables
 
@@ -135,6 +148,14 @@ def test_upgrade_head_creates_jobs_and_evidence(
         assert "ix_application_evidence_workflow_id" in evidence_indexes
         match_indexes = {ix["name"] for ix in inspector.get_indexes("job_matches")}
         assert {"ix_job_matches_profile_id", "ix_job_matches_job_id"} <= match_indexes
+        # WS-05 table.
+        tailored_cols = {col["name"] for col in inspector.get_columns("tailored_resumes")}
+        assert tailored_cols == TAILORED_RESUMES_COLUMNS
+        tailored_indexes = {ix["name"] for ix in inspector.get_indexes("tailored_resumes")}
+        assert {
+            "ix_tailored_resumes_profile_id",
+            "ix_tailored_resumes_job_id",
+        } <= tailored_indexes
     finally:
         engine.dispose()
 
@@ -148,6 +169,7 @@ def test_downgrade_base_removes_tables(migration_env: tuple[Config, str]) -> Non
     assert "application_evidence" not in tables
     assert "candidate_profiles" not in tables
     assert "job_matches" not in tables
+    assert "tailored_resumes" not in tables
 
 
 def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
@@ -159,6 +181,7 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "application_evidence",
             "candidate_profiles",
             "job_matches",
+            "tailored_resumes",
         } <= _table_names(url)
         command.downgrade(cfg, "base")
         assert not {
@@ -166,6 +189,7 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "application_evidence",
             "candidate_profiles",
             "job_matches",
+            "tailored_resumes",
         } & _table_names(url)
 
 
@@ -193,12 +217,16 @@ def test_json_columns_render_portably_on_sqlite(
     assert "CREATE TABLE application_evidence" in ddl
     assert "CREATE TABLE candidate_profiles" in ddl
     assert "CREATE TABLE job_matches" in ddl
+    assert "CREATE TABLE tailored_resumes" in ddl
     # JSON columns render as plain JSON, not dialect-specific types.
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
     assert re.search(r"\bmetadata\s+JSON", ddl)
     assert re.search(r"profile_json\s+JSON", ddl)
     assert re.search(r"scores\s+JSON", ddl)
+    assert re.search(r"tailored\s+JSON", ddl)
+    assert re.search(r"factuality\s+JSON", ddl)
+    assert re.search(r"ats_report\s+JSON", ddl)
 
 
 def test_json_columns_render_portably_on_postgres(
@@ -213,11 +241,14 @@ def test_json_columns_render_portably_on_postgres(
     assert "CREATE TABLE application_evidence" in ddl
     assert "CREATE TABLE candidate_profiles" in ddl
     assert "CREATE TABLE job_matches" in ddl
+    assert "CREATE TABLE tailored_resumes" in ddl
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
     assert re.search(r"\bmetadata\s+JSON", ddl)
     assert re.search(r"profile_json\s+JSON", ddl)
     assert re.search(r"scores\s+JSON", ddl)
+    assert re.search(r"tailored\s+JSON", ddl)
+    assert re.search(r"ats_report\s+JSON", ddl)
 
 
 def _import_app_subprocess(env_overrides: dict[str, str]) -> subprocess.CompletedProcess[str]:
