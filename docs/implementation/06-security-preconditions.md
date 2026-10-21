@@ -756,6 +756,16 @@ the API with uvicorn against a throwaway database, and runs the flow. **12/12 ch
 
 ## Follow-ups left for later workstreams
 
+- **The approval-status endpoint moved** (WS-07, 2026-10-21): `GET /api/applications/{id}`
+  is now the *tracked application*, so the approval record lives at
+  `GET /api/applications/approvals/{id}`. The WS-06 route, its test and
+  `scripts/verify_ws06.py` were updated in the same change. The two resources
+  could not share one path shape.
+- **The evidence row's `metadata` column was always NULL** (found and fixed in WS-07): the
+  submit node passed `metadata=` to a model whose attribute is `extra_metadata`, and
+  SQLAlchemy's constructor accepted it silently because `Base.metadata` exists as a class
+  attribute. The row was written; its metadata was lost. Fixed to `extra_metadata=`, with a
+  regression test.
 - **Malware scanning** of uploaded resumes is still open: the validator checks type, size and
   real-file structure, not content.
 - **SEC-15 (retention)**: resumes, evidence artifacts and audit rows are kept until the

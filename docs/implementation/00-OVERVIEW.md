@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01…05 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks); next: WS-07 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…05, WS-06, WS-07 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks); next: WS-08 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -42,10 +42,10 @@ New dependencies**.
 | Browser automation runtime (Ph 9) | ~40% | `src/applications/fake_ats_adapter.py` is real Playwright (evidence capture, allowlist re-check, CAPTCHA stop) but fake-ATS-only; the Greenhouse/Lever submit placeholders that returned `success=True` now raise `PermissionError` |
 | Human approval gate (Ph 10) | **100%** | Two-phase flow with a persisted decision: `POST /api/applications/prepare` → `ApprovalRequest` row → `POST /api/applications/{id}/approve` (or `/reject`) with an approver identity, reason and timestamp; `SubmissionPolicy` (`REQUIRE_APPROVAL` default, `AUTO_SUBMIT` unreachable); the in-graph approval node still fails closed |
 | Submission verification (Ph 11) | **100%** (fake ATS) | Confirmation-text verification **plus** evidence: screenshot, ordered action trace and the Playwright trace archive are captured and stored; the verify node downgrades a result whose artifacts are missing |
-| Application tracking (Ph 12) | ~10% | `ApplicationEvidence` table only; no Application/ApplicationEvent lifecycle (WS-07) |
-| Evaluation (Ph 13) | ~90% | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs), pure metrics module, one-command runner with a threshold gate; measured baseline in `docs/evaluations/` (extraction 1.00, dedup 1.00, nDCG@10 0.75, factuality agreement 1.00); system-level metrics wait for WS-07 tracking tables |
+| Application tracking (Ph 12) | **100%** | `Application` + `ApplicationEvent` tables (WS-07), a transition matrix with an actor rule (a human outcome is only settable by a human), the graph and the API wired to it, and a tracking API (list/detail/PATCH); live-verified 21/21 |
+| Evaluation (Ph 13) | ~90% | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs), pure metrics module, one-command runner with a threshold gate; measured baseline in `docs/evaluations/` (extraction 1.00, dedup 1.00, nDCG@10 0.75, factuality agreement 1.00); the system-level metrics can now be computed from the WS-07 tracking tables |
 | Runtime security controls (SEC-01…16) | **~75%** | Allowlist v2 with exact host matching + blocked internal hosts (enforced at the API, the browser and the adapter selection); live permission registry; two-phase approval; append-only audit events with secret/PII redaction; upload validation; CAPTCHA/MFA stop; prompt-injection filters. Still open: SEC-15 (retention), malware scanning, SEC-07 (session isolation), SEC-12 (PII inside stored resumes) |
-| API surface | M1 + WS-05 + WS-06 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/{id}` (the single-call `POST /api/applications/submit` is **removed**); CORS middleware on; no auth |
+| API surface | M1 + WS-05 + WS-06 + WS-07 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/approvals/{id}` (the single-call `POST /api/applications/submit` is **removed**), plus WS-07: `GET /api/applications`, `GET /api/applications/{id}`, `PATCH /api/applications/{id}/status`; CORS middleware on; no auth |
 
 ## Guiding principles (from AGENTS.md — binding for every workstream)
 
@@ -55,7 +55,7 @@ New dependencies**.
 4. **Security preconditions in `docs/SECURITY.md` §14 gate any real submission.** Workstream 06 is a hard gate before M5.
 5. **APIs and HTTP before browser automation**; browser automation only as a controlled fallback.
 6. **Every external action auditable; every submission verified with evidence before success is claimed.**
-7. **No dependencies without clear justification** — this roadmap adds exactly three: `chromadb`, `httpx` (explicit), `python-multipart` (FastAPI upload requirement). Everything else (retries, rate limiting, SSRF guards) is hand-rolled.
+7. **No dependencies without clear justification** — this roadmap adds `chromadb`, `httpx` (explicit), `python-multipart` (FastAPI upload requirement), `fastembed` (the local embedding provider) and `pytest-xdist` (the test-runner plugin the per-commit gate uses). Everything else (retries, rate limiting, SSRF guards) is hand-rolled.
 8. **Phase order respected** (`docs/PROJECT_PLAN.md` §41); the uncommitted modules (`src/graph/`, `src/jobs/`, `src/matching/`, …) are extended in place, never reverted.
 
 ## Milestone sequence
@@ -75,12 +75,14 @@ M2  Tailoring complete (§43) — ✅ DONE 2026-10-21
     Outcome: tailored, factuality-checked, ATS-scored DOCX per job.
 
 M3  Security preconditions + tracking (SECURITY.md §14)
-    06 allowlist v2 + approval flow + evidence + audit ─► 07 tracking   ✅ 06 DONE 2026-10-21
+    06 allowlist v2 + approval flow + evidence + audit ─► 07 tracking   ✅ 06 + 07 DONE 2026-10-21
     10 LLM hardening (retries, usage, rate limit)
     Outcome: submission path is fail-closed, approval-gated, evidence-backed.
     Submission still restricted to fake ATS.
     WS-06 verified live (scripts/verify_ws06.py): 12/12 checks against a real
     HTTP server and a real Chromium browser.
+    WS-07 verified live (scripts/verify_ws07.py): 21/21 checks — the whole
+    lifecycle is tracked, and the history survives a restart.
 
 M4  Depth + proof
     08 browser variants + adapter hardening ─► 09 evaluation harness
@@ -115,6 +117,7 @@ M5  Controlled live pilot + docs
 | `httpx` (explicit) | 02 | Async HTTP client for job-source adapters; already a transitive dependency via Starlette's TestClient — making it explicit is correction, not addition |
 | `python-multipart` | 04 | Required by FastAPI `UploadFile` for resume upload |
 | `fastembed>=0.9.0` | 04 (FU-7) | Local in-process embedding provider (EmbeddingGemma-2 int8 ONNX): removes the free-tier Gemini embedding quota entirely; adds only the wrapper plus ~300 MiB model weights (pattern-restricted download; onnxruntime + tokenizers already present via chromadb) |
+| `pytest-xdist>=3.8.0` | 07 | Test-runner plugin only — no runtime code. The suite runs in ~90 s serially and ~31 s with `-n 4`, and every commit in a workstream is gated on a green suite, so the gate is the cost centre. `pytest` and `ruff` are already project dependencies, so this follows the existing convention |
 
 Retries, backoff, rate limiting, SSRF guards, and audit sanitization are implemented by hand — no `tenacity`, no `slowapi`, per the no-unjustified-dependencies rule.
 
