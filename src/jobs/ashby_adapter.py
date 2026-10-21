@@ -31,7 +31,7 @@ import httpx
 from src.config.settings import get_settings
 from src.jobs.contracts import JobListing
 from src.jobs.http_client import SourceError, create_client, guarded_get
-from src.jobs.normalize import html_to_text
+from src.jobs.normalize import html_to_text, job_records
 from src.jobs.skills import extract_skills
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ class AshbyJobAdapter:
                 # also degrades per source, this degrades per board.
                 logger.warning("Ashby board %r unavailable: %s", org, exc)
                 continue
-            for job in payload.get("jobs") or []:
+            for job in job_records(payload):
                 listing = self._normalize(job, org)
                 if listing is not None and _matches_query(listing, tokens):
                     listings.append(listing)
@@ -199,7 +199,7 @@ class AshbyJobAdapter:
         except (SourceError, ValueError) as exc:
             logger.warning("Ashby board fetch failed while finding %r: %s", source_job_id, exc)
             return None
-        for job in payload.get("jobs") or []:
+        for job in job_records(payload):
             if str(job.get("id")) == source_job_id:
                 return self._normalize(job, org)
         return None

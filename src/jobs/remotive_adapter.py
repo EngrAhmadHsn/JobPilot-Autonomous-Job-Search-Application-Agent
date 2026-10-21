@@ -21,7 +21,7 @@ import httpx
 
 from src.jobs.contracts import JobListing
 from src.jobs.http_client import SourceError, create_client, guarded_get
-from src.jobs.normalize import html_to_text, normalize_publication_date
+from src.jobs.normalize import html_to_text, job_records, normalize_publication_date
 from src.jobs.skills import extract_skills
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class RemotiveJobAdapter:
             payload = response.json()
         except (SourceError, ValueError) as exc:
             raise SourceError(f"Remotive search failed for query {query!r}: {exc}") from exc
-        jobs = payload.get("jobs") or []
+        jobs = job_records(payload)
         listings = []
         for job in jobs:
             listing = self._normalize(job)
@@ -129,7 +129,7 @@ class RemotiveJobAdapter:
         except (SourceError, ValueError) as exc:
             logger.warning("Remotive board fetch failed while finding %r: %s", source_job_id, exc)
             return None
-        for job in payload.get("jobs") or []:
+        for job in job_records(payload):
             if str(job.get("id")) == source_job_id:
                 return self._normalize(job)
         return None

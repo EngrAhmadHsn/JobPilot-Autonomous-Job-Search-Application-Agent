@@ -70,6 +70,7 @@ from src.security.audit import (
     OUTCOME_SUCCESS,
     record_audit,
 )
+from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
 from src.security.policy import (
     AutoSubmitNotAllowed,
     PolicyError,
@@ -265,6 +266,33 @@ def prepare_application(
         ) from exc
 
     workflow_id = new_workflow_id()
+
+    # WS-12: the resume path is request-supplied and the browser layer
+    # uploads that file to a third-party job site. An uncontained path is
+    # therefore an exfiltration channel (point it at .env and the browser
+    # sends the secrets to an employer). It is checked here, at the
+    # boundary, so the browser layer can trust what it receives.
+    resume_path: str | None = None
+    if req.resume_path and req.resume_path.strip():
+        try:
+            resume_path = str(assert_within_allowed_roots(req.resume_path, what="resume path"))
+        except PathNotAllowedError as exc:
+            logger.warning("Rejected an application with an out-of-bounds resume path: %s", exc)
+            record_audit(
+                "allowlist.violation",
+                actor="api",
+                resource="resume_path",
+                outcome=OUTCOME_DENIED,
+                metadata={"reason": str(exc)},
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # WS-12: the custom fields are an unbounded, unvalidated dict that is
+    # merged straight into the payload the adapter submits. The count and
+    # the value length are bounded here so a request cannot carry a
+    # megabyte of form data into a submission.
+    custom_fields = _validated_custom_fields(req.custom_fields)
+
     app_request = ApplicationRequest(
         job_title=req.job_title,
         company_name=req.company_name,
@@ -272,9 +300,9 @@ def prepare_application(
         candidate_name=req.candidate_name,
         email=req.email,
         phone=req.phone,
-        resume_path=req.resume_path,
+        resume_path=resume_path,
         cover_letter=req.cover_letter,
-        custom_fields=req.custom_fields,
+        custom_fields=custom_fields,
         # WS-08: the grounded facts come from the **stored profile**, never
         # from the request body. A question the candidate's document does not
         # answer stays unanswered.
@@ -336,6 +364,50 @@ def prepare_application(
         ),
         application_id=application_id,
     )
+
+
+def _validated_custom_fields(custom_fields: dict) -> dict[str, str]:
+    """Validate and bound the request-supplied custom form fields.
+
+    WS-12: these fields are merged straight into the payload the adapter
+    submits, so they were an unbounded, unvalidated dictionary — a request
+    could carry a megabyte of form data, or a non-string value, into a
+    submission. The count, the value length, and the value type are all
+    bounded here.
+
+    Raises:
+        HTTPException 400: The fields exceed the limits or carry a value
+            that is not a string.
+    """
+    from src.security.limits import get_limits
+
+    limits = get_limits()
+    if not custom_fields:
+        return {}
+    if len(custom_fields) > limits.max_custom_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"At most {limits.max_custom_fields} custom fields are allowed",
+        )
+    validated: dict[str, str] = {}
+    for key, value in custom_fields.items():
+        name = str(key)
+        if not name.strip():
+            raise HTTPException(status_code=400, detail="A custom field name may not be empty")
+        if not isinstance(value, str):
+            raise HTTPException(
+                status_code=400,
+                detail=f"The custom field {name!r} must be a string",
+            )
+        if len(value) > limits.max_custom_field_chars:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"The custom field {name!r} exceeds {limits.max_custom_field_chars} characters"
+                ),
+            )
+        validated[name] = value
+    return validated
 
 
 def _profile_facts(db: Session, profile_id: str | None) -> dict[str, str]:

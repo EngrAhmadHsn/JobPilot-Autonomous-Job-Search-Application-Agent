@@ -146,12 +146,20 @@ def is_local_host(url: str) -> bool:
     return host in _LOCAL_HOSTS or host.endswith(".localhost")
 
 
-def _is_forbidden_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """True when the address must never be contacted."""
+def is_forbidden_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when the address must never be contacted.
+
+    The single predicate for "this address is internal". WS-12: the
+    job-source HTTP client used to keep its own copy of this rule, and the
+    two copies had drifted — this one refuses CGNAT and multicast
+    addresses, that one did not. The public name is the fix: there is now
+    one implementation, and a second caller cannot get a weaker version
+    by accident.
+    """
     # An IPv4-mapped IPv6 address (::ffff:10.0.0.1) is judged by its embedded
     # IPv4 address, or the private v4 ranges could be smuggled in.
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        return _is_forbidden_ip(ip.ipv4_mapped)
+        return is_forbidden_ip(ip.ipv4_mapped)
     if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_reserved:
         return True
     if ip.is_multicast:
@@ -161,6 +169,10 @@ def _is_forbidden_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             return True
         return ip.is_private  # RFC 1918: 10/8, 172.16/12, 192.168/16
     return ip.is_private  # IPv6 unique-local fc00::/7 and friends
+
+
+#: The private alias kept for the in-module callers.
+_is_forbidden_ip = is_forbidden_ip
 
 
 def is_blocked_host(url: str) -> bool:

@@ -54,15 +54,55 @@ def _read_capped(file: UploadFile) -> bytes:
 
 
 def _validate_docx(payload: bytes) -> None:
-    """A DOCX must be a real ZIP that python-docx can open."""
+    """A DOCX must be a real ZIP that python-docx can open.
+
+    WS-12: the 5 MB cap is on the **compressed** upload, so a small file
+    can still expand into gigabytes — the classic zip bomb. The archive's
+    *uncompressed* total and its entry count are therefore checked before
+    the document is opened, and a bomb is refused with the same 400 as any
+    other malformed upload.
+    """
     if not zipfile.is_zipfile(io.BytesIO(payload)):
         raise UploadValidationError("The uploaded .docx is not a valid Office document")
+
+    _assert_not_a_zip_bomb(payload)
+
     try:
         from docx import Document
 
         Document(io.BytesIO(payload))
     except Exception as exc:
         raise UploadValidationError("The uploaded .docx could not be opened") from exc
+
+
+def _assert_not_a_zip_bomb(payload: bytes) -> None:
+    """Refuse an archive whose uncompressed size or entry count is absurd.
+
+    The numbers come from the ZIP central directory, so they are known
+    **before** a single byte is decompressed — the whole point of checking
+    them here rather than after extraction.
+    """
+    from src.security.limits import get_limits
+
+    limits = get_limits()
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            entries = archive.infolist()
+    except zipfile.BadZipFile as exc:
+        raise UploadValidationError("The uploaded .docx is not a valid Office document") from exc
+
+    if len(entries) > limits.max_zip_entries:
+        raise UploadValidationError(
+            f"The uploaded .docx contains {len(entries)} entries, over the "
+            f"{limits.max_zip_entries} limit"
+        )
+
+    total = sum(entry.file_size for entry in entries)
+    if total > limits.max_upload_uncompressed_bytes:
+        raise UploadValidationError(
+            f"The uploaded .docx expands to {total} bytes, over the "
+            f"{limits.max_upload_uncompressed_bytes} byte limit"
+        )
 
 
 def _validate_text(payload: bytes) -> None:

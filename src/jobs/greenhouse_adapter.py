@@ -23,7 +23,7 @@ import httpx
 from src.config.settings import get_settings
 from src.jobs.contracts import JobListing
 from src.jobs.http_client import SourceError, create_client, guarded_get
-from src.jobs.normalize import html_to_text
+from src.jobs.normalize import html_to_text, job_records
 from src.jobs.skills import split_required_preferred
 
 logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ class GreenhouseJobAdapter:
                 # degrades per source, this degrades per board.
                 logger.warning("Greenhouse board %r unavailable: %s", token, exc)
                 continue
-            for job in payload.get("jobs") or []:
+            for job in job_records(payload):
                 listing = self._normalize(job, token)
                 if listing is not None and _matches_query(listing, tokens):
                     listings.append(listing)
@@ -204,7 +204,7 @@ class GreenhouseJobAdapter:
             except (SourceError, ValueError) as exc:
                 logger.warning("Greenhouse board %r unavailable: %s", token, exc)
                 continue
-            jobs = payload.get("jobs") or []
+            jobs = job_records(payload)
             survivors = [
                 job
                 for job in jobs
