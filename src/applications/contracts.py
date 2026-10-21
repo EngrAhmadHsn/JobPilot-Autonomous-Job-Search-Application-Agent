@@ -17,6 +17,10 @@ class ApplicationRequest(BaseModel):
     resume_path: str | None = None
     cover_letter: str | None = None
     custom_fields: dict[str, str] = Field(default_factory=dict)
+    # WS-08: the grounded facts derived from the candidate's parsed profile.
+    # They are what a form question may be answered *from*; they are never
+    # invented by the agent.
+    profile_facts: dict[str, str] = Field(default_factory=dict)
 
 
 class PreparedApplication(BaseModel):
@@ -29,6 +33,9 @@ class PreparedApplication(BaseModel):
     # The workflow this payload belongs to (WS-06). The evidence artifacts
     # are named after it, and the approval record carries it.
     workflow_id: str | None = None
+    # WS-08: the grounded profile facts this payload may answer a form
+    # question with.
+    profile_facts: dict[str, str] = Field(default_factory=dict)
 
 
 class SubmissionEvidence(BaseModel):
