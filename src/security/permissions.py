@@ -12,6 +12,7 @@ so the capability matrix can be reviewed as a whole.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import Enum
 
 
@@ -31,11 +32,29 @@ class PermissionRegistry:
     def __init__(self) -> None:
         self._permissions: dict[str, set[CapabilityLevel]] = {}
 
-    def register(self, adapter_name: str, levels: list[CapabilityLevel]):
+    def register(self, adapter_name: str, levels: Iterable[CapabilityLevel]) -> None:
+        """Grant *levels* to *adapter_name* (replacing any previous grant)."""
         self._permissions[adapter_name] = set(levels)
 
-    def can_submit(self, adapter_name: str) -> bool:
-        return CapabilityLevel.SUBMIT in self._permissions.get(adapter_name, set())
+    def capabilities(self, adapter_name: str) -> frozenset[CapabilityLevel]:
+        """The capabilities granted to *adapter_name* (empty when unknown)."""
+        return frozenset(self._permissions.get(adapter_name, set()))
+
+    def can(self, adapter_name: str, capability: CapabilityLevel) -> bool:
+        """True when *adapter_name* holds *capability*."""
+        return capability in self._permissions.get(adapter_name, set())
 
     def can_read(self, adapter_name: str) -> bool:
-        return CapabilityLevel.READ in self._permissions.get(adapter_name, set())
+        return self.can(adapter_name, CapabilityLevel.READ)
+
+    def can_search(self, adapter_name: str) -> bool:
+        return self.can(adapter_name, CapabilityLevel.SEARCH)
+
+    def can_prepare(self, adapter_name: str) -> bool:
+        return self.can(adapter_name, CapabilityLevel.PREPARE)
+
+    def can_submit(self, adapter_name: str) -> bool:
+        return self.can(adapter_name, CapabilityLevel.SUBMIT)
+
+    def can_verify(self, adapter_name: str) -> bool:
+        return self.can(adapter_name, CapabilityLevel.VERIFY)
