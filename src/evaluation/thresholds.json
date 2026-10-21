@@ -1,16 +1,38 @@
 {
-  "extraction.field_accuracy": 0.95,
-  "extraction.skills_f1": 0.85,
-  "extraction.summary_coverage": 0.9,
-  "extraction.experience_precision": 0.9,
-  "extraction.experience_recall": 0.9,
-  "extraction.education_precision": 0.9,
-  "extraction.education_recall": 0.9,
-  "dedup.precision": 0.98,
-  "dedup.recall": 0.9,
-  "ranking.ndcg_at_10": 0.6,
-  "ranking.precision_at_5": 0.4,
-  "tailoring.factuality_agreement": 0.9,
-  "tailoring.violation_recall": 0.9,
-  "ats.coverage_delta": 0.0
+  "min": {
+    "extraction.field_accuracy": 0.95,
+    "extraction.skills_f1": 0.85,
+    "extraction.summary_coverage": 0.9,
+    "extraction.experience_precision": 0.9,
+    "extraction.experience_recall": 0.9,
+    "extraction.education_precision": 0.9,
+    "extraction.education_recall": 0.9,
+    "dedup.precision": 0.98,
+    "dedup.recall": 0.9,
+    "ranking.ndcg_at_10": 0.6,
+    "ranking.precision_at_5": 0.4,
+    "ranking.recall_at_10": 0.5,
+    "tailoring.factuality_agreement": 0.9,
+    "tailoring.violation_recall": 0.9,
+    "relevance.job_relevance": 0.9
+  },
+  "max": {
+    "ranking.false_positive_rate": 0.35,
+    "ranking.false_negative_rate": 0.85,
+    "relevance.hallucination_rate": 0.1
+  },
+  "system": {
+    "min": {
+      "system.successful_rate": 0.3,
+      "system.verification_rate": 1.0,
+      "system.lifecycle_fidelity": 1.0
+    },
+    "max": {
+      "system.incorrect_submission_rate": 0.0,
+      "system.human_intervention_rate": 0.5,
+      "browser.form_completion_rate": 0.3,
+      "browser.navigation_failure_rate": 0.0,
+      "browser.verification_success_rate": 1.0
+    }
+  }
 }
