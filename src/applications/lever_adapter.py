@@ -11,6 +11,7 @@ from src.applications.contracts import (
     PreparedApplication,
     SubmissionEvidence,
 )
+from src.security.allowlist import host_matches_domain
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,9 @@ class LeverAdapter(ApplicationAdapter):
     name = "lever"
 
     def supports_url(self, url: str) -> bool:
-        return "lever.co" in url or "lever" in url
+        # Exact host matching (WS-06 · SEC-06): a substring test would let
+        # "notlever.co.attacker.com" select this adapter.
+        return host_matches_domain(url, "lever.co")
 
     def prepare(self, request: ApplicationRequest) -> PreparedApplication:
         fields = {
@@ -40,6 +43,7 @@ class LeverAdapter(ApplicationAdapter):
         )
 
     def submit(self, prepared: PreparedApplication) -> ApplicationResult:
+        # Placeholder: real implementation would POST to the board endpoint
         logger.info("Lever submit called (placeholder)")
         return ApplicationResult(
             success=True,

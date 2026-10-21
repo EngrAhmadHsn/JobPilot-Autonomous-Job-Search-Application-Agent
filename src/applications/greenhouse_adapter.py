@@ -11,6 +11,7 @@ from src.applications.contracts import (
     PreparedApplication,
     SubmissionEvidence,
 )
+from src.security.allowlist import host_matches_domain
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,9 @@ class GreenhouseAdapter(ApplicationAdapter):
     name = "greenhouse"
 
     def supports_url(self, url: str) -> bool:
-        return "greenhouse.io" in url or "greenhouse" in url
+        # Exact host matching (WS-06 · SEC-06): a substring test would let
+        # "evil-greenhouse.io.attacker.com" select this adapter.
+        return host_matches_domain(url, "greenhouse.io")
 
     def prepare(self, request: ApplicationRequest) -> PreparedApplication:
         fields = {
@@ -44,7 +47,7 @@ class GreenhouseAdapter(ApplicationAdapter):
         )
 
     def submit(self, prepared: PreparedApplication) -> ApplicationResult:
-        # Placeholder: real implementation would POST to Greenhouse endpoint
+        # Placeholder: real implementation would POST to the board endpoint
         logger.info("Greenhouse submit called (placeholder)")
         return ApplicationResult(
             success=True,
