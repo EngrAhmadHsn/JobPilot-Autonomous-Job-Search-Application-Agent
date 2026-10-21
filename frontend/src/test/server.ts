@@ -3,6 +3,7 @@ import { setupServer } from "msw/node"
 
 import {
   applicationDetail,
+  applicationEvidence,
   applicationList,
   approvalDecision,
   healthResponse,
@@ -97,6 +98,9 @@ export const server = setupServer(
 
   http.get(`${BASE}/api/applications`, () =>
     HttpResponse.json(applicationList())
+  ),
+  http.get(`${BASE}/api/applications/:applicationId/evidence`, () =>
+    HttpResponse.json(applicationEvidence())
   ),
   http.get(`${BASE}/api/applications/:applicationId`, () =>
     HttpResponse.json(applicationDetail())

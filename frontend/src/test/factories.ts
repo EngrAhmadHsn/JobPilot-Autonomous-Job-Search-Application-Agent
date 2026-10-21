@@ -316,6 +316,21 @@ export function applicationDetail(): ApplicationDetail {
   }
 }
 
+export function applicationEvidence() {
+  return {
+    evidence: [
+      {
+        confirmation_text: "Application submitted",
+        status: "submitted",
+        screenshot_path: "./data/evidence/workflow-1.png",
+        trace_path: "workflow-1.trace.json",
+        job_url: "http://127.0.0.1:8901/basic",
+        recorded_at: "2026-10-21T10:05:00Z",
+      },
+    ],
+  }
+}
+
 export function refreshResponse(): JobRefreshResponse {
   return {
     stats: {

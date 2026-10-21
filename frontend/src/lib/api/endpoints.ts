@@ -13,6 +13,7 @@
 import { request } from "./client"
 import type {
   ApplicationDetail,
+  ApplicationEvidenceRecord,
   ApplicationList,
   ApplicationPrepareRequest,
   ApplicationPrepareResponse,
@@ -190,6 +191,13 @@ export const api = {
         signal,
         timeoutMs: 60_000,
       }
+    ),
+
+  /** The evidence records of one tracked application. */
+  listApplicationEvidence: (applicationId: string, signal?: AbortSignal) =>
+    request<{ evidence: ApplicationEvidenceRecord[] }>(
+      `/api/applications/${encodeURIComponent(applicationId)}/evidence`,
+      { signal, timeoutMs: 30_000 }
     ),
 
   /** Run the decoupled corpus refresh (boards → normalize → persist → embed). */

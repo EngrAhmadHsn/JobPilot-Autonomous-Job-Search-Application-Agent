@@ -130,6 +130,22 @@ export type TailoredResume = DeepRequired<
   components["schemas"]["TailoredResume"]
 >
 export type ValidationIssue = components["schemas"]["ValidationError"]
+
+/**
+ * One evidence record of a tracked application.
+ *
+ * The evidence rows are not part of the tracking API's schema (they are
+ * read through the artifact endpoint), so this shape is written here, next
+ * to the generated ones, with the reason.
+ */
+export interface ApplicationEvidenceRecord {
+  confirmation_text: string | null
+  status: string
+  screenshot_path: string | null
+  trace_path: string | null
+  job_url: string
+  recorded_at: string | null
+}
 export type WorkPreferences = DeepRequired<
   components["schemas"]["WorkPreferences"]
 >

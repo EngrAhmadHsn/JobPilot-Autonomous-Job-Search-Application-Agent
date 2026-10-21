@@ -7,6 +7,7 @@ import { MatchesScreen } from "@/screens/matches-screen"
 import { ApprovalsScreen } from "@/screens/approvals-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
 import { TailorIndexScreen, TailorJobScreen } from "@/screens/tailor-screen"
+import { TrackerDetailScreen, TrackerScreen } from "@/screens/tracker-screen"
 
 /**
  * The console's routes.
@@ -46,11 +47,11 @@ export const routes: RouteObject[] = [
       },
       {
         path: "tracker",
-        element: <Placeholder title="Tracker" phase="F" />,
+        element: <TrackerScreen />,
       },
       {
         path: "tracker/:applicationId",
-        element: <Placeholder title="Tracker" phase="F" />,
+        element: <TrackerDetailScreen />,
       },
       {
         path: "operations",
