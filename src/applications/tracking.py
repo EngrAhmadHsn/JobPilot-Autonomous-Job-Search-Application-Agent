@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from src.db.applications import ApplicationDB, ApplicationEventDB, build_application_row
 from src.db.jobs import JobDB
+from src.db.users import LEGACY_OWNER_ID
 from src.security.audit import (
     ACTION_TRACKING_EVENT,
     ACTION_TRANSITION,
@@ -202,6 +203,7 @@ def record_event(
     application_id: str,
     event_type: str,
     *,
+    owner_id: str = LEGACY_OWNER_ID,
     actor: str,
     from_status: ApplicationStatus | str | None = None,
     to_status: ApplicationStatus | str | None = None,
@@ -228,6 +230,7 @@ def record_event(
         The stored event row.
     """
     event = ApplicationEventDB(
+        owner_id=owner_id,
         application_id=application_id,
         event_type=event_type,
         actor=actor,
@@ -319,6 +322,10 @@ def transition(
         app.application_url = application_url
 
     event = ApplicationEventDB(
+        # The event belongs to the same owner as the application it
+        # records, so it is read from the row rather than taken as a
+        # parameter that could disagree with it.
+        owner_id=app.owner_id,
         application_id=app.id,
         event_type=event_type,
         actor=actor,
@@ -407,6 +414,7 @@ def ensure_job_row(
 def create_application(
     db: Session,
     *,
+    owner_id: str = LEGACY_OWNER_ID,
     workflow_id: str,
     adapter_name: str,
     job_url: str,
@@ -459,6 +467,7 @@ def create_application(
         db,
         row.id,
         EVENT_APPLICATION_CREATED,
+        owner_id=owner_id,
         actor=AGENT_ACTOR,
         to_status=status,
         metadata={

@@ -31,6 +31,7 @@ from src.applications.tracking import (
     record_event,
     transition,
 )
+from src.db.users import LEGACY_OWNER_ID
 from src.evaluation.browser import browser_scores
 from src.evaluation.scenarios import Scenario, ScenarioSet, find_by_workflow, read_runs
 from src.evaluation.systems import system_scores
@@ -111,6 +112,7 @@ def run_scenarios(
 
         application = create_application(
             session,
+            owner_id=LEGACY_OWNER_ID,
             workflow_id=workflow_id,
             adapter_name=adapter.name,
             job_url=request.job_url,
@@ -142,6 +144,7 @@ def run_scenarios(
             session,
             application.id,
             EVENT_APPROVAL_GRANTED,
+            owner_id=LEGACY_OWNER_ID,
             actor=human_actor(scenario.approver),
             metadata={"reason": "approved for evaluation", "scenario": scenario.id},
         )

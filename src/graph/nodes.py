@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from src.applications.contracts import ApplicationResult
 from src.applications.evidence import missing_evidence_files
 from src.db.evidence import ApplicationEvidence
+from src.db.users import LEGACY_OWNER_ID
 from src.security.registry_setup import get_registry
 
 if TYPE_CHECKING:
@@ -333,6 +334,7 @@ def _record_submission(
             tracking_session,
             app_row.id,
             EVENT_EVIDENCE_RECORDED,
+            owner_id=LEGACY_OWNER_ID,
             actor=AGENT_ACTOR,
             metadata={
                 "evidence_id": evidence_record.id if evidence_record is not None else None,

@@ -38,6 +38,7 @@ from src.applications.tracking import (
 )
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,7 @@ def prepare_scenario(
 
     application = create_application(
         session,
+        owner_id=LEGACY_OWNER_ID,
         workflow_id=workflow_id,
         adapter_name="fake-ats-playwright",
         job_url=request.job_url,

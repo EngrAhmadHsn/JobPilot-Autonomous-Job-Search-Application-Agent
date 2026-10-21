@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.db.audit import AuditEventDB
+from src.db.users import LEGACY_OWNER_ID
 from src.security.redaction import sanitize_metadata
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,10 @@ class AuditEvent(BaseModel):
 
     id: int | None = None
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    #: The principal the row belongs to (WS-13 · A0). An audit row is
+    #: user data like any other: it is readable only by its owner (and by
+    #: the platform's audit view).
+    owner_id: str = LEGACY_OWNER_ID
     actor: str
     action: str
     resource: str
@@ -80,6 +85,7 @@ def _write_row(event: AuditEvent, session: Session | None) -> int | None:
         session = SessionLocal()
     try:
         row = AuditEventDB(
+            owner_id=event.owner_id,
             actor=event.actor,
             action=event.action,
             resource=event.resource,
@@ -101,6 +107,7 @@ def record_audit(
     actor: str,
     resource: str,
     outcome: str,
+    owner_id: str = LEGACY_OWNER_ID,
     metadata: dict[str, Any] | None = None,
     workflow_id: str | None = None,
     session: Session | None = None,
@@ -126,6 +133,7 @@ def record_audit(
         still returned (and still logged).
     """
     event = AuditEvent(
+        owner_id=owner_id,
         actor=actor,
         action=action,
         resource=resource,
