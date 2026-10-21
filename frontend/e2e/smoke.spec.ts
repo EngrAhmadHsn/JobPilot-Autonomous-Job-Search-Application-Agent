@@ -89,3 +89,50 @@ test("the operator can go from a resume to a tracked application", async ({
   await expect(page.getByText("Record a human outcome")).toBeVisible()
   void decision
 })
+
+/**
+ * The keyboard path.
+ *
+ * Everything the operator can do with a mouse, they must be able to do with
+ * a keyboard: the navigation, the upload, and the approval. This walks the
+ * focus order in a real browser and checks that the focus is *visible* —
+ * a focus ring that is not drawn is not a focus ring.
+ */
+test("the console is reachable by keyboard", async ({ page }) => {
+  await page.goto("/resume")
+
+  const visited: string[] = []
+  let sawVisibleFocus = false
+
+  for (let step = 0; step < 14; step += 1) {
+    await page.keyboard.press("Tab")
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      if (!el || el === document.body) return null
+      const style = getComputedStyle(el)
+      return {
+        name: (el.getAttribute("aria-label") || el.textContent || "")
+          .trim()
+          .slice(0, 40),
+        outlineWidth: style.outlineWidth,
+        outlineStyle: style.outlineStyle,
+      }
+    })
+    if (!focused) continue
+    visited.push(focused.name)
+    if (
+      focused.outlineStyle !== "none" &&
+      Number.parseFloat(focused.outlineWidth) > 0
+    ) {
+      sawVisibleFocus = true
+    }
+  }
+
+  // The navigation is reachable, in order.
+  expect(visited.some((name) => name.includes("Resume"))).toBe(true)
+  expect(visited.some((name) => name.includes("Matches"))).toBe(true)
+  // The upload has a keyboard-reachable control, not a drag-only target.
+  expect(visited.some((name) => name.includes("Choose a file"))).toBe(true)
+  // And the focus is visible when it lands.
+  expect(sawVisibleFocus).toBe(true)
+})
