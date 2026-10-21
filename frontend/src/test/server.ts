@@ -8,6 +8,7 @@ import {
   healthResponse,
   jobDetail,
   jobSearchResponse,
+  matchesHistory,
   profileResponse,
   refreshResponse,
   resumeUploadResponse,
@@ -43,7 +44,7 @@ export const server = setupServer(
   ),
   http.get(`${BASE}/api/jobs/:jobId`, () => HttpResponse.json(jobDetail())),
   http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
-    HttpResponse.json({ profile_id: "profile-1", matches: [] })
+    HttpResponse.json(matchesHistory())
   ),
 
   http.post(`${BASE}/api/tailor`, () => HttpResponse.json(tailorResponse())),

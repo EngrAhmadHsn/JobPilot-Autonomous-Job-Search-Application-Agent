@@ -3,6 +3,8 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { afterAll, afterEach, beforeAll, vi } from "vitest"
 
+import { setCurrentProfileId } from "@/lib/profile"
+
 import { server } from "./server"
 
 /**
@@ -20,6 +22,9 @@ afterEach(() => {
   cleanup()
   server.resetHandlers()
   window.localStorage.clear()
+  // The current profile lives in a module-level store; it has to be reset
+  // explicitly, or a test would inherit the previous test's profile.
+  setCurrentProfileId(null)
 })
 
 afterAll(() => {

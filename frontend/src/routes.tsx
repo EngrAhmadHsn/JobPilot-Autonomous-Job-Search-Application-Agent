@@ -2,6 +2,8 @@ import { Navigate, type RouteObject } from "react-router-dom"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { Placeholder } from "@/screens/placeholder"
+import { JobDetailScreen } from "@/screens/job-detail-screen"
+import { MatchesScreen } from "@/screens/matches-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
 
 /**
@@ -22,11 +24,11 @@ export const routes: RouteObject[] = [
       },
       {
         path: "matches",
-        element: <Placeholder title="Matches" phase="C" />,
+        element: <MatchesScreen />,
       },
       {
         path: "matches/:jobId",
-        element: <Placeholder title="Job detail" phase="C" />,
+        element: <JobDetailScreen />,
       },
       {
         path: "tailor",

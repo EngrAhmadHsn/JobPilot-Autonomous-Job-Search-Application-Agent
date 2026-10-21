@@ -153,6 +153,32 @@ export function jobDetail() {
   return { job: jobListing() }
 }
 
+export function matchesHistory() {
+  return {
+    profile_id: "profile-1",
+    matches: [
+      {
+        profile_id: "profile-1",
+        job_id: "greenhouse:1",
+        scores: {
+          overall_score: 82.5,
+          semantic_score: 80,
+          skill_score: 90,
+          experience_score: 75,
+          seniority_score: 80,
+          location_score: 100,
+          preference_score: 70,
+          missing_requirements: ["Kubernetes"],
+          matched_requirements: ["Python", "SQL"],
+        },
+        explanation:
+          "The profile states Python and SQL, which the listing asks for.",
+        created_at: "2026-10-21T10:00:00Z",
+      },
+    ],
+  }
+}
+
 export function tailorResponse(
   overrides: Partial<TailorResponse> = {}
 ): TailorResponse {

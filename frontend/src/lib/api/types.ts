@@ -67,9 +67,15 @@ export type Health =
   operations["health_check_api_health_get"]["responses"][200]["content"]["application/json"]
 export type JobInsights = DeepRequired<components["schemas"]["JobInsights"]>
 export type JobListing = DeepRequired<components["schemas"]["JobListing"]>
-/** `GET /api/jobs/{id}` answers with the listing wrapped in an envelope. */
-export type JobDetail =
-  operations["get_job_api_jobs__job_id__get"]["responses"][200]["content"]["application/json"]
+/**
+ * `GET /api/jobs/{id}` answers with the listing wrapped in an envelope.
+ *
+ * The route declares no response model, so the OpenAPI schema describes the
+ * body as "anything" and the generated type is `unknown`. This is the one
+ * shape in the console that is written by hand, and it is written here, next
+ * to the generated ones, with the reason.
+ */
+export type JobDetail = { job: JobListing }
 export type JobMatchPair = DeepRequired<components["schemas"]["JobMatchPair"]>
 export type JobMatchResult = DeepRequired<
   components["schemas"]["JobMatchResult"]

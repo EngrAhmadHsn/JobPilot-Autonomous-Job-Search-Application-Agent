@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
 
 import { ResumeScreen } from "@/screens/resume-screen"
-import { getCurrentProfileId } from "@/lib/profile"
+import { getCurrentProfileId, setCurrentProfileId } from "@/lib/profile"
 import { server } from "@/test/server"
 import { renderScreen } from "@/test/render"
 
@@ -83,7 +83,7 @@ describe("the resume screen", () => {
   })
 
   it("shows the parsed profile of the current profile", async () => {
-    window.localStorage.setItem("aja.currentProfileId", "profile-1")
+    setCurrentProfileId("profile-1")
     renderScreen(<ResumeScreen />)
 
     await waitFor(() => {
