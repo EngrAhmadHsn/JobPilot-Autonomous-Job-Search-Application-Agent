@@ -30,7 +30,7 @@ Authoritative planning documents: `docs/PROJECT_PLAN.md`, `docs/ARCHITECTURE.md`
 - Every application submission must be verifiable with evidence before success is claimed.
 - Preserve auditability and explainability of decisions.
 - Do not add dependencies without clear justification.
-- Do not implement frontend frameworks in this repository iteration.
+- A frontend is now in scope, but only as the workstream WS-13 defines: a React operator console in `/frontend` (its own package, its own toolchain) talking to the existing API over HTTP. The runtime backend stays in `src/` and is not restructured — see `docs/implementation/13-frontend.md`. Do not add a frontend framework, a second UI surface, or a second API beyond what that document specifies.
 - Keep runtime application code separate from development-time agent tooling (`.cursor`, `.zcode`, MCP servers, hooks, skills).
 
 ## Development-time vs runtime
