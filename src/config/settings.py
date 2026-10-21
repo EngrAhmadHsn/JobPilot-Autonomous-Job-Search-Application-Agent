@@ -186,6 +186,13 @@ class Settings:
         # account could never be created and the API would be unusable.
         # A production deployment that sends mail turns it on.
         self.auth_require_verified = os.getenv("AUTH_REQUIRE_VERIFIED", "false").lower() == "true"
+        # Where the password-reset and verification tokens are delivered
+        # until a deployment adds an SMTP provider (see
+        # ``src/auth/delivery.py``). It is a directory of files, not a
+        # log and not the database.
+        self.auth_token_mailbox_dir = os.getenv("AUTH_TOKEN_MAILBOX_DIR", "") or str(
+            Path(self.data_dir) / "outbound"
+        )
         # Whether the first registered account may claim the rows that
         # pre-date the identity work (the ``legacy`` owner). On by default:
         # that is how an operator's existing corpus reaches the operator's

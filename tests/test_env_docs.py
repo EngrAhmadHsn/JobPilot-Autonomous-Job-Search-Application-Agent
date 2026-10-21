@@ -124,6 +124,7 @@ SETTINGS_VAR_TO_ATTR = {
     "AUTH_SESSION_TTL_SECONDS": "auth_session_ttl_seconds",
     "AUTH_REQUIRE_VERIFIED": "auth_require_verified",
     "AUTH_CLAIM_LEGACY": "auth_claim_legacy",
+    "AUTH_TOKEN_MAILBOX_DIR": "auth_token_mailbox_dir",
 }
 
 # The same, for the WS-12 runtime limits.
@@ -163,6 +164,9 @@ NOT_A_DEFAULT = {
 SPECIAL_DEFAULTS = {
     "PLAYWRIGHT_HEADLESS",  # compared against launch_options()
     "FASTEMBED_CACHE_PATH",  # derived from DATA_DIR in src/llm/embeddings.py
+    # Derived from DATA_DIR in src/config/settings.py, like the fastembed
+    # cache above.
+    "AUTH_TOKEN_MAILBOX_DIR",
     "EMBEDDING_MODEL",  # provider-dependent; documented as a commented example
 }
 

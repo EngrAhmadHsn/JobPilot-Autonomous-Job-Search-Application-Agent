@@ -108,6 +108,11 @@ def _login_token(client: TestClient, email: str, password: str = PASSWORD) -> st
     return response.json()["access_token"]
 
 
+def _as(token: str) -> dict[str, str]:
+    """The authorization header for a bearer token."""
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _csrf_headers(client: TestClient) -> dict[str, str]:
     """The header the double-submit check expects on an unsafe request.
 
@@ -440,6 +445,102 @@ def _login_token_or_none(api: TestClient, email: str) -> str | None:
     if response.status_code != 200:
         return None
     return response.json()["access_token"]
+
+
+# -- the session lifecycle (WS-14 · A3) ----------------------------------------
+
+
+class TestTheSessionLifecycle:
+    """A user can end their own sessions, one or all.
+
+    A session is a server-side row, so "revoking" it is a DELETE and the
+    token stops working **immediately** — not when it expires.
+    """
+
+    def test_a_revoked_token_stops_working(self, api: TestClient) -> None:
+        _register(api, ALICE_EMAIL)
+        token = _login_token(api, ALICE_EMAIL)
+        assert api.get("/api/auth/me", headers=_as(token)).status_code == 200
+
+        response = api.delete(f"/api/auth/sessions/{token}", headers=_as(token))
+        assert response.status_code == 200, response.text
+        assert api.get("/api/auth/me", headers=_as(token)).status_code == 401
+
+    def test_another_users_session_cannot_be_revoked(self, api: TestClient) -> None:
+        """A token that is not the caller's is **not found**."""
+        _register(api, ALICE_EMAIL)
+        _register(api, BOB_EMAIL)
+        alice_token = _login_token(api, ALICE_EMAIL)
+        bob_token = _login_token(api, BOB_EMAIL)
+
+        response = api.delete(f"/api/auth/sessions/{alice_token}", headers=_as(bob_token))
+        assert response.status_code == 404
+        # Alice's session still works.
+        assert api.get("/api/auth/me", headers=_as(alice_token)).status_code == 200
+
+    def test_revoking_every_session_ends_the_current_one_too(self, api: TestClient) -> None:
+        """'Log me out everywhere' — including here."""
+        _register(api, ALICE_EMAIL)
+        token = _login_token(api, ALICE_EMAIL)
+
+        response = api.post("/api/auth/sessions/revoke", headers=_as(token))
+        assert response.status_code == 200, response.text
+        assert response.json()["revoked"] >= 1
+        assert api.get("/api/auth/me", headers=_as(token)).status_code == 401
+
+    def test_revoking_the_others_keeps_the_current_one(self, api: TestClient) -> None:
+        _register(api, ALICE_EMAIL)
+        first = _login_token(api, ALICE_EMAIL)
+        second = _login_token(api, ALICE_EMAIL)
+
+        response = api.post("/api/auth/sessions/revoke-others", headers=_as(first))
+        assert response.status_code == 200, response.text
+        assert response.json()["revoked"] == 1
+        assert api.get("/api/auth/me", headers=_as(first)).status_code == 200
+        assert api.get("/api/auth/me", headers=_as(second)).status_code == 401
+
+    def test_a_password_reset_ends_every_session(self, api: TestClient) -> None:
+        """A reset is a recovery action, so it ends everything the account had."""
+        user_id = _register(api, ALICE_EMAIL)["id"]
+        token = _login_token(api, ALICE_EMAIL)
+
+        forgot = api.post("/api/auth/forgot-password", json={"email": ALICE_EMAIL})
+        assert forgot.status_code == 202, forgot.text
+
+        # The reset token is issued and delivered to the mailbox.
+        reset_token = _last_reset_token(api, user_id)
+        assert reset_token
+
+        reset = api.post(
+            "/api/auth/reset-password",
+            json={"token": reset_token, "password": OTHER_PASSWORD},
+        )
+        assert reset.status_code == 200, reset.text
+        assert api.get("/api/auth/me", headers=_as(token)).status_code == 401
+
+    def test_a_forgotten_password_does_not_reveal_whether_the_account_exists(
+        self, api: TestClient
+    ) -> None:
+        """The answer must be the same for an unknown address."""
+        unknown = api.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
+        known = api.post("/api/auth/forgot-password", json={"email": ALICE_EMAIL})
+        assert unknown.status_code == known.status_code == 202
+        assert unknown.content == known.content
+
+
+def _last_reset_token(api: TestClient, user_id: str) -> str | None:
+    """The password-reset token the manager delivered, from the mailbox.
+
+    The deployment has no SMTP provider, so the token is written to the
+    local mailbox directory (``src/auth/delivery.py``) rather than sent
+    — and deliberately **not** to the log or the audit trail, both of
+    which are the wrong place for a credential. A deployment that adds
+    mail replaces the delivery; the test reads it from the same place
+    the operator would.
+    """
+    from src.auth.delivery import KIND_PASSWORD_RESET, mailbox_dir, read_token
+
+    return read_token(mailbox_dir(), KIND_PASSWORD_RESET, user_id)
 
 
 # -- the audit trail -----------------------------------------------------------

@@ -35,6 +35,9 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from sqlalchemy.orm import Session
 
+from src.auth.db_adapter import SqlAlchemyUserDatabase
+from src.auth.delivery import KIND_PASSWORD_RESET, KIND_VERIFICATION, deliver_token
+from src.auth.secrets import auth_secret
 from src.config.settings import get_settings
 from src.db.users import UserDB
 from src.security.audit import (
@@ -60,10 +63,24 @@ password_helper = PasswordHelper(password_hash=PasswordHash((Argon2Hasher(),)))
 class UserManager(BaseUserManager[UserDB, str]):
     """The application's user manager."""
 
-    reset_password_token_secret = get_settings().auth_secret
-    verification_token_secret = get_settings().auth_secret
     reset_password_token_lifetime_seconds = 3600
     verification_token_lifetime_seconds = 3600
+
+    @property
+    def reset_password_token_secret(self) -> str:
+        """The secret that signs a password-reset token.
+
+        A property rather than a class attribute, because the secret is
+        resolved **per call**: the configured value when there is one,
+        and an ephemeral development secret when there is not (see
+        :mod:`src.auth.secrets`).
+        """
+        return auth_secret()
+
+    @property
+    def verification_token_secret(self) -> str:
+        """The secret that signs an e-mail-verification token."""
+        return auth_secret()
 
     def __init__(self, user_db) -> None:
         super().__init__(user_db, password_helper)
@@ -159,6 +176,7 @@ class UserManager(BaseUserManager[UserDB, str]):
         adds mail replaces this hook; the token's lifetime and its
         audience are already correct.
         """
+        deliver_token(KIND_PASSWORD_RESET, user.email, token, user.id)
         record_audit(
             ACTION_AUTH,
             actor=f"user:{user.id}",
@@ -167,10 +185,6 @@ class UserManager(BaseUserManager[UserDB, str]):
             owner_id=user.id,
             metadata={"event": "forgot_password"},
         )
-        if get_settings().app_env != "production":
-            logger.info("Password reset token issued: %s", token)
-        else:
-            logger.info("Password reset token issued for %s", user.id)
 
     async def on_after_request_verify(self, user: UserDB, token: str, request=None) -> None:
         """Record the verification request and the token it issued."""
@@ -182,8 +196,7 @@ class UserManager(BaseUserManager[UserDB, str]):
             owner_id=user.id,
             metadata={"event": "request_verify"},
         )
-        if get_settings().app_env != "production":
-            logger.info("Verification token issued: %s", token)
+        deliver_token(KIND_VERIFICATION, user.email, token, user.id)
 
     async def on_after_verify(self, user: UserDB, request=None) -> None:
         record_audit(
@@ -222,8 +235,7 @@ class UserManager(BaseUserManager[UserDB, str]):
 
 def get_user_manager(db: Session):
     """Build a manager over the request's database session."""
-    from src.auth.db_adapter import SqlAlchemyUserDatabase
-
+    
     return UserManager(SqlAlchemyUserDatabase(db, UserDB))
 
 
