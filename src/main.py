@@ -15,6 +15,7 @@ from src.api.middleware import (
     SecurityHeadersMiddleware,
 )
 from src.api.routes.applications import router as applications_router
+from src.api.routes.artifacts import router as artifacts_router
 from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
@@ -104,6 +105,8 @@ app.include_router(jobs_router)
 app.include_router(profiles_matches_router)
 app.include_router(tailoring_router)
 app.include_router(tracking_router)
+# WS-13: the two artifact downloads the operator console needs (BA-1, BA-2).
+app.include_router(artifacts_router)
 
 
 @app.get("/")
