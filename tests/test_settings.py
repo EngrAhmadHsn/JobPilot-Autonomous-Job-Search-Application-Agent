@@ -44,7 +44,13 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_defaults_parse_correctly(clean_env: None) -> None:
     settings = Settings()
     assert settings.database_url == "sqlite:///./data/app.db"
-    assert settings.cors_origins == ["http://localhost:3000", "http://localhost:8000"]
+    # The development origins: the API, a React dev server on 3000, and the
+    # Vite dev server on 5173.
+    assert settings.cors_origins == [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://localhost:5173",
+    ]
     # Job sources (WS-02)
     assert settings.greenhouse_boards == []
     assert settings.lever_companies == []

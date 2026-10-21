@@ -12,7 +12,11 @@ from src.matching.weights import validate_weights
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
 
-_DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:8000"
+# The development origins: the API itself, a React dev server on 3000, and
+# the Vite dev server on 5173. Production never uses this default — a
+# production deployment must declare its origins explicitly (the check in
+# ``Settings._validate_production_cors`` refuses to start without them).
+_DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:8000,http://localhost:5173"
 _DEFAULT_ALLOWED_DOMAINS = (
     "greenhouse.io,lever.co,workday.com,ashbyhq.com,smartrecruiters.com,icims.com"
 )

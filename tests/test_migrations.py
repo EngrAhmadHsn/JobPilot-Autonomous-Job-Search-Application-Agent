@@ -60,6 +60,7 @@ EVIDENCE_COLUMNS = {
     "status",
     "metadata",
     "recorded_at",
+    "owner_id",
 }
 
 CANDIDATE_PROFILE_COLUMNS = {
@@ -72,6 +73,7 @@ CANDIDATE_PROFILE_COLUMNS = {
     "profile_json",
     "file_path",
     "created_at",
+    "owner_id",
 }
 
 JOB_MATCHES_COLUMNS = {
@@ -81,6 +83,7 @@ JOB_MATCHES_COLUMNS = {
     "scores",
     "explanation",
     "created_at",
+    "owner_id",
 }
 
 TAILORED_RESUMES_COLUMNS = {
@@ -93,6 +96,7 @@ TAILORED_RESUMES_COLUMNS = {
     "insights",
     "docx_path",
     "created_at",
+    "owner_id",
 }
 
 APPROVAL_REQUESTS_COLUMNS = {
@@ -109,6 +113,7 @@ APPROVAL_REQUESTS_COLUMNS = {
     "created_at",
     "decided_at",
     "result",
+    "owner_id",
 }
 
 AUDIT_EVENTS_COLUMNS = {
@@ -120,6 +125,7 @@ AUDIT_EVENTS_COLUMNS = {
     "outcome",
     "workflow_id",
     "metadata",
+    "owner_id",
 }
 
 APPLICATIONS_COLUMNS = {
@@ -140,6 +146,7 @@ APPLICATIONS_COLUMNS = {
     "notes",
     "created_at",
     "updated_at",
+    "owner_id",
 }
 
 APPLICATION_EVENTS_COLUMNS = {
@@ -151,6 +158,7 @@ APPLICATION_EVENTS_COLUMNS = {
     "to_status",
     "metadata",
     "recorded_at",
+    "owner_id",
 }
 
 
