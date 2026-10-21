@@ -40,6 +40,8 @@ PYSEC-2026-3815
 # Pillow 13 fixes them, and fastembed pins pillow<13.0, so the fix is
 # not available until fastembed allows it. Revisit then.
 CVE-2026-112390
+CVE-2026-112393
+CVE-2026-112396
 CVE-2026-112391
 CVE-2026-112392
 CVE-2026-112395
