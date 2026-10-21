@@ -44,6 +44,9 @@ ACTION_ALLOWLIST_VIOLATION = "allowlist.violation"
 # not a state change (a granted approval, a recorded evidence row).
 ACTION_TRANSITION = "application.transition"
 ACTION_TRACKING_EVENT = "application.event"
+# WS-10: the token spend of the LLM client. One row per generation call,
+# holding counts only — never a prompt, never an answer, never a key.
+ACTION_LLM_USAGE = "llm.usage"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"
