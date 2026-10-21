@@ -60,6 +60,11 @@ def flatten_metrics(results: dict) -> dict[str, float]:
         "dedup.f1": float(metrics["dedup"]["f1"]),
         "ranking.ndcg_at_10": float(metrics["ranking"]["ndcg_at_10"]),
         "ranking.precision_at_5": float(metrics["ranking"]["precision_at_5"]),
+        # WS-12: this metric was measured and declared as a threshold, but
+        # it was missing from the flattened set, so the gate skipped it. A
+        # threshold that is never enforced is a threshold that reads as a
+        # guarantee and is not one.
+        "ranking.recall_at_10": float(metrics["ranking"]["recall_at_10"]),
         "ranking.degraded_ndcg_at_10": float(metrics["ranking"]["degraded_ndcg_at_10"]),
         "ranking.degraded_precision_at_5": float(metrics["ranking"]["degraded_precision_at_5"]),
         "ranking.semantic_delta_ndcg_at_10": float(metrics["ranking"]["semantic_delta_ndcg_at_10"]),
@@ -80,6 +85,15 @@ def flatten_metrics(results: dict) -> dict[str, float]:
     return flat
 
 
+#: A **maximum** bound of this value means "no constraint". The metrics
+#: that carry a maximum are rates, which live in [0, 1], so a bound below
+#: zero can never be satisfied — a rate is never <= -1.0. Treating it as a
+#: real bound would make the gate fail every run, which is how a gate
+#: stops being read as a guarantee. The way to *disable* a maximum is to
+#: say so.
+DISABLED_MAX = -1.0
+
+
 def check_thresholds(results: dict) -> list[tuple[str, float, str]]:
     """The metrics that fall outside their threshold.
 
@@ -88,6 +102,9 @@ def check_thresholds(results: dict) -> list[tuple[str, float, str]]:
     extraction accuracy is good when it is *high*. Both are expressed in
     the thresholds file, and a metric the run did not measure is skipped
     rather than silently passed.
+
+    A maximum of :data:`DISABLED_MAX` is read as "no constraint on this
+    metric" rather than as a bound no rate could ever meet.
     """
     thresholds = json.loads(THRESHOLDS_PATH.read_text(encoding="utf-8"))
     flat = flatten_metrics(results)
@@ -100,8 +117,12 @@ def check_thresholds(results: dict) -> list[tuple[str, float, str]]:
     for name, maximum in (thresholds.get("max") or {}).items():
         if name not in flat:
             continue
-        if flat[name] > float(maximum):
-            failures.append((name, flat[name], f"> {float(maximum):.4f}"))
+        bound = float(maximum)
+        if bound <= DISABLED_MAX:
+            # Explicitly unconstrained: skip it rather than fail every run.
+            continue
+        if flat[name] > bound:
+            failures.append((name, flat[name], f"> {bound:.4f}"))
     return failures
 
 
@@ -274,8 +295,13 @@ def main() -> int:
         failures = check_thresholds(results)
         if failures:
             print("\nthreshold failures:")
-            for name, value, minimum in failures:
-                print(f"  {name}: {value:.4f} < {minimum:.4f}")
+            for name, value, bound in failures:
+                # The third element is the *rendered* bound ("> 0.3500"), not
+                # a number, so it is printed as-is. Formatting it with a
+                # float spec raised a ValueError and crashed the gate with
+                # a traceback — the one moment the gate must not crash is
+                # the moment it has something to report.
+                print(f"  {name}: {value:.4f} {bound}")
             return 1
         print("\nall metrics meet their thresholds")
     return 0

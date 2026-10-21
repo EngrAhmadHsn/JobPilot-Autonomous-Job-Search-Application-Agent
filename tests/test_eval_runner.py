@@ -163,7 +163,11 @@ def test_check_fails_when_a_maximum_threshold_is_exceeded(tmp_path: Path) -> Non
     thresholds_path = REPO_ROOT / "src" / "evaluation" / "thresholds.json"
     original = thresholds_path.read_text(encoding="utf-8")
     payload = json.loads(original)
-    payload["max"]["ranking.false_positive_rate"] = -1.0  # unreachable on purpose
+    # A bound the measured rate (0.0) cannot satisfy, so the gate must
+    # fail. It is deliberately *not* -1.0: that value is the gate's
+    # "no constraint" sentinel (a rate is never <= -1.0, so a bound of
+    # -1.0 would make every run fail rather than express a real limit).
+    payload["max"]["ranking.false_positive_rate"] = -0.5
     thresholds_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     try:
         result = subprocess.run(

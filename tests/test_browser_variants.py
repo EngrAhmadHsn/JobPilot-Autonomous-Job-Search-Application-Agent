@@ -80,8 +80,19 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def resume(tmp_path: Path) -> str:
-    """A file the fake ATS can accept as a resume."""
+def resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A file the fake ATS can accept as a resume.
+
+    WS-12: the prepare endpoint refuses a resume path that is not inside a
+    directory this application owns, because the browser layer uploads that
+    file to a third-party site — an uncontained path is an exfiltration
+    channel. The temporary directory is therefore declared as the resume
+    upload directory for the duration of the test, so the file is inside an
+    allowed root.
+    """
+    from src.config.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "resume_upload_dir", str(tmp_path))
     path = tmp_path / "resume.txt"
     path.write_text("Ada Lovelace — Senior Python Engineer\n", encoding="utf-8")
     return str(path)

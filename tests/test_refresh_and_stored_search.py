@@ -347,9 +347,23 @@ class PartialQuotaEmbedding(FakeEmbeddingFn):
 def test_refresh_quota_stop_keeps_completed_chunks_in_store(tmp_path, tmp_session_factory):
     """250 listings -> 3 chunks of 100: two chunks embed+upsert, the third
     hits the wall. The store keeps the 200 completed listings and the report
-    counts them as partial progress (FU-1 resumability)."""
+    counts them as partial progress (FU-1 resumability).
+
+    WS-12: the descriptions are distinct. The default fixture description
+    is the same for every listing, and 250 listings sharing one body
+    across 250 different companies is exactly the flood signature the
+    spam screen detects — so the fixture would be measuring the screen
+    instead of the chunking. Each listing gets its own body here, which is
+    also what 250 real postings look like.
+    """
     many = [
-        make_listing(str(i), f"Role {i} python", f"Company {i}", source="fixture")
+        make_listing(
+            str(i),
+            f"Role {i} python",
+            f"Company {i}",
+            source="fixture",
+            description=f"Build backend services with Python. Team {i} owns service {i}.",
+        )
         for i in range(250)
     ]
     embedding = PartialQuotaEmbedding()
