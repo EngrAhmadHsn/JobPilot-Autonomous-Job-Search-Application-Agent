@@ -28,10 +28,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.api.scope import UserScope, current_scope
+from src.db import access
 from src.db.jobs import JobDB, listing_from_row
-from src.db.matches import JobMatchDB, build_match_rows, match_row_to_dict
-from src.db.profiles import CandidateProfileDB, profile_from_row
+from src.db.matches import build_match_rows, match_row_to_dict
+from src.db.profiles import profile_from_row
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.graph.job_executor import (
     JobRefreshReport,
     JobRefreshStats,
@@ -155,6 +158,7 @@ def search_jobs(
     req: JobSearchRequest,
     db: Annotated[Session, Depends(get_db)],
     executor: Annotated[Callable[..., JobSearchReport], Depends(get_job_search_executor)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> JobSearchResponse:
     """Match one stored profile against the persisted corpus (store-only, FU-1).
 
@@ -164,7 +168,7 @@ def search_jobs(
     restarts. Listings without vectors yet (backfill in flight) score without
     semantics and flip ``degraded``.
     """
-    profile_row = db.get(CandidateProfileDB, req.profile_id)
+    profile_row = access.get_profile(db, scope, req.profile_id)
     if profile_row is None:
         raise HTTPException(status_code=404, detail=f"Profile {req.profile_id!r} not found")
     profile = profile_from_row(profile_row)
@@ -183,7 +187,7 @@ def search_jobs(
     report = executor(profile, req.query, req.location, req.top_n)
 
     if report.results:
-        db.add_all(build_match_rows(req.profile_id, report.results))
+        db.add_all(build_match_rows(req.profile_id, report.results, owner_id=LEGACY_OWNER_ID))
         db.commit()
 
     record_audit(
@@ -236,17 +240,14 @@ def get_job(job_id: str, db: Annotated[Session, Depends(get_db)]) -> dict:
 
 @profiles_router.get("/{profile_id}/matches", response_model=MatchesHistoryResponse)
 def get_profile_matches(
-    profile_id: str, db: Annotated[Session, Depends(get_db)]
+    profile_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> MatchesHistoryResponse:
     """Persisted match history for one profile, oldest first."""
-    if db.get(CandidateProfileDB, profile_id) is None:
+    if access.get_profile(db, scope, profile_id) is None:
         raise HTTPException(status_code=404, detail=f"Profile {profile_id!r} not found")
-    rows = (
-        db.query(JobMatchDB)
-        .filter(JobMatchDB.profile_id == profile_id)
-        .order_by(JobMatchDB.id)
-        .all()
-    )
+    rows = access.list_job_matches(db, scope, profile_id)
     return MatchesHistoryResponse(
         profile_id=profile_id, matches=[match_row_to_dict(row) for row in rows]
     )

@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from src.api.scope import UserScope, current_scope
 from src.applications.tracking import (
     ActorNotPermittedError,
     ApplicationStatus,
@@ -34,6 +35,7 @@ from src.applications.tracking import (
     application_events,
     transition,
 )
+from src.db import access
 from src.db.applications import ApplicationDB
 from src.db.session import get_db
 
@@ -225,13 +227,14 @@ def list_applications(
 def get_application(
     application_id: str,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApplicationDetailResponse:
     """Return a tracked application with its full history.
 
     Raises:
         HTTPException 404: the application is unknown.
     """
-    row = db.get(ApplicationDB, application_id)
+    row = access.get_application(db, scope, application_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
     return _detail(row, db)
@@ -242,6 +245,7 @@ def update_application_status(
     application_id: str,
     req: StatusUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApplicationDetailResponse:
     """Record a human outcome on a tracked application.
 
@@ -263,7 +267,7 @@ def update_application_status(
         HTTPException 404: the application is unknown.
         HTTPException 409: the move is not a legal transition.
     """
-    row = db.get(ApplicationDB, application_id)
+    row = access.get_application(db, scope, application_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
 

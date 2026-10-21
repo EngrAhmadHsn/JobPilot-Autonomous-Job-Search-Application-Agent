@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.api.scope import UserScope, current_scope
 from src.applications.contracts import (
     ApplicationAdapter,
     ApplicationRequest,
@@ -47,13 +48,15 @@ from src.applications.tracking import (
     record_event,
     transition,
 )
+from src.db import access
 from src.db.approval import (
     ApprovalRequestDB,
     ApprovalStatus,
     build_approval_row,
 )
-from src.db.profiles import CandidateProfileDB, profile_from_row
+from src.db.profiles import profile_from_row
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.graph.executor import (
     execute_approved,
     new_workflow_id,
@@ -202,9 +205,14 @@ def _evidence_payload(result: ApplicationResult) -> dict | None:
     }
 
 
-def _load_approval(approval_id: str, db: Session) -> ApprovalRequestDB:
-    """Load an approval record or raise a 404."""
-    row = db.get(ApprovalRequestDB, approval_id)
+def _load_approval(approval_id: str, db: Session, scope: UserScope) -> ApprovalRequestDB:
+    """Load an approval record this scope may read, or raise a 404.
+
+    A record that belongs to another owner is **not found**, not
+    "forbidden": the two answers must be indistinguishable, or the API
+    becomes an existence oracle.
+    """
+    row = access.get_approval(db, scope, approval_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Approval request {approval_id!r} not found")
     return row
@@ -214,6 +222,7 @@ def _load_approval(approval_id: str, db: Session) -> ApprovalRequestDB:
 def prepare_application(
     req: ApplicationPrepareRequest,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApplicationPrepareResponse:
     """Prepare an application and record it for human approval.
 
@@ -306,7 +315,7 @@ def prepare_application(
         # WS-08: the grounded facts come from the **stored profile**, never
         # from the request body. A question the candidate's document does not
         # answer stays unanswered.
-        profile_facts=_profile_facts(db, req.profile_id),
+        profile_facts=_profile_facts(db, req.profile_id, scope),
     )
 
     try:
@@ -315,6 +324,7 @@ def prepare_application(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     row = build_approval_row(
+        owner_id=LEGACY_OWNER_ID,
         workflow_id=workflow_id,
         adapter_name=adapter.name,
         prepared=prepared,
@@ -410,7 +420,7 @@ def _validated_custom_fields(custom_fields: dict) -> dict[str, str]:
     return validated
 
 
-def _profile_facts(db: Session, profile_id: str | None) -> dict[str, str]:
+def _profile_facts(db: Session, profile_id: str | None, scope: UserScope) -> dict[str, str]:
     """The grounded facts of a stored candidate profile (WS-08).
 
     The facts are derived from the profile the candidate uploaded — the
@@ -421,7 +431,7 @@ def _profile_facts(db: Session, profile_id: str | None) -> dict[str, str]:
     if not profile_id:
         return {}
     try:
-        row = db.get(CandidateProfileDB, profile_id)
+        row = access.get_profile(db, scope, profile_id)
         if row is None:
             logger.info("No candidate profile %r; the application has no profile facts", profile_id)
             return {}
@@ -452,6 +462,7 @@ def _track_prepare(
     try:
         application = create_application(
             db,
+            owner_id=LEGACY_OWNER_ID,
             workflow_id=workflow_id,
             adapter_name=adapter_name,
             job_url=job_url,
@@ -491,6 +502,7 @@ def _record_tracking_event(
             db,
             application_id,
             event_type,
+            owner_id=LEGACY_OWNER_ID,
             actor=actor,
             metadata=metadata,
         )
@@ -540,6 +552,7 @@ def approve_application(
     approval_id: str,
     req: ApprovalDecisionRequest,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApprovalDecisionResponse:
     """Approve a prepared application and execute it.
 
@@ -559,7 +572,7 @@ def approve_application(
         HTTPException 404: The approval request is unknown.
         HTTPException 409: The request was already decided.
     """
-    row = _load_approval(approval_id, db)
+    row = _load_approval(approval_id, db, scope)
     if row.status != ApprovalStatus.PENDING:
         raise HTTPException(
             status_code=409,
@@ -647,6 +660,7 @@ def reject_application(
     approval_id: str,
     req: ApprovalDecisionRequest,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApprovalDecisionResponse:
     """Reject a prepared application. Nothing is submitted.
 
@@ -662,7 +676,7 @@ def reject_application(
         HTTPException 404: The approval request is unknown.
         HTTPException 409: The request was already decided.
     """
-    row = _load_approval(approval_id, db)
+    row = _load_approval(approval_id, db, scope)
     if row.status != ApprovalStatus.PENDING:
         raise HTTPException(
             status_code=409,
@@ -719,6 +733,7 @@ def reject_application(
 def get_approval(
     approval_id: str,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApprovalStatusResponse:
     """Return the stored state of an approval request.
 
@@ -726,7 +741,7 @@ def get_approval(
     *tracked application* (WS-07). Two different resources cannot share one
     path shape.
     """
-    row = _load_approval(approval_id, db)
+    row = _load_approval(approval_id, db, scope)
 
     success: bool | None = None
     message: str | None = None

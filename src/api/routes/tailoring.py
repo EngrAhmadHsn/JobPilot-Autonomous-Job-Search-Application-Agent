@@ -20,10 +20,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.api.scope import UserScope, current_scope
+from src.db import access
 from src.db.jobs import JobDB, listing_from_row
-from src.db.profiles import CandidateProfileDB, profile_from_row
+from src.db.profiles import profile_from_row
 from src.db.session import get_db
-from src.db.tailored import TailoredResumeDB, build_tailored_row, stored_from_row
+from src.db.tailored import build_tailored_row, stored_from_row
+from src.db.users import LEGACY_OWNER_ID
 from src.llm.client import LLMError
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
@@ -76,6 +79,7 @@ def tailor_resume_endpoint(
     req: TailorRequest,
     db: Annotated[Session, Depends(get_db)],
     generate: Annotated[GenerateFn | None, Depends(get_generate_fn)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> TailorResponse:
     """Tailor a resume for one job, render it and report on it.
 
@@ -83,7 +87,7 @@ def tailor_resume_endpoint(
     language model is unavailable. A factuality violation is reported inside
     the 200 response, never as an error.
     """
-    profile_row = db.get(CandidateProfileDB, req.profile_id)
+    profile_row = access.get_profile(db, scope, req.profile_id)
     if profile_row is None:
         raise HTTPException(status_code=404, detail=f"Profile {req.profile_id!r} not found")
     job_row = db.get(JobDB, req.job_id)
@@ -112,6 +116,7 @@ def tailor_resume_endpoint(
         ) from exc
 
     row = build_tailored_row(
+        owner_id=LEGACY_OWNER_ID,
         profile_id=req.profile_id,
         job_id=req.job_id,
         tailored=outcome.tailored,
@@ -145,10 +150,12 @@ def tailor_resume_endpoint(
 
 @router.get("/tailored/{tailoring_id}", response_model=StoredTailoringResponse)
 def get_tailored(
-    tailoring_id: str, db: Annotated[Session, Depends(get_db)]
+    tailoring_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> StoredTailoringResponse:
     """Return one stored tailoring record with its reports and file path."""
-    row = db.get(TailoredResumeDB, tailoring_id)
+    row = access.get_tailored(db, scope, tailoring_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Tailoring {tailoring_id!r} not found")
     stored = stored_from_row(row)

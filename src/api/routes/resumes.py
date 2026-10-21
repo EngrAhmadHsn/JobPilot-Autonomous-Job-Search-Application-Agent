@@ -20,13 +20,15 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.api.scope import UserScope, current_scope
 from src.api.validation import UploadValidationError, validate_resume_upload
+from src.db import access
 from src.db.profiles import (
-    CandidateProfileDB,
     build_profile_row,
     profile_from_row,
 )
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.resume.parser import parse_resume
 from src.resume.profile import CandidateProfile, validate_candidate_profile
 from src.security.audit import (
@@ -100,7 +102,7 @@ def upload_resume(
 
     warnings = validate_candidate_profile(profile)
 
-    row = build_profile_row(profile, str(file_path))
+    row = build_profile_row(profile, str(file_path), owner_id=LEGACY_OWNER_ID)
     db.add(row)
     db.commit()
 
@@ -128,9 +130,13 @@ def upload_resume(
 
 
 @router.get("/{profile_id}", response_model=ResumeProfileResponse)
-def get_resume(profile_id: str, db: Annotated[Session, Depends(get_db)]) -> ResumeProfileResponse:
+def get_resume(
+    profile_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> ResumeProfileResponse:
     """Return the stored profile JSON for one uploaded resume."""
-    row = db.get(CandidateProfileDB, profile_id)
+    row = access.get_profile(db, scope, profile_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Profile {profile_id!r} not found")
     return ResumeProfileResponse(profile_id=row.id, profile=profile_from_row(row))
