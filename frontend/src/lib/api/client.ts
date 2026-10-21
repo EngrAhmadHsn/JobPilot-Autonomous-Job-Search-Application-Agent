@@ -117,6 +117,32 @@ export interface RequestOptions {
 export const DEFAULT_TIMEOUT_MS = 30_000
 
 /**
+ * The name of the double-submit CSRF cookie the API sets.
+ *
+ * It is deliberately **not** `HttpOnly`: the server's rule is that an
+ * unsafe request must echo the cookie's value in the `X-CSRF-Token`
+ * header, and only JavaScript can do that. The cookie is not a
+ * credential — it grants nothing without the session cookie beside it.
+ */
+const CSRF_COOKIE_NAME = "aja_csrf"
+
+/**
+ * Read the CSRF token out of the document's cookies.
+ *
+ * Returns an empty string when there is no cookie yet (the first request
+ * of a session, before the server has issued one), which simply means the
+ * header is not sent — the server issues the cookie on that response.
+ */
+export function csrfToken(): string {
+  if (typeof document === "undefined" || !document.cookie) return ""
+  for (const part of document.cookie.split(";")) {
+    const [name, ...rest] = part.trim().split("=")
+    if (name === CSRF_COOKIE_NAME) return decodeURIComponent(rest.join("="))
+  }
+  return ""
+}
+
+/**
  * The absolute URL of an API path.
  *
  * Used for the links the browser follows directly (a DOCX download, an
@@ -263,6 +289,10 @@ export async function request<T>(
     headers["Content-Type"] = "application/json"
     body = JSON.stringify(json)
   }
+  const csrf = csrfToken()
+  if (csrf && method !== "GET" && method !== "HEAD") {
+    headers["X-CSRF-Token"] = csrf
+  }
 
   let response: Response
   try {
@@ -271,8 +301,11 @@ export async function request<T>(
       headers,
       body,
       signal: controller.signal,
-      // The API has no authentication and must never receive a cookie.
-      credentials: "omit",
+      // The session lives in an HttpOnly cookie that the browser attaches
+      // on its own. The console never holds a token: a token in
+      // JavaScript is readable by any script that gets injected, and an
+      // HttpOnly cookie is not.
+      credentials: "include",
     })
   } catch (error) {
     if (timedOut) throw new TimeoutError(timeoutMs)
