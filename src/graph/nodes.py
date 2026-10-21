@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.applications.contracts import ApplicationResult
+from src.applications.evidence import missing_evidence_files
 
 if TYPE_CHECKING:
     from src.applications.contracts import ApplicationAdapter
@@ -214,6 +215,32 @@ def verify_node(
             extra={"workflow_id": state.workflow_id},
         )
         verified_result = adapter.verify(state.submission_result)
+
+        # SEC-14: a result that claims evidence must have that evidence on
+        # disk. A missing artifact downgrades the result — success is never
+        # claimed without the artifacts that back it.
+        missing = (
+            missing_evidence_files(verified_result.evidence)
+            if verified_result.evidence is not None
+            else []
+        )
+        if missing:
+            logger.error(
+                "[%s] Verification failed: evidence artifacts are missing (%s)",
+                state.workflow_id,
+                ", ".join(missing),
+                extra={"workflow_id": state.workflow_id},
+            )
+            verified_result = ApplicationResult(
+                success=False,
+                status="verification_failed",
+                message=(
+                    "The evidence artifacts are missing "
+                    f"({', '.join(missing)}); the submission cannot be verified."
+                ),
+                evidence=verified_result.evidence,
+                metadata=verified_result.metadata,
+            )
 
         state.final_result = verified_result
         logger.info(
