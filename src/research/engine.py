@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from src.core.text import content_tokens, normalize, tokenize
 from src.jobs.contracts import JobListing
 from src.llm.client import get_client
+from src.security.injection import is_injection
 
 logger = logging.getLogger(__name__)
 
@@ -43,26 +44,9 @@ RESPONSIBILITY_GROUNDING_THRESHOLD = 0.7
 SUMMARY_GROUNDING_THRESHOLD = 0.6
 STRICT_GROUNDING_THRESHOLD = 1.0
 
-# Instruction-like text smuggled into a listing. A match rejects the whole
-# extracted item. Kept as one reviewable constant so the policy is auditable.
-INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"ignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+instructions?",
-        r"disregard\s+(?:all\s+)?(?:previous|prior|above|earlier)",
-        r"forget\s+(?:everything|all)\s+(?:above|before|you\s+were\s+told)",
-        r"system\s+prompt|developer\s+message|new\s+instructions|important\s+message",
-        r"you\s+are\s+now|act\s+as\b|pretend\s+(?:you|to\s+be)|roleplay",
-        (
-            r"(?:reveal|print|repeat|show)\s+(?:me\s+)?(?:your|the)\s+"
-            r"(?:instructions|prompt|system\s+prompt|rules)"
-        ),
-        r"jailbreak|do\s+anything\s+now|developer\s+mode|\bsudo\b",
-        r"instead,?\s+(?:say|write|respond|claim|state|recommend|describe)",
-        r"override\s+(?:your|the)\s+(?:instructions|rules|system|guidelines)",
-        r"as\s+an\s+ai(?:\s+language)?\s+model",
-    )
-)
+# The instruction-like text that must never be treated as content lives in
+# ``src.security.injection`` (WS-06 · SEC-01) and is re-exported here so the
+# research engine keeps a single reviewable constant.
 
 RESEARCH_SYSTEM_RULES = (
     "You extract structured facts from one job listing.\n"
@@ -132,7 +116,7 @@ def _listing_text(job: JobListing) -> str:
 
 def _is_injection(text: str) -> bool:
     """True when the text looks like an instruction rather than a job fact."""
-    return any(pattern.search(text) for pattern in INJECTION_PATTERNS)
+    return is_injection(text)
 
 
 def _is_grounded(text: str, listing_tokens: set[str], threshold: float) -> bool:
