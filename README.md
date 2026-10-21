@@ -113,7 +113,8 @@ Copy `.env.example` to `.env`. The settings you change most often:
 | `EMBEDDING_PROVIDER` | `fastembed` (default) or `gemini` |
 | `FASTEMBED_CACHE_PATH`, `CHROMA_DIR` | Model weights and vector store locations |
 | `MATCH_WEIGHTS` | JSON override for the six weights, summing to 1.0 |
-| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | Tailoring model (Google Gemini) |
+| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | Tailoring model (Google Gemini by default; `openai-compatible`, `openai` and `zai` are experimental) |
+| `LLM_TIMEOUT`, `LLM_MAX_RPM`, `LLM_MAX_RETRIES` | Seconds per call, calls per minute, retries after the first attempt |
 | `DATABASE_URL` | SQLite by default, PostgreSQL for deployment |
 | `APP_ENV`, `CORS_ORIGINS` | Production start fails when origins are unset or `*` |
 
@@ -159,7 +160,8 @@ The default policy is `REQUIRE_APPROVAL`. Web content is data, never instruction
 - `is_domain_allowed()` matches by substring, so a spoofed host can pass, and no code calls it yet.
 - `POST /api/applications/submit` takes approval as a boolean field with no approver identity.
 - In degraded mode, listings with no stated skills score a neutral 70 and can outrank real partial matches (FU-5, to be settled with the WS-09 metrics).
-- `LLM_TEMPERATURE` is read but never sent to the model.
+- `LLM_TEMPERATURE` is read but never sent to the model. WS-10 sends it, and adds a timeout, retries, rate limiting and token-usage accounting.
+- The `openai-compatible` LLM provider is experimental: it is verified against a mock HTTP transport, never against a live OpenAI-compatible endpoint.
 - A full-corpus search with no filter can return one result fewer than requested and report `degraded=true`. This comes from Chroma.
 - Six Remotive tests fail now and then when DNS resolution stalls, because the SSRF guard resolves real DNS under the mock transport.
 
