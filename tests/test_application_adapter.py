@@ -1,3 +1,10 @@
+"""WS-08 · the fake-ATS adapter: the URL gate, the payload, the form fill.
+
+These are unit tests: they drive the adapter against a fake page that models
+the same accessibility surface the real browser exposes. The real browser is
+exercised in ``tests/test_browser_variants.py``.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,80 +13,7 @@ import pytest
 
 from src.applications import ApplicationRequest, FakeAtsPlaywrightAdapter
 from src.config.settings import get_settings
-
-
-class FakeLocator:
-    def __init__(self, value: str | None = None):
-        self.value = value
-
-    def fill(self, value: str) -> None:
-        self.value = value
-
-    def click(self) -> None:
-        return None
-
-    def count(self) -> int:
-        return 1
-
-    def set_input_files(self, path: str) -> None:
-        self.value = path
-
-    def inner_text(self) -> str:
-        return self.value or ""
-
-    def __call__(self):
-        return self
-
-
-class FakeTracing:
-    """The Playwright tracing API, reduced to what the adapter uses."""
-
-    def __init__(self) -> None:
-        self.started_with: dict | None = None
-        self.stopped_at: str | None = None
-
-    def start(self, **kwargs) -> None:
-        self.started_with = kwargs
-
-    def stop(self, path: str | None = None) -> None:
-        self.stopped_at = path
-        if path:
-            Path(path).write_bytes(b"fake-trace")
-
-
-class FakePage:
-    def __init__(self):
-        self.context = self
-        self.tracing = FakeTracing()
-        self.url = "http://localhost:8000/apply/confirm"
-        self._body = "Application Submitted. Thanks for applying."
-        self.screenshot_path: str | None = None
-        self._locators = {
-            "#candidate-name": FakeLocator(),
-            "#email": FakeLocator(),
-            "#phone": FakeLocator(),
-            "#cover-letter": FakeLocator(),
-            "button[type='submit'], input[type='submit']": FakeLocator(),
-            "input[type='file']": FakeLocator(),
-            "body": FakeLocator(self._body),
-        }
-
-    def title(self) -> str:
-        return "Application received"
-
-    def locator(self, selector: str):
-        return self._locators.get(selector, FakeLocator())
-
-    def wait_for_load_state(self, *args, **kwargs) -> None:
-        return None
-
-    def screenshot(self, path: str | None = None) -> None:
-        self.screenshot_path = path
-        if path:
-            Path(path).write_bytes(b"fake-png")
-
-    def close(self) -> None:
-        return None
+from tests.fixtures.fake_page import FakeControl, FakePage
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +59,21 @@ def test_prepare_builds_payload_for_fake_ats() -> None:
     assert prepared.cover_letter == "Hello team"
 
 
+def test_prepare_carries_the_profile_facts() -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        profile_facts={"years_of_experience": "7"},
+    )
+
+    prepared = adapter.prepare(request)
+
+    assert prepared.profile_facts == {"years_of_experience": "7"}
+
+
 def test_submit_and_verify_fake_ats_application(monkeypatch) -> None:
     adapter = FakeAtsPlaywrightAdapter()
     request = ApplicationRequest(
@@ -150,3 +99,147 @@ def test_submit_and_verify_fake_ats_application(monkeypatch) -> None:
     assert result.evidence is not None
     assert result.evidence.screenshot_path
     assert result.evidence.trace_path
+
+
+def test_the_form_is_filled_through_its_labels(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 555 0101",
+        cover_letter="Hello team",
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage()
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    adapter.submit(prepared)
+
+    assert page.filled["Full name"] == "Ada Lovelace"
+    assert page.filled["Email address"] == "ada@example.com"
+    assert page.filled["Phone number"] == "+1 555 0101"
+    assert page.filled["Cover letter"] == "Hello team"
+    assert page.clicked == ["Submit application"]
+
+
+def test_the_resume_is_attached_to_the_file_input(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        resume_path="/tmp/resume.pdf",
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage()
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    adapter.submit(prepared)
+
+    assert page.uploaded == "/tmp/resume.pdf"
+
+
+def test_an_unknown_question_stops_the_run(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage(
+        controls=[
+            FakeControl(label="Full name", kind="text", required=True),
+            FakeControl(label="Have you served on a submarine?", kind="text"),
+        ]
+    )
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    result = adapter.submit(prepared)
+
+    assert result.success is False
+    assert result.status == "needs_human"
+    assert result.metadata["questions"] == ["Have you served on a submarine?"]
+    # Nothing was typed and nothing was submitted.
+    assert page.filled == {}
+    assert page.clicked == []
+
+
+def test_a_select_is_filled_with_the_matching_option(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        custom_fields={"country": "Germany"},
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage(
+        controls=[
+            FakeControl(label="Full name", kind="text", required=True),
+            FakeControl(
+                label="Country",
+                kind="select",
+                options=["Select a country", "Germany", "Canada"],
+            ),
+        ]
+    )
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    result = adapter.submit(prepared)
+
+    assert result.success is True
+    assert page.selected["Country"] == "Germany"
+
+
+def test_a_checkbox_is_ticked_only_for_a_recognized_yes(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+        custom_fields={"work_authorization": "yes"},
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage(
+        controls=[
+            FakeControl(label="Full name", kind="text", required=True),
+            FakeControl(label="I am authorized to work", kind="checkbox"),
+        ]
+    )
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    adapter.submit(prepared)
+
+    assert page.checked == ["I am authorized to work"]
+    assert page.unchecked == []
+
+
+def test_a_rejected_form_is_retried_once_and_then_fails(monkeypatch) -> None:
+    adapter = FakeAtsPlaywrightAdapter()
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url="http://localhost:8000/jobs/123/apply",
+        candidate_name="Ada Lovelace",
+    )
+    prepared = adapter.prepare(request)
+    page = FakePage(alerts=["We could not verify your email address."])
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    result = adapter.submit(prepared)
+
+    assert result.success is False
+    assert result.status == "form_error"
+    assert result.metadata["errors"] == ["We could not verify your email address."]
+    # Two attempts: the original and the one remediation retry.
+    assert page.clicked == ["Submit application", "Submit application"]
