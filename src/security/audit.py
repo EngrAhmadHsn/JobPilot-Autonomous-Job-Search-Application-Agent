@@ -39,6 +39,11 @@ ACTION_PERMISSION_DENIED = "application.permission_denied"
 ACTION_UNSAFE_NAVIGATION = "application.unsafe_navigation"
 ACTION_BLOCKED_CHALLENGE = "application.blocked_challenge"
 ACTION_ALLOWLIST_VIOLATION = "allowlist.violation"
+# WS-07: the application lifecycle. A transition is a state change of a
+# tracked application; a tracking event is an entry in its history that is
+# not a state change (a granted approval, a recorded evidence row).
+ACTION_TRANSITION = "application.transition"
+ACTION_TRACKING_EVENT = "application.event"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"

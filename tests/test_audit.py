@@ -20,7 +20,12 @@ from src.core.logging import PiiMaskingFilter
 from src.db.audit import AuditEventDB
 from src.db.base import Base
 from src.security import audit as audit_module
-from src.security.audit import AuditEvent, record_audit
+from src.security.audit import (
+    ACTION_TRACKING_EVENT,
+    ACTION_TRANSITION,
+    AuditEvent,
+    record_audit,
+)
 from src.security.redaction import (
     MAX_VALUE_CHARS,
     is_secret_key,
@@ -289,3 +294,36 @@ class TestAuditModelRegistration:
         rows = db_session.scalars(select(AuditEventDB)).all()
         assert len(rows) == 1
         assert rows[0].action == "application.prepare"
+
+
+class TestTrackingAuditActions:
+    """WS-07: the application lifecycle writes to the trail."""
+
+    def test_the_transition_action_is_recorded(self, db_session: Session) -> None:
+        record_audit(
+            ACTION_TRANSITION,
+            actor="agent",
+            resource="app-1",
+            outcome="success",
+            metadata={"from_status": "prepared", "to_status": "awaiting_approval"},
+            session=db_session,
+        )
+
+        row = db_session.scalars(select(AuditEventDB)).one()
+        assert row.action == "application.transition"
+        assert row.extra_metadata["from_status"] == "prepared"
+        assert row.extra_metadata["to_status"] == "awaiting_approval"
+
+    def test_the_event_action_is_recorded(self, db_session: Session) -> None:
+        record_audit(
+            ACTION_TRACKING_EVENT,
+            actor="human:ada",
+            resource="app-1",
+            outcome="success",
+            metadata={"event_type": "approval_granted"},
+            session=db_session,
+        )
+
+        row = db_session.scalars(select(AuditEventDB)).one()
+        assert row.action == "application.event"
+        assert row.actor == "human:ada"
