@@ -25,6 +25,7 @@ dependencies = [
     "ruff>=0.16.7",
     "sqlalchemy>=2.0.52",
     "pytest>=8.4.0",
+    "pytest-xdist>=3.8.0",
     "uvicorn>=0.35.0",
 ]
 
