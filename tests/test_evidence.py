@@ -347,3 +347,51 @@ class TestNavigationGuard:
 
         assert result.success is False
         assert result.status == "unsafe_navigation"
+
+
+class TestFailureStatusPreservation:
+    """A failed submission keeps its own reason instead of a generic failure.
+
+    The live verification run found that a blocked challenge came out as
+    ``verification_failed``: the graph re-verified a submission that never
+    happened, and the reason was flattened. The status now survives.
+    """
+
+    def test_a_blocked_submission_ends_as_blocked_human_review(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        from src.graph.application_workflow import build_application_workflow
+        from src.graph.state import ApplicationWorkflowState
+
+        class _BlockedAdapter(FakeAtsPlaywrightAdapter):
+            def submit(self, prepared: PreparedApplication) -> ApplicationResult:
+                return ApplicationResult(
+                    success=False,
+                    status="blocked_human_review",
+                    message="The page presented a CAPTCHA; the flow was stopped.",
+                    evidence=SubmissionEvidence(
+                        url=prepared.request.job_url, status="blocked_human_review"
+                    ),
+                )
+
+        adapter = _BlockedAdapter()
+        graph = build_application_workflow(adapter)
+        state = ApplicationWorkflowState(
+            request=sample_request,
+            prepared_application=_prepared(sample_request),
+            approval_status=True,
+            workflow_id="wf-blocked",
+            adapter_name=adapter.name,
+        )
+
+        raw = graph.invoke(state, config={"configurable": {"thread_id": "wf-blocked"}})
+        final_state = (
+            raw
+            if isinstance(raw, ApplicationWorkflowState)
+            else ApplicationWorkflowState(**raw)
+        )
+
+        assert final_state.final_result is not None
+        assert final_state.final_result.success is False
+        assert final_state.final_result.status == "blocked_human_review"
+        assert "CAPTCHA" in final_state.final_result.message

@@ -34,11 +34,16 @@ def should_submit_conditional(state: ApplicationWorkflowState) -> Literal["submi
 
 
 def should_verify_conditional(state: ApplicationWorkflowState) -> Literal["verify", "end"]:
-    """Conditional router: decides whether to proceed with verification or end.
+    """Conditional router: decides whether to proceed to verification or end.
 
     This conditional is evaluated after the submit node:
     - If submission succeeded (submission_result.success or no error), route to verify_node
     - If submission failed, route to end workflow with failure status
+
+    A submission that did not succeed is **not** verified: there is nothing
+    to verify, and re-verifying it would flatten the reason (a blocked
+    challenge, an unsafe navigation, a permission denial) into a generic
+    failure. The submission's own status is the answer.
 
     Args:
         state: Current workflow state
@@ -60,6 +65,14 @@ def should_verify_conditional(state: ApplicationWorkflowState) -> Literal["verif
         logger.warning(
             f"[{state.workflow_id}] No submission result found, ending workflow",
             extra={"workflow_id": state.workflow_id},
+        )
+        return "end"
+
+    if state.submission_result is not None and not state.submission_result.success:
+        logger.warning(
+            f"[{state.workflow_id}] Submission did not succeed (%s), skipping verification",
+            state.submission_result.status,
+            extra={"workflow_id": state.workflow_id, "status": state.submission_result.status},
         )
         return "end"
 
