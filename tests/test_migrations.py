@@ -94,6 +94,33 @@ TAILORED_RESUMES_COLUMNS = {
     "created_at",
 }
 
+APPROVAL_REQUESTS_COLUMNS = {
+    "id",
+    "workflow_id",
+    "adapter_name",
+    "job_url",
+    "job_title",
+    "company_name",
+    "payload",
+    "status",
+    "approver",
+    "decision_reason",
+    "created_at",
+    "decided_at",
+    "result",
+}
+
+AUDIT_EVENTS_COLUMNS = {
+    "id",
+    "recorded_at",
+    "actor",
+    "action",
+    "resource",
+    "outcome",
+    "workflow_id",
+    "metadata",
+}
+
 
 @pytest.fixture
 def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, str]:
@@ -126,6 +153,8 @@ def test_upgrade_head_creates_jobs_and_evidence(
         "candidate_profiles",
         "job_matches",
         "tailored_resumes",
+        "approval_requests",
+        "audit_events",
         "alembic_version",
     } <= tables
 
@@ -156,6 +185,23 @@ def test_upgrade_head_creates_jobs_and_evidence(
             "ix_tailored_resumes_profile_id",
             "ix_tailored_resumes_job_id",
         } <= tailored_indexes
+        # WS-06 tables.
+        approval_cols = {col["name"] for col in inspector.get_columns("approval_requests")}
+        assert approval_cols == APPROVAL_REQUESTS_COLUMNS
+        audit_cols = {col["name"] for col in inspector.get_columns("audit_events")}
+        assert audit_cols == AUDIT_EVENTS_COLUMNS
+        approval_indexes = {ix["name"] for ix in inspector.get_indexes("approval_requests")}
+        assert {
+            "ix_approval_requests_workflow_id",
+            "ix_approval_requests_status",
+        } <= approval_indexes
+        audit_indexes = {ix["name"] for ix in inspector.get_indexes("audit_events")}
+        assert {
+            "ix_audit_events_actor",
+            "ix_audit_events_action",
+            "ix_audit_events_outcome",
+            "ix_audit_events_workflow_id",
+        } <= audit_indexes
     finally:
         engine.dispose()
 
@@ -170,6 +216,8 @@ def test_downgrade_base_removes_tables(migration_env: tuple[Config, str]) -> Non
     assert "candidate_profiles" not in tables
     assert "job_matches" not in tables
     assert "tailored_resumes" not in tables
+    assert "approval_requests" not in tables
+    assert "audit_events" not in tables
 
 
 def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
@@ -182,6 +230,8 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "candidate_profiles",
             "job_matches",
             "tailored_resumes",
+            "approval_requests",
+            "audit_events",
         } <= _table_names(url)
         command.downgrade(cfg, "base")
         assert not {
@@ -190,6 +240,8 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "candidate_profiles",
             "job_matches",
             "tailored_resumes",
+            "approval_requests",
+            "audit_events",
         } & _table_names(url)
 
 
@@ -218,6 +270,8 @@ def test_json_columns_render_portably_on_sqlite(
     assert "CREATE TABLE candidate_profiles" in ddl
     assert "CREATE TABLE job_matches" in ddl
     assert "CREATE TABLE tailored_resumes" in ddl
+    assert "CREATE TABLE approval_requests" in ddl
+    assert "CREATE TABLE audit_events" in ddl
     # JSON columns render as plain JSON, not dialect-specific types.
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
@@ -227,6 +281,9 @@ def test_json_columns_render_portably_on_sqlite(
     assert re.search(r"tailored\s+JSON", ddl)
     assert re.search(r"factuality\s+JSON", ddl)
     assert re.search(r"ats_report\s+JSON", ddl)
+    # WS-06 JSON columns.
+    assert re.search(r"payload\s+JSON", ddl)
+    assert re.search(r"result\s+JSON", ddl)
 
 
 def test_json_columns_render_portably_on_postgres(
@@ -242,6 +299,8 @@ def test_json_columns_render_portably_on_postgres(
     assert "CREATE TABLE candidate_profiles" in ddl
     assert "CREATE TABLE job_matches" in ddl
     assert "CREATE TABLE tailored_resumes" in ddl
+    assert "CREATE TABLE approval_requests" in ddl
+    assert "CREATE TABLE audit_events" in ddl
     assert re.search(r"required_skills\s+JSON", ddl)
     assert re.search(r"extra_metadata\s+JSON", ddl)
     assert re.search(r"\bmetadata\s+JSON", ddl)
@@ -249,6 +308,9 @@ def test_json_columns_render_portably_on_postgres(
     assert re.search(r"scores\s+JSON", ddl)
     assert re.search(r"tailored\s+JSON", ddl)
     assert re.search(r"ats_report\s+JSON", ddl)
+    # WS-06 JSON columns.
+    assert re.search(r"payload\s+JSON", ddl)
+    assert re.search(r"result\s+JSON", ddl)
 
 
 def _import_app_subprocess(env_overrides: dict[str, str]) -> subprocess.CompletedProcess[str]:
