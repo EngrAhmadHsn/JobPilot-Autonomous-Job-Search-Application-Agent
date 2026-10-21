@@ -629,6 +629,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | G | 54 passed | clean | clean | the refresh endpoint's report shape verified against the real API | done |
 | H | 1 e2e passed | clean | clean | the whole path, end to end, in a real Chromium against the real backend and the real fake ATS | done |
 | Design | the same 54 tests, re-run, plus a **keyboard-navigation e2e** in a real Chromium | clean | clean | every redesigned screen inspected in a real browser, at 1180 px and at 375 px, in both themes; the contrast of every text pair measured (the lowest is 5.4:1) | done |
+| Polish | 58 tests (the suite grew with the identity work) | clean | clean | the six reported defects fixed and re-checked in a real browser at 420 px and 1180 px: no nav scrollbar, a tooltip on the profile handle, an honest search summary, a disclosure with room to breathe, no broken words in the listing, and a shine on the button | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).

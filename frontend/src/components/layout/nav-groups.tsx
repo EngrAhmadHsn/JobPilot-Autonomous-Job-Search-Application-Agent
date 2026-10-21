@@ -73,10 +73,10 @@ export function NavGroups({ className }: { className?: string }) {
   return (
     <nav
       aria-label="Screens"
-      className={cn("flex items-center gap-1", className)}
+      className={cn("flex flex-wrap items-center gap-x-1 gap-y-1", className)}
     >
       {NAV_GROUPS.map((group, index) => (
-        <div key={group.label} className="flex items-center gap-1">
+        <div key={group.label} className="flex flex-wrap items-center gap-1">
           {index > 0 ? (
             <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
           ) : null}

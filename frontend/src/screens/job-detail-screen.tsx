@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
 
+import { Disclosure } from "@/components/common/disclosure"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader } from "@/components/common/page-header"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
@@ -98,25 +99,39 @@ export function JobDetailScreen() {
           <CardHeader>
             <CardTitle>Why this job ranked</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {match.explanation ? (
-              <PlainText>{match.explanation}</PlainText>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                The matching engine returned no explanation for this listing.
-              </p>
-            )}
-            <ScoreGrid match={match} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <SectionTitle>Matched requirements</SectionTitle>
-                <PlainText>{formatList(match.matched_requirements)}</PlainText>
+          <CardContent>
+            <Disclosure
+              summary="The agent's reasoning"
+              hint="how it scored this listing"
+            >
+              {match.explanation ? (
+                <div>
+                  <SectionTitle>Explanation</SectionTitle>
+                  <PlainText className="mt-1.5 max-w-[72ch] leading-relaxed">
+                    {match.explanation}
+                  </PlainText>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  The matching engine returned no explanation for this listing.
+                </p>
+              )}
+              <ScoreGrid match={match} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <SectionTitle>Matched requirements</SectionTitle>
+                  <PlainText className="mt-1.5">
+                    {formatList(match.matched_requirements)}
+                  </PlainText>
+                </div>
+                <div>
+                  <SectionTitle>Missing requirements</SectionTitle>
+                  <PlainText className="mt-1.5">
+                    {formatList(match.missing_requirements)}
+                  </PlainText>
+                </div>
               </div>
-              <div>
-                <SectionTitle>Missing requirements</SectionTitle>
-                <PlainText>{formatList(match.missing_requirements)}</PlainText>
-              </div>
-            </div>
+            </Disclosure>
           </CardContent>
         </Card>
       ) : (

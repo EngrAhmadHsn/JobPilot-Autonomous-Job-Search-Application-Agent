@@ -76,7 +76,7 @@ export function OverallScore({ value }: { value: number }) {
 /** The six component scores. */
 export function ScoreGrid({ match }: { match: JobMatchResult }) {
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
       {COMPONENTS.map(({ key, label }) => (
         <ScoreBar key={key} label={label} value={Number(match[key] ?? 0)} />
       ))}

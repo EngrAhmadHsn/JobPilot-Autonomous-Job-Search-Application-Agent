@@ -20,6 +20,8 @@
 */
 @theme inline {
   --font-heading: "Bricolage Grotesque Variable", "Geist Variable", sans-serif;
+  /* The alias the screens ask for by name. */
+  --font-display: "Bricolage Grotesque Variable", "Geist Variable", sans-serif;
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
@@ -189,6 +191,11 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+
+    /* A shine is motion. Without motion there is none. */
+    .shine::before {
+      display: none;
+    }
   }
 }
 
@@ -240,6 +247,42 @@
     100% {
       transform: translateX(100%);
     }
+  }
+
+  /*
+    The shine.
+
+    A button that is worth pressing should look like it can be pressed. A
+    single soft sweep of light crosses the control on hover — one pass, not
+    a loop, and it stops the moment the pointer leaves. The sweep is drawn
+    in the control's own text colour, so it reads on the forest button and
+    on the outline one alike.
+  */
+  .shine {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .shine::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    transform: translateX(-120%) skewX(-16deg);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, currentColor 22%, transparent),
+      transparent
+    );
+    transition: transform 620ms var(--ease-soft);
+    pointer-events: none;
+  }
+
+  .shine:hover::before,
+  .shine:focus-visible::before {
+    transform: translateX(120%) skewX(-16deg);
   }
 
   /* The one orchestrated entrance: the onboarding, once. */

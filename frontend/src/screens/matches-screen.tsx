@@ -3,6 +3,8 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
+import { Disclosure } from "@/components/common/disclosure"
+import { SectionTitle } from "@/components/common/field-list"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
@@ -17,6 +19,35 @@ import { api } from "@/lib/api/endpoints"
 import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
+
+/**
+ * What the search actually did, in words the operator can act on.
+ *
+ * The API's counters describe the *pipeline*, and a store-only search runs
+ * almost none of it: `found` is zero because no board was contacted, and
+ * `dropped` and `persisted` are zero because nothing was fetched or
+ * written. Printing them would be noise that reads like a fault. What
+ * matters is how much of the stored corpus was scored, and what the
+ * filters were.
+ */
+function describeSearch(
+  data: JobSearchResponse,
+  query: string,
+  location: string
+): string {
+  const corpus = data.stats.stored || data.stats.deduped
+  const filter = [
+    query.trim() ? `matching “${query.trim()}”` : null,
+    location.trim() ? `in “${location.trim()}”` : null,
+  ].filter(Boolean)
+
+  const scope =
+    data.stats.found > 0
+      ? `${data.stats.found} fetched · ${data.stats.dropped} dropped · ${data.stats.deduped} deduplicated · ${data.stats.persisted} persisted`
+      : `Scored against ${corpus.toLocaleString()} stored listings. This search never called a job board.`
+
+  return filter.length > 0 ? `${scope} Filtered ${filter.join(" ")}.` : scope
+}
 
 /** One match in the ranked list. */
 function MatchCard({ pair }: { pair: JobMatchPair }) {
@@ -44,36 +75,37 @@ function MatchCard({ pair }: { pair: JobMatchPair }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <details className="group">
-          <summary className="cursor-pointer text-sm font-medium text-primary">
-            Why this score
-          </summary>
-          <div className="mt-3 space-y-4">
-            {match.explanation ? (
-              <div>
-                <p className="text-sm font-medium">Explanation</p>
-                <PlainText>{match.explanation}</PlainText>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                The matching engine returned no explanation for this listing.
-              </p>
-            )}
+        <Disclosure summary="Why this score" hint="the agent's reasoning">
+          {match.explanation ? (
+            <div>
+              <SectionTitle>Explanation</SectionTitle>
+              <PlainText className="mt-1.5 max-w-[72ch] leading-relaxed">
+                {match.explanation}
+              </PlainText>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              The matching engine returned no explanation for this listing.
+            </p>
+          )}
 
-            <ScoreGrid match={match} />
+          <ScoreGrid match={match} />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-sm font-medium">Matched requirements</p>
-                <PlainText>{formatList(match.matched_requirements)}</PlainText>
-              </div>
-              <div>
-                <p className="text-sm font-medium">Missing requirements</p>
-                <PlainText>{formatList(match.missing_requirements)}</PlainText>
-              </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <SectionTitle>Matched requirements</SectionTitle>
+              <PlainText className="mt-1.5">
+                {formatList(match.matched_requirements)}
+              </PlainText>
+            </div>
+            <div>
+              <SectionTitle>Missing requirements</SectionTitle>
+              <PlainText className="mt-1.5">
+                {formatList(match.missing_requirements)}
+              </PlainText>
             </div>
           </div>
-        </details>
+        </Disclosure>
 
         <LinkButton
           variant="outline"
@@ -245,7 +277,7 @@ export function MatchesScreen() {
       {data ? (
         <Section
           title={`${data.results.length} match${data.results.length === 1 ? "" : "es"}`}
-          description={`${data.stats.found} found · ${data.stats.dropped} dropped · ${data.stats.deduped} deduped · ${data.stats.persisted} persisted · ${data.stats.stored} stored`}
+          description={describeSearch(data, query, location)}
         >
           <div className="space-y-4">
             <SearchBanners data={data} />
