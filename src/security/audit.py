@@ -15,6 +15,7 @@ request in flight; the log line remains as the fallback trail.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from src.db.audit import AuditEventDB
 from src.db.users import LEGACY_OWNER_ID
-from src.security.redaction import sanitize_metadata
+from src.security.redaction import sanitize_metadata, strip_control_characters
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,100 @@ OUTCOME_ERROR = "error"
 # The actor used when a step is performed by the system itself.
 SYSTEM_ACTOR = "system"
 
+# -- the actor kinds (WS-14 · Phase C) -----------------------------------------
+
+#: A human acting through an authenticated session.
+ACTOR_KIND_USER = "user"
+#: An automated component: an adapter, the agent, the API itself.
+ACTOR_KIND_AGENT = "agent"
+#: The platform itself: a scheduled job, a background task.
+ACTOR_KIND_SYSTEM = "system"
+
+#: Every kind an actor may have.
+ACTOR_KINDS: frozenset[str] = frozenset(
+    {ACTOR_KIND_USER, ACTOR_KIND_AGENT, ACTOR_KIND_SYSTEM}
+)
+
+
+@dataclass(frozen=True)
+class Actor:
+    """Who caused an action — a principal, not a free string.
+
+    **Why this is a type.** The ``actor`` column used to be a free
+    string, and a free string is not a principal: anybody who can write
+    to the audit store can say they were somebody else, and a reader
+    cannot tell an account id from an adapter name. Splitting the label
+    into a **kind** and an **id** makes the attribution queryable and
+    checkable, and makes "the actor is a principal" a property the code
+    can assert rather than a convention.
+
+    The label (``user:alice``) is **derived**. It is kept because it is
+    what an operator reads, but it is never the source of truth.
+    """
+
+    kind: str
+    id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in ACTOR_KINDS:
+            raise ValueError(f"Unknown actor kind: {self.kind!r}")
+        if self.id is not None:
+            object.__setattr__(self, "id", strip_control_characters(self.id))
+
+    @classmethod
+    def user(cls, user_id: str) -> Actor:
+        """A human acting through an authenticated session."""
+        return cls(kind=ACTOR_KIND_USER, id=user_id)
+
+    @classmethod
+    def agent(cls, name: str) -> Actor:
+        """An automated component: an adapter, the agent, the API."""
+        return cls(kind=ACTOR_KIND_AGENT, id=name)
+
+    @classmethod
+    def system(cls) -> Actor:
+        """The platform itself."""
+        return cls(kind=ACTOR_KIND_SYSTEM, id=None)
+
+    @classmethod
+    def parse(cls, label: str) -> Actor:
+        """Read an actor back from its label.
+
+        The labels that pre-date this class are read here, so the older
+        call sites keep working and are attributed to the right kind:
+        ``system`` is the system, ``api`` is an agent, ``user:alice``
+        and ``human:alice`` are users, and anything else is an agent
+        named by its own label.
+        """
+        text = strip_control_characters(label or "")
+        if not text:
+            return cls.system()
+        if text == SYSTEM_ACTOR:
+            return cls.system()
+        if ":" in text:
+            prefix, _, rest = text.partition(":")
+            prefix = prefix.strip().lower()
+            if prefix in {ACTOR_KIND_USER, "human"} and rest:
+                return cls.user(rest)
+            if prefix == ACTOR_KIND_AGENT and rest:
+                return cls.agent(rest)
+        return cls.agent(text)
+
+    @property
+    def label(self) -> str:
+        """The human-readable label, derived from the parts.
+
+        The canonical form is ``kind:id`` — ``user:alice``,
+        ``agent:fake-ats``. The one exception is an id that *is* its own
+        kind: the platform's "agent" actor is labelled ``agent`` rather
+        than ``agent:agent``, because the prefix says nothing there.
+        """
+        if not self.id:
+            return self.kind
+        if self.id == self.kind:
+            return self.kind
+        return f"{self.kind}:{self.id}"
+
 
 class AuditEvent(BaseModel):
     """One recorded action."""
@@ -73,7 +168,12 @@ class AuditEvent(BaseModel):
     #: user data like any other: it is readable only by its owner (and by
     #: the platform's audit view).
     owner_id: str = LEGACY_OWNER_ID
+    #: The derived label of the actor.
     actor: str
+    #: The kind of principal (WS-14 · Phase C).
+    actor_kind: str = ACTOR_KIND_SYSTEM
+    #: The principal's id.
+    actor_id: str | None = None
     action: str
     resource: str
     outcome: str
@@ -92,6 +192,8 @@ def _write_row(event: AuditEvent, session: Session | None) -> int | None:
         row = AuditEventDB(
             owner_id=event.owner_id,
             actor=event.actor,
+            actor_kind=event.actor_kind,
+            actor_id=event.actor_id,
             action=event.action,
             resource=event.resource,
             outcome=event.outcome,
@@ -109,7 +211,7 @@ def _write_row(event: AuditEvent, session: Session | None) -> int | None:
 def record_audit(
     action: str,
     *,
-    actor: str,
+    actor: str | Actor,
     resource: str,
     outcome: str,
     owner_id: str = LEGACY_OWNER_ID,
@@ -121,8 +223,9 @@ def record_audit(
 
     Args:
         action: What happened (see the ``ACTION_*`` constants).
-        actor: Who caused it — an operator identity, an adapter name, or
-            ``"system"``.
+        actor: Who caused it — an :class:`Actor`, or a label that is
+            parsed into one (an operator identity, an adapter name, or
+            ``"system"``).
         resource: The object acted on (an approval id, a profile id, ...).
         outcome: The result (see the ``OUTCOME_*`` constants).
         metadata: Extra detail; sanitized before it is stored, so a secret
@@ -137,13 +240,23 @@ def record_audit(
         raises: a failing audit store is logged as an error and the event is
         still returned (and still logged).
     """
+    # WS-14 · Phase C: the actor is a **principal**, and the label is
+    # derived from it. A free string is not a principal.
+    principal = actor if isinstance(actor, Actor) else Actor.parse(actor)
+
+    # Log-injection protection: every string that reaches the store is
+    # stripped of its control characters, so a newline in a
+    # user-supplied field cannot forge a row. The strip happens here, in
+    # the writer, so it cannot be forgotten at a call site.
     event = AuditEvent(
         owner_id=owner_id,
-        actor=actor,
-        action=action,
-        resource=resource,
-        outcome=outcome,
-        workflow_id=workflow_id,
+        actor=principal.label,
+        actor_kind=principal.kind,
+        actor_id=principal.id,
+        action=strip_control_characters(action),
+        resource=strip_control_characters(resource),
+        outcome=strip_control_characters(outcome),
+        workflow_id=strip_control_characters(workflow_id) if workflow_id else None,
         metadata=sanitize_metadata(metadata),
     )
 

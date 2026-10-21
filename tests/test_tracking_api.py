@@ -23,6 +23,7 @@ from src.applications.tracking import (
 )
 from src.db.base import Base
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.main import app
 
 JOB_URL = "http://localhost:8000/jobs/123/apply"
@@ -234,7 +235,8 @@ class TestStatusUpdateEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "interview"
-        assert body["events"][-1]["actor"] == "human:ada"
+        # WS-14 · A2: the actor is the authenticated principal.
+        assert body["events"][-1]["actor"] == human_actor(LEGACY_OWNER_ID)
         assert body["events"][-1]["to_status"] == "interview"
 
     def test_the_notes_are_stored(self, client, session_factory):
@@ -259,7 +261,13 @@ class TestStatusUpdateEndpoint:
         assert response.status_code == 409
         assert "cannot move" in response.json()["detail"]
 
-    def test_the_agent_cannot_record_a_human_outcome(self, client, session_factory):
+    def test_the_actor_is_the_authenticated_principal(self, client, session_factory):
+        """WS-14 · A2 (T2): the actor comes from the session.
+
+        A body that names somebody else is **ignored** — the caller
+        cannot record an outcome as another person, and cannot record it
+        as the agent either.
+        """
         application_id = _track(session_factory, status=ApplicationStatus.VERIFIED)
 
         response = client.patch(
@@ -267,10 +275,16 @@ class TestStatusUpdateEndpoint:
             json={"status": "offer", "actor": "agent"},
         )
 
-        assert response.status_code == 403
-        assert "human outcome" in response.json()["detail"]
+        assert response.status_code == 200, response.text
+        body = client.get(f"/api/applications/{application_id}").json()
+        events = [event for event in body["events"] if event["event_type"] == "status_transition"]
+        assert events, "the transition was not recorded"
+        # The suite's caller is the legacy owner.
+        assert events[-1]["actor"] == human_actor(LEGACY_OWNER_ID)
+        assert events[-1]["actor"] != "agent"
 
-    def test_a_plain_name_is_refused_for_a_human_outcome(self, client, session_factory):
+    def test_a_named_actor_cannot_forge_a_human_outcome(self, client, session_factory):
+        """A plain name is not a human identity, and it is not used at all."""
         application_id = _track(session_factory, status=ApplicationStatus.VERIFIED)
 
         response = client.patch(
@@ -278,7 +292,10 @@ class TestStatusUpdateEndpoint:
             json={"status": "offer", "actor": "ada"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 200, response.text
+        body = client.get(f"/api/applications/{application_id}").json()
+        events = [event for event in body["events"] if event["event_type"] == "status_transition"]
+        assert events[-1]["actor"] == human_actor(LEGACY_OWNER_ID)
 
     def test_an_unknown_status_is_a_400(self, client, session_factory):
         application_id = _track(session_factory, status=ApplicationStatus.VERIFIED)
@@ -300,21 +317,30 @@ class TestStatusUpdateEndpoint:
         assert response.status_code == 404
 
     def test_a_refused_update_changes_nothing(self, client, session_factory):
-        application_id = _track(session_factory, status=ApplicationStatus.VERIFIED)
+        """An illegal move leaves the row and its history exactly as they were.
+
+        The move is refused by the **state machine**, not by the actor
+        rule: the actor is the authenticated principal now, so it is
+        always a human, and the refusal has to come from somewhere
+        else.
+        """
+        application_id = _track(session_factory, status=ApplicationStatus.PREPARED)
         before = client.get(f"/api/applications/{application_id}").json()
 
-        client.patch(
+        response = client.patch(
             f"/api/applications/{application_id}/status",
-            json={"status": "offer", "actor": "agent", "notes": "should not be stored"},
+            json={"status": "offer", "notes": "should not be stored"},
         )
 
+        assert response.status_code == 409
         body = client.get(f"/api/applications/{application_id}").json()
-        assert body["status"] == "verified"
+        assert body["status"] == "prepared"
         assert body["notes"] is None
         # No event was appended either.
         assert len(body["events"]) == len(before["events"])
 
-    def test_a_missing_actor_is_refused(self, client, session_factory):
+    def test_a_missing_actor_in_the_body_is_accepted(self, client, session_factory):
+        """The body no longer carries the actor, so it may be absent."""
         application_id = _track(session_factory, status=ApplicationStatus.VERIFIED)
 
         response = client.patch(
@@ -322,4 +348,4 @@ class TestStatusUpdateEndpoint:
             json={"status": "interview"},
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 200, response.text

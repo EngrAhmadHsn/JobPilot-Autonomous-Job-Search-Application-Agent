@@ -120,6 +120,9 @@ AUDIT_EVENTS_COLUMNS = {
     "id",
     "recorded_at",
     "actor",
+    # WS-14 · Phase C: the actor is a principal, not a free string.
+    "actor_kind",
+    "actor_id",
     "action",
     "resource",
     "outcome",
@@ -159,6 +162,13 @@ APPLICATION_EVENTS_COLUMNS = {
     "metadata",
     "recorded_at",
     "owner_id",
+}
+
+# WS-14 · A1: the server-side session store.
+ACCESS_TOKENS_COLUMNS = {
+    "token",
+    "user_id",
+    "created_at",
 }
 
 
@@ -232,6 +242,11 @@ def test_upgrade_head_creates_jobs_and_evidence(
         assert approval_cols == APPROVAL_REQUESTS_COLUMNS
         audit_cols = {col["name"] for col in inspector.get_columns("audit_events")}
         assert audit_cols == AUDIT_EVENTS_COLUMNS
+        # WS-14 · A1: the server-side session store.
+        token_cols = {col["name"] for col in inspector.get_columns("access_tokens")}
+        assert token_cols == ACCESS_TOKENS_COLUMNS
+        token_indexes = {ix["name"] for ix in inspector.get_indexes("access_tokens")}
+        assert "ix_access_tokens_user_id" in token_indexes
         approval_indexes = {ix["name"] for ix in inspector.get_indexes("approval_requests")}
         assert {
             "ix_approval_requests_workflow_id",
@@ -284,6 +299,7 @@ def test_downgrade_base_removes_tables(migration_env: tuple[Config, str]) -> Non
     assert "audit_events" not in tables
     assert "applications" not in tables
     assert "application_events" not in tables
+    assert "access_tokens" not in tables
 
 
 def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
@@ -300,6 +316,7 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "audit_events",
             "applications",
             "application_events",
+            "access_tokens",
         } <= _table_names(url)
         command.downgrade(cfg, "base")
         assert not {
@@ -312,6 +329,7 @@ def test_migrations_are_reversible(migration_env: tuple[Config, str]) -> None:
             "audit_events",
             "applications",
             "application_events",
+            "access_tokens",
         } & _table_names(url)
 
 

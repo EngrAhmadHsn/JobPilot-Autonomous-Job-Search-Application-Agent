@@ -37,7 +37,24 @@ class AuditEventDB(Base):
         server_default=LEGACY_OWNER_ID,
     )
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    #: The human-readable label of the actor. It is **derived** from the
+    #: two columns below, never supplied, so the three can never
+    #: disagree.
     actor: Mapped[str] = mapped_column(String, index=True)
+    #: The kind of principal: ``user``, ``agent`` or ``system``
+    #: (WS-14 · Phase C). NOT NULL, with a server default of ``system``:
+    #: a row written by an older code path is attributed to the system,
+    #: which is honest, rather than to nobody.
+    actor_kind: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default="system",
+        server_default="system",
+    )
+    #: The principal's id: the account id for a user, the adapter's name
+    #: for an agent, empty for the system.
+    actor_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     action: Mapped[str] = mapped_column(String, index=True)
     resource: Mapped[str] = mapped_column(String)
     outcome: Mapped[str] = mapped_column(String, index=True)

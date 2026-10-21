@@ -14,6 +14,13 @@ The email and phone patterns are the ones the resume parser uses
 (``src/resume/parser.py``), so the audit trail and the parser agree on what
 personal data looks like. The phone pattern additionally requires at least
 seven digits, so an ISO date is not mistaken for a phone number.
+
+3. **Control characters are removed.** A newline in a user-supplied field
+   is a **log-injection** vector: an audit row whose ``resource`` ends in
+   a newline followed by a second row's text is two rows to a reader of
+   the log and one row to the database. Every string that reaches the
+   store is therefore stripped of the C0 control characters and of DEL,
+   so a value can never span a line.
 """
 
 from __future__ import annotations
@@ -43,6 +50,29 @@ DATE_LIKE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}(:\d{2})?)?$")
 REDACTED_EMAIL = "<email>"
 REDACTED_PHONE = "<phone>"
 
+#: The control characters that are removed from every stored string:
+#: the C0 range (which includes CR and LF) and DEL.
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def strip_control_characters(text: str) -> str:
+    """Remove the control characters from *text*.
+
+    CR and LF are the ones that matter — they are what a log reader
+    treats as a line boundary, and what a forged row uses to pretend to
+    be a row of its own. The rest of the C0 range and DEL are removed
+    with them, because a string that contains them is not a string an
+    operator can read anyway.
+
+    The characters are **removed**, not replaced with a space: a
+    replacement would let "a
+b" and "a b" collapse into the same
+    stored value, which is a smaller version of the same forgery.
+    """
+    if not text:
+        return text
+    return _CONTROL_CHARACTERS.sub("", text)
+
 
 def _looks_like_phone(match: re.Match[str]) -> bool:
     """True when the match holds enough digits to be a phone number.
@@ -70,7 +100,7 @@ def mask_pii(text: str) -> str:
 def _sanitize_value(value: Any) -> Any:
     """Recursively sanitize one metadata value."""
     if isinstance(value, str):
-        masked = mask_pii(value)
+        masked = strip_control_characters(mask_pii(value))
         if len(masked) > MAX_VALUE_CHARS:
             return masked[:MAX_VALUE_CHARS] + f"…[truncated {len(masked) - MAX_VALUE_CHARS} chars]"
         return masked

@@ -133,7 +133,11 @@ class TestRecordAudit:
         assert len(rows) == 1
         row = rows[0]
         assert row.action == audit_module.ACTION_PREPARE
-        assert row.actor == "operator"
+        # WS-14 · Phase C: a bare label is parsed into a principal, and
+        # the stored label is derived from it.
+        assert row.actor == "agent:operator"
+        assert row.actor_kind == "agent"
+        assert row.actor_id == "operator"
         assert row.resource == "approval-1"
         assert row.outcome == audit_module.OUTCOME_SUCCESS
         assert row.workflow_id == "wf-1"
@@ -326,4 +330,8 @@ class TestTrackingAuditActions:
 
         row = db_session.scalars(select(AuditEventDB)).one()
         assert row.action == "application.event"
-        assert row.actor == "human:ada"
+        # WS-14 · Phase C: the label is derived from the principal, so a
+        # human actor is labelled by its kind.
+        assert row.actor == "user:ada"
+        assert row.actor_kind == "user"
+        assert row.actor_id == "ada"

@@ -31,6 +31,7 @@ from src.applications.tracking import (
     ActorNotPermittedError,
     ApplicationStatus,
     IllegalTransitionError,
+    human_actor,
     transition,
 )
 from src.db import access
@@ -97,15 +98,20 @@ class ApplicationListResponse(BaseModel):
 
 
 class StatusUpdateRequest(BaseModel):
-    """A human outcome for a tracked application."""
+    """A human outcome for a tracked application.
+
+    **The actor is the authenticated principal, not this field**
+    (WS-14 · Phase A2, threat T2). The field is still accepted so that
+    an older client keeps working, but its value is **ignored**: a
+    caller cannot record an outcome *as somebody else* by naming them.
+    The actor rule that a human outcome must be set by a human is now
+    checked against the session, which is where the truth is.
+    """
 
     status: str = Field(..., min_length=1, description="The status to move to")
-    actor: str = Field(
-        ...,
-        min_length=1,
-        description=(
-            "Who is recording this. A human outcome needs a human identity: 'human:<who>'."
-        ),
+    actor: str | None = Field(
+        None,
+        description="Ignored. The actor is the authenticated principal.",
     )
     notes: str | None = Field(None, description="A note stored with the application")
 
@@ -294,11 +300,15 @@ def update_application_status(
             detail=f"Unknown status {req.status!r}. Known statuses: {known}.",
         ) from exc
 
+    # WS-14 · A2 (T2): the actor is the authenticated principal, and a
+    # body-supplied one is ignored.
+    actor = human_actor(scope.user_id)
+
     try:
         transition(
             row,
             target,
-            actor=req.actor,
+            actor=actor,
             db=db,
             metadata={"notes": req.notes} if req.notes else None,
         )

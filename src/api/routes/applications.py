@@ -69,6 +69,7 @@ from src.security.audit import (
     OUTCOME_BLOCKED,
     OUTCOME_DENIED,
     OUTCOME_SUCCESS,
+    Actor,
     record_audit,
 )
 from src.security.policy import (
@@ -607,7 +608,7 @@ def approve_application(
     if req.approver and req.approver != approver:
         record_audit(
             ACTION_APPROVE,
-            actor=approver,
+            actor=Actor.user(approver),
             resource=approval_id,
             outcome=OUTCOME_DENIED,
             owner_id=approver,
@@ -624,7 +625,7 @@ def approve_application(
     except (PolicyError, AutoSubmitNotAllowed) as exc:
         record_audit(
             ACTION_APPROVE,
-            actor=approver,
+            actor=Actor.user(approver),
             resource=approval_id,
             outcome=OUTCOME_BLOCKED,
             owner_id=approver,
@@ -673,7 +674,7 @@ def approve_application(
 
     record_audit(
         ACTION_APPROVE,
-        actor=approver,
+        actor=Actor.user(approver),
         resource=approval_id,
         outcome=OUTCOME_SUCCESS if result.success else OUTCOME_BLOCKED,
         owner_id=approver,
@@ -731,7 +732,7 @@ def reject_application(
     if req.approver and req.approver != approver:
         record_audit(
             ACTION_REJECT,
-            actor=approver,
+            actor=Actor.user(approver),
             resource=approval_id,
             outcome=OUTCOME_DENIED,
             owner_id=approver,
@@ -763,7 +764,7 @@ def reject_application(
 
     record_audit(
         ACTION_REJECT,
-        actor=approver,
+        actor=Actor.user(approver),
         resource=approval_id,
         outcome=OUTCOME_SUCCESS,
         owner_id=approver,

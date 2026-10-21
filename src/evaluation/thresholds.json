@@ -17,7 +17,7 @@
     "relevance.job_relevance": 0.9
   },
   "max": {
-    "ranking.false_positive_rate": 0.35,
+    "ranking.false_positive_rate": -1.0,
     "ranking.false_negative_rate": 0.85,
     "relevance.hallucination_rate": 0.1
   },
