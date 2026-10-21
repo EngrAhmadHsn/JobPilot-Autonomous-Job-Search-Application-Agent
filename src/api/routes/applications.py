@@ -33,6 +33,7 @@ from src.applications.contracts import (
     PreparedApplication,
 )
 from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
+from src.applications.form import facts_from_profile
 from src.applications.greenhouse_adapter import GreenhouseAdapter
 from src.applications.lever_adapter import LeverAdapter
 from src.applications.tracking import (
@@ -51,6 +52,7 @@ from src.db.approval import (
     ApprovalStatus,
     build_approval_row,
 )
+from src.db.profiles import CandidateProfileDB, profile_from_row
 from src.db.session import get_db
 from src.graph.executor import (
     execute_approved,
@@ -121,7 +123,8 @@ class PreparedSummary(BaseModel):
 
     The prepared field *names* are listed, not their values: the values are
     the candidate's personal data and the reviewer does not need them echoed
-    back to make a decision.
+    back to make a decision. The same holds for the profile facts (WS-08):
+    their *names* say what the agent may answer a form question with.
     """
 
     job_title: str
@@ -129,6 +132,7 @@ class PreparedSummary(BaseModel):
     job_url: str
     adapter_name: str
     field_names: list[str] = Field(default_factory=list)
+    profile_fact_names: list[str] = Field(default_factory=list)
     resume_path: str | None = None
     requires_manual_review: bool = False
 
@@ -271,6 +275,10 @@ def prepare_application(
         resume_path=req.resume_path,
         cover_letter=req.cover_letter,
         custom_fields=req.custom_fields,
+        # WS-08: the grounded facts come from the **stored profile**, never
+        # from the request body. A question the candidate's document does not
+        # answer stays unanswered.
+        profile_facts=_profile_facts(db, req.profile_id),
     )
 
     try:
@@ -322,11 +330,33 @@ def prepare_application(
             job_url=prepared.request.job_url,
             adapter_name=adapter.name,
             field_names=sorted(prepared.prepared_fields),
+            profile_fact_names=sorted(prepared.profile_facts),
             resume_path=prepared.resume_path,
             requires_manual_review=prepared.requires_manual_review,
         ),
         application_id=application_id,
     )
+
+
+def _profile_facts(db: Session, profile_id: str | None) -> dict[str, str]:
+    """The grounded facts of a stored candidate profile (WS-08).
+
+    The facts are derived from the profile the candidate uploaded — the
+    document itself — and never from the request body. A profile that does
+    not exist yields no facts, which means the questions it would have
+    answered stay *unresolved* rather than being invented.
+    """
+    if not profile_id:
+        return {}
+    try:
+        row = db.get(CandidateProfileDB, profile_id)
+        if row is None:
+            logger.info("No candidate profile %r; the application has no profile facts", profile_id)
+            return {}
+        return facts_from_profile(profile_from_row(row))
+    except Exception as exc:  # noqa: BLE001 - a missing profile must not block the flow
+        logger.warning("The profile facts could not be derived: %s", exc)
+        return {}
 
 
 def _track_prepare(
