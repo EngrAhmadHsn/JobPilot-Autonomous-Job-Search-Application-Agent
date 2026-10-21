@@ -305,6 +305,53 @@ class TestTheApproverIsThePrincipal:
         assert response.status_code == 404
 
 
+class TestTheWritersRecordTheOwner:
+    """A row must be owned by the account that caused it.
+
+    Two bugs of the same shape were found by the **live** run, not by the
+    suite: a function accepted an ``owner_id`` and used it for one write
+    but not for the row it was actually about. The row landed on the
+    legacy owner, which is invisible to the account that created it — and
+    is claimed by whoever registers next.
+
+    These tests are the mechanical version of that lesson.
+    """
+
+    def test_a_tracked_application_is_owned_by_its_account(self, api: TestClient) -> None:
+        from src.applications.tracking import create_application
+
+        with next(api.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+            row = create_application(
+                db,
+                owner_id="alice",
+                workflow_id="wf-owner",
+                adapter_name="fake-ats",
+                job_url="https://boards.greenhouse.io/x/1",
+                job_title="Engineer",
+                company_name="Acme",
+            )
+            assert row.owner_id == "alice", (
+                "the tracked application was not owned by the account that "
+                "prepared it"
+            )
+
+    def test_an_evidence_record_is_owned_by_the_account(self, api: TestClient) -> None:
+        from src.db.evidence import ApplicationEvidenceDB
+
+        with next(api.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+            record = ApplicationEvidenceDB(
+                owner_id="alice",
+                application_id="app-alice",
+                workflow_id="wf-owner",
+                adapter_name="fake-ats",
+                job_url="https://boards.greenhouse.io/x/1",
+                status="verified",
+            )
+            db.add(record)
+            db.commit()
+            assert record.owner_id == "alice"
+
+
 # -- the check that stops the control decaying --------------------------------
 
 

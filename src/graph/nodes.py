@@ -278,6 +278,17 @@ def _record_submission(
         app_row = _tracked_application_or_none(state, tracking_session)
         try:
             evidence_record = ApplicationEvidence(
+                # WS-14 · Phase B: the evidence belongs to the account
+                # the run was made for, so the owner reads their own
+                # evidence and nobody else's. The default (the legacy
+                # owner) would hide it from the account that produced
+                # it.
+                owner_id=(
+                    state.prepared_application.owner_id
+                    if state.prepared_application is not None
+                    else None
+                )
+                or LEGACY_OWNER_ID,
                 workflow_id=state.workflow_id,
                 adapter_name=adapter.name,
                 # The submit node refuses to run without a prepared payload.
@@ -411,8 +422,15 @@ def verify_node(
         # SEC-14: a result that claims evidence must have that evidence on
         # disk. A missing artifact downgrades the result — success is never
         # claimed without the artifacts that back it.
+        # WS-14 · Phase B: the evidence of this run lives in the
+        # account's own directory, so the check has to look there.
+        owner_id = (
+            state.prepared_application.owner_id
+            if state.prepared_application is not None
+            else None
+        )
         missing = (
-            missing_evidence_files(verified_result.evidence)
+            missing_evidence_files(verified_result.evidence, owner_id)
             if verified_result.evidence is not None
             else []
         )

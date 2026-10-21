@@ -161,6 +161,73 @@ class TestTheContainmentCheck:
             assert_within_user_root(link, ALICE)
 
 
+class TestTheEvidenceIsFoundInTheOwnersDirectory:
+    """A regression test for a bug the live run found.
+
+    The evidence of a run is written into the **owner's own** directory
+    (WS-14 · Phase B), and the stored artifact path is a bare file name
+    relative to the evidence directory. The check that decides whether a
+    submission is verified has to resolve that name against the owner's
+    directory too.
+
+    It did not: it looked in the shared one, found nothing, and
+    downgraded a submission that had in fact left its evidence behind to
+    ``verification_failed``. The unit suite missed it because every test
+    ran without an owner, so the shared directory was the right answer
+    and the bug was invisible.
+    """
+
+    def test_a_bare_evidence_name_resolves_in_the_owners_directory(
+        self, storage: Path
+    ) -> None:
+        from src.applications.evidence import resolve_evidence_path
+
+        directory = user_dir(ALICE, KIND_EVIDENCE)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "wf-1.png").write_bytes(b"PNG")
+
+        resolved = resolve_evidence_path("wf-1.png", ALICE)
+        assert resolved == directory / "wf-1.png"
+        assert resolved.exists()
+
+    def test_the_verification_finds_the_artifact(self, storage: Path) -> None:
+        from src.applications.contracts import SubmissionEvidence
+        from src.applications.evidence import missing_evidence_files
+
+        directory = user_dir(ALICE, KIND_EVIDENCE)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "wf-1.png").write_bytes(b"PNG")
+        (directory / "wf-1.trace.json").write_text("{}", encoding="utf-8")
+
+        evidence = SubmissionEvidence(
+            url="http://127.0.0.1:8901/basic",
+            screenshot_path="wf-1.png",
+            trace_path="wf-1.trace.json",
+            status="verified",
+        )
+        assert missing_evidence_files(evidence, ALICE) == []
+
+    def test_an_artifact_in_another_users_directory_is_not_found(
+        self, storage: Path
+    ) -> None:
+        from src.applications.contracts import SubmissionEvidence
+        from src.applications.evidence import missing_evidence_files
+
+        directory = user_dir(BOB, KIND_EVIDENCE)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "wf-1.png").write_bytes(b"PNG")
+
+        evidence = SubmissionEvidence(
+            url="http://127.0.0.1:8901/basic",
+            screenshot_path="wf-1.png",
+            status="verified",
+        )
+        # Alice does not have it, so it is missing for her.
+        assert missing_evidence_files(evidence, ALICE) == ["screenshot"]
+        assert missing_evidence_files(evidence, BOB) == []
+
+
+
 # -- the write paths -----------------------------------------------------------
 
 

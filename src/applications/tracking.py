@@ -449,6 +449,11 @@ def create_application(
     """
     job_id = ensure_job_row(db, job_url, job_title, company_name)
     row = build_application_row(
+        # The row belongs to the account that prepared it. Leaving this
+        # to the default would put every tracked application on the
+        # legacy owner — invisible to the account that created it, and
+        # claimed by whoever registers next.
+        owner_id=owner_id,
         workflow_id=workflow_id,
         job_id=job_id,
         adapter_name=adapter_name,
