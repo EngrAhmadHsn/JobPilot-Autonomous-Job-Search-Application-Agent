@@ -41,9 +41,11 @@ def get_db() -> Iterator[Session]:
     Routers use ``db: Session = Depends(get_db)`` instead of opening sessions
     inline, so session lifetime is tied to the request lifecycle.
 
-    Exception: the documented inline ``SessionLocal()`` fallback inside the
-    application submit node (``src/graph/nodes.py``) stays as-is on purpose —
-    see workstream 06.
+    Exception: the application submit node (``src/graph/nodes.py``) opens its
+    own ``SessionLocal()`` when it is called outside a request — a run of the
+    graph on its own has no request-scoped session to inherit. When the API
+    calls it, the request's session is handed over and the node uses that one
+    (WS-07).
     """
     db = SessionLocal()
     try:

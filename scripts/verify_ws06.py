@@ -129,7 +129,9 @@ def main() -> int:
                 )
                 approval_id = response.json()["approval_id"]
 
-                response = client.get(f"/api/applications/{approval_id}")
+                # WS-07: the approval record keeps its own path; the
+                # application id owns /api/applications/{id}.
+                response = client.get(f"/api/applications/approvals/{approval_id}")
                 check(
                     "the approval request is pending before the decision",
                     response.status_code == 200 and response.json()["status"] == "pending",

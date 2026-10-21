@@ -21,8 +21,12 @@ from src.applications.contracts import (
     PreparedApplication,
     SubmissionEvidence,
 )
+from src.applications.tracking import ApplicationStatus
+from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB, ApprovalStatus
 from src.db.base import Base
+from src.db.evidence import ApplicationEvidence
+from src.db.jobs import JobDB
 from src.db.session import get_db
 from src.main import app
 
@@ -297,13 +301,129 @@ class TestRejectEndpoint:
         assert stub_adapter.submitted is None
 
 
+class TestTrackedApplication:
+    """WS-07: the prepare → approve → submit → verify flow is tracked."""
+
+    def test_the_prepare_response_carries_an_application_id(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        assert prepared["application_id"]
+
+        with session_factory() as session:
+            row = session.get(ApplicationDB, prepared["application_id"])
+            assert row is not None
+            assert row.status == ApplicationStatus.AWAITING_APPROVAL.value
+            assert row.approval_id == prepared["approval_id"]
+            assert row.workflow_id == prepared["workflow_id"]
+            assert row.job_title == "Senior Python Engineer"
+
+    def test_the_job_row_always_resolves(self, client, session_factory, stub_adapter) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        with session_factory() as session:
+            row = session.get(ApplicationDB, prepared["application_id"])
+            job = session.get(JobDB, row.job_id)
+            assert job is not None
+            assert job.application_url == _payload()["job_url"]
+
+    def test_the_application_traverses_the_whole_lifecycle(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        response = client.post(
+            f"/api/applications/{prepared['approval_id']}/approve",
+            json={"approver": "operator", "reason": "looks good"},
+        )
+        assert response.status_code == 200, response.text
+
+        with session_factory() as session:
+            row = session.get(ApplicationDB, prepared["application_id"])
+            assert row.status == ApplicationStatus.VERIFIED.value
+            assert row.submitted_at is not None
+            assert row.verified_at is not None
+
+            events = list(
+                session.scalars(
+                    select(ApplicationEventDB)
+                    .where(ApplicationEventDB.application_id == row.id)
+                    .order_by(ApplicationEventDB.id)
+                )
+            )
+            moves = [event.to_status for event in events if event.to_status is not None]
+            assert moves == [
+                ApplicationStatus.PREPARED.value,
+                ApplicationStatus.AWAITING_APPROVAL.value,
+                ApplicationStatus.SUBMITTED.value,
+                ApplicationStatus.VERIFIED.value,
+            ]
+            # The decision and the evidence are recorded too.
+            assert any(event.event_type == "approval_granted" for event in events)
+            assert any(event.event_type == "evidence_recorded" for event in events)
+
+    def test_the_evidence_row_is_linked_to_the_application(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+        client.post(
+            f"/api/applications/{prepared['approval_id']}/approve",
+            json={"approver": "operator"},
+        )
+
+        with session_factory() as session:
+            evidence = session.scalars(select(ApplicationEvidence)).one()
+            assert evidence.application_id == prepared["application_id"]
+
+    def test_a_rejection_moves_the_application_to_rejected(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        response = client.post(
+            f"/api/applications/{prepared['approval_id']}/reject",
+            json={"approver": "operator", "reason": "wrong role"},
+        )
+        assert response.status_code == 200, response.text
+
+        with session_factory() as session:
+            row = session.get(ApplicationDB, prepared["application_id"])
+            assert row.status == ApplicationStatus.REJECTED.value
+
+            events = list(
+                session.scalars(
+                    select(ApplicationEventDB)
+                    .where(ApplicationEventDB.application_id == row.id)
+                    .order_by(ApplicationEventDB.id)
+                )
+            )
+            rejection = events[-1]
+            assert rejection.event_type == "approval_rejected"
+            assert rejection.actor == "human:operator"
+            assert rejection.from_status == ApplicationStatus.AWAITING_APPROVAL.value
+            assert rejection.to_status == ApplicationStatus.REJECTED.value
+
+    def test_the_tracking_detail_is_readable_over_http(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        response = client.get(f"/api/applications/{prepared['application_id']}")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == ApplicationStatus.AWAITING_APPROVAL.value
+        assert len(body["events"]) == 2
+
+
 class TestApprovalStatusEndpoint:
     """The stored state of an approval request is readable."""
 
     def test_status_of_a_pending_request(self, client, session_factory, stub_adapter) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
 
-        response = client.get(f"/api/applications/{prepared['approval_id']}")
+        response = client.get(f"/api/applications/approvals/{prepared['approval_id']}")
 
         assert response.status_code == 200
         body = response.json()
@@ -314,4 +434,4 @@ class TestApprovalStatusEndpoint:
     def test_status_of_an_unknown_request_is_404(
         self, client, session_factory, stub_adapter
     ) -> None:
-        assert client.get("/api/applications/nope").status_code == 404
+        assert client.get("/api/applications/approvals/nope").status_code == 404

@@ -35,6 +35,17 @@ from src.applications.contracts import (
 from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
 from src.applications.greenhouse_adapter import GreenhouseAdapter
 from src.applications.lever_adapter import LeverAdapter
+from src.applications.tracking import (
+    AGENT_ACTOR,
+    EVENT_APPROVAL_GRANTED,
+    EVENT_APPROVAL_REJECTED,
+    ApplicationStatus,
+    create_application,
+    find_application,
+    human_actor,
+    record_event,
+    transition,
+)
 from src.db.approval import (
     ApprovalRequestDB,
     ApprovalStatus,
@@ -94,6 +105,16 @@ class ApplicationPrepareRequest(BaseModel):
 
     custom_fields: dict = Field(default_factory=dict, description="Additional form fields")
 
+    # WS-07: the tracked application may be linked to the candidate profile
+    # and the tailored resume it was built from. Both are optional: the
+    # prepare flow works without them.
+    profile_id: str | None = Field(
+        None, description="Candidate profile this application belongs to"
+    )
+    tailored_resume_id: str | None = Field(
+        None, description="Tailored resume used for this application"
+    )
+
 
 class PreparedSummary(BaseModel):
     """What a human is asked to review before approving.
@@ -120,6 +141,7 @@ class ApplicationPrepareResponse(BaseModel):
     adapter_name: str = Field(..., description="Name of the adapter used")
     status: str = Field(..., description="awaiting_approval")
     prepared_summary: PreparedSummary
+    application_id: str | None = Field(None, description="Id of the tracked application (WS-07)")
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -267,6 +289,21 @@ def prepare_application(
 
     record_prepare_audit(prepared, adapter, workflow_id=workflow_id, approval_id=row.id)
 
+    # WS-07: the tracked application. It is created already prepared (the
+    # system never matched or shortlisted anything in this flow) and moves to
+    # AWAITING_APPROVAL, because an approval request now exists.
+    application_id = _track_prepare(
+        db,
+        workflow_id=workflow_id,
+        adapter_name=adapter.name,
+        approval_id=row.id,
+        job_url=req.job_url,
+        job_title=req.job_title,
+        company_name=req.company_name,
+        profile_id=req.profile_id,
+        tailored_resume_id=req.tailored_resume_id,
+    )
+
     logger.info(
         "[%s] Application prepared for approval (%s)",
         workflow_id,
@@ -288,7 +325,112 @@ def prepare_application(
             resume_path=prepared.resume_path,
             requires_manual_review=prepared.requires_manual_review,
         ),
+        application_id=application_id,
     )
+
+
+def _track_prepare(
+    db: Session,
+    *,
+    workflow_id: str,
+    adapter_name: str,
+    approval_id: str,
+    job_url: str,
+    job_title: str,
+    company_name: str,
+    profile_id: str | None = None,
+    tailored_resume_id: str | None = None,
+) -> str | None:
+    """Create the tracked application and move it to AWAITING_APPROVAL.
+
+    A tracking failure is logged and swallowed: the tracking tables are an
+    observability feature, and a missing one must not stop an application
+    from being prepared. The audit trail remains the fallback record.
+    """
+    try:
+        application = create_application(
+            db,
+            workflow_id=workflow_id,
+            adapter_name=adapter_name,
+            job_url=job_url,
+            job_title=job_title,
+            company_name=company_name,
+            approval_id=approval_id,
+            profile_id=profile_id,
+            tailored_resume_id=tailored_resume_id,
+        )
+        transition(
+            application,
+            ApplicationStatus.AWAITING_APPROVAL,
+            actor=AGENT_ACTOR,
+            db=db,
+        )
+        return application.id
+    except Exception as exc:  # noqa: BLE001 - tracking must never block the flow
+        logger.error("Tracking the prepared application failed: %s", exc)
+        try:
+            db.rollback()
+        except Exception as rollback_exc:  # noqa: BLE001 - the rollback must not mask the cause
+            logger.error("Rollback after the tracking failure failed too: %s", rollback_exc)
+        return None
+
+
+def _record_tracking_event(
+    db: Session,
+    application_id: str,
+    event_type: str,
+    *,
+    actor: str,
+    metadata: dict | None = None,
+) -> None:
+    """Append an event to a tracked application's history (best effort)."""
+    try:
+        record_event(
+            db,
+            application_id,
+            event_type,
+            actor=actor,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - tracking must never block the flow
+        logger.error("Recording the tracking event failed: %s", exc)
+        _rollback_tracking(db)
+
+
+def _transition_tracked(
+    db: Session,
+    application,
+    to: ApplicationStatus,
+    *,
+    actor: str,
+    event_type: str,
+    metadata: dict | None = None,
+) -> None:
+    """Move a tracked application (best effort).
+
+    A failure here is logged, not raised: the human decision is already
+    recorded on the approval request, and that record is the authority.
+    """
+    try:
+        transition(
+            application,
+            to,
+            actor=actor,
+            db=db,
+            event_type=event_type,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - tracking must never block the flow
+        logger.error("The tracking transition failed: %s", exc)
+        _rollback_tracking(db)
+
+
+def _rollback_tracking(db: Session) -> None:
+    """Discard a failed tracking write without letting the rollback raise."""
+    try:
+        db.rollback()
+    except Exception as exc:  # noqa: BLE001 - the rollback must not mask the cause
+        logger.error("Rollback after the tracking failure failed too: %s", exc)
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalDecisionResponse)
@@ -345,6 +487,19 @@ def approve_application(
     prepared = PreparedApplication.model_validate(row.payload)
     adapter = _adapter_for(row.adapter_name)
 
+    # WS-07: the decision is an event in the tracked application's history.
+    # The application itself stays in AWAITING_APPROVAL until the agent
+    # actually performs the submission.
+    application = find_application(db, approval_id=approval_id)
+    if application is not None:
+        _record_tracking_event(
+            db,
+            application.id,
+            EVENT_APPROVAL_GRANTED,
+            actor=human_actor(req.approver),
+            metadata={"reason": req.reason, "approval_id": approval_id},
+        )
+
     result = execute_approved(
         prepared,
         adapter,
@@ -352,6 +507,8 @@ def approve_application(
         approval_id=approval_id,
         approver=req.approver,
         decision_reason=req.reason or "",
+        session=db,
+        application_id=application.id if application is not None else None,
     )
 
     row.status = ApprovalStatus.EXECUTED if result.success else ApprovalStatus.FAILED
@@ -416,6 +573,19 @@ def reject_application(
     row.decided_at = datetime.now(UTC)
     db.commit()
 
+    # WS-07: a decline at the gate is a human outcome, so the tracked
+    # application moves to REJECTED with a human actor.
+    application = find_application(db, approval_id=approval_id)
+    if application is not None:
+        _transition_tracked(
+            db,
+            application,
+            ApplicationStatus.REJECTED,
+            actor=human_actor(req.approver),
+            event_type=EVENT_APPROVAL_REJECTED,
+            metadata={"reason": req.reason, "approval_id": approval_id},
+        )
+
     record_audit(
         ACTION_REJECT,
         actor=req.approver,
@@ -443,12 +613,17 @@ def reject_application(
     )
 
 
-@router.get("/{approval_id}", response_model=ApprovalStatusResponse)
+@router.get("/approvals/{approval_id}", response_model=ApprovalStatusResponse)
 def get_approval(
     approval_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApprovalStatusResponse:
-    """Return the stored state of an approval request."""
+    """Return the stored state of an approval request.
+
+    The path is ``/approvals/{id}`` because ``/api/applications/{id}`` is the
+    *tracked application* (WS-07). Two different resources cannot share one
+    path shape.
+    """
     row = _load_approval(approval_id, db)
 
     success: bool | None = None
