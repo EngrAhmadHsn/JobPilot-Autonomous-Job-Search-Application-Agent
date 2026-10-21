@@ -2,12 +2,39 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/bricolage-grotesque";
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  The console's design tokens.
+
+  The product is a career copilot, and the metaphor is a **dossier on a
+  desk**: an ivory page, a sheet of paper on it, ink for the text, a
+  lime highlighter for the marks the *agent* makes, and a warm clay wash
+  for the marks a *human* makes. That last rule carries the most meaning:
+  if it is lime, the agent did it; if it is terracotta, a person did.
+
+  The colours are the brief's: ivory #F7F5EF, forest #173D32, lime #D9F36A,
+  terracotta #F1D6C8, charcoal ink. Everything else is derived from them.
+*/
 @theme inline {
-  --font-heading: var(--font-sans);
-  --font-sans: "Geist Variable", sans-serif;
+  --font-heading: "Bricolage Grotesque Variable", "Geist Variable", sans-serif;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-lime: #d9f36a;
+  --color-lime-foreground: #173d32;
+  --color-lime-soft: #eef9c4;
+  --color-terracotta: #f1d6c8;
+  --color-terracotta-foreground: #6d3a27;
+  --color-terracotta-soft: #faeee6;
+  --color-forest: #173d32;
+  --color-forest-soft: #e6ece8;
+  --color-ivory: #f7f5ef;
+  --color-paper: #fffdf8;
+  --color-ink: #23211c;
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -42,89 +69,192 @@
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) * 1.35);
+  --radius-2xl: calc(var(--radius) * 1.7);
+  --radius-3xl: calc(var(--radius) * 2.1);
+  --radius-4xl: calc(var(--radius) * 2.5);
+
+  --shadow-paper:
+    0 1px 2px rgb(35 33 28 / 4%), 0 10px 30px -18px rgb(35 33 28 / 18%);
+  --shadow-lift:
+    0 2px 4px rgb(35 33 28 / 5%), 0 18px 40px -20px rgb(35 33 28 / 24%);
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* The canvas is warm: an ivory page, not a white one. */
+  --background: #f7f5ef;
+  --foreground: #23211c;
+  --card: #fffdf8;
+  --card-foreground: #23211c;
+  --popover: #fffdf8;
+  --popover-foreground: #23211c;
+  /* Forest, not black: the one colour that says "act". */
+  --primary: #173d32;
+  --primary-foreground: #f7f5ef;
+  --secondary: #efeade;
+  --secondary-foreground: #23211c;
+  --muted: #f1ede2;
+  --muted-foreground: #6a6459;
+  /* The agent's own hover wash: forest at a whisper, never black. */
+  --accent: #e8efea;
+  --accent-foreground: #173d32;
+  --destructive: #9a3b2c;
+  --border: #e3ddd0;
+  --input: #d9d2c2;
+  --ring: #173d32;
+  --chart-1: #173d32;
+  --chart-2: #7a9b6d;
+  --chart-3: #d9f36a;
+  --chart-4: #c98b6b;
+  --chart-5: #6a6459;
+  --radius: 0.75rem;
+  --sidebar: #f2efe6;
+  --sidebar-foreground: #23211c;
+  --sidebar-primary: #173d32;
+  --sidebar-primary-foreground: #f7f5ef;
+  --sidebar-accent: #e8efea;
+  --sidebar-accent-foreground: #173d32;
+  --sidebar-border: #e3ddd0;
+  --sidebar-ring: #173d32;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* The same identity, at night: warm charcoal, lime as the action. */
+  --background: #16150f;
+  --foreground: #f2efe6;
+  --card: #1e1d17;
+  --card-foreground: #f2efe6;
+  --popover: #1e1d17;
+  --popover-foreground: #f2efe6;
+  --primary: #d9f36a;
+  --primary-foreground: #14261f;
+  --secondary: #292720;
+  --secondary-foreground: #f2efe6;
+  --muted: #26251e;
+  --muted-foreground: #a8a294;
+  --accent: #2a3129;
+  --accent-foreground: #d9f36a;
+  --destructive: #e08a78;
+  --border: #35332a;
+  --input: #45423a;
+  --ring: #d9f36a;
+  --chart-1: #d9f36a;
+  --chart-2: #7a9b6d;
+  --chart-3: #c98b6b;
+  --chart-4: #6a6459;
+  --chart-5: #a8a294;
+  --sidebar: #1a1913;
+  --sidebar-foreground: #f2efe6;
+  --sidebar-primary: #d9f36a;
+  --sidebar-primary-foreground: #14261f;
+  --sidebar-accent: #2a3129;
+  --sidebar-accent-foreground: #d9f36a;
+  --sidebar-border: #35332a;
+  --sidebar-ring: #d9f36a;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+    font-variant-ligatures: contextual;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+
   html {
     @apply font-sans;
+  }
+
+  /* One focus treatment for the whole console: a visible ring, always. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Motion answers an action; it never performs. And it is optional. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* The content container: a useful maximum width, not a fixed one. */
+  .console-container {
+    width: 100%;
+    max-width: 1120px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .console-container {
+      padding-inline: 2rem;
+    }
+  }
+
+  /* The reading column: prose stays under 70 characters. */
+  .console-reading {
+    max-width: 68ch;
+  }
+
+  /*
+    The agent's progress line. A long call is not a spinner: it is a
+    sentence that says what the agent is doing, over a bar that moves.
+  */
+  .agent-progress {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--lime);
+  }
+
+  .agent-progress::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 55%),
+      transparent
+    );
+    animation: agent-progress-sweep 1.8s var(--ease-inout) infinite;
+  }
+
+  @keyframes agent-progress-sweep {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* The one orchestrated entrance: the onboarding, once. */
+  .reveal-once {
+    animation: reveal-once 520ms var(--ease-soft) both;
+  }
+
+  @keyframes reveal-once {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 }

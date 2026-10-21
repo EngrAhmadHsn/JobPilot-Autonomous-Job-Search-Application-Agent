@@ -97,7 +97,7 @@ export class AbortedError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
+  method?: "GET" | "HEAD" | "POST" | "PATCH" | "PUT" | "DELETE"
   /** A JSON body. Mutually exclusive with `formData`. */
   json?: unknown
   /** A multipart body. */

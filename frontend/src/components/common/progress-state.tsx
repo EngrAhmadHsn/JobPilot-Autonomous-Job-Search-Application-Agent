@@ -7,10 +7,10 @@ import { useElapsed } from "@/hooks/use-elapsed"
  * The state of a call that is still running.
  *
  * The console makes long calls (a search, a tailoring run, a refresh), and
- * a long call with no feedback is indistinguishable from a hung console. The
- * elapsed seconds and the Cancel button are what make the wait honest: the
- * operator can see it is moving, and can stop waiting without pretending
- * the server stopped.
+ * a long call with no feedback is indistinguishable from a hung console.
+ * The elapsed seconds and the Cancel button are what make the wait honest:
+ * the operator can see it is moving, and can stop waiting without
+ * pretending the server stopped.
  */
 export function ProgressState({
   title,
@@ -34,15 +34,17 @@ export function ProgressState({
       role="status"
       aria-live="polite"
       className={cn(
-        "rounded-lg border border-border bg-muted/40 px-3 py-2",
+        "rounded-xl border border-border bg-card px-4 py-3.5",
         className
       )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium">{title}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{title}</p>
           {description ? (
-            <p className="text-sm text-muted-foreground">{description}</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {description}
+            </p>
           ) : null}
         </div>
         <div className="flex items-center gap-3">
@@ -55,14 +57,15 @@ export function ProgressState({
             <button
               type="button"
               onClick={onCancel}
-              className="text-xs font-medium underline underline-offset-4"
+              className="text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
             >
               Cancel
             </button>
           ) : null}
         </div>
       </div>
-      {children ? <div className="mt-2">{children}</div> : null}
+      <div className="agent-progress mt-3 h-1 w-full rounded-full" />
+      {children ? <div className="mt-3">{children}</div> : null}
     </div>
   )
 }
@@ -82,17 +85,19 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed border-border px-4 py-8 text-center",
+        "rounded-2xl border border-dashed border-border bg-card/60 px-6 py-12 text-center",
         className
       )}
     >
-      <p className="text-sm font-medium">{title}</p>
+      <p className="font-heading text-base font-semibold tracking-tight text-foreground">
+        {title}
+      </p>
       {description ? (
-        <div className="mx-auto mt-1 max-w-prose text-sm text-muted-foreground">
+        <div className="mx-auto mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
           {description}
         </div>
       ) : null}
-      {action ? <div className="mt-3 flex justify-center">{action}</div> : null}
+      {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
   )
 }

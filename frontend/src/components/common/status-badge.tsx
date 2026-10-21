@@ -2,14 +2,21 @@ import { cn } from "cn"
 
 import { describeStatus, type StatusTone } from "@/lib/status"
 
+/*
+  A status badge says **who is holding this up**.
+
+  Lime is the agent's mark: the agent prepared it, submitted it, verified
+  it. Terracotta is a person's: it is waiting for a decision, or a person
+  recorded the outcome. Anything the console does not understand is shown
+  verbatim in a neutral tone — hiding an unfamiliar status would be a lie
+  of omission.
+*/
 const TONE_CLASSES: Record<StatusTone, string> = {
   neutral: "border-border bg-muted text-muted-foreground",
-  info: "border-primary/30 bg-primary/10 text-primary",
-  progress: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  success:
-    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  warning:
-    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  info: "border-border bg-card text-foreground",
+  progress: "border-lime/70 bg-lime-soft text-lime-foreground",
+  success: "border-lime/70 bg-lime text-lime-foreground",
+  warning: "border-terracotta bg-terracotta-soft text-terracotta-foreground",
   danger: "border-destructive/40 bg-destructive/10 text-destructive",
 }
 
@@ -33,7 +40,7 @@ export function StatusBadge({
       data-status={status ?? "unknown"}
       title={presentation.nextStep}
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
         TONE_CLASSES[presentation.tone],
         className
       )}
@@ -51,7 +58,7 @@ export function StatusExplainer({
 }) {
   const presentation = describeStatus(status)
   return (
-    <p className="text-sm text-muted-foreground">
+    <p className="text-sm leading-relaxed text-muted-foreground">
       <span className="font-medium text-foreground">{presentation.label}.</span>{" "}
       {presentation.nextStep}
     </p>

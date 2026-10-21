@@ -331,6 +331,60 @@ one-to-one onto a label and a "what must a human do next" line.
 | `discovered` / `matched` / `shortlisted` / `prepared` | Discovered / Matched / Shortlisted / Prepared | an intermediate state |
 | `unknown status` | The server reported a status the console does not know | the raw status is shown verbatim — the console does not hide what it does not understand |
 
+## The design system
+
+The console is a **dossier on a desk**: an ivory page, a sheet of paper on
+it, ink for the text, a lime highlighter for the marks the *agent* makes, and
+a warm clay wash for the marks a *human* makes.
+
+That last rule is the one that carries the meaning. If a mark is lime, the
+agent did it — a match score, a tailored resume, a progress bar. If it is
+terracotta, a person did it — the current profile, a recorded outcome, a
+decision waiting for a name. The operator learns the colour once and reads
+the screen faster.
+
+### The tokens
+
+| Token | Light | Dark | What it is for |
+|---|---|---|---|
+| Canvas | `#F7F5EF` ivory | `#16150F` warm charcoal | the page |
+| Paper | `#FFFDF8` | `#1E1D17` | the cards |
+| Ink | `#23211C` | `#F2EFE6` | the text |
+| Primary | `#173D32` forest | `#D9F36A` lime | the one action |
+| Agent's mark | `#D9F36A` lime | `#D9F36A` | match scores, agent progress |
+| Human's mark | `#F1D6C8` terracotta | — | the operator's own decisions |
+| Border | `#E3DDD0` | `#35332A` | hairlines only |
+| Muted text | `#6A6459` | `#A8A294` | secondary text |
+
+Every text pair clears WCAG AA: the lowest is the muted text on ivory at
+5.4:1, the rest run from 6.3:1 to 14.8:1.
+
+### Type and space
+
+- **Display**: Bricolage Grotesque Variable — the headings, the brand, the
+  section titles.
+- **Body**: Geist Variable — everything else.
+- **Container**: 1120 px, with a 68-character reading column inside it.
+- **Motion**: 150–200 ms transitions that answer an action (a hover, an
+  expand, a state change), one orchestrated entrance on the onboarding, and
+  an agent-progress bar that moves while a long call runs. `prefers-reduced-motion`
+  turns all of it off.
+
+### What the redesign changed
+
+| Before | After |
+|---|---|
+| Monochrome shadcn tokens, black primary | the ivory/forest/lime/clay system above |
+| A row of plain text links | a product mark, the workflow grouped as Discover / Prepare / Track, and Operations set apart as maintenance |
+| A small file input | a drop zone with the file rules, a drag target, and a keyboard-reachable button |
+| One long form | the prepare form in four groups, with the candidate's details prefilled from the profile |
+| A spinner for a long call | a sentence that says what the agent is doing, over a moving bar |
+| A black active nav pill | a soft green wash and a hairline underline |
+
+The rules the redesign did **not** touch: the approval gate, the statuses,
+the error classes, the plain-text rule for backend strings, and the fact that
+no screen claims an outcome the API did not return.
+
 ## Safety model in the UI
 
 The approval gate is a *property of the backend*, and the console's job is to
@@ -554,7 +608,9 @@ the server — never a broken image and never a silent omission.
 | 7 | The Tailor screen takes a job id | `/tailor` also lists the jobs | there is no job-listing endpoint (BA-4), and a bare input box for a `source:id` is not an operator tool | the list is built from the profile's **match history** — the jobs the profile was actually scored against |
 | 8 | The client is generated from `/openapi.json` | the generated schema marks every defaulted field as optional, so the client's types would be full of `?? []` | FastAPI marks a field with a default as optional because a *request* may leave it out; a *response* always carries it | one `DeepRequired` helper in `src/lib/api/types.ts` says so in a single place |
 | 9 | "the Pydantic models they return" | two shapes are written by hand | `GET /api/jobs/{id}` declares no response model, and the evidence records are not in the schema at all | both are next to the generated types, with the reason beside them |
-| 10 | The e2e test proves the tailor step | the test accepts *either* the tailored resume *or* the "the language model is unavailable" message | the configured provider's daily quota is exhausted in this environment, and a console that hid that would be broken | the test still fails if the console shows neither — the honest outcome is asserted, not a specific one |
+| 10 | The console was monochrome (the shadcn defaults) | a warm ivory/forest/lime/clay system, a display typeface, a content container, restrained motion | the product had no personality and the brief asked for one | the tokens live in `src/index.css`; the shadcn components inherit them, so no component had to be rewritten to get the new look |
+| 11 | The navigation was a row of plain text links | a product mark, the workflow grouped as Discover / Prepare / Track, Operations set apart, and an account menu | the operator has to find the one irreversible step in a hurry | the account menu shows the current profile and the theme; **it does not fake a signed-in user** — the API's identity work is not finished, and the menu says so |
+| 12 | The e2e test proves the tailor step | the test accepts *either* the tailored resume *or* the "the language model is unavailable" message | the configured provider's daily quota is exhausted in this environment, and a console that hid that would be broken | the test still fails if the console shows neither — the honest outcome is asserted, not a specific one |
 
 ## Verification log
 
@@ -572,6 +628,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | F | 50 passed | clean | clean | the tracked application, its ordered history and its evidence, read back from the real API | done |
 | G | 54 passed | clean | clean | the refresh endpoint's report shape verified against the real API | done |
 | H | 1 e2e passed | clean | clean | the whole path, end to end, in a real Chromium against the real backend and the real fake ATS | done |
+| Design | the same 54 tests, re-run | clean | clean | every redesigned screen inspected in a real browser, at 1180 px and at 375 px, in both themes; the contrast of every text pair measured (the lowest is 5.4:1) | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).

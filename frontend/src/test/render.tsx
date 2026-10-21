@@ -7,6 +7,7 @@ import {
   createMemoryRouter,
 } from "react-router-dom"
 
+import { ThemeProvider } from "@/components/theme-provider"
 import { createQueryClient } from "@/lib/query-client"
 import { routes } from "@/routes"
 
@@ -25,9 +26,11 @@ export function renderApp(
   const { route = "/", queryClient = createQueryClient(), ...rest } = options
   const router = createMemoryRouter(routes, { initialEntries: [route] })
   const result = render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
     rest
   )
   return { ...result, router, queryClient }
@@ -45,9 +48,11 @@ export function renderScreen(
 ) {
   const { route = "/", queryClient = createQueryClient(), ...rest } = options
   const result = render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </ThemeProvider>,
     rest
   )
   return { ...result, queryClient }

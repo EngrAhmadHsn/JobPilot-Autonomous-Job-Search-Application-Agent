@@ -18,9 +18,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Personal information</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Personal information
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
           <p>
@@ -44,9 +46,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Summary</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Summary
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {profile.summary ? (
@@ -59,9 +63,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Skills ({profile.skills.length})</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Skills ({profile.skills.length})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {profile.skills.length === 0 ? (
@@ -73,7 +79,7 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
               {profile.skills.map((skill) => (
                 <li
                   key={skill}
-                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
+                  className="rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs"
                 >
                   {skill}
                 </li>
@@ -101,9 +107,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Experience ({profile.experience.length})</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Experience ({profile.experience.length})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {profile.experience.length === 0 ? (
@@ -138,9 +146,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Projects ({profile.projects.length})</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Projects ({profile.projects.length})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {profile.projects.length === 0 ? (
@@ -176,9 +186,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Education ({profile.education.length})</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Education ({profile.education.length})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           {profile.education.length === 0 ? (
@@ -206,9 +218,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Work preferences</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Work preferences
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
           <p>
@@ -234,9 +248,11 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Certifications and achievements</CardTitle>
+          <CardTitle className="font-heading text-sm font-semibold">
+            Certifications and achievements
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div>

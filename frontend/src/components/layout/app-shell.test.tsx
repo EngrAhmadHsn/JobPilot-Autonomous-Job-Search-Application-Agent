@@ -25,7 +25,7 @@ describe("the application shell", () => {
   it("says when no profile is selected", async () => {
     renderApp()
 
-    expect(await screen.findByText(/No profile selected/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no profile/i)).toBeInTheDocument()
   })
 
   it("shows the profile the console is working with", async () => {
@@ -40,7 +40,7 @@ describe("the application shell", () => {
     renderApp()
 
     await waitFor(() => {
-      expect(screen.getByText(/API ok/i)).toBeInTheDocument()
+      expect(screen.getByText(/API online/i)).toBeInTheDocument()
     })
   })
 })

@@ -20,10 +20,12 @@ describe("the resume screen", () => {
     renderScreen(<ResumeScreen />)
 
     await user.upload(
-      screen.getByLabelText("Resume file"),
+      screen.getByLabelText("Résumé file"),
       makeFile("resume.txt")
     )
-    await user.click(screen.getByRole("button", { name: "Upload and parse" }))
+    await user.click(
+      screen.getByRole("button", { name: /Upload and analyse résumé/ })
+    )
 
     expect((await screen.findAllByText("profile-1")).length).toBeGreaterThan(0)
     expect(getCurrentProfileId()).toBe("profile-1")
@@ -38,12 +40,12 @@ describe("the resume screen", () => {
     // The file input's `accept` attribute already filters the file dialog in
     // a browser; this drives the change event directly to prove the
     // console's own guard as well.
-    const input = screen.getByLabelText("Resume file")
+    const input = screen.getByLabelText("Résumé file")
     fireEvent.change(input, { target: { files: [makeFile("resume.pdf")] } })
 
     expect(screen.getByText("This file will be refused")).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Upload and parse" })
+      screen.getByRole("button", { name: /Upload and analyse résumé/ })
     ).toBeDisabled()
   })
 
@@ -52,7 +54,7 @@ describe("the resume screen", () => {
     renderScreen(<ResumeScreen />)
 
     const oversized = makeFile("resume.txt", "text/plain", 5 * 1024 * 1024 + 1)
-    await user.upload(screen.getByLabelText("Resume file"), oversized)
+    await user.upload(screen.getByLabelText("Résumé file"), oversized)
 
     expect(
       await screen.findByText("This file will be refused")
@@ -72,10 +74,12 @@ describe("the resume screen", () => {
     renderScreen(<ResumeScreen />)
 
     await user.upload(
-      screen.getByLabelText("Resume file"),
+      screen.getByLabelText("Résumé file"),
       makeFile("resume.txt")
     )
-    await user.click(screen.getByRole("button", { name: "Upload and parse" }))
+    await user.click(
+      screen.getByRole("button", { name: /Upload and analyse résumé/ })
+    )
 
     expect(
       await screen.findByText("Resume could not be parsed: the file is empty.")

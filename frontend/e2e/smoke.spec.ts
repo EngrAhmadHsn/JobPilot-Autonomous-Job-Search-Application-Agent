@@ -17,13 +17,15 @@ const RESUME = join(HERE, "fixtures", "resume.txt")
  * the console says the model is unavailable. A console that hid a provider
  * failure would fail this test, which is the point.
  */
-test("the operator can go from a resume to a tracked application", async ({ page }) => {
+test("the operator can go from a resume to a tracked application", async ({
+  page,
+}) => {
   // 1. Upload a resume -----------------------------------------------------
   await page.goto("/resume")
-  await page.getByLabel("Resume file").setInputFiles(RESUME)
-  await page.getByRole("button", { name: "Upload and parse" }).click()
+  await page.getByLabel("Résumé file").setInputFiles(RESUME)
+  await page.getByRole("button", { name: /Upload and analyse résumé/ }).click()
 
-  await expect(page.getByText("The resume was parsed and stored")).toBeVisible()
+  await expect(page.getByText("Your profile is ready").first()).toBeVisible()
   const profileId = await page
     .locator("main code")
     .first()
@@ -45,7 +47,7 @@ test("the operator can go from a resume to a tracked application", async ({ page
 
   const tailored = page.getByText("The tailored resume is ready")
   const modelUnavailable = page.getByText(
-    "The language model is unavailable; try again later.",
+    "The language model is unavailable; try again later."
   )
   await expect(tailored.or(modelUnavailable)).toBeVisible({ timeout: 180_000 })
   if (await tailored.isVisible()) {
@@ -60,20 +62,22 @@ test("the operator can go from a resume to a tracked application", async ({ page
   await page.getByLabel("Candidate name").fill("Ada Lovelace")
   await page.getByLabel("Email").fill("ada@example.com")
   await page.getByLabel("Phone").fill("+44 20 7946 0000")
-  await page.getByRole("button", { name: "Prepare for approval" }).click()
+  await page.getByRole("button", { name: "Prepare application" }).click()
 
   await expect(page.getByText("What will be submitted")).toBeVisible()
-  await expect(page.getByText("Nothing has been submitted yet")).toBeVisible()
+  await expect(page.getByText(/Nothing has been submitted yet/)).toBeVisible()
 
   // 5. Approve — the irreversible step ------------------------------------
   await page.getByLabel("Approver").fill("Ada")
-  await page.getByLabel("Reason (optional)").fill("Looks right")
+  await page.getByLabel("Reason").fill("Looks right")
   await page.getByRole("button", { name: "Approve and submit" }).click()
 
   await expect(page.getByText("The decision")).toBeVisible({ timeout: 120_000 })
   const decision = page.getByText("The decision").locator("..")
   await expect(
-    page.getByText(/The application was submitted|The application was not submitted/),
+    page.getByText(
+      /The application was submitted|The application was not submitted/
+    )
   ).toBeVisible()
 
   // 6. The tracker holds the application and its history --------------------

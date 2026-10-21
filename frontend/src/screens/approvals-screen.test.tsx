@@ -28,14 +28,14 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
 
     expect(
       await screen.findByText("What will be submitted")
     ).toBeInTheDocument()
     expect(
-      screen.getByText("Nothing has been submitted yet")
+      screen.getByText(/Nothing has been submitted yet/)
     ).toBeInTheDocument()
     expect(screen.getAllByText("email, name, phone").length).toBeGreaterThan(0)
     expect(screen.getByText("approval-1")).toBeInTheDocument()
@@ -47,7 +47,7 @@ describe("the approvals screen", () => {
 
     await user.type(screen.getByLabelText("Job title"), "AI Engineer")
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
 
     expect(
@@ -62,7 +62,7 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
     await screen.findByText("What will be submitted")
 
@@ -89,12 +89,12 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
     await screen.findByText("What will be submitted")
 
     await user.type(screen.getByLabelText("Approver"), "Ada")
-    await user.type(screen.getByLabelText("Reason (optional)"), "Looks right")
+    await user.type(screen.getByLabelText("Reason"), "Looks right")
     await user.click(screen.getByRole("button", { name: "Approve and submit" }))
 
     expect(await screen.findByText("The decision")).toBeInTheDocument()
@@ -122,7 +122,7 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
     await screen.findByText("What will be submitted")
 
@@ -158,7 +158,7 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
     await screen.findByText("What will be submitted")
 
@@ -185,7 +185,7 @@ describe("the approvals screen", () => {
 
     await fillPrepareForm(user)
     await user.click(
-      screen.getByRole("button", { name: "Prepare for approval" })
+      screen.getByRole("button", { name: "Prepare application" })
     )
 
     expect(

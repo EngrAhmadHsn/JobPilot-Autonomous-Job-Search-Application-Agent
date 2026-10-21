@@ -8,6 +8,7 @@ import { FieldList, SectionTitle } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore } from "@/components/common/score-grid"
+import { PageHeader } from "@/components/common/page-header"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -302,30 +303,30 @@ export function TailorJobScreen() {
   const result = tailor.data
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-heading text-xl font-semibold">
-            {job.data ? job.data.job.title : "Tailor this resume"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {job.data ? job.data.job.company : jobId}
-          </p>
-        </div>
-        <Button
-          disabled={tailor.isPending}
-          onClick={() => {
-            setRun((value) => value + 1)
-            tailor.mutate({ profile: profileId, job: jobId })
-          }}
-        >
-          {tailor.isPending
-            ? "Tailoring…"
-            : tailor.data
-              ? "Tailor again"
-              : "Tailor this resume"}
-        </Button>
-      </div>
+    <div className="space-y-10">
+      <PageHeader
+        title={job.data ? job.data.job.title : "Tailor the resume"}
+        description={
+          job.data
+            ? `${job.data.job.company}. The agent rewrites the resume from your profile facts, checks every claim against your document, scores it for the ATS, and reads the listing for grounded insights.`
+            : "The agent rewrites the resume from your profile facts and checks every claim against your document."
+        }
+        actions={
+          <Button
+            disabled={tailor.isPending}
+            onClick={() => {
+              setRun((value) => value + 1)
+              tailor.mutate({ profile: profileId, job: jobId })
+            }}
+          >
+            {tailor.isPending
+              ? "Tailoring…"
+              : tailor.data
+                ? "Tailor again"
+                : "Tailor this resume"}
+          </Button>
+        }
+      />
 
       {tailor.isPending ? (
         <ProgressState
@@ -451,7 +452,9 @@ export function TailorIndexScreen() {
             <EmptyState
               title="No matches yet"
               description="Run a search on the Matches screen first — the match history is what this list is built from."
-              action={<LinkButton to="/matches">Go to the Matches screen</LinkButton>}
+              action={
+                <LinkButton to="/matches">Go to the Matches screen</LinkButton>
+              }
             />
           ) : null}
 

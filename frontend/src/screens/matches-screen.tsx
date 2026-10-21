@@ -6,6 +6,7 @@ import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
+import { PageHeader, Section } from "@/components/common/page-header"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
@@ -21,11 +22,11 @@ import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
 function MatchCard({ pair }: { pair: JobMatchPair }) {
   const { job, match } = pair
   return (
-    <Card>
+    <Card className="rounded-2xl transition-shadow duration-200 hover:shadow-[var(--shadow-paper)]">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle>
+            <CardTitle className="font-heading text-base">
               <Link
                 to={`/matches/${encodeURIComponent(job.id)}`}
                 className="underline-offset-4 hover:underline"
@@ -161,6 +162,11 @@ export function MatchesScreen() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Find the work that fits"
+        description="The search scores every listing the backend has stored against your profile. It never calls a job board — run a refresh on the Operations screen to bring new listings in."
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Search the stored corpus</CardTitle>
@@ -237,28 +243,27 @@ export function MatchesScreen() {
       </Card>
 
       {data ? (
-        <>
-          <SearchBanners data={data} />
+        <Section
+          title={`${data.results.length} match${data.results.length === 1 ? "" : "es"}`}
+          description={`${data.stats.found} found · ${data.stats.dropped} dropped · ${data.stats.deduped} deduped · ${data.stats.persisted} persisted · ${data.stats.stored} stored`}
+        >
+          <div className="space-y-4">
+            <SearchBanners data={data} />
 
-          <p className="text-sm text-muted-foreground">
-            {data.results.length} match(es) · {data.stats.found} found ·{" "}
-            {data.stats.dropped} dropped · {data.stats.deduped} deduped ·{" "}
-            {data.stats.persisted} persisted · {data.stats.stored} stored
-          </p>
-
-          {data.results.length === 0 ? (
-            <EmptyState
-              title="No matches"
-              description="The corpus holds no listing that matches this profile and filter. Run a refresh on the Operations screen, or widen the filters."
-            />
-          ) : (
-            <div className="space-y-4">
-              {data.results.map((pair) => (
-                <MatchCard key={pair.job.id} pair={pair} />
-              ))}
-            </div>
-          )}
-        </>
+            {data.results.length === 0 ? (
+              <EmptyState
+                title="No matches"
+                description="The corpus holds no listing that matches this profile and filter. Run a refresh on the Operations screen, or widen the filters."
+              />
+            ) : (
+              <div className="space-y-4">
+                {data.results.map((pair) => (
+                  <MatchCard key={pair.job.id} pair={pair} />
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
       ) : (
         <EmptyState
           title="No search yet"

@@ -30,12 +30,12 @@ export function ScoreBar({
 }) {
   const clamped = Math.max(0, Math.min(100, value))
   return (
-    <div className={cn("space-y-1", className)}>
+    <div className={cn("space-y-1.5", className)}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">
           {label}
         </span>
-        <span className="text-xs font-semibold tabular-nums">
+        <span className="text-xs font-semibold text-foreground tabular-nums">
           {formatScore(value)}
         </span>
       </div>
@@ -48,7 +48,7 @@ export function ScoreBar({
         className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
       >
         <div
-          className="h-full rounded-full bg-primary"
+          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-[cubic-bezier(0.22,0.61,0.36,1)]"
           style={{ width: `${clamped}%` }}
         />
       </div>
@@ -56,14 +56,19 @@ export function ScoreBar({
   )
 }
 
-/** The overall score, prominently. */
+/**
+ * The overall score.
+ *
+ * The match score is the agent's own judgement, so it wears the agent's
+ * colour: a lime chip, with the number in forest ink.
+ */
 export function OverallScore({ value }: { value: number }) {
   return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-2xl font-semibold tabular-nums">
+    <div className="inline-flex items-baseline gap-1.5 rounded-full bg-lime px-3 py-1">
+      <span className="text-lg font-semibold text-lime-foreground tabular-nums">
         {formatScore(value)}
       </span>
-      <span className="text-xs text-muted-foreground">/ 100 overall</span>
+      <span className="text-[11px] text-lime-foreground/80">match</span>
     </div>
   )
 }
@@ -71,7 +76,7 @@ export function OverallScore({ value }: { value: number }) {
 /** The six component scores. */
 export function ScoreGrid({ match }: { match: JobMatchResult }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
       {COMPONENTS.map(({ key, label }) => (
         <ScoreBar key={key} label={label} value={Number(match[key] ?? 0)} />
       ))}

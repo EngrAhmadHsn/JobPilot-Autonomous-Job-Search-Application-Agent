@@ -5,6 +5,7 @@ import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
+import { PageHeader } from "@/components/common/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -39,6 +40,11 @@ export function OperationsScreen() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Keep the corpus fresh"
+        description="One run fetches the job boards, normalizes, deduplicates, persists and embeds. Only new or changed listings cost an embedding, and a run stopped by the daily budget leaves everything persisted for the next one."
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Refresh the job corpus</CardTitle>

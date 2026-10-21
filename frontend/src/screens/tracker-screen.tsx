@@ -8,6 +8,7 @@ import { FieldList } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { StatusBadge, StatusExplainer } from "@/components/common/status-badge"
+import { PageHeader } from "@/components/common/page-header"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -107,6 +108,11 @@ export function TrackerScreen() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Track every application"
+        description="Every application the agent prepared, its full ordered history, the evidence the browser captured, and the human outcomes you recorded."
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Tracked applications</CardTitle>
@@ -287,20 +293,21 @@ export function TrackerDetailScreen() {
   const records = evidence.data?.evidence ?? []
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-heading text-xl font-semibold">
-            {record.job_title}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {record.company_name} · <StatusBadge status={record.status} />
-          </p>
-        </div>
-        <LinkButton variant="outline" to="/tracker">
-          Back to the list
-        </LinkButton>
-      </div>
+    <div className="space-y-10">
+      <PageHeader
+        title={record.job_title}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>{record.company_name}</span>
+            <StatusBadge status={record.status} />
+          </span>
+        }
+        actions={
+          <LinkButton variant="outline" to="/tracker">
+            Back to the list
+          </LinkButton>
+        }
+      />
 
       <StatusExplainer status={record.status} />
 

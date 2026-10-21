@@ -4,20 +4,26 @@ import type { ReactNode } from "react"
 /** The visual tones a banner can carry. */
 export type BannerTone = "neutral" | "info" | "warning" | "danger" | "success"
 
+/*
+  The tones follow one rule: **lime is the agent, terracotta is a person.**
+  A success banner is something the agent did on its own, so it is lime. A
+  warning is something a person has to deal with, so it is the warm clay.
+  A danger is a failure and says so in the destructive red.
+*/
 const TONE_CLASSES: Record<BannerTone, string> = {
-  neutral: "border-border bg-muted/40 text-foreground",
-  info: "border-primary/30 bg-primary/5 text-foreground",
-  warning: "border-amber-500/40 bg-amber-500/10 text-foreground",
+  neutral: "border-border bg-card text-foreground",
+  info: "border-forest/20 bg-forest-soft text-forest",
+  warning: "border-terracotta bg-terracotta-soft text-terracotta-foreground",
   danger: "border-destructive/40 bg-destructive/10 text-foreground",
-  success: "border-emerald-500/40 bg-emerald-500/10 text-foreground",
+  success: "border-lime/70 bg-lime-soft text-lime-foreground",
 }
 
 const TONE_LABELS: Record<BannerTone, string> = {
   neutral: "Note",
   info: "Information",
-  warning: "Warning",
+  warning: "Needs you",
   danger: "Problem",
-  success: "Confirmed",
+  success: "Done",
 }
 
 /**
@@ -41,16 +47,18 @@ export function Banner({
     <div
       role={tone === "danger" || tone === "warning" ? "alert" : "status"}
       className={cn(
-        "rounded-lg border px-3 py-2",
+        "rounded-xl border px-4 py-3",
         TONE_CLASSES[tone],
         className
       )}
     >
-      <p className="text-sm font-medium">
+      <p className="text-sm font-semibold">
         <span className="sr-only">{TONE_LABELS[tone]}: </span>
         {title}
       </p>
-      {children ? <div className="mt-1 text-sm">{children}</div> : null}
+      {children ? (
+        <div className="mt-1.5 text-sm leading-relaxed">{children}</div>
+      ) : null}
     </div>
   )
 }

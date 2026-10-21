@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
 
 import { ErrorNotice } from "@/components/common/error-notice"
+import { PageHeader } from "@/components/common/page-header"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
@@ -78,24 +79,19 @@ export function JobDetailScreen() {
   )
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-heading text-xl font-semibold">
-            {listing.title}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {listing.company}
-            {listing.location ? ` · ${listing.location}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {match ? <OverallScore value={match.overall_score} /> : null}
-          <LinkButton to={`/tailor/${encodeURIComponent(listing.id)}`}>
-            Tailor for this job
-          </LinkButton>
-        </div>
-      </div>
+    <div className="space-y-10">
+      <PageHeader
+        title={listing.title}
+        description={`${listing.company}${listing.location ? ` · ${listing.location}` : ""}`}
+        actions={
+          <div className="flex items-center gap-2">
+            {match ? <OverallScore value={match.overall_score} /> : null}
+            <LinkButton to={`/tailor/${encodeURIComponent(listing.id)}`}>
+              Tailor for this job
+            </LinkButton>
+          </div>
+        }
+      />
 
       {match ? (
         <Card>

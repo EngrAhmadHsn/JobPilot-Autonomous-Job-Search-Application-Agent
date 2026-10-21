@@ -1,17 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useFieldArray, useForm, useWatch } from "react-hook-form"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { FieldList, SectionTitle } from "@/components/common/field-list"
+import { FieldList } from "@/components/common/field-list"
+import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
-import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { StatusBadge, StatusExplainer } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
 import { apiUrl } from "@/lib/api/client"
@@ -56,6 +56,66 @@ const decisionSchema = z.object({
 
 type DecisionForm = z.infer<typeof decisionSchema>
 
+/** A labelled form control with its validation message. */
+function Field({
+  id,
+  label,
+  hint,
+  optional,
+  error,
+  children,
+}: {
+  id: string
+  label: string
+  hint?: string
+  optional?: boolean
+  error?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-2">
+        <label htmlFor={id} className="text-sm font-medium text-foreground">
+          {label}
+        </label>
+        {optional ? (
+          <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            optional
+          </span>
+        ) : null}
+      </div>
+      {children}
+      {hint ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
+/** A group of fields in the form. */
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-border bg-card p-6">
+      <h2 className="font-heading text-base font-semibold tracking-tight text-foreground">
+        {title}
+      </h2>
+      <p className="mt-1 mb-5 max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
+        {description}
+      </p>
+      <div className="grid gap-5 sm:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
 /** The result of a decision, with the evidence that came with it. */
 function DecisionResult({
   result,
@@ -80,14 +140,15 @@ function DecisionResult({
     separator >= 0 ? screenshotPath.slice(separator + 1) : screenshotPath
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          The decision
+    <Card className="rounded-2xl">
+      <CardContent className="space-y-4 pt-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
+            The decision
+          </h2>
           <StatusBadge status={result.status} />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        </div>
+
         <StatusExplainer status={result.status} />
 
         <Banner
@@ -103,10 +164,10 @@ function DecisionResult({
 
         {questions.length > 0 ? (
           <div className="space-y-1">
-            <SectionTitle>
+            <h3 className="text-sm font-medium text-foreground">
               The form asked questions the evidence does not answer
-            </SectionTitle>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
+            </h3>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {questions.map((question) => (
                 <li key={question}>
                   <PlainText as="span">{question}</PlainText>
@@ -118,8 +179,10 @@ function DecisionResult({
 
         {errors.length > 0 ? (
           <div className="space-y-1">
-            <SectionTitle>The server refused the form</SectionTitle>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
+            <h3 className="text-sm font-medium text-foreground">
+              The server refused the form
+            </h3>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {errors.map((error) => (
                 <li key={error}>
                   <PlainText as="span">{error}</PlainText>
@@ -142,7 +205,7 @@ function DecisionResult({
 
         {evidence ? (
           <div className="space-y-2">
-            <SectionTitle>Evidence</SectionTitle>
+            <h3 className="text-sm font-medium text-foreground">Evidence</h3>
             <FieldList
               items={[
                 { label: "URL", value: asString(evidence.url) || "—" },
@@ -172,7 +235,7 @@ function DecisionResult({
                     `/api/applications/${encodeURIComponent(applicationId)}/evidence/${encodeURIComponent(screenshotName)}`
                   )}
                   alt="The screenshot captured as evidence of the submission"
-                  className="max-w-full rounded-lg border border-border"
+                  className="max-w-full rounded-xl border border-border"
                 />
                 <figcaption className="text-xs text-muted-foreground">
                   The screenshot the browser captured at the moment of the
@@ -236,6 +299,33 @@ export function ApprovalsScreen() {
     defaultValues: { approver: "", reason: "" },
   })
 
+  // The saved profile prefills the candidate's details, so the operator
+  // does not retype what the agent already knows. The values are only
+  // written once, and only into fields that are still empty.
+  const prefilled = useRef(false)
+  const storedProfile = useQuery({
+    queryKey: ["profile", profileId],
+    queryFn: ({ signal }) => api.getResume(profileId as string, signal),
+    enabled: Boolean(profileId),
+  })
+  useEffect(() => {
+    const profile = storedProfile.data?.profile
+    if (!profile || prefilled.current) return
+    prefilled.current = true
+    const info = profile.personal_information
+    const values = {
+      candidate_name: info.name,
+      email: info.email,
+      phone: info.phone,
+    }
+    for (const [field, value] of Object.entries(values)) {
+      if (!value) continue
+      if (!prepareForm.getValues(field as keyof PrepareForm)) {
+        prepareForm.setValue(field as keyof PrepareForm, value)
+      }
+    }
+  }, [storedProfile.data, prepareForm])
+
   const prepare = useMutation({
     mutationFn: (values: PrepareForm) =>
       api.prepareApplication({
@@ -287,31 +377,32 @@ export function ApprovalsScreen() {
   const prepared = prepare.data
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Prepare an application</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Preparing does <strong>not</strong> submit anything. It checks the
-            target, builds the payload and stores it, so that the payload the
-            approver reviews is exactly the payload that will be executed.
-          </p>
+    <div className="space-y-10">
+      <PageHeader
+        title="Prepare an application"
+        description="Preparing builds the payload, checks the target and stores it. Nothing reaches the employer until a person approves it, and approving runs the payload exactly as it is stored here."
+      />
 
-          <form
-            className="grid gap-3 sm:grid-cols-2"
-            onSubmit={prepareForm.handleSubmit((values) =>
-              prepare.mutate(values)
-            )}
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <form
+          className="space-y-5"
+          onSubmit={prepareForm.handleSubmit((values) =>
+            prepare.mutate(values)
+          )}
+        >
+          <FormSection
+            title="Job details"
+            description="Where the application will go. The server checks the host against its allowlist before anything else."
           >
             <Field
+              id="job_title"
               label="Job title"
               error={prepareForm.formState.errors.job_title?.message}
             >
               <Input id="job_title" {...prepareForm.register("job_title")} />
             </Field>
             <Field
+              id="company_name"
               label="Company"
               error={prepareForm.formState.errors.company_name?.message}
             >
@@ -320,17 +411,27 @@ export function ApprovalsScreen() {
                 {...prepareForm.register("company_name")}
               />
             </Field>
-            <Field
-              label="Job URL"
-              error={prepareForm.formState.errors.job_url?.message}
-            >
-              <Input
+            <div className="sm:col-span-2">
+              <Field
                 id="job_url"
-                placeholder="https://boards.greenhouse.io/..."
-                {...prepareForm.register("job_url")}
-              />
-            </Field>
+                label="Job URL"
+                error={prepareForm.formState.errors.job_url?.message}
+              >
+                <Input
+                  id="job_url"
+                  placeholder="https://boards.greenhouse.io/..."
+                  {...prepareForm.register("job_url")}
+                />
+              </Field>
+            </div>
+          </FormSection>
+
+          <FormSection
+            title="Candidate information"
+            description="The details the form will be filled with. They come from your saved profile unless you change them."
+          >
             <Field
+              id="candidate_name"
               label="Candidate name"
               error={prepareForm.formState.errors.candidate_name?.message}
             >
@@ -340,6 +441,7 @@ export function ApprovalsScreen() {
               />
             </Field>
             <Field
+              id="email"
               label="Email"
               error={prepareForm.formState.errors.email?.message}
             >
@@ -350,19 +452,35 @@ export function ApprovalsScreen() {
               />
             </Field>
             <Field
+              id="phone"
               label="Phone"
               error={prepareForm.formState.errors.phone?.message}
             >
               <Input id="phone" {...prepareForm.register("phone")} />
             </Field>
-            <Field label="Resume path (optional)">
+          </FormSection>
+
+          <FormSection
+            title="Documents and custom fields"
+            description="A résumé path and a cover letter are optional. Custom fields are the questions the employer's form asks that the agent cannot answer from your profile."
+          >
+            <Field
+              id="resume_path"
+              label="Résumé path"
+              optional
+              hint="A path on the server, inside its own data directory."
+            >
               <Input
                 id="resume_path"
-                placeholder="A path on the server, inside its own data directory"
                 {...prepareForm.register("resume_path")}
               />
             </Field>
-            <Field label="Cover letter (optional)">
+            <Field
+              id="cover_letter"
+              label="Cover letter"
+              optional
+              hint="Text the form will submit as-is."
+            >
               <Input
                 id="cover_letter"
                 {...prepareForm.register("cover_letter")}
@@ -370,11 +488,14 @@ export function ApprovalsScreen() {
             </Field>
 
             <div className="space-y-2 sm:col-span-2">
-              <SectionTitle>Custom form fields</SectionTitle>
+              <span className="text-sm font-medium text-foreground">
+                Custom form fields
+              </span>
               {customFields.fields.map((field, index) => (
                 <div key={field.id} className="flex gap-2">
                   <Input
                     placeholder="Field name"
+                    aria-label={`Custom field ${index + 1} name`}
                     value={customFieldValues[index]?.key ?? ""}
                     onChange={(event) =>
                       prepareForm.setValue(
@@ -388,6 +509,7 @@ export function ApprovalsScreen() {
                   />
                   <Input
                     placeholder="Value"
+                    aria-label={`Custom field ${index + 1} value`}
                     value={customFieldValues[index]?.value ?? ""}
                     onChange={(event) =>
                       prepareForm.setValue(
@@ -418,168 +540,199 @@ export function ApprovalsScreen() {
                 Add a field
               </Button>
             </div>
+          </FormSection>
+        </form>
 
-            <div className="sm:col-span-2">
-              <Button type="submit" disabled={prepare.isPending}>
-                {prepare.isPending ? "Preparing…" : "Prepare for approval"}
-              </Button>
-            </div>
-          </form>
+        <aside className="lg:sticky lg:top-24">
+          <div className="space-y-4">
+            {prepared ? (
+              <>
+                <Card className="rounded-2xl border-forest/20 bg-forest-soft">
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-heading text-base font-semibold tracking-tight text-forest">
+                        What will be submitted
+                      </h2>
+                      <StatusBadge status={prepared.status} />
+                    </div>
+                    <p className="text-sm font-medium text-forest">
+                      Nothing has been submitted yet.
+                    </p>
+                    <p className="text-sm leading-relaxed text-forest/80">
+                      The payload below was stored by the server. Approving
+                      executes exactly this payload — it is not rebuilt from the
+                      form.
+                    </p>
 
-          {prepare.isPending ? (
-            <ProgressState key="prepare" title="Preparing the application" />
-          ) : null}
+                    <FieldList
+                      items={[
+                        {
+                          label: "Job",
+                          value: prepared.prepared_summary.job_title,
+                        },
+                        {
+                          label: "Company",
+                          value: prepared.prepared_summary.company_name,
+                        },
+                        {
+                          label: "Job URL",
+                          value: prepared.prepared_summary.job_url,
+                        },
+                        {
+                          label: "Adapter",
+                          value: prepared.prepared_summary.adapter_name,
+                        },
+                        {
+                          label: "Form fields",
+                          value: formatList(
+                            prepared.prepared_summary.field_names
+                          ),
+                        },
+                        {
+                          label: "Profile facts the agent may use",
+                          value: formatList(
+                            prepared.prepared_summary.profile_fact_names
+                          ),
+                        },
+                        {
+                          label: "Résumé path",
+                          value: prepared.prepared_summary.resume_path ?? "—",
+                        },
+                        {
+                          label: "Manual review",
+                          value: prepared.prepared_summary
+                            .requires_manual_review
+                            ? "The form needs a human to complete it"
+                            : "No",
+                        },
+                        { label: "Approval id", value: prepared.approval_id },
+                        {
+                          label: "Tracked application",
+                          value: prepared.application_id ?? "—",
+                        },
+                      ]}
+                    />
 
-          {prepare.isError ? <ErrorNotice error={prepare.error} /> : null}
-        </CardContent>
-      </Card>
+                    <form
+                      className="space-y-4 border-t border-forest/15 pt-4"
+                      onSubmit={decisionForm.handleSubmit((values) =>
+                        decide.mutate({
+                          approvalId: prepared.approval_id,
+                          values,
+                          action: "approve",
+                        })
+                      )}
+                    >
+                      <div className="grid gap-4">
+                        <Field
+                          id="approver"
+                          label="Approver"
+                          error={
+                            decisionForm.formState.errors.approver?.message
+                          }
+                          hint="Recorded against the decision, with the time."
+                        >
+                          <Input
+                            id="approver"
+                            placeholder="Your name"
+                            {...decisionForm.register("approver")}
+                          />
+                        </Field>
+                        <Field id="reason" label="Reason" optional>
+                          <Input
+                            id="reason"
+                            {...decisionForm.register("reason")}
+                          />
+                        </Field>
+                      </div>
 
-      {prepared ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>What will be submitted</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Banner tone="info" title="Nothing has been submitted yet">
-              <p>
-                The payload below was stored by the server. Approving executes
-                exactly this payload — it is not rebuilt from the form.
-              </p>
-            </Banner>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={decide.isPending}
+                          onClick={() =>
+                            decisionForm.handleSubmit((values) =>
+                              decide.mutate({
+                                approvalId: prepared.approval_id,
+                                values,
+                                action: "reject",
+                              })
+                            )()
+                          }
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          type="submit"
+                          variant="destructive"
+                          disabled={decide.isPending}
+                        >
+                          {decide.isPending
+                            ? "Deciding…"
+                            : "Approve and submit"}
+                        </Button>
+                      </div>
 
-            <FieldList
-              items={[
-                { label: "Job", value: prepared.prepared_summary.job_title },
-                {
-                  label: "Company",
-                  value: prepared.prepared_summary.company_name,
-                },
-                { label: "Job URL", value: prepared.prepared_summary.job_url },
-                {
-                  label: "Adapter",
-                  value: prepared.prepared_summary.adapter_name,
-                },
-                {
-                  label: "Form fields",
-                  value: formatList(prepared.prepared_summary.field_names),
-                },
-                {
-                  label: "Profile facts the agent may use",
-                  value: formatList(
-                    prepared.prepared_summary.profile_fact_names
-                  ),
-                },
-                {
-                  label: "Resume path",
-                  value: prepared.prepared_summary.resume_path ?? "—",
-                },
-                {
-                  label: "Manual review",
-                  value: prepared.prepared_summary.requires_manual_review
-                    ? "The form needs a human to complete it"
-                    : "No",
-                },
-                { label: "Approval id", value: prepared.approval_id },
-                {
-                  label: "Tracked application",
-                  value: prepared.application_id ?? "—",
-                },
-              ]}
-            />
+                      <p className="text-xs leading-relaxed text-forest/70">
+                        Approving fills the form in a real browser and submits
+                        it to {prepared.prepared_summary.job_url}. It cannot be
+                        taken back.
+                      </p>
+                    </form>
 
-            <form
-              className="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end"
-              onSubmit={decisionForm.handleSubmit((values) =>
-                decide.mutate({
-                  approvalId: prepared.approval_id,
-                  values,
-                  action: "approve",
-                })
-              )}
-            >
-              <Field
-                label="Approver"
-                error={decisionForm.formState.errors.approver?.message}
-              >
-                <Input
-                  id="approver"
-                  placeholder="Your name"
-                  {...decisionForm.register("approver")}
-                />
-              </Field>
-              <Field label="Reason (optional)">
-                <Input id="reason" {...decisionForm.register("reason")} />
-              </Field>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={decide.isPending}
-                  onClick={() =>
-                    decisionForm.handleSubmit((values) =>
-                      decide.mutate({
-                        approvalId: prepared.approval_id,
-                        values,
-                        action: "reject",
-                      })
-                    )()
-                  }
-                >
-                  Reject
-                </Button>
-                <Button
-                  type="submit"
-                  variant="destructive"
-                  disabled={decide.isPending}
-                >
-                  {decide.isPending ? "Deciding…" : "Approve and submit"}
-                </Button>
-              </div>
-            </form>
-
-            <Banner
-              tone="danger"
-              title="Approving submits the application to the employer"
-            >
-              <p>
-                This is the one irreversible step in the console. The browser
-                will fill the form and submit it to{" "}
-                {prepared.prepared_summary.job_url}. It cannot be taken back.
-              </p>
-            </Banner>
-
-            {decide.isError ? <ErrorNotice error={decide.error} /> : null}
-          </CardContent>
-        </Card>
-      ) : (
-        <EmptyState
-          title="Nothing prepared yet"
-          description="Prepare an application to see exactly what would be submitted, and to record a decision on it."
-        />
-      )}
+                    {decide.isError ? (
+                      <ErrorNotice error={decide.error} />
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <Card className="rounded-2xl">
+                <CardContent className="space-y-4 pt-6">
+                  <h2 className="font-heading text-base font-semibold tracking-tight text-foreground">
+                    Before you prepare
+                  </h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Preparing checks the target domain, builds the payload and
+                    stores it as an approval request. It does not contact the
+                    employer, and it does not submit anything — that takes a
+                    separate, human decision.
+                  </p>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="w-full"
+                    disabled={prepare.isPending}
+                    onClick={prepareForm.handleSubmit((values) =>
+                      prepare.mutate(values)
+                    )}
+                  >
+                    {prepare.isPending ? "Preparing…" : "Prepare application"}
+                  </Button>
+                  {prepare.isPending ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-foreground">
+                        Checking the target and building the payload…
+                      </p>
+                      <div className="agent-progress h-1.5 w-full rounded-full" />
+                    </div>
+                  ) : null}
+                  {prepare.isError ? (
+                    <ErrorNotice error={prepare.error} />
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </aside>
+      </div>
 
       {decide.data ? (
-        <DecisionResult result={decide.data} applicationId={applicationId} />
+        <Section title="The result">
+          <DecisionResult result={decide.data} applicationId={applicationId} />
+        </Section>
       ) : null}
     </div>
-  )
-}
-
-/** A labelled form control with its validation message. */
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="space-y-1">
-      <span className="text-sm font-medium">{label}</span>
-      {children}
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </label>
   )
 }
