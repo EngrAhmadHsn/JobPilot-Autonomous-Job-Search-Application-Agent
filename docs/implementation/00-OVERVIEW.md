@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01…05, WS-06, WS-07 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks); next: WS-08 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…07 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks)); next: WS-10, WS-11 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -39,13 +39,13 @@ New dependencies**.
 | Research + RAG (Ph 7) | ~85% | Real Chroma vector store (WS-03) + a grounded research engine (WS-05: `src/research/engine.py` — listing facts verified by a deterministic grounding/injection filter); web research still deferred behind SSRF controls |
 | Tailoring + factuality (Ph 8) | ~95% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction, plus the WS-05 ATS analyzer (`src/resume/ats.py`), DOCX renderer (`src/resume/render.py`), persistence and `POST /api/tailor` |
 | Application workflow graph (Ph 2#3) | ~80% | Full LangGraph prepare→approval→submit→verify with evidence DB write; the most complete area |
-| Browser automation runtime (Ph 9) | ~40% | `src/applications/fake_ats_adapter.py` is real Playwright (evidence capture, allowlist re-check, CAPTCHA stop) but fake-ATS-only; the Greenhouse/Lever submit placeholders that returned `success=True` now raise `PermissionError` |
+| Browser automation runtime (Ph 9) | **~85%** | WS-08: the adapter **walks the form** through the accessibility tree (`src/applications/form.py` — the field map, the three classes, the answer rule), fills only what the candidate's evidence covers, and stops with `needs_human` on an unknown question (plan §24). Semantic locators only (label/role), multi-page wizards, widget controls, a validation-error retry, a fresh browser context per run (SEC-07), and the fake-ATS variant suite (`tests/fixtures/fake_ats/`) driven through the full workflow. Still open: the real-ATS adapter (M5 pilot) and SEC-15 retention |
 | Human approval gate (Ph 10) | **100%** | Two-phase flow with a persisted decision: `POST /api/applications/prepare` → `ApprovalRequest` row → `POST /api/applications/{id}/approve` (or `/reject`) with an approver identity, reason and timestamp; `SubmissionPolicy` (`REQUIRE_APPROVAL` default, `AUTO_SUBMIT` unreachable); the in-graph approval node still fails closed |
 | Submission verification (Ph 11) | **100%** (fake ATS) | Confirmation-text verification **plus** evidence: screenshot, ordered action trace and the Playwright trace archive are captured and stored; the verify node downgrades a result whose artifacts are missing |
 | Application tracking (Ph 12) | **100%** | `Application` + `ApplicationEvent` tables (WS-07), a transition matrix with an actor rule (a human outcome is only settable by a human), the graph and the API wired to it, and a tracking API (list/detail/PATCH); live-verified 21/21 |
 | Evaluation (Ph 13) | ~90% | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs), pure metrics module, one-command runner with a threshold gate; measured baseline in `docs/evaluations/` (extraction 1.00, dedup 1.00, nDCG@10 0.75, factuality agreement 1.00); the system-level metrics can now be computed from the WS-07 tracking tables |
-| Runtime security controls (SEC-01…16) | **~75%** | Allowlist v2 with exact host matching + blocked internal hosts (enforced at the API, the browser and the adapter selection); live permission registry; two-phase approval; append-only audit events with secret/PII redaction; upload validation; CAPTCHA/MFA stop; prompt-injection filters. Still open: SEC-15 (retention), malware scanning, SEC-07 (session isolation), SEC-12 (PII inside stored resumes) |
-| API surface | M1 + WS-05 + WS-06 + WS-07 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/approvals/{id}` (the single-call `POST /api/applications/submit` is **removed**), plus WS-07: `GET /api/applications`, `GET /api/applications/{id}`, `PATCH /api/applications/{id}/status`; CORS middleware on; no auth |
+| Runtime security controls (SEC-01…16) | **~80%** | Allowlist v2 with exact host matching + blocked internal hosts (enforced at the API, the browser and the adapter selection, and on **every** page of a multi-step form); live permission registry; two-phase approval; append-only audit events with secret/PII redaction; upload validation; CAPTCHA/MFA stop; prompt-injection filters; **SEC-07 closed by WS-08** (an explicit fresh browser context per run, proven to share no cookie and no storage). Still open: SEC-15 (retention), malware scanning, SEC-12 (PII inside stored resumes) |
+| API surface | M1 + WS-05 + WS-06 + WS-07 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/approvals/{id}` (the single-call `POST /api/applications/submit` is **removed**), plus WS-07: `GET /api/applications`, `GET /api/applications/{id}`, `PATCH /api/applications/{id}/status`; WS-08 adds no route — the prepare response now also carries the **names** of the profile facts the agent may answer a form question with; CORS middleware on; no auth |
 
 ## Guiding principles (from AGENTS.md — binding for every workstream)
 
@@ -85,9 +85,14 @@ M3  Security preconditions + tracking (SECURITY.md §14)
     lifecycle is tracked, and the history survives a restart.
 
 M4  Depth + proof
-    08 browser variants + adapter hardening ─► 09 evaluation harness
+    08 browser variants + adapter hardening ─► 09 evaluation harness   ✅ 08 + 09 DONE
     Outcome: measurable metrics (extraction, ranking, factuality, form
     completion) reproducible via scripts/run_eval.py.
+    WS-08 verified live (scripts/verify_ws08.py): 25/25 checks against a real
+    HTTP server, a real Chromium browser and a real database — every fake-ATS
+    variant through the full prepare → approve → submit → verify flow, the
+    unknown-question pause, the challenge stop, the validation retry, the
+    session-isolation proof, and the evidence on disk.
 
 M5  Controlled live pilot + docs
     Single real Greenhouse posting, PREPARE_ONLY → REQUIRE_APPROVAL with a
