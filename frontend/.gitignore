@@ -1,0 +1,31 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# The repository's root .gitignore excludes every directory named "lib/"
+# (it is a Python build artefact). The console's own source lives in
+# src/lib/, and a deeper .gitignore overrides a shallower one, so the
+# source is re-included here.
+!src/lib/
+!src/lib/**
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
