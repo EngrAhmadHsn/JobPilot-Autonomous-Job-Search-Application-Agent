@@ -11,6 +11,10 @@ It exists so the security controls can be exercised against a **real
 browser** instead of a mock: the allowlist check before the navigation, the
 redirect check after it, the challenge stop, and the evidence artifacts on
 disk.
+
+WS-08 moved this file into the ``fake_ats`` package and added the ``<label>``
+elements to the form, so the adapter can find the controls through the
+accessibility tree. The ids, the routes and the behaviour are unchanged.
 """
 
 from __future__ import annotations
@@ -25,11 +29,16 @@ FORM_HTML = """<!doctype html>
   <head><title>Apply — Acme Labs</title></head>
   <body>
     <h1>Apply for Backend Engineer</h1>
-    <form method="post" action="/apply/confirm">
+    <form method="post" action="/apply/confirm" enctype="multipart/form-data">
+      <label for="candidate-name">Full name</label>
       <input id="candidate-name" name="candidate_name" type="text" />
+      <label for="email">Email address</label>
       <input id="email" name="email" type="text" />
+      <label for="phone">Phone number</label>
       <input id="phone" name="phone" type="text" />
+      <label for="cover-letter">Cover letter</label>
       <textarea id="cover-letter" name="cover_letter"></textarea>
+      <label for="resume">Resume</label>
       <input id="resume" name="resume" type="file" />
       <button type="submit">Submit application</button>
     </form>
