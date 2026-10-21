@@ -1,0 +1,29 @@
+{
+  "summary": "Backend engineer with six years building Python services and data pipelines for logistics and fintech teams.",
+  "highlighted_skills": [
+    "Python",
+    "FastAPI",
+    "Docker",
+    "Kubernetes",
+    "AWS"
+  ],
+  "experience": [
+    {
+      "company": "Acme Corp",
+      "title": "Backend Engineer",
+      "bullets": [
+        "Rebuilt the order API in FastAPI, cutting p95 latency from 900ms to 180ms.",
+        "Migrated 40 services to Kubernetes with zero customer-visible downtime."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Order Service",
+      "bullets": [
+        "Designed an idempotent checkout service handling 120 requests per second."
+      ]
+    }
+  ],
+  "cover_letter": "I am applying for the Backend Engineer role at Acme Corp."
+}

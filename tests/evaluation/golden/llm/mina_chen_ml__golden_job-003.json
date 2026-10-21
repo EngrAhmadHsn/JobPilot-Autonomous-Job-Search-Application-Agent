@@ -1,0 +1,27 @@
+{
+  "summary": "Machine learning engineer focused on retrieval and evaluation for developer tooling, shipping models to production.",
+  "highlighted_skills": [
+    "Python",
+    "PyTorch",
+    "Hugging Face",
+    "sentence-transformers"
+  ],
+  "experience": [
+    {
+      "company": "Northwind AI",
+      "title": "Machine Learning Engineer",
+      "bullets": [
+        "Shipped a semantic search service over 1.2M documents with 0.82 recall@10."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "DocRetriever",
+      "bullets": [
+        "Fine-tuned a bi-encoder and cut inference cost by 60 percent."
+      ]
+    }
+  ],
+  "cover_letter": "I am applying for the Machine Learning Engineer role at Northwind AI."
+}

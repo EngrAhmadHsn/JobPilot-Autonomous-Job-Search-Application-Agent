@@ -1,0 +1,19 @@
+{
+  "summary": "Frontend developer building accessible, tested interfaces for product teams, with a focus on design systems.",
+  "highlighted_skills": [
+    "React",
+    "TypeScript",
+    "CSS",
+    "Jest"
+  ],
+  "experience": [],
+  "projects": [
+    {
+      "name": "Design System",
+      "bullets": [
+        "Built 30 reusable components with 100 percent test coverage."
+      ]
+    }
+  ],
+  "cover_letter": "I am applying for the Frontend Engineer role at Kite Studio."
+}

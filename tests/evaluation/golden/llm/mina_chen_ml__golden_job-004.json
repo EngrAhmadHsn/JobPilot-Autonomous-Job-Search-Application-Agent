@@ -1,0 +1,20 @@
+{
+  "summary": "Machine learning engineer focused on retrieval and evaluation for developer tooling, shipping models to production.",
+  "highlighted_skills": [
+    "Python",
+    "Docker",
+    "Kubernetes",
+    "FastAPI"
+  ],
+  "experience": [
+    {
+      "company": "Globex",
+      "title": "Machine Learning Engineer",
+      "bullets": [
+        "Ran inference services in production."
+      ]
+    }
+  ],
+  "projects": [],
+  "cover_letter": "I am applying for the ML Platform Engineer role."
+}

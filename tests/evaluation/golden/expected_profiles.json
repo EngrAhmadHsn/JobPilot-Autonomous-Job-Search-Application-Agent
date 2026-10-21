@@ -1,0 +1,122 @@
+{
+  "_conventions": {
+    "website": "Labelled as the bare domain the resume states (the parser keeps the domain, not the path).",
+    "experience": "Ordered list of (title, company) pairs; a pair counts as extracted when both fields match.",
+    "education": "Ordered list of (degree, institution) pairs.",
+    "skills": "Set of skill strings; compared as a set (F1).",
+    "preferences": "Only fields the resume states explicitly; unstated fields are expected to stay empty."
+  },
+  "alex_rivera_backend": {
+    "file": "resumes/alex_rivera_backend.docx",
+    "name": "Alex Rivera",
+    "title": "Backend Engineer",
+    "email": "alex.rivera@example.com",
+    "phone": "+1 415 555 0134",
+    "location": "Austin, Texas",
+    "website": "github.com",
+    "summary_contains": ["Backend engineer", "Python services"],
+    "skills": [
+      "Python",
+      "Go",
+      "SQL",
+      "FastAPI",
+      "Django",
+      "Flask",
+      "Docker",
+      "Kubernetes",
+      "AWS",
+      "Terraform"
+    ],
+    "experience": [
+      {"title": "Backend Engineer", "company": "Acme Corp"},
+      {"title": "Software Engineer", "company": "Lumen Data"}
+    ],
+    "education": [
+      {"degree": "BSc Computer Science", "institution": "Example University"}
+    ],
+    "projects": [{"name": "Order Service"}],
+    "certifications": ["AWS Certified Solutions Architect - Associate"],
+    "achievements": [],
+    "preferences": {}
+  },
+  "mina_chen_ml": {
+    "file": "resumes/mina_chen_ml.txt",
+    "name": "Mina Chen",
+    "title": "Machine Learning Engineer",
+    "email": "mina.chen@example.org",
+    "phone": "+1 206 555 0177",
+    "location": "Seattle, Washington",
+    "website": "",
+    "summary_contains": ["Machine learning engineer", "retrieval"],
+    "skills": [
+      "Python",
+      "R",
+      "PyTorch",
+      "scikit-learn",
+      "Hugging Face",
+      "sentence-transformers",
+      "FastAPI",
+      "Docker",
+      "Redis"
+    ],
+    "experience": [
+      {"title": "Machine Learning Engineer", "company": "Northwind AI"}
+    ],
+    "education": [
+      {"degree": "MSc Computer Science", "institution": "Example Institute of Technology"}
+    ],
+    "projects": [{"name": "DocRetriever"}, {"name": "ResumeRank"}],
+    "certifications": [],
+    "achievements": [],
+    "preferences": {}
+  },
+  "sam_okoye_data": {
+    "file": "resumes/sam_okoye_data.docx",
+    "name": "Sam Okoye",
+    "title": "Data Analyst",
+    "email": "sam.okoye@example.net",
+    "phone": "+44 20 7946 0958",
+    "location": "London, United Kingdom",
+    "website": "",
+    "summary_contains": ["Data analyst", "dashboards"],
+    "skills": ["SQL", "Python", "dbt", "Power BI", "Looker", "Excel"],
+    "experience": [
+      {"title": "Data Analyst", "company": "Harbour Retail Group"}
+    ],
+    "education": [{"degree": "BSc Statistics", "institution": "Example College"}],
+    "projects": [],
+    "certifications": [],
+    "achievements": ["Analytics team of the quarter award in 2023."],
+    "preferences": {
+      "remote_preference": "remote",
+      "preferred_locations": ["Berlin"]
+    }
+  },
+  "lena_fischer_frontend": {
+    "file": "resumes/lena_fischer_frontend.txt",
+    "name": "Lena Fischer",
+    "title": "Frontend Developer",
+    "email": "lena.fischer@example.de",
+    "phone": "+49 30 901820",
+    "location": "Berlin, Germany",
+    "website": "",
+    "summary_contains": ["Frontend developer", "accessible"],
+    "skills": [
+      "TypeScript",
+      "JavaScript",
+      "React",
+      "Next.js",
+      "Tailwind CSS",
+      "Jest",
+      "Playwright"
+    ],
+    "experience": [],
+    "education": [
+      {"degree": "Bachelor of Computer Science (BA)", "institution": "Example University"}
+    ],
+    "projects": [{"name": "Design System"}, {"name": "Storefront"}],
+    "certifications": ["Accessibility Fundamentals"],
+    "achievements": [],
+    "preferences": {}
+  }
+}

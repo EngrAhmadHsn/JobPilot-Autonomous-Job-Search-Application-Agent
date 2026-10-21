@@ -1,0 +1,20 @@
+{
+  "summary": "Backend engineer with six years building Python services and data pipelines for logistics and fintech teams.",
+  "highlighted_skills": [
+    "Python",
+    "Django",
+    "PostgreSQL",
+    "Rust"
+  ],
+  "experience": [
+    {
+      "company": "Lumen Data",
+      "title": "Software Engineer",
+      "bullets": [
+        "Built ETL pipelines in Python processing 2TB of event data daily."
+      ]
+    }
+  ],
+  "projects": [],
+  "cover_letter": "I am applying for the Senior Python Engineer role at Lumen Data."
+}

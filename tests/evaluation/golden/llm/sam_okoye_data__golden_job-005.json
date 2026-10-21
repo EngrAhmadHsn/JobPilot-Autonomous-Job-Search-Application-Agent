@@ -1,0 +1,20 @@
+{
+  "summary": "Data analyst turning messy operational data into dashboards and decision-ready reports.",
+  "highlighted_skills": [
+    "SQL",
+    "dbt",
+    "Power BI",
+    "Looker"
+  ],
+  "experience": [
+    {
+      "company": "Harbour Retail Group",
+      "title": "Data Analyst",
+      "bullets": [
+        "Automated weekly reporting in dbt, saving 12 analyst hours per week."
+      ]
+    }
+  ],
+  "projects": [],
+  "cover_letter": "I am applying for the Data Analyst role at Harbour Retail Group."
+}

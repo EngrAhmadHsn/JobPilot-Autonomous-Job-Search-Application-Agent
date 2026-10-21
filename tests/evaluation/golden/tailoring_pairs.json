@@ -1,0 +1,74 @@
+{
+  "_conventions": {
+    "acceptable_facts": "Facts a human reviewer accepts as supported by the profile for this pair.",
+    "expected_passed": "What the factuality validator should conclude for the canned draft in llm/.",
+    "expected_violations": "Substrings the validator's violation list must contain (empty when the draft is clean)."
+  },
+  "pairs": [
+    {
+      "profile": "alex_rivera_backend",
+      "job": "golden:job-001",
+      "expected_passed": true,
+      "expected_violations": [],
+      "acceptable_facts": [
+        "Backend Engineer at Acme Corp",
+        "Python and FastAPI on Docker and AWS",
+        "Kubernetes migration experience",
+        "Order Service project"
+      ]
+    },
+    {
+      "profile": "alex_rivera_backend",
+      "job": "golden:job-002",
+      "expected_passed": false,
+      "expected_violations": ["Rust"],
+      "acceptable_facts": [
+        "Django and PostgreSQL experience at Lumen Data",
+        "ETL pipelines in Python"
+      ]
+    },
+    {
+      "profile": "mina_chen_ml",
+      "job": "golden:job-003",
+      "expected_passed": true,
+      "expected_violations": [],
+      "acceptable_facts": [
+        "Machine Learning Engineer at Northwind AI",
+        "PyTorch and Hugging Face",
+        "Semantic search over large document corpora"
+      ]
+    },
+    {
+      "profile": "mina_chen_ml",
+      "job": "golden:job-004",
+      "expected_passed": false,
+      "expected_violations": ["Globex"],
+      "acceptable_facts": [
+        "Docker and Kubernetes for model serving",
+        "FastAPI services with Redis caching"
+      ]
+    },
+    {
+      "profile": "sam_okoye_data",
+      "job": "golden:job-005",
+      "expected_passed": true,
+      "expected_violations": [],
+      "acceptable_facts": [
+        "Data Analyst at Harbour Retail Group",
+        "dbt models and Power BI reporting",
+        "Open to remote work"
+      ]
+    },
+    {
+      "profile": "lena_fischer_frontend",
+      "job": "golden:job-007",
+      "expected_passed": true,
+      "expected_violations": [],
+      "acceptable_facts": [
+        "React and TypeScript interfaces",
+        "Design System project",
+        "Jest component tests"
+      ]
+    }
+  ]
+}

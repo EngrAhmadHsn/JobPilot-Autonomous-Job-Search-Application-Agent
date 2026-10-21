@@ -1,0 +1,20 @@
+Lena Fischer
+Frontend Developer
+lena.fischer@example.de | +49 30 901820 | Berlin, Germany
+SUMMARY
+Frontend developer building accessible, tested interfaces for product teams, with a focus on design systems.
+TECHNICAL SKILLS
+Languages: TypeScript, JavaScript
+Frontend: React, Next.js, Tailwind CSS
+Testing: Jest, Playwright
+PROJECTS
+Design System — React, TypeScript, Storybook
+- Built 30 reusable components with 100 percent test coverage.
+- Cut bundle size by 35 percent through code splitting and lazy loading.
+Storefront — Next.js, Stripe
+- Rebuilt the checkout flow, raising conversion by 8 percent.
+EDUCATION
+Bachelor of Computer Science (BA)	2016-2019
+Example University
+CERTIFICATIONS
+- Accessibility Fundamentals

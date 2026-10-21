@@ -1,0 +1,21 @@
+Mina Chen
+Machine Learning Engineer
+mina.chen@example.org | +1 206 555 0177 | Seattle, Washington
+SUMMARY
+Machine learning engineer focused on retrieval and evaluation for developer tooling, shipping models to production.
+SKILLS
+Languages: Python, R
+ML: PyTorch, scikit-learn, Hugging Face, sentence-transformers
+Serving: FastAPI, Docker, Redis
+EXPERIENCE
+Machine Learning Engineer | Northwind AI | 2022-2025
+- Shipped a semantic search service over 1.2M documents with 0.82 recall@10.
+- Built an offline evaluation harness for retrieval regressions.
+PROJECTS
+DocRetriever	Python, PyTorch
+- Fine-tuned a bi-encoder and cut inference cost by 60 percent.
+ResumeRank	Python, FastAPI
+- Ranked candidates against job descriptions with hybrid scoring.
+EDUCATION
+MSc Computer Science	2018-2022
+Example Institute of Technology
