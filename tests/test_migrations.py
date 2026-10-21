@@ -433,7 +433,25 @@ def test_production_startup_fails_fast_on_wildcard_cors() -> None:
 
 def test_production_startup_succeeds_with_explicit_origins() -> None:
     result = _import_app_subprocess(
-        {"APP_ENV": "production", "CORS_ORIGINS": "https://app.example.com"}
+        {
+            "APP_ENV": "production",
+            "CORS_ORIGINS": "https://app.example.com",
+            # WS-14: production also needs an identity secret.
+            "AUTH_SECRET": "a" * 48,
+        }
     )
     assert result.returncode == 0
     assert "startup-ok" in result.stdout
+
+
+def test_production_startup_fails_fast_without_an_identity_secret() -> None:
+    """WS-14: a production deployment without AUTH_SECRET must not start."""
+    result = _import_app_subprocess(
+        {
+            "APP_ENV": "production",
+            "CORS_ORIGINS": "https://app.example.com",
+            "AUTH_SECRET": "",
+        }
+    )
+    assert result.returncode != 0
+    assert "AUTH_SECRET" in result.stderr

@@ -191,6 +191,8 @@ def test_production_allows_explicit_origins(
 ) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
+    # WS-14: production also needs an identity secret.
+    monkeypatch.setenv("AUTH_SECRET", "a" * 48)
     settings = Settings()
     assert settings.cors_origins == [
         "https://app.example.com",

@@ -28,6 +28,7 @@ from src.db.base import Base
 from src.db.evidence import ApplicationEvidence
 from src.db.jobs import JobDB
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.main import app
 
 
@@ -208,21 +209,51 @@ class TestApproveEndpoint:
         with session_factory() as session:
             row = session.get(ApprovalRequestDB, prepared["approval_id"])
             assert row.status == ApprovalStatus.EXECUTED
-            assert row.approver == "operator"
+            # WS-14 · A2 (T2): the approver is the **authenticated
+            # principal**, not the name the body supplied. The body's
+            # "operator" is ignored.
+            assert row.approver == LEGACY_OWNER_ID
             assert row.decision_reason == "looks good"
             assert row.decided_at is not None
 
-    def test_approve_is_refused_without_an_approver(
+    def test_a_body_supplied_approver_is_ignored(
         self, client, session_factory, stub_adapter
     ) -> None:
+        """A caller cannot approve an application *as somebody else*.
+
+        The approver is the authenticated principal. A body that names
+        somebody else is ignored, and the approval is recorded under the
+        principal.
+        """
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
 
         response = client.post(
-            f"/api/applications/{prepared['approval_id']}/approve", json={"approver": ""}
+            f"/api/applications/{prepared['approval_id']}/approve",
+            json={"approver": "somebody-else", "reason": "looks good"},
         )
 
-        assert response.status_code == 422
-        assert stub_adapter.submitted is None
+        assert response.status_code == 200, response.text
+        with session_factory() as session:
+            row = session.get(ApprovalRequestDB, prepared["approval_id"])
+            assert row.approver == LEGACY_OWNER_ID
+            assert row.approver != "somebody-else"
+
+    def test_an_approval_without_a_body_approver_is_accepted(
+        self, client, session_factory, stub_adapter
+    ) -> None:
+        """The approver is no longer a required field: the principal is
+        always there, so asking for it in the body is redundant."""
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+
+        response = client.post(
+            f"/api/applications/{prepared['approval_id']}/approve", json={"reason": "looks good"}
+        )
+
+        assert response.status_code == 200, response.text
+        assert stub_adapter.submitted is not None
+        with session_factory() as session:
+            row = session.get(ApprovalRequestDB, prepared["approval_id"])
+            assert row.approver == LEGACY_OWNER_ID
 
     def test_a_second_decision_is_refused(self, client, session_factory, stub_adapter) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
@@ -282,7 +313,8 @@ class TestRejectEndpoint:
         with session_factory() as session:
             row = session.get(ApprovalRequestDB, prepared["approval_id"])
             assert row.status == ApprovalStatus.REJECTED
-            assert row.approver == "operator"
+            # WS-14 · A2 (T2): the approver is the authenticated principal.
+            assert row.approver == LEGACY_OWNER_ID
             assert row.decision_reason == "wrong role"
 
     def test_a_rejected_request_cannot_be_approved_afterwards(
@@ -400,7 +432,9 @@ class TestTrackedApplication:
             )
             rejection = events[-1]
             assert rejection.event_type == "approval_rejected"
-            assert rejection.actor == "human:operator"
+            # WS-14 · A2 (T2): the human actor is the authenticated
+            # principal, not the name the body supplied.
+            assert rejection.actor == f"human:{LEGACY_OWNER_ID}"
             assert rejection.from_status == ApplicationStatus.AWAITING_APPROVAL.value
             assert rejection.to_status == ApplicationStatus.REJECTED.value
 

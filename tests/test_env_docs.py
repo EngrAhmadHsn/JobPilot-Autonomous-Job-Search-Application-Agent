@@ -116,6 +116,14 @@ SETTINGS_VAR_TO_ATTR = {
     "EVIDENCE_DIR": "evidence_dir",
     "RESUME_UPLOAD_DIR": "resume_upload_dir",
     "TAILORED_DIR": "tailored_dir",
+    # WS-14 · A1: the identity settings.
+    "AUTH_SECRET": "auth_secret",
+    "AUTH_SESSION_COOKIE_NAME": "auth_session_cookie_name",
+    "AUTH_CSRF_COOKIE_NAME": "auth_csrf_cookie_name",
+    "AUTH_COOKIE_SECURE": "auth_cookie_secure",
+    "AUTH_SESSION_TTL_SECONDS": "auth_session_ttl_seconds",
+    "AUTH_REQUIRE_VERIFIED": "auth_require_verified",
+    "AUTH_CLAIM_LEGACY": "auth_claim_legacy",
 }
 
 # The same, for the WS-12 runtime limits.

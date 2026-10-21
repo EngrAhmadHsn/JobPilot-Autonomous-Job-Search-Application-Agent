@@ -18,6 +18,24 @@ session when the caller hands over none — the workflow nodes write their
 evidence that way, and the audit writer falls back to ``SessionLocal``. Without
 this guard the suite writes into the developer's real database, which is a
 data leak into a working environment and not something a test may ever do.
+
+The autouse ``authenticated_caller`` fixture gives every test an
+**identity** (WS-14 · A2). Since the API now refuses a caller it cannot
+identify, a test that calls a protected endpoint needs a principal. The
+identity it installs is the **legacy owner** — the account the ownership
+migration backfilled the pre-existing rows to — because that is the owner
+the test fixtures write their rows under (``build_profile_row`` and its
+siblings default to it). The scope is deliberately **not** a superuser
+scope: a superuser scope bypasses the owner filter, and a suite that
+always bypassed it would prove nothing about the filter.
+
+The identity is injected through FastAPI's dependency override rather
+than by logging in, because logging in for every test would make the
+suite slow and would test the *login* rather than the thing under test.
+The tests that are **about** the identity — ``tests/test_auth.py`` and
+``tests/test_isolation.py`` — remove the override and use the real
+cookie and bearer transports, so the real path is proved where it
+matters.
 """
 
 from __future__ import annotations
@@ -100,3 +118,46 @@ def isolated_session_local(_suite_database, monkeypatch: pytest.MonkeyPatch):
         "src.db.session.SessionLocal",
         sessionmaker(bind=_suite_database, autoflush=False),
     )
+
+
+@pytest.fixture(autouse=True)
+def authenticated_caller():
+    """Give every test an identity (WS-14 · A2).
+
+    The API refuses a caller it cannot identify, so a test that calls a
+    protected endpoint needs a principal. The one installed here is the
+    **legacy owner** — the account the ownership migration backfilled the
+    pre-existing rows to, and the owner the test fixtures write their rows
+    under.
+
+    The scope is deliberately **not** a superuser scope. A superuser
+    scope bypasses the owner filter by design (it is the platform's audit
+    view), and a suite that always bypassed it would prove nothing about
+    the filter it is supposed to be exercising.
+
+    The identity is injected through FastAPI's dependency override rather
+    than by logging in: logging in for every test would make the suite
+    slow and would test the login rather than the thing under test. The
+    tests that are *about* the identity — ``tests/test_auth.py`` and
+    ``tests/test_isolation.py`` — remove this override and use the real
+    cookie and bearer transports.
+    """
+    from src.auth.routes import current_active_user
+    from src.db.users import LEGACY_OWNER_ID, UserDB
+    from src.main import app
+
+    caller = UserDB(
+        id=LEGACY_OWNER_ID,
+        email="test-caller@example.com",
+        # The suite never authenticates with this account, so the value
+        # is irrelevant; it is not a password hash and never is verified.
+        hashed_password="!",
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    app.dependency_overrides[current_active_user] = lambda: caller
+    try:
+        yield caller
+    finally:
+        app.dependency_overrides.pop(current_active_user, None)
