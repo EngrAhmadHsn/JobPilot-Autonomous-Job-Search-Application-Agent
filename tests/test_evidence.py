@@ -29,6 +29,7 @@ from src.db.evidence import ApplicationEvidence
 from src.graph.nodes import submit_node, verify_node
 from src.graph.state import ApplicationWorkflowState
 from src.security.allowlist import DisallowedDomainError
+from tests.fixtures.fake_page import FakePage
 
 
 class FakeTracing:
@@ -57,66 +58,6 @@ class FakeContext:
         self.closed = True
 
 
-class FakeLocator:
-    def __init__(self, page: FakePage, selector: str) -> None:
-        self.page = page
-        self.selector = selector
-
-    def fill(self, value: str) -> None:
-        self.page.filled[self.selector] = value
-
-    def click(self) -> None:
-        self.page.clicked.append(self.selector)
-
-    def count(self) -> int:
-        return 1
-
-    def set_input_files(self, path: str) -> None:
-        self.page.uploaded = path
-
-    def inner_text(self) -> str:
-        return self.page.body
-
-
-class FakePage:
-    """A page with the slice of the Playwright API the adapter uses."""
-
-    def __init__(
-        self,
-        url: str = "http://localhost:8000/apply/confirm",
-        body: str = "Application Submitted. Thanks for applying.",
-        title: str = "Application received",
-    ) -> None:
-        self.context = FakeContext()
-        self.url = url
-        self.body = body
-        self._title = title
-        self.filled: dict[str, str] = {}
-        self.clicked: list[str] = []
-        self.uploaded: str | None = None
-        self.screenshot_path: str | None = None
-        self.screenshot_fails = False
-
-    def title(self) -> str:
-        return self._title
-
-    def locator(self, selector: str) -> FakeLocator:
-        return FakeLocator(self, selector)
-
-    def wait_for_load_state(self, *args, **kwargs) -> None:
-        return None
-
-    def screenshot(self, path: str | None = None) -> None:
-        if self.screenshot_fails:
-            raise RuntimeError("screenshot failed")
-        self.screenshot_path = path
-        if path:
-            Path(path).write_bytes(b"fake-png")
-
-    def close(self) -> None:
-        return None
-
-
 @pytest.fixture
 def evidence_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the adapter's evidence directory at a temporary folder."""
@@ -142,7 +83,11 @@ def sample_request() -> ApplicationRequest:
 def _prepared(request: ApplicationRequest) -> PreparedApplication:
     return PreparedApplication(
         request=request,
-        prepared_fields={"candidate_name": "Ada Lovelace"},
+        prepared_fields={
+            "candidate_name": "Ada Lovelace",
+            "email": "ada@example.com",
+            "phone": "+1 555 0101",
+        },
         workflow_id="wf-evidence",
     )
 
@@ -178,10 +123,13 @@ class TestEvidenceCapture:
         adapter.submit(_prepared(sample_request))
 
         entries = json.loads((evidence_dir / "wf-evidence.trace.json").read_text(encoding="utf-8"))
-        assert [entry["action"] for entry in entries] == [
-            "click_submit",
-            "confirmation_page",
-        ]
+        actions = [entry["action"] for entry in entries]
+        # The trace is the ordered record of what the browser did: the fields
+        # it filled, the button it clicked, and the page it landed on.
+        assert "fill:Full name" in actions
+        assert "click_submit" in actions
+        assert actions[-1] == "confirmation_page"
+        assert actions.index("fill:Full name") < actions.index("click_submit")
         assert all(entry["url"] for entry in entries)
         assert all(entry["timestamp"] for entry in entries)
 
@@ -449,9 +397,7 @@ class TestFailureStatusPreservation:
 
         raw = graph.invoke(state, config={"configurable": {"thread_id": "wf-blocked"}})
         final_state = (
-            raw
-            if isinstance(raw, ApplicationWorkflowState)
-            else ApplicationWorkflowState(**raw)
+            raw if isinstance(raw, ApplicationWorkflowState) else ApplicationWorkflowState(**raw)
         )
 
         assert final_state.final_result is not None
