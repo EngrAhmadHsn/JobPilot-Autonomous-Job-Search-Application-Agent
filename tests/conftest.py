@@ -5,13 +5,6 @@ rate limiter with a zero-interval one: politeness spacing (1 s/host by
 default) is a live-network concern, and no test talks to a live network. Tests
 that exercise the limiter itself inject their own explicit limiter.
 
-The autouse ``generous_api_rate_limit`` fixture does the same for the **API**
-rate limiter (WS-12): every test in the suite shares one client address
-(``testclient``), so the per-client request budget — a real control, and one
-that the suite duly trips — would refuse the hundredth request of a test
-module. The budget is raised out of the way here, and the tests that verify
-the limiter itself build their own instance and assert against it directly.
-
 The autouse ``isolated_session_local`` fixture points the module-level
 session factory at a throwaway database. Several code paths open their **own**
 session when the caller hands over none — the workflow nodes write their
@@ -53,27 +46,6 @@ def fast_rate_limiter(monkeypatch):
     yield
     reset_default_limiter()
     assert get_default_limiter() is not None  # rebuildable after reset
-
-
-@pytest.fixture(autouse=True)
-def generous_api_rate_limit(monkeypatch):
-    """Keep the API rate limiter from refusing the suite's own requests.
-
-    The limiter is a real control and it is not disabled — the budget is
-    raised so the suite's shared client address is never throttled. The
-    tests that cover the limiter build their own instance and assert
-    against it directly, so the control itself is still verified.
-    """
-    from src.api.middleware import reset_rate_limiter
-
-    monkeypatch.setenv("RATE_LIMIT_REQUESTS", "100000")
-    from src.security.limits import reset_limits
-
-    reset_limits()
-    reset_rate_limiter()
-    yield
-    reset_limits()
-    reset_rate_limiter()
 
 
 @pytest.fixture(scope="session")
