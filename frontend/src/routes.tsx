@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/app-shell"
 import { Placeholder } from "@/screens/placeholder"
 import { JobDetailScreen } from "@/screens/job-detail-screen"
 import { MatchesScreen } from "@/screens/matches-screen"
+import { ApprovalsScreen } from "@/screens/approvals-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
 import { TailorIndexScreen, TailorJobScreen } from "@/screens/tailor-screen"
 
@@ -41,7 +42,7 @@ export const routes: RouteObject[] = [
       },
       {
         path: "approvals",
-        element: <Placeholder title="Approvals" phase="E" />,
+        element: <ApprovalsScreen />,
       },
       {
         path: "tracker",
