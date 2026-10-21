@@ -22,6 +22,7 @@ from src.jobs.requirements import extract_requirements
 from src.llm.client import get_client
 from src.research.engine import JobInsights
 from src.resume.profile import CandidateProfile
+from src.security.injection import strip_injected_sentences
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,21 @@ def _strip_exaggerated_years(text: str, max_years: int | None, violations: list[
     return " ".join(kept)
 
 
+def _strip_injected(text: str, violations: list[str], *, where: str) -> str:
+    """Drop sentences that are instructions smuggled in from the listing.
+
+    WS-06 · SEC-01: the model may only restate profile facts. An injected
+    instruction echoed into the summary, the cover letter, or a bullet would
+    otherwise end up in the deliverable, so the validator removes it and
+    records the violation.
+    """
+    cleaned, removed = strip_injected_sentences(text)
+    for sentence in removed:
+        violations.append(f"Removed injected instruction from the {where}")
+        logger.warning("Removed injected instruction from the %s: %r", where, sentence)
+    return cleaned
+
+
 def _build_prompt(
     profile: CandidateProfile, job: JobListing, insights: JobInsights | None = None
 ) -> str:
@@ -197,7 +213,12 @@ def tailor_resume(
             violations.append(f"Removed experience for unknown company {entry.company!r}")
             continue
         bullets = [
-            _strip_exaggerated_years(bullet, max_years, violations) for bullet in entry.bullets
+            _strip_injected(
+                _strip_exaggerated_years(bullet, max_years, violations),
+                violations,
+                where="experience bullet",
+            )
+            for bullet in entry.bullets
         ]
         kept_experience.append(
             TailoredExperience(
@@ -217,8 +238,16 @@ def tailor_resume(
         ]
         kept_projects.append(TailoredProject(name=project.name, bullets=[b for b in bullets if b]))
 
-    summary = _strip_exaggerated_years(draft.summary, max_years, violations)
-    cover_letter = _strip_exaggerated_years(draft.cover_letter, max_years, violations)
+    summary = _strip_injected(
+        _strip_exaggerated_years(draft.summary, max_years, violations),
+        violations,
+        where="summary",
+    )
+    cover_letter = _strip_injected(
+        _strip_exaggerated_years(draft.cover_letter, max_years, violations),
+        violations,
+        where="cover letter",
+    )
 
     if removed_skills:
         violations.append(f"Removed {len(removed_skills)} skill(s) not present in profile")
