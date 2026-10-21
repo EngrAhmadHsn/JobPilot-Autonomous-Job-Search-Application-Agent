@@ -41,6 +41,13 @@ from src.graph.job_executor import (
     search_stored_jobs,
 )
 from src.graph.job_state import JobMatchPair
+from src.security.audit import (
+    ACTION_JOB_SEARCH,
+    ACTION_MATCH_COMPUTE,
+    OUTCOME_SUCCESS,
+    SYSTEM_ACTOR,
+    record_audit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +169,7 @@ def search_jobs(
         raise HTTPException(status_code=404, detail=f"Profile {req.profile_id!r} not found")
     profile = profile_from_row(profile_row)
 
-    # SEC-13 audit hook (ids/counts only, never PII).
+    # SEC-13 audit event (ids/counts only, never PII).
     logger.info(
         "Job search requested",
         extra={
@@ -178,6 +185,27 @@ def search_jobs(
     if report.results:
         db.add_all(build_match_rows(req.profile_id, report.results))
         db.commit()
+
+    record_audit(
+        ACTION_JOB_SEARCH,
+        actor=SYSTEM_ACTOR,
+        resource=req.profile_id,
+        outcome=OUTCOME_SUCCESS,
+        metadata={
+            "returned": len(report.results),
+            "degraded": report.degraded,
+            "has_query": bool(req.query),
+            "has_location": bool(req.location),
+            "failed_sources": sorted(report.source_errors),
+        },
+    )
+    record_audit(
+        ACTION_MATCH_COMPUTE,
+        actor=SYSTEM_ACTOR,
+        resource=req.profile_id,
+        outcome=OUTCOME_SUCCESS,
+        metadata={"matches": len(report.results), "degraded": report.degraded},
+    )
 
     logger.info(
         "Job search complete",
