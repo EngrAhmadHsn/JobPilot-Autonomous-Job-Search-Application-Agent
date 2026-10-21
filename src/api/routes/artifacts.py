@@ -32,10 +32,14 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
-from src.config.settings import get_settings
 from src.db import access
 from src.db.session import get_db
-from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
+from src.storage.paths import (
+    KIND_EVIDENCE,
+    UserPathNotAllowedError,
+    assert_within_user_root,
+    user_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,19 +73,19 @@ def _media_type(path: Path) -> str:
     return _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 
-def _artifact_path(stored: str) -> Path:
-    """Where a stored artifact path points.
+def _artifact_path(stored: str, owner_id: str) -> Path:
+    """Where a stored artifact path points, for *owner_id*.
 
     The browser layer stores an evidence artifact as a **bare file name**
-    (``b3046adb.png``), relative to the evidence directory, and a rendered
-    resume as a path relative to the data directory. A bare name is
-    therefore resolved inside the evidence directory — the one directory the
-    artifact may live in — and everything else is used as it is. The
+    (``b3046adb.png``), relative to the evidence directory. A bare name is
+    therefore resolved inside the **owner's own** evidence directory
+    (WS-14 · Phase B) — not inside the shared one, which would be a
+    cross-tenant read. Everything else is used as it is, and the
     containment check that follows is what actually decides.
     """
     candidate = Path(stored)
     if not candidate.is_absolute() and len(candidate.parts) == 1:
-        candidate = Path(get_settings().evidence_dir) / candidate
+        candidate = user_dir(owner_id, KIND_EVIDENCE) / candidate
     return candidate
 
 
@@ -108,8 +112,10 @@ def download_tailored_docx(
         raise HTTPException(status_code=404, detail="Tailoring not found")
 
     try:
-        path = assert_within_allowed_roots(row.docx_path, what="rendered resume")
-    except PathNotAllowedError as exc:
+        # WS-14 · Phase B: the containment is against the **owner's own**
+        # directory, not against a shared root.
+        path = assert_within_user_root(row.docx_path, scope.user_id, what="rendered resume")
+    except UserPathNotAllowedError as exc:
         logger.warning("Refused a DOCX download for %r: %s", tailoring_id, exc)
         raise HTTPException(status_code=404, detail="The rendered file is not available") from exc
 
@@ -163,12 +169,14 @@ def download_evidence(
         for stored in (record.screenshot_path, record.trace_path):
             if not stored:
                 continue
-            candidate = _artifact_path(stored)
+            candidate = _artifact_path(stored, scope.user_id)
             if candidate.name != name:
                 continue
             try:
-                path = assert_within_allowed_roots(candidate, what="evidence file")
-            except PathNotAllowedError as exc:
+                # WS-14 · Phase B: the containment is against the
+                # **owner's own** directory, not against a shared root.
+                path = assert_within_user_root(candidate, scope.user_id, what="evidence file")
+            except UserPathNotAllowedError as exc:
                 logger.warning("Refused an evidence download for %r: %s", application_id, exc)
                 raise HTTPException(
                     status_code=404, detail="The evidence file is not available"

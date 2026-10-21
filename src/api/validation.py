@@ -113,7 +113,9 @@ def _validate_text(payload: bytes) -> None:
         raise UploadValidationError("The uploaded text file is not valid UTF-8") from exc
 
 
-def validate_resume_upload(file: UploadFile, *, profile_id: str | None = None) -> Path:
+def validate_resume_upload(
+    file: UploadFile, *, profile_id: str | None = None, owner_id: str | None = None
+) -> Path:
     """Validate an uploaded resume and store it in the upload directory.
 
     Args:
@@ -121,6 +123,12 @@ def validate_resume_upload(file: UploadFile, *, profile_id: str | None = None) -
         profile_id: The id the stored file is named after. When omitted, one
             is generated; the caller reads it back from the returned path's
             stem.
+        owner_id: The account the file belongs to (WS-14 · Phase B). When
+            given, the file is written into **that account's own**
+            directory, so the file on the disk and the row in the database
+            agree about who owns it. When omitted, the shared upload
+            directory is used — which is what the evaluation harness and
+            the scripts that pre-date the multi-user work do.
 
     Returns:
         The path of the stored file, named ``{profile_id}{extension}``.
@@ -130,6 +138,7 @@ def validate_resume_upload(file: UploadFile, *, profile_id: str | None = None) -
             empty, malformed, or carries a filename that cannot be used.
     """
     from src.db.profiles import generate_profile_id
+    from src.storage.paths import KIND_RESUMES, user_dir
 
     extension = _extension_of(file.filename)
     if extension not in ALLOWED_EXTENSIONS:
@@ -146,7 +155,10 @@ def validate_resume_upload(file: UploadFile, *, profile_id: str | None = None) -
         _validate_text(payload)
 
     active_profile_id = profile_id or generate_profile_id()
-    upload_dir = ensure_dir(get_settings().resume_upload_dir)
+    if owner_id:
+        upload_dir = ensure_dir(user_dir(owner_id, KIND_RESUMES))
+    else:
+        upload_dir = ensure_dir(get_settings().resume_upload_dir)
     # The stored name is generated, never the uploaded one: a hostile
     # filename can neither escape the directory nor collide with a path.
     file_path = upload_dir / f"{active_profile_id}{extension}"

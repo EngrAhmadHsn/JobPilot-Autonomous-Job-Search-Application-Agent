@@ -205,7 +205,17 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
             success without evidence.
         """
         workflow_id = prepared.workflow_id or uuid.uuid4().hex[:8]
-        evidence_dir = ensure_dir(get_settings().evidence_dir)
+        # WS-14 · Phase B: the evidence belongs to the account the run
+        # was made for, so it is written into that account's own
+        # directory. Without an owner (the evaluation harness, a script
+        # that predates the multi-user work) the shared directory is
+        # used.
+        if prepared.owner_id:
+            from src.storage.paths import KIND_EVIDENCE, user_dir
+
+            evidence_dir = ensure_dir(user_dir(prepared.owner_id, KIND_EVIDENCE))
+        else:
+            evidence_dir = ensure_dir(get_settings().evidence_dir)
         trace = NavigationTrace()
 
         try:

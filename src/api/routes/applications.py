@@ -71,7 +71,6 @@ from src.security.audit import (
     OUTCOME_SUCCESS,
     record_audit,
 )
-from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
 from src.security.policy import (
     AutoSubmitNotAllowed,
     PolicyError,
@@ -79,6 +78,7 @@ from src.security.policy import (
     assert_execution_allowed,
     get_submission_policy,
 )
+from src.storage.paths import UserPathNotAllowedError, assert_within_user_root
 
 logger = logging.getLogger(__name__)
 
@@ -294,8 +294,14 @@ def prepare_application(
     resume_path: str | None = None
     if req.resume_path and req.resume_path.strip():
         try:
-            resume_path = str(assert_within_allowed_roots(req.resume_path, what="resume path"))
-        except PathNotAllowedError as exc:
+            # WS-14 · Phase B: the path must be inside the **caller's
+            # own** directory. A check against the shared roots would
+            # accept another user's resume — and this path is handed to
+            # the browser, which uploads it to a third-party job site.
+            resume_path = str(
+                assert_within_user_root(req.resume_path, scope.user_id, what="resume path")
+            )
+        except UserPathNotAllowedError as exc:
             logger.warning("Rejected an application with an out-of-bounds resume path: %s", exc)
             record_audit(
                 "allowlist.violation",
@@ -329,7 +335,9 @@ def prepare_application(
     )
 
     try:
-        prepared = build_prepared_application(app_request, adapter, workflow_id=workflow_id)
+        prepared = build_prepared_application(
+            app_request, adapter, workflow_id=workflow_id, owner_id=scope.user_id
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

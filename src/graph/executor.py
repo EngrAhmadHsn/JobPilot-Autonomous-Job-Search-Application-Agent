@@ -54,6 +54,7 @@ def prepare_application(
     adapter: ApplicationAdapter,
     *,
     workflow_id: str | None = None,
+    owner_id: str | None = None,
 ) -> PreparedApplication:
     """Prepare an application for review — nothing is submitted here.
 
@@ -61,6 +62,8 @@ def prepare_application(
         request: The application request with the job and candidate details.
         adapter: The adapter that builds the payload.
         workflow_id: Optional workflow id; a new one is generated when absent.
+        owner_id: The account the run belongs to (WS-14 · Phase B). The
+            evidence artifacts are written into that account's directory.
 
     Returns:
         The prepared application, stamped with the workflow id.
@@ -83,6 +86,7 @@ def prepare_application(
     )
     prepared = adapter.prepare(request)
     prepared.workflow_id = active_workflow_id
+    prepared.owner_id = owner_id
     return prepared
 
 

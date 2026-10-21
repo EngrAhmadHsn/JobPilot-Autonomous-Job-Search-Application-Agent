@@ -29,10 +29,12 @@ from src.db.base import Base
 from src.db.evidence import ApplicationEvidence
 from src.db.session import get_db
 from src.db.tailored import build_tailored_row
+from src.db.users import LEGACY_OWNER_ID
 from src.main import app
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport, KeywordCoverage
 from src.resume.tailor import FactualityReport, TailoredResume
+from src.storage.paths import user_dir
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 DOCX_BYTES = b"PK\x03\x04" + b"0" * 32
@@ -53,13 +55,28 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path))
-    monkeypatch.setattr(get_settings(), "tailored_dir", str(tmp_path / "tailored"))
-    monkeypatch.setattr(get_settings(), "evidence_dir", str(tmp_path / "evidence"))
-    monkeypatch.setattr(get_settings(), "resume_upload_dir", str(tmp_path / "uploads"))
+    # WS-14 · Phase B: a file belongs to the account it was written for,
+    # so the storage root is the data directory and the files live under
+    # the owner's own directory. The suite's caller is the legacy owner.
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path / "data"))
+    monkeypatch.setattr(get_settings(), "tailored_dir", str(tmp_path / "data" / "tailored"))
+    monkeypatch.setattr(get_settings(), "evidence_dir", str(tmp_path / "data" / "evidence"))
+    monkeypatch.setattr(get_settings(), "resume_upload_dir", str(tmp_path / "data" / "uploads"))
     yield TestClient(app)
     app.dependency_overrides.clear()
     engine.dispose()
+
+
+def _owner_dir(tmp_path: Path, kind: str) -> Path:
+    """The directory one kind of file lives in, for the suite's caller.
+
+    WS-14 · Phase B: a file belongs to the account it was written for, so
+    the artifacts live under the **owner's own** directory and the
+    download endpoints resolve them there.
+    """
+    directory = user_dir(LEGACY_OWNER_ID, kind)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def _store_tailoring(api: TestClient, docx_path: Path) -> str:
@@ -91,7 +108,7 @@ def _store_tailoring(api: TestClient, docx_path: Path) -> str:
 
 
 def test_download_returns_the_rendered_docx(api: TestClient, tmp_path: Path) -> None:
-    tailored = tmp_path / "tailored" / "profile-1.docx"
+    tailored = _owner_dir(tmp_path, "tailored") / "profile-1.docx"
     tailoring_id = _store_tailoring(api, tailored)
 
     response = api.get(f"/api/tailored/{tailoring_id}/download")
@@ -106,7 +123,7 @@ def test_download_of_an_unknown_tailoring_is_404(api: TestClient) -> None:
 
 
 def test_download_of_a_missing_file_is_404(api: TestClient, tmp_path: Path) -> None:
-    missing = tmp_path / "tailored" / "gone.docx"
+    missing = _owner_dir(tmp_path, "tailored") / "gone.docx"
     tailoring_id = _store_tailoring(api, missing)
     missing.unlink()
 
@@ -133,7 +150,7 @@ def test_download_of_a_path_outside_the_allowed_roots_is_404(
 
 
 def test_evidence_download_returns_the_screenshot(api: TestClient, tmp_path: Path) -> None:
-    evidence_dir = tmp_path / "evidence"
+    evidence_dir = _owner_dir(tmp_path, "evidence")
     evidence_dir.mkdir(parents=True, exist_ok=True)
     screenshot = evidence_dir / "workflow-1.png"
     screenshot.write_bytes(PNG_BYTES)
@@ -184,7 +201,7 @@ def test_evidence_download_of_an_unknown_application_is_404(api: TestClient) -> 
 
 
 def test_evidence_list_returns_the_confirmation_text(api: TestClient, tmp_path: Path) -> None:
-    evidence_dir = tmp_path / "evidence"
+    evidence_dir = _owner_dir(tmp_path, "evidence")
     evidence_dir.mkdir(parents=True, exist_ok=True)
     screenshot = evidence_dir / "workflow-2.png"
     screenshot.write_bytes(PNG_BYTES)
@@ -235,7 +252,7 @@ def test_evidence_download_resolves_a_bare_file_name(api: TestClient, tmp_path: 
     directory, not a path. The endpoint has to resolve it there, or the
     console shows a broken image for every real submission.
     """
-    evidence_dir = tmp_path / "evidence"
+    evidence_dir = _owner_dir(tmp_path, "evidence")
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "workflow-3.png").write_bytes(PNG_BYTES)
 

@@ -36,6 +36,12 @@ class PreparedApplication(BaseModel):
     # WS-08: the grounded profile facts this payload may answer a form
     # question with.
     profile_facts: dict[str, str] = Field(default_factory=dict)
+    # WS-14 · Phase B: the account this run belongs to. The evidence
+    # artifacts are written into that account's own directory, so the
+    # file on the disk and the row in the database agree about who owns
+    # it. It is **not** part of the submitted payload (``request`` is),
+    # so it never reaches an employer.
+    owner_id: str | None = None
 
 
 class SubmissionEvidence(BaseModel):

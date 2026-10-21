@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
+from src.config.settings import ensure_dir
 from src.db import access
 from src.db.jobs import JobDB, listing_from_row
 from src.db.profiles import profile_from_row
@@ -31,6 +32,7 @@ from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
 from src.resume.pipeline import run_tailoring
 from src.resume.tailor import FactualityReport, GenerateFn, TailoredResume
+from src.storage.paths import KIND_TAILORED, user_dir
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,9 @@ def tailor_resume_endpoint(
             profile,
             job,
             generate=generate,
+            # WS-14 · Phase B: the rendered resume belongs to the caller,
+            # so it is written into the caller's own directory.
+            out_dir=ensure_dir(user_dir(scope.user_id, KIND_TAILORED)),
             profile_id=req.profile_id,
             job_id=req.job_id,
         )

@@ -72,7 +72,7 @@ def upload_resume(
     a real document, or a file that cannot be parsed.
     """
     try:
-        file_path = validate_resume_upload(file)
+        file_path = validate_resume_upload(file, owner_id=scope.user_id)
     except UploadValidationError as exc:
         logger.warning("Resume upload rejected: %s", exc)
         record_audit(

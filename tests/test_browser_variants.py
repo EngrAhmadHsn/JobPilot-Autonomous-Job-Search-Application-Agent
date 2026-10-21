@@ -26,6 +26,7 @@ from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.base import Base
 from src.db.evidence import ApplicationEvidence
 from src.db.session import get_db
+from src.db.users import LEGACY_OWNER_ID
 from src.main import app
 from tests.fixtures.fake_ats import serve_fake_ats_variants
 
@@ -39,9 +40,19 @@ def ats():
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An isolated evidence directory and a development environment."""
+    """An isolated storage root and a development environment.
+
+    WS-14 · Phase B: the evidence of a run belongs to the account the
+    run was made for, so it is written into **that account's own**
+    directory — ``data/users/{owner_id}/evidence`` — and not into the
+    shared one. The suite's caller is the legacy owner (see
+    ``tests/conftest.py``), so this fixture points the data directory at
+    a temporary tree and returns the directory the evidence lands in.
+    """
     settings = get_settings()
-    evidence = tmp_path / "evidence"
+    data = tmp_path / "data"
+    monkeypatch.setattr(settings, "data_dir", str(data))
+    evidence = data / "users" / LEGACY_OWNER_ID / "evidence"
     evidence.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(settings, "evidence_dir", str(evidence))
     # The local fake ATS is reachable only outside production.
@@ -86,15 +97,22 @@ def resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     WS-12: the prepare endpoint refuses a resume path that is not inside a
     directory this application owns, because the browser layer uploads that
     file to a third-party site — an uncontained path is an exfiltration
-    channel. The temporary directory is therefore declared as the resume
-    upload directory for the duration of the test, so the file is inside an
-    allowed root.
+    channel.
+
+    WS-14 · Phase B made that check **per-user**: the path must be inside
+    the *caller's own* directory, not merely inside a shared one. So the
+    file is written into the owner's own resume directory, which is where
+    a real upload would put it.
     """
     from src.config.settings import get_settings
+    from src.storage.paths import KIND_RESUMES, user_dir
 
-    monkeypatch.setattr(get_settings(), "resume_upload_dir", str(tmp_path))
-    path = tmp_path / "resume.txt"
-    path.write_text("Ada Lovelace — Senior Python Engineer\n", encoding="utf-8")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path / "data"))
+    owner_dir = user_dir(LEGACY_OWNER_ID, KIND_RESUMES)
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    path = owner_dir / "resume.txt"
+    path.write_text("Ada Lovelace - Senior Python Engineer\n", encoding="utf-8")
     return str(path)
 
 
