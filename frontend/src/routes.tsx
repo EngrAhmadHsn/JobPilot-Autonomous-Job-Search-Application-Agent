@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from "react-router-dom"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { Placeholder } from "@/screens/placeholder"
+import { ResumeScreen } from "@/screens/resume-screen"
 
 /**
  * The console's routes.
@@ -17,7 +18,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <Navigate to="/resume" replace /> },
       {
         path: "resume",
-        element: <Placeholder title="Resume" phase="B" />,
+        element: <ResumeScreen />,
       },
       {
         path: "matches",

@@ -186,6 +186,8 @@ export function tailorResponse(
         required_hit: ["python"],
         required_missing: ["kubernetes"],
         preferred_coverage: 0,
+        preferred_hit: [],
+        preferred_missing: ["kubernetes"],
       },
       section_completeness: { summary: true, experience: true, skills: true },
       format_risks: [],

@@ -9,53 +9,121 @@
  */
 import type { components, operations } from "./schema"
 
-export type ApplicationDetail =
+/**
+ * Every defaulted field is present in every response.
+ *
+ * FastAPI marks a field with a default as *optional* in the OpenAPI schema,
+ * because a request may leave it out. A **response**, though, always
+ * serialises the model's defaults: `warnings` is always a list, `skills` is
+ * always a list, `degraded` is always a boolean. The console's types say so,
+ * which is why the screens do not litter themselves with `?? []` around data
+ * the server always sends.
+ */
+export type DeepRequired<T> = T extends (infer U)[]
+  ? DeepRequired<U>[]
+  : T extends object
+    ? { [K in keyof T]-?: DeepRequired<T[K]> }
+    : T
+
+export type ApplicationDetail = DeepRequired<
   components["schemas"]["ApplicationDetailResponse"]
-export type ApplicationEvent = components["schemas"]["ApplicationEventResponse"]
-export type ApplicationList = components["schemas"]["ApplicationListResponse"]
-export type ApplicationSummary = components["schemas"]["ApplicationSummary"]
+>
+export type ApplicationEvent = DeepRequired<
+  components["schemas"]["ApplicationEventResponse"]
+>
+export type ApplicationList = DeepRequired<
+  components["schemas"]["ApplicationListResponse"]
+>
+export type ApplicationSummary = DeepRequired<
+  components["schemas"]["ApplicationSummary"]
+>
 export type ApplicationPrepareRequest =
   components["schemas"]["ApplicationPrepareRequest"]
-export type ApplicationPrepareResponse =
+export type ApplicationPrepareResponse = DeepRequired<
   components["schemas"]["ApplicationPrepareResponse"]
+>
 export type ApprovalDecisionRequest =
   components["schemas"]["ApprovalDecisionRequest"]
-export type ApprovalDecisionResponse =
+export type ApprovalDecisionResponse = DeepRequired<
   components["schemas"]["ApprovalDecisionResponse"]
-export type ApprovalStatus = components["schemas"]["ApprovalStatusResponse"]
-export type AtsReport = components["schemas"]["AtsReport"]
-export type CandidateProfile = components["schemas"]["CandidateProfile"]
-export type EducationEntry = components["schemas"]["EducationEntry"]
-export type ExperienceEntry = components["schemas"]["ExperienceEntry"]
-export type FactualityReport = components["schemas"]["FactualityReport"]
+>
+export type ApprovalStatus = DeepRequired<
+  components["schemas"]["ApprovalStatusResponse"]
+>
+export type AtsReport = DeepRequired<components["schemas"]["AtsReport"]>
+export type CandidateProfile = DeepRequired<
+  components["schemas"]["CandidateProfile"]
+>
+export type EducationEntry = DeepRequired<
+  components["schemas"]["EducationEntry"]
+>
+export type ExperienceEntry = DeepRequired<
+  components["schemas"]["ExperienceEntry"]
+>
+export type FactualityReport = DeepRequired<
+  components["schemas"]["FactualityReport"]
+>
 export type Health =
   operations["health_check_api_health_get"]["responses"][200]["content"]["application/json"]
-export type JobInsights = components["schemas"]["JobInsights"]
-export type JobListing = components["schemas"]["JobListing"]
+export type JobInsights = DeepRequired<components["schemas"]["JobInsights"]>
+export type JobListing = DeepRequired<components["schemas"]["JobListing"]>
 /** `GET /api/jobs/{id}` answers with the listing wrapped in an envelope. */
 export type JobDetail =
   operations["get_job_api_jobs__job_id__get"]["responses"][200]["content"]["application/json"]
-export type JobMatchPair = components["schemas"]["JobMatchPair"]
-export type JobMatchResult = components["schemas"]["JobMatchResult"]
-export type JobRefreshResponse = components["schemas"]["JobRefreshResponse"]
-export type JobRefreshStats = components["schemas"]["JobRefreshStats"]
+export type JobMatchPair = DeepRequired<components["schemas"]["JobMatchPair"]>
+export type JobMatchResult = DeepRequired<
+  components["schemas"]["JobMatchResult"]
+>
+export type JobRefreshResponse = DeepRequired<
+  components["schemas"]["JobRefreshResponse"]
+>
+export type JobRefreshStats = DeepRequired<
+  components["schemas"]["JobRefreshStats"]
+>
 export type JobSearchRequest = components["schemas"]["JobSearchRequest"]
-export type JobSearchResponse = components["schemas"]["JobSearchResponse"]
-export type JobSearchStats = components["schemas"]["JobSearchStats"]
-export type KeywordCoverage = components["schemas"]["KeywordCoverage"]
-export type MatchesHistory = components["schemas"]["MatchesHistoryResponse"]
-export type PersonalInformation = components["schemas"]["PersonalInformation"]
-export type PreparedSummary = components["schemas"]["PreparedSummary"]
-export type ProjectEntry = components["schemas"]["ProjectEntry"]
-export type ResumeProfileResponse =
+export type JobSearchResponse = DeepRequired<
+  components["schemas"]["JobSearchResponse"]
+>
+export type JobSearchStats = DeepRequired<
+  components["schemas"]["JobSearchStats"]
+>
+export type KeywordCoverage = DeepRequired<
+  components["schemas"]["KeywordCoverage"]
+>
+export type MatchesHistory = DeepRequired<
+  components["schemas"]["MatchesHistoryResponse"]
+>
+export type PersonalInformation = DeepRequired<
+  components["schemas"]["PersonalInformation"]
+>
+export type PreparedSummary = DeepRequired<
+  components["schemas"]["PreparedSummary"]
+>
+export type ProjectEntry = DeepRequired<components["schemas"]["ProjectEntry"]>
+export type ResumeProfileResponse = DeepRequired<
   components["schemas"]["ResumeProfileResponse"]
-export type ResumeUploadResponse = components["schemas"]["ResumeUploadResponse"]
+>
+export type ResumeUploadResponse = DeepRequired<
+  components["schemas"]["ResumeUploadResponse"]
+>
 export type StatusUpdateRequest = components["schemas"]["StatusUpdateRequest"]
-export type StoredTailoring = components["schemas"]["StoredTailoringResponse"]
+export type StoredTailoring = DeepRequired<
+  components["schemas"]["StoredTailoringResponse"]
+>
 export type TailorRequest = components["schemas"]["TailorRequest"]
-export type TailorResponse = components["schemas"]["TailorResponse"]
-export type TailoredExperience = components["schemas"]["TailoredExperience"]
-export type TailoredProject = components["schemas"]["TailoredProject"]
-export type TailoredResume = components["schemas"]["TailoredResume"]
+export type TailorResponse = DeepRequired<
+  components["schemas"]["TailorResponse"]
+>
+export type TailoredExperience = DeepRequired<
+  components["schemas"]["TailoredExperience"]
+>
+export type TailoredProject = DeepRequired<
+  components["schemas"]["TailoredProject"]
+>
+export type TailoredResume = DeepRequired<
+  components["schemas"]["TailoredResume"]
+>
 export type ValidationIssue = components["schemas"]["ValidationError"]
-export type WorkPreferences = components["schemas"]["WorkPreferences"]
+export type WorkPreferences = DeepRequired<
+  components["schemas"]["WorkPreferences"]
+>

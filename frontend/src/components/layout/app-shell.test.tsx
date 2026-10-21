@@ -33,7 +33,7 @@ describe("the application shell", () => {
 
     renderApp()
 
-    expect(await screen.findByText("profile-42")).toBeInTheDocument()
+    expect((await screen.findAllByText("profile-42")).length).toBeGreaterThan(0)
   })
 
   it("reports that the API is reachable", async () => {
