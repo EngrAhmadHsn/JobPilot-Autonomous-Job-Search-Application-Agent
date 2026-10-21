@@ -151,6 +151,11 @@ Each control below records:
 | SEC-14 | Submission verification | false claim of application submitted | `src/applications/evidence.py`, `src/applications/fake_ats_adapter.py` (screenshot + action trace + Playwright archive), `src/graph/nodes.py::verify_node` (evidence-existence check) | **Implemented** | `tests/test_evidence.py` (16 tests) |
 | SEC-15 | Data retention policy | stale or excessive data retention | not implemented — resumes, evidence and audit rows are kept until the operator deletes them | Planned | — |
 | SEC-16 | Failure-safe shutdown | unsafe state after failures | `src/graph/nodes.py` (every guard produces a status, never an exception), `src/graph/conditionals.py`, `src/graph/application_workflow.py` (the failure reason survives) | **Implemented** for the application path | `tests/test_evidence.py::TestFailureStatusPreservation`, `tests/test_permissions.py` |
+| SEC-17 | API abuse and resource exhaustion | DDoS, request floods, resource exhaustion via one expensive endpoint | `src/security/limits.py` (every bound in one place), `src/security/rate_limit.py` (per-client limiter, bounded client table), `src/api/middleware.py` (rate limit → 429, body cap → 413, concurrency gate → 503, response headers), `src/main.py` (wired; the interactive docs are disabled outside development) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestRateLimiter`, `::TestRateLimitMiddleware`, `::TestBodySizeLimit`, `::TestConcurrencyGate` |
+| SEC-18 | Corpus and embedding-budget bounds | a flood of fake listings exhausting the provider quota, the embedding cache, or the corpus — and with them the **legitimate** listings that arrive later | `src/jobs/spam.py` (the deterministic fake-job screen), `src/security/admission.py` (per-source, per-refresh and corpus caps), `src/llm/embeddings.py` (the cache is bounded and prunes oldest-first), `src/rag/chroma_store.py` (the full-corpus scan is paged and capped), `src/graph/job_executor.py` (the per-refresh embedding budget; every drop is counted) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestSpamScreen`, `::TestAdmissionControl`, `::TestEmbeddingCacheBound`, `::TestBoundedCorpusScan` |
+| SEC-19 | Stored-payload neutralization (XSS) | a board returning HTML that is stored, served, and rendered | `src/security/html.py` (the neutralizer — dangerous elements removed with their content, then every tag, then the entities), applied at the contract in `src/jobs/contracts.py` so no adapter can forget it; `src/api/middleware.py` (`nosniff` and the other response headers) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestHtmlNeutralization`, `::TestListingNeutralization`, `::TestSecurityHeaders` |
+| SEC-20 | Prompt boundary and factuality gaps | a listing impersonating the prompt's scaffolding; an injected sentence reaching the deliverable; an invented job title | `src/security/injection.py` (the nonce-fenced untrusted block and the rules that explain it), `src/research/engine.py` and `src/resume/tailor.py` (the fence, the prompt cap, the PII minimisation, the injection strip on **every** bullet including project bullets, the exact job-title check) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPromptFencing`, `::TestTailoringInjectionControls`, `::TestResearchPrompt` |
+| SEC-21 | Path containment and malformed input | a request pointing the browser at a file outside the application's directories (the browser uploads it to a third party); a zip bomb; a malformed board payload | `src/security/paths.py` (the containment check, on the *resolved* path), enforced at the API boundary in `src/api/routes/applications.py`; `src/api/validation.py` (the zip-bomb guard); `src/jobs/normalize.py::job_records` (the type-safe payload accessor) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPathContainment`, `::TestZipBombGuard`, `::TestMalformedPayloads` |
 
 ## 6. Threat-by-threat controls
 
@@ -582,6 +587,20 @@ Status: planned
 - resume file validation and PII masking in logs and audit rows
 - SSRF protections and prompt-injection filters in the runtime app logic
 - append-only runtime audit events
+- API abuse controls: a per-client rate limit, a request-body cap, a
+  concurrency gate on the expensive endpoints, and the interactive API
+  docs disabled outside development (SEC-17, WS-12)
+- corpus and embedding-budget bounds: the fake-job screen, the admission
+  control, the bounded embedding cache, and the paged corpus scan
+  (SEC-18, WS-12)
+- stored-payload neutralization: board HTML is neutralized at the
+  contract, and every response carries the hardening headers
+  (SEC-19, WS-12)
+- a nonce-fenced prompt boundary, the injection strip on every bullet,
+  the exact job-title check, and PII minimisation before the prompt
+  (SEC-20, WS-12)
+- path containment for request-supplied files, the zip-bomb guard, and
+  the type-safe board-payload accessor (SEC-21, WS-12)
 
 ### Planned
 
@@ -589,12 +608,15 @@ Status: planned
 - malware scanning of uploads
 - retention and purge policy
 - production secret vault integration
+- authentication on the API itself (the rate limit bounds abuse; it does
+  not identify a caller — the API remains a single-operator surface and
+  says so)
 
 ### Not yet implemented
 
 - browser submission workflow for a real ATS (the fake ATS only)
 - end-to-end verification and replay capability
-- final security hardening, environment policy enforcement, and production deployment protections
+- environment policy enforcement and production deployment protections
 
 ## 13. Final security statement
 
