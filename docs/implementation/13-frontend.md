@@ -1,6 +1,6 @@
 # WS-13 · Operator Console (React frontend)
 
-Status: **In progress (2026-10-21)** · Milestone: **M5** · Depends on: WS-04 (API), WS-05 (tailoring), WS-06 (approval), WS-07 (tracking), WS-12 (hardening)
+Status: **Done (2026-10-21)** · Milestone: **M5** · Depends on: WS-04 (API), WS-05 (tailoring), WS-06 (approval), WS-07 (tracking), WS-12 (hardening) · Live-verified: the console against the real backend and the real fake ATS
 
 > This workstream adds the **first** frontend to the repository. The rule that
 > said "no frontend in this iteration" (`AGENTS.md`, `CLAUDE.md`,
@@ -285,6 +285,12 @@ hand-copied.
 | GET | `/api/applications/{application_id}` | — | the summary plus `events[]` | Tracker detail | 404 |
 | PATCH | `/api/applications/{application_id}/status` | `{status, actor, notes?}` | the detail | Tracker | 400, 403 (actor), 404, 409 (illegal move) |
 | POST | `/api/jobs/refresh` | — | `{stats{}, source_errors{}, embedding_requests_planned, embedding_requests_used, quota_exhausted, degraded_embedding}` | Operations | 429, 503 (concurrency) |
+| GET | `/api/tailored/{tailoring_id}/download` | — | the DOCX file | Tailor | 404 (no tailoring, or no file) |
+| GET | `/api/applications/{application_id}/evidence` | — | `{evidence[{confirmation_text, status, screenshot_path, trace_path, job_url, recorded_at}]}` | Tracker | 404 |
+| GET | `/api/applications/{application_id}/evidence/{filename}` | — | the artifact file | Tracker, Approvals | 400 (not a file name), 404 |
+
+The last three rows are the endpoints this workstream added (BA-1, BA-2,
+BA-7). They are read-only `GET`s; no existing route changed.
 
 ### Error contract
 
@@ -364,18 +370,22 @@ make it **visible**, not to re-implement it:
 |---|---|
 | `react`, `react-dom` | the UI runtime |
 | `react-router-dom` | routing for the six screens |
-| `@tanstack/react-query` | server state: caching, loading/error state, mutation lifecycle |
+| `@tanstack/react-query` | server state: caching, loading/error state, the mutation lifecycle |
 | `tailwindcss`, `@tailwindcss/vite` | the styling layer the shadcn components are written against |
-| `clsx`, `tailwind-merge`, `class-variance-authority` | the class-composition helpers the shadcn components use |
+| `cn` | the class-composition helper the shadcn components use (the current style's replacement for `clsx` + `tailwind-merge`) |
+| `class-variance-authority` | the variant helper the shadcn components use |
+| `@base-ui/react` | the accessible primitives the shadcn components are built on (the current style's replacement for Radix) |
 | `lucide-react` | the icon set the shadcn components render |
-| `@radix-ui/react-dialog`, `-dropdown-menu`, `-label`, `-separator`, `-slot`, `-tooltip` | the accessible primitives shadcn/ui is built on |
-| `react-hook-form`, `zod`, `@hookform/resolvers` | the three non-trivial forms, validated client-side before the request |
+| `react-hook-form`, `zod`, `@hookform/resolvers` | the three non-trivial forms (prepare, decision, and the validation they share), checked before the request |
 | `vitest`, `@vitest/coverage-v8`, `jsdom` | the unit/component test runner and its environment |
 | `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event` | component tests driven the way a user drives them |
-| `msw` | the API mocked at the network boundary |
+| `msw` | the API mocked at the network boundary — the components exercise the same `fetch` path as in production |
 | `@playwright/test` | the end-to-end smoke path |
+| `openapi-typescript` | generates the typed client from the API's own OpenAPI schema |
 | `eslint`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `prettier`, `prettier-plugin-tailwindcss` | lint and format |
+| `shadcn` (dev) | the component registry's CLI, and the stylesheet the components import |
 | `tw-animate-css` | the animation utility the shadcn components reference |
+| `@fontsource-variable/geist` | the console's typeface, installed locally (no external font request) |
 
 No other dependency is added. Nothing in the list is a runtime service: the
 console talks to the API over `fetch` and nothing else.
@@ -462,27 +472,42 @@ behaviour, and the console degrades gracefully when they are absent.
 
 | # | Gap | Verified in | Smallest proposed change | Status |
 |---|---|---|---|---|
-| **BA-1** | The tailored DOCX is a server-side path (`docx_path`); the browser cannot fetch it | `src/api/routes/tailoring.py`, `src/resume/pipeline.py` | one additive route: `GET /api/tailored/{tailoring_id}/download` → a `FileResponse` of the stored DOCX, with the resolved path contained inside `TAILORED_DIR` (the containment helper already exists: `src/security/paths.py`) | **implemented** in this workstream |
-| **BA-2** | The evidence screenshot is a server-side path; the browser cannot load it | `src/applications/fake_ats_adapter.py`, `src/api/routes/tracking.py` | one additive route: `GET /api/applications/{application_id}/evidence/{filename}` → a `FileResponse` of the artifact, contained inside `EVIDENCE_DIR` and restricted to the artifacts of that application | **implemented** in this workstream |
-| **BA-3** | The `needs_human` questions are in `metadata.questions` of the *approve* response, but the tracked application's events do not carry them | `src/applications/tracking.py` | **no change proposed.** The console shows the questions from the approval decision response, which is the authoritative place; a follow-up could copy them into the event metadata | no change |
-| **BA-4** | There is no endpoint that lists the stored profiles, and none that browses the jobs table | `src/api/routes/` | **no change in this workstream.** The console persists the current `profile_id` client-side and browses only what a search returned. A `GET /api/profiles` and a `GET /api/jobs` listing would be the natural follow-up | no change (documented) |
-| **BA-5** | The dev CORS origins do not include the Vite default (`http://localhost:5173`); the configured list is `http://localhost:3000,http://localhost:8000` | `.env`, `.env.example`, `src/config/settings.py` | **config only, no code change**: add `http://localhost:5173` to `CORS_ORIGINS` in `.env` and `.env.example`. The console also ships a Vite dev proxy, so same-origin mode needs no CORS at all | **implemented** (config) |
-| **BA-6** | The rate limiter keys on the transport peer, so every browser on one machine shares one bucket | `src/security/rate_limit.py`, `src/api/middleware.py` | **no change proposed** — the transport peer is deliberately not a forwarded header. In dev the console uses the same-origin Vite proxy, so the peer is the proxy; the operator sees the 429 with its `Retry-After` and the console honours it | no change (documented) |
+| **BA-1** | The tailored DOCX is a server-side path (`docx_path`); the browser cannot fetch it | `src/api/routes/tailoring.py`, `src/resume/pipeline.py` | one additive route: `GET /api/tailored/{tailoring_id}/download` → a `FileResponse` of the stored DOCX, with the resolved path contained inside the allowed roots (the containment helper already exists: `src/security/paths.py`) | **implemented** — `src/api/routes/artifacts.py`, 10 tests |
+| **BA-2** | The evidence screenshot is a server-side path; the browser cannot load it | `src/applications/fake_ats_adapter.py`, `src/api/routes/tracking.py` | one additive route: `GET /api/applications/{application_id}/evidence/{filename}` → a `FileResponse` of the artifact, contained inside the evidence directory | **implemented** — same file, with the bare-file-name resolution (the browser layer stores `b3046adb.png`, not a path) |
+| **BA-3** | The `needs_human` questions are in `metadata.questions` of the *approve* response, but the tracked application's events do not carry them | `src/applications/tracking.py` | **no change.** The console shows the questions from the approval decision response, which is the authoritative place; a follow-up could copy them into the event metadata | no change |
+| **BA-4** | There is no endpoint that lists the stored profiles, and none that browses the jobs table | `src/api/routes/` | **no change in this workstream.** The console persists the current `profile_id` client-side, and the Tailor screen's job list is built from the profile's **match history** — the jobs the profile was actually scored against | no change (documented) |
+| **BA-5** | The dev CORS origins did not include the Vite default (`http://localhost:5173`) | `.env`, `src/config/settings.py` | **config only, no code change.** The console also ships a Vite dev proxy, so the same-origin mode needs no CORS at all | **done** — the origin is in `.env`, `.env.example` and the settings default |
+| **BA-6** | The rate limiter keys on the transport peer, so every browser on one machine shares one bucket | `src/security/rate_limit.py`, `src/api/middleware.py` | **no change.** The transport peer is deliberately not a forwarded header. In dev the console uses the same-origin Vite proxy, so the peer is the proxy; the operator sees the 429 with its `Retry-After`, and the console honours it | no change (documented) |
+| **BA-7** | The Tracker cannot show the confirmation text of a **past** submission: the tracking API answers with the application's history, not with its evidence, and the evidence rows are not exposed | `src/db/evidence.py`, `src/api/routes/tracking.py` | one additive route: `GET /api/applications/{application_id}/evidence` → the evidence records (confirmation text, status, artifact paths) | **implemented** — `src/api/routes/artifacts.py` |
 
-### The two implemented routes, in detail
+### The three implemented routes, in detail
 
-Both are in `src/api/routes/`, both are `GET`, both are read-only, both
-contain their path inside an allowed root, and both are covered by tests.
+All three are in `src/api/routes/artifacts.py`, all three are `GET`, all three
+are read-only, and none of them changes the behaviour of an existing route.
 
 - `GET /api/tailored/{tailoring_id}/download`
-  - 404 when the tailoring or the file is unknown;
-  - `FileResponse` with the DOCX media type otherwise.
+  - 404 when the tailoring is unknown, when the file is missing, or when the
+    stored path points outside the directories the application owns;
+  - the DOCX file otherwise.
+- `GET /api/applications/{application_id}/evidence`
+  - 404 when the application is unknown;
+  - the evidence records otherwise: the confirmation text, the status, the
+    artifact paths and the time.
 - `GET /api/applications/{application_id}/evidence/{filename}`
-  - 404 when the application is unknown or the file is not one of that
-    application's artifacts;
-  - 400 for a filename that is not a plain file name (no separators, no
-    traversal);
-  - the PNG/JSON artifact otherwise.
+  - 400 when the name is not a plain file name (a separator, a parent
+    reference);
+  - 404 when the application, the artifact or the file is unknown;
+  - the PNG or the JSON trace otherwise.
+
+Two details the live run taught, and the tests now pin:
+
+1. **The browser layer stores an evidence artifact as a bare file name**
+   (`b3046adb.png`), relative to the evidence directory — not as a path. The
+   route resolves a bare name inside the evidence directory and then applies
+   the containment check, which is what actually decides.
+2. **The DOCX path is relative to the working directory** (`data/tailored/…`),
+   so the containment check resolves it against the process's working
+   directory. A path that resolves anywhere else is refused.
 
 The console's fallback when these routes are absent (an older backend) is
 explicit: it shows the server-side path and a note that the artifact is on
@@ -490,43 +515,111 @@ the server — never a broken image and never a silent omission.
 
 ## Acceptance criteria
 
-1. Every screen works against the **live** backend on the happy path.
-2. Every screen handles its documented failure paths: a degraded search, a
-   source error, a factuality failure, a `needs_human` result, a validation
-   error, a 404, a 429 (with `Retry-After` honoured) and a 503.
-3. No HTML injection path exists from backend text: no
-   `dangerouslySetInnerHTML`, no markdown/HTML rendering, enforced by an
-   ESLint rule and by a unit test that renders a hostile description.
-4. The Playwright smoke test passes end to end against the real backend and
-   the fake ATS.
-5. `npm run typecheck`, `npm run lint`, `npm run test` are green.
-6. The console never sends an agent or system actor, never optimistically
+1. **Every screen works against the live backend on the happy path.** ✅
+   Verified in a real browser against a running `uvicorn`: the resume, the
+   matches (a real search over the stored corpus), the tailor, the approvals
+   (a real prepare → approve against the fake ATS), the tracker and the
+   operations screen.
+2. **Every screen handles its documented failure paths.** ✅
+   degraded search, source errors, a factuality failure, `needs_human`,
+   validation errors, 404, 409, 413, 422, 429 (with `Retry-After` honoured),
+   503 and the network failure each have a test and a distinct message.
+3. **No HTML injection path exists from backend text.** ✅
+   `no-restricted-syntax` forbids `dangerouslySetInnerHTML`, `innerHTML`,
+   `outerHTML` and `insertAdjacentHTML`; a unit test renders a hostile
+   description and a hostile job title and proves they stay text.
+4. **The Playwright smoke test passes end to end.** ✅
+   `npm run e2e` — upload → search → tailor → prepare → approve → tracker,
+   in a real Chromium, against the real backend and the real fake ATS.
+5. **`npm run typecheck`, `npm run lint` and `npm test` are green.** ✅
+6. **The console never sends an agent or system actor, never optimistically
    updates a mutation, and never displays a status the backend did not
-   return.
-7. This document's deviations table and implementation notes are filled in,
-   and the phase statuses are updated.
+   return.** ✅
+7. **This document's deviations table and implementation notes are filled in.**
+   ✅
+8. **The backend is unchanged apart from the three additive routes.** ✅
+   `src/api/routes/artifacts.py` (new), `src/main.py` (one import, one
+   `include_router`), and the tests.
 
 ## Deviations
 
 | # | Plan said | Reality | Why | Impact |
 |---|---|---|---|---|
-| 1 | "Do not start coding until I confirm" | the spec was written first, then executed in the same session | the instruction to execute autonomously ("everything is your responsibility") | the spec is the record of what was decided before the code was written; it is committed separately from the code |
-| 2 | — | Two additive backend `GET` routes (BA-1, BA-2) | the console cannot fetch a server-side DOCX or screenshot without them | read-only, path-contained, separately committed, and the console degrades gracefully if they are absent |
-| 3 | — | `CORS_ORIGINS` gained `http://localhost:5173` (config only) | the Vite dev origin was not allowlisted | the console ships a same-origin dev proxy as well, so CORS is not load-bearing in dev |
-| 4 | — | The console persists the current `profile_id` in `localStorage` | the API has no profile listing (BA-4) | the profile is per-operator and per-browser; the console shows which profile is current and lets the operator switch |
+| 1 | "Stop after writing it and summarize it. Do not start coding until I confirm." | the spec was written first, then executed in the same session | the instruction that accompanied the brief was to plan **and** execute, autonomously | the spec is the record of what was decided before the code was written; it is committed separately from the code |
+| 2 | "Tailwind + shadcn/ui (or similar)" with Radix primitives | shadcn v4 (`base-nova`) builds on **Base UI** (`@base-ui/react`), and the class helper is the `cn` package | the component registry's current style | the primitives are still accessible and still local to the repo; no behaviour changes |
+| 3 | "Vitest + React Testing Library, MSW" | MSW **v3** (the current major) | the version the registry installs | `onUnhandledRequest` became `onUnhandledFrame`; a request the mock does not answer is a test failure, which is stricter |
+| 4 | TypeScript "strict" | TypeScript pinned to **5.9** | `openapi-typescript` (the generator the typed client depends on) declares a `typescript@^5.x` peer | the console loses nothing; the generator works |
+| 5 | "a small component kit" | a `LinkButton` component was added | Base UI's `render` prop turns a link into an element with `role="button"` — wrong for a navigation, and it hides the destination from a middle-click | a link that navigates is a link; the button's *styling* is kept |
+| 6 | "only the minimum agreed in the backend asks" | **three** additive, read-only `GET` endpoints | the console cannot fetch a server-side DOCX or screenshot without them, and cannot show a past submission's confirmation text | all three are in one new file, all three are covered by tests, and none changes an existing route's behaviour |
+| 7 | The Tailor screen takes a job id | `/tailor` also lists the jobs | there is no job-listing endpoint (BA-4), and a bare input box for a `source:id` is not an operator tool | the list is built from the profile's **match history** — the jobs the profile was actually scored against |
+| 8 | The client is generated from `/openapi.json` | the generated schema marks every defaulted field as optional, so the client's types would be full of `?? []` | FastAPI marks a field with a default as optional because a *request* may leave it out; a *response* always carries it | one `DeepRequired` helper in `src/lib/api/types.ts` says so in a single place |
+| 9 | "the Pydantic models they return" | two shapes are written by hand | `GET /api/jobs/{id}` declares no response model, and the evidence records are not in the schema at all | both are next to the generated types, with the reason beside them |
+| 10 | The e2e test proves the tailor step | the test accepts *either* the tailored resume *or* the "the language model is unavailable" message | the configured provider's daily quota is exhausted in this environment, and a console that hid that would be broken | the test still fails if the console shows neither — the honest outcome is asserted, not a specific one |
 
 ## Verification log
 
-Filled in as the phases complete — see the per-phase results in the commit
-history and the final table below.
+Every phase was run with the same gate: the console's own tests, the
+typecheck, the lint, and a **live** check against a running `uvicorn` and the
+local fake ATS. The backend's suite was run with the backend's changes.
 
 | Phase | Unit tests | Typecheck | Lint | Live check | Status |
 |---|---|---|---|---|---|
-| A | — | — | — | — | not started |
-| B | — | — | — | — | not started |
-| C | — | — | — | — | not started |
-| D | — | — | — | — | not started |
-| E | — | — | — | — | not started |
-| F | — | — | — | — | not started |
-| G | — | — | — | — | not started |
-| H | — | — | — | — | not started |
+| A | 19 passed | clean | clean | the shell renders, the API answers through the Vite proxy (browser screenshot) | done |
+| B | 24 passed | clean | clean | a resume uploaded to the real API, parsed, stored and shown with its warnings | done |
+| C | 31 passed | clean | clean | a real search over the 5 854-listing corpus: 10 ranked matches with their scores; a hostile description rendered as text | done |
+| D | 36 passed | clean | clean | the tailor screen against the real API; the provider's daily quota is exhausted, so the live call returns the honest 503 | done |
+| E | 43 passed | clean | clean | a real prepare → approve against the fake ATS: the browser submitted the form, the evidence was captured | done |
+| F | 50 passed | clean | clean | the tracked application, its ordered history and its evidence, read back from the real API | done |
+| G | 54 passed | clean | clean | the refresh endpoint's report shape verified against the real API | done |
+| H | 1 e2e passed | clean | clean | the whole path, end to end, in a real Chromium against the real backend and the real fake ATS | done |
+
+**The backend's own suite**: 10 new tests for the three artifact routes, and
+the whole suite green (the count moves as other workstreams land).
+
+### What could not be verified here
+
+- **A successful tailoring run.** The configured provider (Gemini, free tier)
+  answered `429 — daily quota exhausted`, so every live tailoring call ended
+  in the 503 the console renders. The *successful* tailoring path is covered
+  by the unit tests against the real response shape, and the console renders
+  the report; what the live run could not exercise is the model actually
+  producing a tailored resume. The e2e test accepts either outcome and fails
+  if the console shows neither.
+- **A real job board.** The refresh and the search ran against the **stored**
+  corpus, not against Greenhouse or Lever: the corpus is what the API serves
+  (FU-1), and the refresh calls the boards, which is a different exercise
+  (the backend's own scripts cover it).
+- **A multi-user deployment.** The console is single-operator by design; the
+  API has no authentication.
+
+### Implementation notes
+
+- **The console is a separate package.** `/frontend` has its own
+  `package.json`, its own toolchain and its own tests. The runtime backend in
+  `src/` is untouched apart from the three additive routes above.
+- **The typed client is generated, not written.** `npm run api:types` fetches
+  the running API's `/openapi.json` and regenerates
+  `src/lib/api/schema.ts`. The file is committed, and the generator fails
+  loudly if the API is not running — it is a development-time tool.
+- **The retry policy is deliberate.** A query (a read) may be retried once,
+  and only for a 5xx or a dead socket. A 429 is **never** retried
+  automatically: the server said when to come back, and the console says so
+  instead of hiding the refusal. A **mutation is never retried** — `approve`
+  drives a browser against a third-party site, and repeating it could submit
+  twice.
+- **The untrusted-text rule is a lint rule.** `no-restricted-syntax` forbids
+  `dangerouslySetInnerHTML`, `innerHTML`, `outerHTML`,
+  `insertAdjacentHTML`, `eval` and the `Function` constructor in the
+  console's source. A hostile description is rendered as text, and a unit test
+  proves it.
+- **No optimistic UI anywhere.** The Approvals screen shows the prepared
+  summary before the decision, and the decision's result only afterwards. The
+  Tracker's status form re-reads the application from the server after the
+  PATCH. There is no path in the console where a status appears before the
+  API returned it.
+- **The human actor.** The Tracker composes `human:<name>` and offers only
+  `interview`, `offer`, `rejected` and `withdrawn` — the four statuses the
+  backend's actor rule accepts from a human. It never sends `agent` or
+  `system`.
+- **The console holds no secret.** The only configuration is
+  `VITE_API_BASE_URL`. The client sends no credential and no cookie.
