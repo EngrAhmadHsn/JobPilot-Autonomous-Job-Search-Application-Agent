@@ -1,10 +1,29 @@
-"""Job source contracts and normalization models."""
+"""Job source contracts and normalization models.
+
+WS-12: the :class:`JobListing` contract is where every listing from every
+source enters the system, so it is where the **untrusted-text controls**
+live. Two of them:
+
+- **Neutralization.** A board's text is HTML (or claims to be plain text
+  and is not). It is stored, returned by the API, put in front of the
+  model, and written into the rendered resume. Neutralizing it here means
+  no adapter can forget to, and no future adapter can introduce a hole:
+  the markup is gone before the text is ever stored.
+- **Length caps.** A listing is a job posting, not a document. A 50 MB
+  description would be stored, embedded, and put in a prompt.
+
+Both are applied in one place on purpose. A per-adapter sanitizer is a
+control that has to be remembered at every call site; a contract-level one
+is a control that cannot be forgotten.
+"""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.security.html import neutralize_html
 
 
 class JobListing(BaseModel):
@@ -30,6 +49,64 @@ class JobListing(BaseModel):
     company_url: str | None = None
     posted_at: str | None = None
     metadata: dict = Field(default_factory=dict)
+
+    # -- WS-12: the untrusted-text controls --------------------------------
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _neutralize_description(cls, value: object) -> object:
+        """Neutralize the description and cap its length.
+
+        The cap is applied after neutralization, so the stored text is the
+        text that was actually measured. A description that is mostly
+        markup shrinks to something sensible before it is truncated.
+
+        The whitespace is **preserved**: a board's plain-text field is
+        stored as the board wrote it, line breaks and all, so the text the
+        candidate reads is the text the employer published.
+        """
+        if not isinstance(value, str):
+            return value
+        from src.security.limits import get_limits
+
+        limits = get_limits()
+        text = neutralize_html(value, collapse_whitespace=False)
+        if len(text) > limits.max_description_chars:
+            text = text[: limits.max_description_chars]
+        return text or None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _neutralize_title(cls, value: object) -> object:
+        """Neutralize a board-supplied title and cap its length.
+
+        A title of ``<script>…</script>`` is the same execution vector as
+        a description, in a field that is more likely to be rendered in a
+        list than a description is.
+        """
+        if not isinstance(value, str):
+            return value
+        from src.security.limits import get_limits
+
+        limits = get_limits()
+        text = neutralize_html(value)
+        if len(text) > limits.max_title_chars:
+            text = text[: limits.max_title_chars]
+        return text
+
+    @field_validator("company", mode="before")
+    @classmethod
+    def _neutralize_company(cls, value: object) -> object:
+        """Neutralize a board-supplied company name and cap its length."""
+        if not isinstance(value, str):
+            return value
+        from src.security.limits import get_limits
+
+        limits = get_limits()
+        text = neutralize_html(value)
+        if len(text) > limits.max_company_chars:
+            text = text[: limits.max_company_chars]
+        return text
 
 
 class JobSource(Protocol):

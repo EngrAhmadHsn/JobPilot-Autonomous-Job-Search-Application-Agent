@@ -7,27 +7,46 @@ normalize everything into one canonical shape at the source boundary).
 
 from __future__ import annotations
 
-import html
-import re
 from datetime import UTC, datetime
 
-_TAG_RE = re.compile(r"<[^>]+>")
-_WHITESPACE_RE = re.compile(r"\s+")
+from src.security.html import neutralize_html
 
 
 def html_to_text(raw: str | None) -> str:
     """Convert an HTML job description to plain text.
 
-    Regex-free tag stripping is intentionally avoided; ``re.sub`` with a
-    simple tag pattern plus whitespace collapse is the deterministic
-    approach agreed for WS-02 (no HTML parser dependency, no LLM). HTML
-    entities are unescaped first so ``&amp;`` etc. render as text.
+    The conversion itself lives in :func:`src.security.html.neutralize_html`
+    (WS-12), so the boards that serve HTML and the contract-level guard
+    that every listing passes through share **one** implementation. That
+    matters: two HTML-to-text implementations drift, and the one that
+    drifts is the one that leaves a `<script>` behind.
+
+    The whitespace is collapsed here (the WS-02 behaviour) so a posting
+    arrives as one reflowed block of text.
     """
-    if not raw:
-        return ""
-    text = html.unescape(raw)
-    text = _TAG_RE.sub(" ", text)
-    return _WHITESPACE_RE.sub(" ", text).strip()
+    return neutralize_html(raw, collapse_whitespace=True)
+
+
+def job_records(payload: object, key: str = "jobs") -> list[dict]:
+    """The list of job records in a provider payload, as dictionaries.
+
+    WS-12: a board is untrusted input, so the shape of its JSON is
+    untrusted too. ``payload.get("jobs") or []`` looks defensive but is
+    not: when ``jobs`` is a **string**, the ``or []`` keeps the string and
+    the loop iterates its *characters*, and the first ``job.get(...)``
+    raises ``AttributeError``. A board that returns ``{"jobs": "boom"}``
+    would take the whole search down with a 500.
+
+    This accessor returns only the entries that really are dictionaries
+    and ignores everything else, so a malformed board yields no listings
+    (a degraded source) rather than an exception.
+    """
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get(key)
+    if not isinstance(raw, list):
+        return []
+    return [entry for entry in raw if isinstance(entry, dict)]
 
 
 def ms_epoch_to_iso(ms: float | str | None) -> str | None:
