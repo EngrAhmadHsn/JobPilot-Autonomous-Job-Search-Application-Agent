@@ -44,27 +44,36 @@ This document intentionally distinguishes between:
 - Basic logging is configured via `src/core/logging.py`.
 - `README.md` and `.env.example` describe environment configuration patterns.
 
+### Implemented since 2026-10-11 (WS-06)
+
+- production domain allowlist for navigation and fetch, enforced in runtime code
+  (`src/security/allowlist.py`)
+- least-privilege permission model for the application adapters
+  (`src/security/permissions.py`, `src/security/registry_setup.py`)
+- two-phase application approval workflow with a persisted approver identity
+  (`src/security/policy.py`, `src/db/approval.py`)
+- file upload validation for resumes (`src/api/validation.py`)
+- append-only audit logging for resume upload, job search, match, and the whole application
+  flow (`src/security/audit.py`, `src/db/audit.py`)
+- submission verification with screenshot, navigation trace and an evidence-existence check
+  (`src/applications/evidence.py`, `src/applications/fake_ats_adapter.py`)
+- CAPTCHA/MFA detection that stops the flow (`src/security/page_guards.py`)
+- PII masking in logs and audit rows (`src/security/redaction.py`, `src/core/logging.py`)
+- SSRF protections for the job-source layer and internal-host blocking for navigation
+
 ### Planned for implementation
 
 - runtime secret management with a secret scanning policy
-- browser session isolation for application flows
-- production domain allowlist for navigation and fetch
-- least-privilege MCP permission model
-- application approval workflow before submission
-- SSRF protections and network restrictions
-- file upload validation and malicious-content handling
-- audit logging for resume upload, job search, browser actions, and submission events
+- browser session isolation beyond one context per submission
+- malware scanning of uploaded resumes and job pages
 - retention and deletion policy for resumes and PII
-- verification checks for actual job application submission
 
 ### Not yet implemented
 
-- browser automation runtime for application submission
+- browser automation runtime for a real (non-fake) ATS
 - secure browser session management
-- domain allowlist enforcement in runtime code
-- submission authorization layer
 - data retention policy enforcement
-- resume redaction and PII minimization rules
+- resume redaction and PII minimization inside the stored documents
 - production secret management (vault or encrypted secrets store)
 - malicious content scanning for uploaded resumes and job pages
 - MCP runtime permission enforcement beyond Cursor development-time configuration
@@ -126,22 +135,22 @@ Each control below records:
 
 | Control ID | Control | Threat mitigated | Implementation location | Status | Test/verification |
 |---|---|---|---|---|---|
-| SEC-01 | Web content treated as untrusted | prompt injection, malicious job descriptions | `.cursor/rules/project.mdc`, app security docs, browser automation policy | Implemented as policy, not runtime-enforced | review and policy tests |
+| SEC-01 | Web content treated as untrusted | prompt injection, malicious job descriptions | `src/security/injection.py` (shared pattern list), `src/research/engine.py` (grounding + injection filters), `src/resume/tailor.py` (validator strips injected sentences) | **Implemented** (runtime-enforced for research + tailoring; the browser path is data-only by construction) | `tests/test_injection_policy.py` (12 tests) |
 | SEC-02 | Environment variable secret model | secret leakage and credential exposure | `src/config/settings.py`, `.env.example` | Implemented at config layer | config validation tests |
-| SEC-03 | Basic logging configuration | operational visibility and safe debug logging | `src/core/logging.py` | Implemented | log emission smoke test |
+| SEC-03 | Basic logging configuration | operational visibility and safe debug logging | `src/core/logging.py` (+ `PiiMaskingFilter`) | Implemented | log emission smoke test, `tests/test_audit.py` |
 | SEC-04 | Playwright MCP as dev-time browser tool | dev inspection capability, controlled exploration | `.cursor/mcp.json` | Implemented | MCP server startup validation |
-| SEC-05 | Human approval gate before submission | accidental or unauthorized application submission | planned workflow policy | Planned | workflow approval tests |
-| SEC-06 | Domain allowlist | malicious redirect, fake ATS, phishing websites | planned runtime browser policy | Planned | allowlist unit tests |
-| SEC-07 | Browser session isolation | cross-session contamination and cookie leakage | planned browser runtime layer | Planned | session isolation test |
-| SEC-08 | Least privilege MCP permissions | overbroad tool access | planned MCP policy layer | Planned | permission matrix tests |
-| SEC-09 | CAPTCHA/MFA restrictions | bypass of anti-bot controls | planned browser automation policy | Planned | policy tests and blocked-flow tests |
-| SEC-10 | File upload validation | malicious resume files | planned resume upload API | Planned | upload validation tests |
-| SEC-11 | SSRF protections | internal service probing and metadata leakage | planned HTTP client / browser policy | Planned | SSRF block tests |
-| SEC-12 | Resume privacy / PII handling | exposure of personal data | planned app + storage policy | Planned | PII redaction tests |
-| SEC-13 | Audit logging | non-repudiation and investigation | hooks and planned application event system | Partially implemented in dev hooks | audit log integrity tests |
-| SEC-14 | Submission verification | false claim of application submitted | planned application verification flow | Planned | verification tests |
-| SEC-15 | Data retention policy | stale or excessive data retention | planned storage policy | Planned | retention policy tests |
-| SEC-16 | Failure-safe shutdown | unsafe state after failures | planned workflow guardrails | Planned | failure-mode tests |
+| SEC-05 | Human approval gate before submission | accidental or unauthorized application submission | `src/security/policy.py`, `src/db/approval.py`, `src/api/routes/applications.py` (prepare → approve/reject), `src/graph/nodes.py::approval_node` | **Implemented** — two-phase, persisted, approver identity + reason; `AUTO_SUBMIT` unreachable | `tests/test_approval_flow.py`, `tests/test_submit_api.py`, `tests/test_policy.py` |
+| SEC-06 | Domain allowlist | malicious redirect, fake ATS, phishing websites | `src/security/allowlist.py` (exact host match + blocked hosts), enforced in the API route, the browser adapter (pre- and post-navigation) and adapter `supports_url` | **Implemented** | `tests/test_allowlist.py` (38 tests) |
+| SEC-07 | Browser session isolation | cross-session contamination and cookie leakage | per-submission browser context in `src/applications/fake_ats_adapter.py` (WS-08 extends it) | Partial (one browser per submission; no persistent profile) | `tests/test_evidence.py::TestBrowserLifecycle` |
+| SEC-08 | Least privilege MCP permissions | overbroad tool access | `src/security/permissions.py`, `src/security/registry_setup.py`, enforced in `submit_node` / `verify_node`; the Greenhouse/Lever `submit()` placeholders now raise | **Implemented** | `tests/test_permissions.py` (15 tests) |
+| SEC-09 | CAPTCHA/MFA restrictions | bypass of anti-bot controls | `src/security/page_guards.py`, `src/applications/fake_ats_adapter.py` (stops with `blocked_human_review`) | **Implemented** | `tests/test_page_guards.py`, `tests/test_evidence.py`, live run in `scripts/verify_ws06.py` |
+| SEC-10 | File upload validation | malicious resume files | `src/api/validation.py` (extension, size, real-file check, generated name), used by `POST /api/resumes` | **Implemented** | `tests/test_upload_validation.py` (15 tests) |
+| SEC-11 | SSRF protections | internal service probing and metadata leakage | `src/jobs/http_client.py` (DNS-resolving guard) + `src/security/allowlist.py` (literal internal/metadata hosts) | **Implemented** | `tests/test_http_client.py`, `tests/test_allowlist.py` |
+| SEC-12 | Resume privacy / PII handling | exposure of personal data | `src/security/redaction.py` (audit metadata), `src/core/logging.py` (`PiiMaskingFilter`) | Partial — PII is masked in logs and audit rows; resumes are still stored in cleartext and the retention policy is SEC-15 | `tests/test_audit.py` |
+| SEC-13 | Audit logging | non-repudiation and investigation | `src/db/audit.py` (append-only table), `src/security/audit.py` (`record_audit`), wired into resume upload, job search, match, prepare, approve, reject, submit, verify and every guard trip | **Implemented** | `tests/test_audit.py`, live run in `scripts/verify_ws06.py` |
+| SEC-14 | Submission verification | false claim of application submitted | `src/applications/evidence.py`, `src/applications/fake_ats_adapter.py` (screenshot + action trace + Playwright archive), `src/graph/nodes.py::verify_node` (evidence-existence check) | **Implemented** | `tests/test_evidence.py` (16 tests) |
+| SEC-15 | Data retention policy | stale or excessive data retention | not implemented — resumes, evidence and audit rows are kept until the operator deletes them | Planned | — |
+| SEC-16 | Failure-safe shutdown | unsafe state after failures | `src/graph/nodes.py` (every guard produces a status, never an exception), `src/graph/conditionals.py`, `src/graph/application_workflow.py` (the failure reason survives) | **Implemented** for the application path | `tests/test_evidence.py::TestFailureStatusPreservation`, `tests/test_permissions.py` |
 
 ## 6. Threat-by-threat controls
 
@@ -164,7 +173,10 @@ Each control below records:
   - add prompt-injection fixtures to a browser test suite
   - ensure malicious text is parsed as content, not instruction
   - assert that the agent does not follow page-injected commands
-- Status: implemented as policy; not fully runtime-enforced yet
+- Status: implemented — the shared pattern list in `src/security/injection.py` filters the
+grounded research output and the tailored summary, cover letter and bullets; the browser
+path never derives a decision, a navigation target or a form field from page text
+(`tests/test_injection_policy.py`).
 
 ### 6.2 Untrusted web content and malicious job descriptions
 
@@ -182,7 +194,9 @@ Each control below records:
 - Verification/test:
   - test fake domains and redirect chains
   - validate domain block rules
-- Status: planned
+- Status: implemented — `src/security/allowlist.py` (exact host match, blocked internal and
+metadata hosts) is enforced at the API boundary, in the browser adapter before and after
+the navigation, and in the adapter host selection (`tests/test_allowlist.py`).
 
 ### 6.3 Credential protection
 
@@ -203,7 +217,10 @@ Each control below records:
   - secret redaction tests
   - log sanitization tests
   - simulated browser payload sanitization checks
-- Status: partially implemented via env var pattern; not complete in runtime security layer
+- Status: implemented for the runtime layer — `src/security/redaction.py` drops credential-like
+keys and masks personal data in every audit row, and `src/core/logging.py` masks emails
+and phone numbers in every log record. The secret store itself is still a deployment
+concern (6.14).
 
 ### 6.4 Browser session isolation
 
@@ -216,12 +233,13 @@ Each control below records:
   - clear ephemeral storage after completion or failure
   - never reuse a session across unrelated workflows without explicit authorization
 - Implementation location:
-  - planned Playwright browser runtime
-  - planned workflow orchestration layer
+  - `src/applications/fake_ats_adapter.py` (one browser and one context per submission)
+  - planned browser runtime (WS-08)
 - Verification/test:
   - session isolation unit and integration tests
   - verify cookies are not shared between contexts
-- Status: planned
+- Status: partial — each submission gets its own browser and context, and the session is torn
+  down with it; persistent profiles and cross-session isolation are WS-08's job
 
 ### 6.5 Domain allowlisting
 
@@ -239,7 +257,9 @@ Each control below records:
 - Verification/test:
   - denylist/allowlist tests for navigation and fetch calls
   - redirect policy tests
-- Status: planned
+- Status: implemented — see 6.2. The check runs before the navigation and the URL the browser
+ended up on is checked again afterwards, so a redirect off the allowlist fails the
+submission with `status="unsafe_navigation"`.
 
 ### 6.6 MCP tool permissions and least privilege
 
@@ -258,7 +278,10 @@ Each control below records:
 - Verification/test:
   - permission matrix tests
   - call-surface validation for tool contracts
-- Status: partially implemented in development-time config; runtime least-privilege layer not yet implemented
+- Status: implemented for the runtime layer — `src/security/registry_setup.py` maps every
+adapter to its capabilities, the submit and verify nodes refuse an adapter that holds no
+such capability, and the adapters themselves refuse a submit they were not granted
+(`tests/test_permissions.py`).
 
 ### 6.7 CAPTCHA and MFA restrictions
 
@@ -276,7 +299,10 @@ Each control below records:
 - Verification/test:
   - challenge detection tests
   - fail-safe tests for MFA/CAPTCHA states
-- Status: planned
+- Status: implemented — `src/security/page_guards.py` detects the challenge markers on the
+page before any form interaction, and the flow stops with
+`status="blocked_human_review"`. The agent never attempts to solve a challenge
+(`tests/test_page_guards.py`, `tests/test_evidence.py`).
 
 ### 6.8 File upload security
 
@@ -294,7 +320,10 @@ Each control below records:
   - blocked file-type tests
   - oversize file tests
   - malicious PDF/office file simulators
-- Status: planned
+- Status: implemented for type, size and real-file structure — `src/api/validation.py`
+accepts only `.docx`/`.txt`/`.md` up to 5 MB, requires a real ZIP that `python-docx` can
+open, requires UTF-8 for text, and stores the file under a generated name.
+**Malware scanning is still not implemented** (`tests/test_upload_validation.py`).
 
 ### 6.9 SSRF and network risks
 
@@ -311,7 +340,9 @@ Each control below records:
 - Verification/test:
   - SSRF blocklist tests
   - internal IP and localhost attempt tests
-- Status: planned
+- Status: implemented — the job-source HTTP client resolves every address of a hostname and
+refuses private, loopback, link-local and metadata targets, and the browser layer blocks
+the same hosts by literal (`tests/test_http_client.py`, `tests/test_allowlist.py`).
 
 ### 6.10 Resume privacy and PII handling
 
@@ -329,7 +360,10 @@ Each control below records:
 - Verification/test:
   - redaction tests for email, phone, and address fields
   - retention tests
-- Status: planned
+- Status: partially implemented — personal data is masked in the audit trail and in every log
+record, and the approval summary lists the prepared field *names* rather than the
+candidate's values. The stored resume itself is still in cleartext and the retention
+policy is SEC-15.
 
 ### 6.11 Logging and audit trails
 
@@ -348,7 +382,9 @@ Each control below records:
   - audit log generation tests
   - secret redaction tests
   - event ordering tests
-- Status: partly implemented in dev-time MCP hooks; not yet complete for runtime application events
+- Status: implemented — `src/security/audit.py` writes an append-only `audit_events` row for
+every resume upload, job search, match, prepare, approve, reject, submit and verify, and
+for every guard trip. There is no update or delete path (`tests/test_audit.py`).
 
 ### 6.12 Human approval and submission authorization
 
@@ -365,7 +401,11 @@ Each control below records:
 - Verification/test:
   - approval gate tests
   - blocked auto-submit tests
-- Status: planned
+- Status: implemented — the flow is two-phase. `POST /api/applications/prepare` records an
+approval request; only `POST /api/applications/{id}/approve` executes, and it records the
+approver, the reason and the time. The default policy is `REQUIRE_APPROVAL`, the
+in-graph approval node fails closed, and `AUTO_SUBMIT` is defined but unreachable
+(`tests/test_approval_flow.py`, `tests/test_submit_api.py`).
 
 ### 6.13 Failure handling and unsafe-fallback behavior
 
@@ -381,7 +421,10 @@ Each control below records:
   - planned workflow orchestration and browser automation guardrails
 - Verification/test:
   - failure-mode tests for navigation, selectors, and verification failures
-- Status: planned
+- Status: implemented for the application path — every guard produces a specific status
+(`permission_denied`, `unsafe_navigation`, `blocked_human_review`, `evidence_incomplete`,
+`verification_failed`) instead of a generic failure, and the reason survives to the end of
+the workflow (`tests/test_evidence.py::TestFailureStatusPreservation`).
 
 ### 6.14 Secret management
 
@@ -529,26 +572,27 @@ Status: planned
 
 - developer-time Cursor guardrails
 - environment-variable config pattern
-- basic logging configuration
+- basic logging configuration (with PII masking)
 - Playwright MCP development-time integration
 - audit hook scripts for MCP operations and Python formatting
+- browser runtime domain allowlist and internal-host blocking
+- adapter permission model (prepare / submit / verify)
+- two-phase human approval gate with a persisted decision
+- submission verification with screenshot, trace and an evidence check
+- resume file validation and PII masking in logs and audit rows
+- SSRF protections and prompt-injection filters in the runtime app logic
+- append-only runtime audit events
 
 ### Planned
 
-- browser runtime domain allowlist
-- secure browser session handling
-- MCP least-privilege model
-- human approval gate
-- submission verification flow
-- resume file validation and PII controls
+- secure browser session handling beyond one context per submission
+- malware scanning of uploads
 - retention and purge policy
-- SSRF and prompt-injection defenses in runtime app logic
+- production secret vault integration
 
 ### Not yet implemented
 
-- browser submission workflow itself
-- production secret vault integration
-- structured runtime event system with audit records
+- browser submission workflow for a real ATS (the fake ATS only)
 - end-to-end verification and replay capability
 - final security hardening, environment policy enforcement, and production deployment protections
 
@@ -569,3 +613,36 @@ Before any live autonomous submission is enabled, the following security precond
 - `SSRF` and internal-host blocking enforced for all fetches and form actions.
 
 Additions to the control register must include the implementation location (file path), allow/block list values, and associated tests. This ensures that the autonomous submission capability is gated by verifiable, tested security controls.
+
+### 14.1 Precondition status (WS-06, 2026-10-21)
+
+| Precondition | Status | Where | Verified by |
+|---|---|---|---|
+| Domain allowlist | **Met** | `src/security/allowlist.py`; enforced in `src/api/routes/applications.py` and `src/applications/fake_ats_adapter.py` | `tests/test_allowlist.py`, live run of `scripts/verify_ws06.py` |
+| Permission registry (read / prepare / submit / verify) | **Met** | `src/security/permissions.py`, `src/security/registry_setup.py` | `tests/test_permissions.py` |
+| Evidence capture + append-only persistence | **Met** | `src/applications/evidence.py`, `src/applications/fake_ats_adapter.py`, `src/db/audit.py` | `tests/test_evidence.py`, `tests/test_audit.py` |
+| Human approval default (`REQUIRE_APPROVAL`) | **Met** | `src/security/policy.py`, `src/db/approval.py`, `src/api/routes/applications.py` | `tests/test_approval_flow.py`, `tests/test_submit_api.py`, `tests/test_policy.py` |
+| CAPTCHA/MFA detection and stop | **Met** | `src/security/page_guards.py` | `tests/test_page_guards.py`, live run |
+| File upload validation | **Met** (type, size, real-file check; **malware scanning is not implemented**) | `src/api/validation.py` | `tests/test_upload_validation.py` |
+| SSRF and internal-host blocking | **Met** | `src/jobs/http_client.py`, `src/security/allowlist.py` | `tests/test_http_client.py`, `tests/test_allowlist.py` |
+
+**Allow list (browser navigation and application targets).** Configured by `ALLOWED_DOMAINS`; the
+default is `greenhouse.io, lever.co, workday.com, ashbyhq.com, smartrecruiters.com, icims.com`.
+Matching is **exact**: a host is allowed when it is the domain or a sub-domain of it
+(`host == domain` or `host.endswith("." + domain)`), so `evil-greenhouse.io.attacker.com` is
+refused. A local host is admitted **only** when `APP_ENV=development`, and only for the local
+fake ATS.
+
+**Block list.** Loopback (`localhost`, `127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`,
+`fe80::/10`), RFC 1918 private ranges, CGNAT (`100.64.0.0/10`), and the cloud metadata
+endpoints (`169.254.169.254`, `169.254.170.2`, `100.100.100.200`, `metadata.google.internal`).
+
+**Remaining gaps (explicitly not covered by WS-06).** Malware scanning of uploaded files
+(the validator checks type, size and real-file structure only), data retention and purge
+(SEC-15), browser session isolation beyond one context per submission (SEC-07), and PII
+minimisation inside stored resumes (SEC-12).
+
+**Live verification.** `scripts/verify_ws06.py` runs the whole flow against a real HTTP server
+and a real Chromium browser: 12/12 checks passed on 2026-10-21 (allowlist refusal, prepare →
+approve → submit → verify with three evidence artifacts on disk, the removed single-call
+submit route, the CAPTCHA stop, the permission denial, and the audit trail).
