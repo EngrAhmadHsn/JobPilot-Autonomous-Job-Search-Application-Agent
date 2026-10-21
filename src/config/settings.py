@@ -39,6 +39,33 @@ class Settings:
         self.llm_model = os.getenv("LLM_MODEL", "")
         self.llm_base_url = os.getenv("LLM_BASE_URL", "") or None
         self.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+        # LLM resilience (WS-10). Three knobs decide how a provider failure is
+        # absorbed: how long one call may take, how many calls per minute are
+        # allowed, and how many times a retryable failure is retried.
+        # LLM_MAX_RETRIES counts the retries AFTER the first attempt, so the
+        # default of 2 means three attempts in total.
+        self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "60"))
+        self.llm_max_rpm = int(os.getenv("LLM_MAX_RPM", "10"))
+        self.llm_max_retries = int(os.getenv("LLM_MAX_RETRIES", "2"))
+        # A timeout of zero would hang a call forever instead of bounding it,
+        # and an RPM of zero would mean "never call the provider". Both are
+        # typos, not intentions, so they fail loudly at startup rather than
+        # silently at the first call.
+        if self.llm_timeout <= 0:
+            raise RuntimeError(
+                f"LLM_TIMEOUT must be a positive number of seconds, got "
+                f"{self.llm_timeout!r}. Refusing to start."
+            )
+        if self.llm_max_rpm < 1:
+            raise RuntimeError(
+                f"LLM_MAX_RPM must be at least 1 call per minute, got "
+                f"{self.llm_max_rpm!r}. Refusing to start."
+            )
+        if self.llm_max_retries < 0:
+            raise RuntimeError(
+                f"LLM_MAX_RETRIES must be 0 or more, got {self.llm_max_retries!r}. "
+                "Refusing to start."
+            )
 
         # LangSmith tracing for LangGraph runs (optional)
         self.llm_tracing = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
