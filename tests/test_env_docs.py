@@ -125,6 +125,13 @@ SETTINGS_VAR_TO_ATTR = {
     "AUTH_REQUIRE_VERIFIED": "auth_require_verified",
     "AUTH_CLAIM_LEGACY": "auth_claim_legacy",
     "AUTH_TOKEN_MAILBOX_DIR": "auth_token_mailbox_dir",
+    # WS-14 · Phase D: the retention windows.
+    "RETENTION_PROFILE_DAYS": "retention_profile_days",
+    "RETENTION_TAILORED_DAYS": "retention_tailored_days",
+    "RETENTION_APPLICATION_DAYS": "retention_application_days",
+    "RETENTION_EVIDENCE_DAYS": "retention_evidence_days",
+    "RETENTION_SESSION_DAYS": "retention_session_days",
+    "RETENTION_DELETION_GRACE_DAYS": "retention_deletion_grace_days",
 }
 
 # The same, for the WS-12 runtime limits.

@@ -466,6 +466,17 @@ class TestLookup:
         assert find_application(db_session) is None
 
 
+#: The modules that may delete an event row, and why.
+#:
+#: The retention purge (WS-14 · Phase D) is the **one** thing that may
+#: remove history: an event that is past the retention window is
+#: removed, and the removal is audited. Every other module may only
+#: append — an audit trail that can be rewritten is not an audit trail.
+APPEND_ONLY_EXCEPTIONS = {
+    "retention.py": "the retention purge, which is audited",
+}
+
+
 class TestEventLogIsAppendOnly:
     """No code path may rewrite the history."""
 
@@ -495,9 +506,26 @@ class TestEventLogIsAppendOnly:
     def test_no_module_updates_or_deletes_an_event(self):
         findings: list[str] = []
         for path in sorted(SRC_ROOT.rglob("*.py")):
+            if path.name in APPEND_ONLY_EXCEPTIONS:
+                continue
             findings.extend(self._mutation_findings(path))
 
         assert findings == [], f"the event log must be append-only: {findings}"
+
+    def test_the_only_exception_is_the_retention_purge(self):
+        """The exception is named, and it is the one that was intended.
+
+        A silent exception is an exception that grows: the next module
+        that wants to rewrite the history would add itself to the list
+        and nobody would notice. So the list is checked here — the
+        exception exists, it is the one that was designed, and the
+        module it names is still there.
+        """
+        assert set(APPEND_ONLY_EXCEPTIONS) == {"retention.py"}
+        for name in APPEND_ONLY_EXCEPTIONS:
+            assert (SRC_ROOT / "retention.py").is_file(), (
+                f"the append-only exception names {name}, which no longer exists"
+            )
 
     def test_the_tracking_module_offers_no_update_or_delete(self):
         source = (SRC_ROOT / "applications" / "tracking.py").read_text(encoding="utf-8")

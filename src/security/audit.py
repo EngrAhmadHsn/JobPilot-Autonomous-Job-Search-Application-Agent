@@ -54,6 +54,9 @@ ACTION_LLM_USAGE = "llm.usage"
 # The action is always ``auth``; the *event* is in the metadata, so the
 # trail can be queried by kind without a combinatorial action vocabulary.
 ACTION_AUTH = "auth"
+# WS-14 · Phase D: the retention purge and the account deletion. One row
+# per purge, holding the counts of what was removed — never what it was.
+ACTION_RETENTION = "retention"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"

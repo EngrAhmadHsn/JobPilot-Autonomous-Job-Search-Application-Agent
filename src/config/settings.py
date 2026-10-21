@@ -193,6 +193,24 @@ class Settings:
         self.auth_token_mailbox_dir = os.getenv("AUTH_TOKEN_MAILBOX_DIR", "") or str(
             Path(self.data_dir) / "outbound"
         )
+        # -- Retention (WS-14 · Phase D) ---------------------------------
+        #
+        # How long each kind of data is kept. The windows differ because
+        # the data does: a tailored resume is a document the candidate
+        # will reuse, an application is a record of an interaction with
+        # an employer, and a session is a credential that should stop
+        # working quickly.
+        self.retention_profile_days = int(os.getenv("RETENTION_PROFILE_DAYS", "365"))
+        self.retention_tailored_days = int(os.getenv("RETENTION_TAILORED_DAYS", "180"))
+        self.retention_application_days = int(os.getenv("RETENTION_APPLICATION_DAYS", "730"))
+        self.retention_evidence_days = int(os.getenv("RETENTION_EVIDENCE_DAYS", "180"))
+        self.retention_session_days = int(os.getenv("RETENTION_SESSION_DAYS", "30"))
+        # The grace period between a deletion request and the
+        # irreversible purge.
+        self.retention_deletion_grace_days = int(
+            os.getenv("RETENTION_DELETION_GRACE_DAYS", "30")
+        )
+
         # Whether the first registered account may claim the rows that
         # pre-date the identity work (the ``legacy`` owner). On by default:
         # that is how an operator's existing corpus reaches the operator's
