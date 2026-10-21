@@ -72,6 +72,12 @@ class RecordingAdapter(ApplicationAdapter):
         )
 
 
+class DeniedAdapter(RecordingAdapter):
+    """An adapter the registry holds no submit capability for."""
+
+    name = "greenhouse"
+
+
 @pytest.fixture
 def db_session(tmp_path: Path) -> Session:
     engine = create_engine(f"sqlite:///{(tmp_path / 'approval.db').as_posix()}")
@@ -154,6 +160,25 @@ class TestApprovedExecution:
         assert adapter.submitted.prepared_fields == prepared.prepared_fields
         # And the payload was not rebuilt behind the approver's back.
         assert adapter.prepare_calls == 1
+
+    def test_a_denied_adapter_never_reaches_submit(self, sample_request, db_session):
+        adapter = DeniedAdapter()
+        prepared = prepare_application(sample_request, adapter, workflow_id="wf-2")
+        row = build_approval_row(workflow_id="wf-2", adapter_name=adapter.name, prepared=prepared)
+        db_session.add(row)
+        db_session.commit()
+
+        result = execute_approved(
+            PreparedApplication.model_validate(row.payload),
+            adapter,
+            workflow_id="wf-2",
+            approval_id=row.id,
+            approver="operator",
+        )
+
+        assert result.success is False
+        assert result.status == "permission_denied"
+        assert adapter.submitted is None
 
     def test_the_result_is_stored_on_the_record(self, sample_request, db_session):
         adapter = RecordingAdapter()

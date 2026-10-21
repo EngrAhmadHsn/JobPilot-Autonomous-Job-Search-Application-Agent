@@ -9,7 +9,6 @@ from src.applications.contracts import (
     ApplicationRequest,
     ApplicationResult,
     PreparedApplication,
-    SubmissionEvidence,
 )
 from src.security.allowlist import host_matches_domain
 
@@ -43,17 +42,13 @@ class LeverAdapter(ApplicationAdapter):
         )
 
     def submit(self, prepared: PreparedApplication) -> ApplicationResult:
-        # Placeholder: real implementation would POST to the board endpoint
-        logger.info("Lever submit called (placeholder)")
-        return ApplicationResult(
-            success=True,
-            status="submitted",
-            message="Lever submission placeholder",
-            evidence=SubmissionEvidence(
-                url=prepared.request.job_url,
-                status="submitted",
-            ),
-        )
+        # WS-06 · SEC-08 / plan §35: a real Lever submission is not
+        # implemented. The old placeholder returned an unconditional success,
+        # which was a false claim of an application that never happened. It now
+        # fails loudly; the permission registry refuses the call before it
+        # arrives.
+        logger.warning("Lever submit refused: submit capability not granted")
+        raise PermissionError("submit capability not granted for this adapter")
 
     def verify(self, result: ApplicationResult) -> ApplicationResult:
         return ApplicationResult(

@@ -120,7 +120,23 @@ def _rejection_node(state: ApplicationWorkflowState) -> ApplicationWorkflowState
 
     # Always set final_result to ensure consistent output
     if state.final_result is None:
-        if state.approval_status is False:
+        status = "rejected"
+        evidence = None
+        reason = ""
+
+        if state.submission_result is not None and not state.submission_result.success:
+            # The submission already carries the specific reason (permission
+            # denied, unsafe navigation, blocked challenge, missing
+            # evidence). Keep it instead of flattening every failure into
+            # "rejected".
+            status = state.submission_result.status
+            reason = state.submission_result.message
+            evidence = state.submission_result.evidence
+            logger.info(
+                f"[{state.workflow_id}] Submission ended with status {status}",
+                extra={"workflow_id": state.workflow_id, "status": status},
+            )
+        elif state.approval_status is False:
             reason = "Application was rejected at approval gate"
             logger.info(
                 f"[{state.workflow_id}] Application rejected at approval gate",
@@ -139,10 +155,14 @@ def _rejection_node(state: ApplicationWorkflowState) -> ApplicationWorkflowState
                 extra={"workflow_id": state.workflow_id},
             )
 
+        if not reason:
+            reason = "Application was not approved"
+
         state.final_result = ApplicationResult(
             success=False,
-            status="rejected",
+            status=status,
             message=reason,
+            evidence=evidence,
             metadata={"workflow_id": state.workflow_id, "adapter": state.adapter_name},
         )
 

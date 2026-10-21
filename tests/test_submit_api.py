@@ -66,6 +66,12 @@ class StubAdapter(ApplicationAdapter):
         )
 
 
+class DeniedAdapter(StubAdapter):
+    """An adapter the registry holds no submit capability for."""
+
+    name = "greenhouse"
+
+
 @pytest.fixture
 def session_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """An isolated database for the approval records and the audit trail."""
@@ -233,6 +239,23 @@ class TestApproveEndpoint:
         )
 
         assert response.status_code == 404
+
+    def test_an_adapter_without_submit_permission_is_denied(
+        self, client, session_factory, monkeypatch
+    ) -> None:
+        denied = DeniedAdapter()
+        monkeypatch.setattr(applications_route, "AVAILABLE_ADAPTERS", [denied])
+
+        prepared = client.post("/api/applications/prepare", json=_payload()).json()
+        response = client.post(
+            f"/api/applications/{prepared['approval_id']}/approve", json={"approver": "operator"}
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["success"] is False
+        assert body["status"] == "permission_denied"
+        assert denied.submitted is None
 
 
 class TestRejectEndpoint:

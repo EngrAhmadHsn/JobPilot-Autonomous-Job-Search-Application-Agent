@@ -89,3 +89,174 @@ class TestCapabilityMatrix:
         registry.register("x", [CapabilityLevel.PREPARE])
         assert registry.can_submit("x") is False
         assert registry.can_prepare("x") is True
+
+
+class TestSubmitNodeEnforcement:
+    """The submit node refuses an adapter without the submit capability."""
+
+    def test_unregistered_adapter_is_denied_without_raising(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        adapter = _adapter("rogue-adapter")
+        state = ApplicationWorkflowState(
+            request=sample_request,
+            workflow_id="wf-1",
+            adapter_name="rogue-adapter",
+            prepared_application=PreparedApplication(request=sample_request),
+        )
+
+        result_state = submit_node(state, adapter)
+
+        assert result_state.submission_result is not None
+        assert result_state.submission_result.success is False
+        assert result_state.submission_result.status == "permission_denied"
+        # The adapter was never called.
+        adapter.submit.assert_not_called()
+
+    def test_adapter_without_submit_capability_is_denied(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        adapter = _adapter("greenhouse")
+        state = ApplicationWorkflowState(
+            request=sample_request,
+            workflow_id="wf-2",
+            adapter_name="greenhouse",
+            prepared_application=PreparedApplication(request=sample_request),
+        )
+
+        result_state = submit_node(state, adapter)
+
+        assert result_state.submission_result.status == "permission_denied"
+        assert result_state.error is not None
+        adapter.submit.assert_not_called()
+
+    def test_permitted_adapter_still_submits(self, sample_request: ApplicationRequest) -> None:
+        adapter = _adapter("fake-ats-playwright")
+        expected = ApplicationResult(success=True, status="submitted", message="ok")
+        adapter.submit.return_value = expected
+        state = ApplicationWorkflowState(
+            request=sample_request,
+            workflow_id="wf-3",
+            adapter_name="fake-ats-playwright",
+            prepared_application=PreparedApplication(request=sample_request),
+        )
+
+        result_state = submit_node(state, adapter)
+
+        assert result_state.submission_result is expected
+        assert result_state.error is None
+        adapter.submit.assert_called_once()
+
+
+class TestVerifyNodeEnforcement:
+    """The verify capability is granted separately from submit."""
+
+    def test_verify_is_denied_for_an_adapter_without_the_capability(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        adapter = _adapter("greenhouse")
+        state = ApplicationWorkflowState(
+            request=sample_request,
+            workflow_id="wf-4",
+            adapter_name="greenhouse",
+            submission_result=ApplicationResult(success=True, status="submitted", message="ok"),
+        )
+
+        result_state = verify_node(state, adapter)
+
+        assert result_state.final_result is not None
+        assert result_state.final_result.status == "permission_denied"
+        assert result_state.final_result.success is False
+        adapter.verify.assert_not_called()
+
+
+class TestNoPlaceholderSuccess:
+    """The false-claim placeholders are gone (plan §35)."""
+
+    def test_greenhouse_submit_raises_instead_of_claiming_success(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        adapter = GreenhouseAdapter()
+        prepared = adapter.prepare(sample_request)
+
+        with pytest.raises(PermissionError):
+            adapter.submit(prepared)
+
+    def test_lever_submit_raises_instead_of_claiming_success(
+        self, sample_request: ApplicationRequest
+    ) -> None:
+        adapter = LeverAdapter()
+        prepared = adapter.prepare(sample_request)
+
+        with pytest.raises(PermissionError):
+            adapter.submit(prepared)
+
+    def test_no_adapter_submit_returns_a_hard_coded_success(self) -> None:
+        """No adapter's ``submit()`` may return a literal unconditional success.
+
+        Checked on the parsed AST rather than with a text grep: the property
+        that matters is "a ``submit()`` never returns ``success=True``", not
+        "the string does not appear somewhere in the file".
+        """
+        import ast
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[1] / "src" / "applications"
+        offenders: list[str] = []
+        for path in sorted(package.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                for item in node.body:
+                    if not isinstance(item, ast.FunctionDef) or item.name != "submit":
+                        continue
+                    for inner in ast.walk(item):
+                        if not isinstance(inner, ast.Return) or inner.value is None:
+                            continue
+                        for call in ast.walk(inner.value):
+                            if not (
+                                isinstance(call, ast.Call)
+                                and isinstance(call.func, ast.Name)
+                                and call.func.id == "ApplicationResult"
+                            ):
+                                continue
+                            if any(
+                                kw.arg == "success"
+                                and isinstance(kw.value, ast.Constant)
+                                and kw.value.value is True
+                                for kw in call.keywords
+                            ):
+                                offenders.append(f"{path.name}:{node.name}.submit")
+        assert offenders == []
+
+    def test_the_documented_grep_finds_no_placeholder_success(self) -> None:
+        """``grep -rn "success=True" src/applications/`` must be empty."""
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[1] / "src" / "applications"
+        offenders = [
+            path.name
+            for path in package.glob("*.py")
+            if "success=True" in path.read_text(encoding="utf-8")
+        ]
+        assert offenders == []
+
+    def test_fake_ats_only_reports_success_when_the_page_confirms(self) -> None:
+        """A confirmation page without the expected text is not a success."""
+        from src.applications.contracts import SubmissionEvidence
+        from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
+
+        adapter = FakeAtsPlaywrightAdapter()
+        result = adapter.verify(
+            ApplicationResult(
+                success=True,
+                status="submitted",
+                message="submitted",
+                evidence=SubmissionEvidence(
+                    url="http://localhost/x", confirmation_text="Nothing here", status="submitted"
+                ),
+            )
+        )
+        assert result.success is False
+        assert result.status == "verification_failed"

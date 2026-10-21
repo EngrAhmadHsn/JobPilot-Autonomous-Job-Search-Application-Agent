@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from src.applications.contracts import ApplicationResult
 from src.applications.evidence import missing_evidence_files
+from src.security.registry_setup import get_registry
 
 if TYPE_CHECKING:
     from src.applications.contracts import ApplicationAdapter
@@ -133,6 +134,25 @@ def submit_node(
     if state.prepared_application is None:
         raise ValueError("Submit node requires a prepared application")
 
+    # WS-06 · SEC-08: least privilege is enforced *before* the adapter is
+    # called. An adapter without the submit capability is refused, and the
+    # refusal is a result (never an exception escaping the node).
+    if not get_registry().can_submit(adapter.name):
+        message = f"Adapter {adapter.name!r} is not permitted to submit applications"
+        logger.warning(
+            f"[{state.workflow_id}] Permission denied for adapter {adapter.name}",
+            extra={"workflow_id": state.workflow_id, "adapter": adapter.name},
+        )
+        state.submission_result = ApplicationResult(
+            success=False,
+            status="permission_denied",
+            message=message,
+            metadata={"workflow_id": state.workflow_id, "adapter": adapter.name},
+        )
+        state.error = message
+        state.error_details = {"exception": "PermissionError", "message": message}
+        return state
+
     try:
         logger.info(
             f"[{state.workflow_id}] Submitting application...",
@@ -208,6 +228,23 @@ def verify_node(
     """
     if state.submission_result is None:
         raise ValueError("Verify node requires a submission result")
+
+    # WS-06 · SEC-08: the verify capability is granted separately from submit.
+    if not get_registry().can_verify(adapter.name):
+        message = f"Adapter {adapter.name!r} is not permitted to verify applications"
+        logger.warning(
+            f"[{state.workflow_id}] Permission denied for adapter {adapter.name}",
+            extra={"workflow_id": state.workflow_id, "adapter": adapter.name},
+        )
+        state.final_result = ApplicationResult(
+            success=False,
+            status="permission_denied",
+            message=message,
+            metadata={"workflow_id": state.workflow_id, "adapter": adapter.name},
+        )
+        state.error = message
+        state.error_details = {"exception": "PermissionError", "message": message}
+        return state
 
     try:
         logger.info(
