@@ -34,25 +34,30 @@ This document intentionally distinguishes between:
 
 ## 2. Current implementation status
 
-### Implemented today
+_Reconciled 2026-10-21 (WS-11). This section used to describe the 2026-10-11 state — a minimal
+FastAPI app and the Cursor configuration — while §5 and §12 in this same file described the
+present. The document contradicted itself; the present is below._
 
-- `.cursor/mcp.json` includes a Playwright MCP configuration for development-time browser inspection.
-- `.cursor/hooks.json` exists and runs Python formatting and MCP auditing scripts.
-- `.cursor/rules/project.mdc` contains project-level security and architecture guardrails.
-- `src/config/settings.py` reads environment variables using `python-dotenv`.
-- `src/main.py` exposes a minimal FastAPI application and a health endpoint.
-- Basic logging is configured via `src/core/logging.py`.
-- `README.md` and `.env.example` describe environment configuration patterns.
+### Implemented
 
-### Implemented since 2026-10-11 (WS-06)
+**The runtime surface (WS-01 … WS-05, WS-10).**
+
+- `src/config/settings.py` reads the environment with `python-dotenv` and fails loudly on an
+  invalid value instead of silently falling back to a permissive default.
+- `src/main.py` exposes the REST API, the middleware stack and the lifespan.
+- `src/core/logging.py` configures logging with PII masking.
+- `src/security/limits.py` holds every bound on how much work an untrusted caller can cause.
+
+**The security controls (WS-06, WS-12).**
 
 - production domain allowlist for navigation and fetch, enforced in runtime code
-  (`src/security/allowlist.py`)
+  (`src/security/allowlist.py`) — exact host matching, blocked internal hosts
 - least-privilege permission model for the application adapters
   (`src/security/permissions.py`, `src/security/registry_setup.py`)
 - two-phase application approval workflow with a persisted approver identity
   (`src/security/policy.py`, `src/db/approval.py`)
-- file upload validation for resumes (`src/api/validation.py`)
+- file upload validation for resumes (`src/api/validation.py`) — type, size, real-file check
+  and the zip-bomb guard
 - append-only audit logging for resume upload, job search, match, and the whole application
   flow (`src/security/audit.py`, `src/db/audit.py`)
 - submission verification with screenshot, navigation trace and an evidence-existence check
@@ -60,18 +65,43 @@ This document intentionally distinguishes between:
 - CAPTCHA/MFA detection that stops the flow (`src/security/page_guards.py`)
 - PII masking in logs and audit rows (`src/security/redaction.py`, `src/core/logging.py`)
 - SSRF protections for the job-source layer and internal-host blocking for navigation
+  (`src/jobs/http_client.py`)
+- the API abuse controls of WS-12: a per-client rate limit, a request-body cap, a concurrency
+  gate on the expensive endpoints, and the interactive docs disabled outside development
+- the corpus and embedding bounds of WS-12: the fake-job screen, the admission control, the
+  bounded embedding cache and the paged corpus scan
+- the stored-payload neutralization of WS-12: board HTML is neutralized at the contract, and
+  every response carries the hardening headers
+- the prompt-confusion controls of WS-12: a nonce-fenced untrusted block, the injection strip
+  on every bullet, the exact job-title check, and PII minimisation before the prompt
+- the traversal controls of WS-12: path containment for request-supplied files, the zip-bomb
+  guard, and the type-safe board-payload accessor
+
+**The browser session (WS-08).**
+
+- browser session isolation: every run gets an explicit, fresh browser **and** context, so no
+  cookie or storage survives it (`src/applications/fake_ats_adapter.py`,
+  `src/applications/form.py`; proven by `tests/test_isolation.py`)
+
+**The development-time tooling.**
+
+- `.cursor/mcp.json` includes a Playwright MCP configuration for development-time browser
+  inspection.
+- `.cursor/hooks.json` exists and runs Python formatting and MCP auditing scripts.
+- `.cursor/rules/project.mdc` contains project-level security and architecture guardrails.
 
 ### Planned for implementation
 
 - runtime secret management with a secret scanning policy
-- browser session isolation beyond one context per submission
 - malware scanning of uploaded resumes and job pages
 - retention and deletion policy for resumes and PII
+- authentication on the API itself — the rate limit bounds abuse; it does not identify a
+  caller, and the API remains a single-operator surface
 
 ### Not yet implemented
 
 - browser automation runtime for a real (non-fake) ATS
-- secure browser session management
+- end-to-end verification and replay capability for a real ATS
 - data retention policy enforcement
 - resume redaction and PII minimization inside the stored documents
 - production secret management (vault or encrypted secrets store)
@@ -156,6 +186,8 @@ Each control below records:
 | SEC-19 | Stored-payload neutralization (XSS) | a board returning HTML that is stored, served, and rendered | `src/security/html.py` (the neutralizer — dangerous elements removed with their content, then every tag, then the entities), applied at the contract in `src/jobs/contracts.py` so no adapter can forget it; `src/api/middleware.py` (`nosniff` and the other response headers) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestHtmlNeutralization`, `::TestListingNeutralization`, `::TestSecurityHeaders` |
 | SEC-20 | Prompt boundary and factuality gaps | a listing impersonating the prompt's scaffolding; an injected sentence reaching the deliverable; an invented job title | `src/security/injection.py` (the nonce-fenced untrusted block and the rules that explain it), `src/research/engine.py` and `src/resume/tailor.py` (the fence, the prompt cap, the PII minimisation, the injection strip on **every** bullet including project bullets, the exact job-title check) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPromptFencing`, `::TestTailoringInjectionControls`, `::TestResearchPrompt` |
 | SEC-21 | Path containment and malformed input | a request pointing the browser at a file outside the application's directories (the browser uploads it to a third party); a zip bomb; a malformed board payload | `src/security/paths.py` (the containment check, on the *resolved* path), enforced at the API boundary in `src/api/routes/applications.py`; `src/api/validation.py` (the zip-bomb guard); `src/jobs/normalize.py::job_records` (the type-safe payload accessor) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPathContainment`, `::TestZipBombGuard`, `::TestMalformedPayloads` |
+| SEC-22 | Tenant data isolation | one user reading another's data by changing an id (IDOR); a foreign resource acting as an existence oracle; a cross-user audit or evidence read | `src/db/users.py` (the principal), `owner_id` on every user-scoped table (`NOT NULL`, indexed), `src/db/access.py` (the scoped accessors — the only way a route may reach a user-scoped row), `src/api/scope.py` (the one dependency every route takes its scope from) | **Spine landed (WS-13 · A0, 2026-10-21); the identity that keys it is not yet in place** — the routes act as the legacy owner until WS-13 A2, so the mechanism is present and tested while the behaviour is still single-tenant | `tests/test_tenant_isolation.py` (17 tests: the two-user matrix, the "not yours" ≡ "does not exist" check, and a grep that fails if a route ever queries a user-scoped table directly — it found five such bypasses when written) |
+| SEC-23 | Authentication and account lifecycle | an unauthenticated caller reaching a protected endpoint; an unverified identity; an unrevocable session | planned — WS-13 A1 (`fastapi-users`: registration, login, logout, argon2 password hashing, cookie **and** bearer transports, CSRF) and A3 (password change, session revocation, account deletion) | **Planned** — the API is currently open, and the rate limit bounds abuse without identifying the caller | — |
 
 ## 6. Threat-by-threat controls
 
@@ -608,9 +640,11 @@ Status: planned
 - malware scanning of uploads
 - retention and purge policy
 - production secret vault integration
-- authentication on the API itself (the rate limit bounds abuse; it does
-  not identify a caller — the API remains a single-operator surface and
-  says so)
+- authentication on the API itself (SEC-23 / WS-13 A1) — the rate limit
+  bounds abuse; it does not identify a caller. The **tenant isolation
+  mechanism** (SEC-22) has landed and is tested, but the identity that
+  keys it does not exist yet, so the API is still effectively a
+  single-operator surface and says so.
 
 ### Not yet implemented
 

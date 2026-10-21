@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01…10 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline, extended 2026-10-21 with the system/browser/§7 metric families and an honest `--live` mode — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks) — WS-10 on 2026-10-21: LLM client hardening, live-verified (14/14 checks)); next: WS-11 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…12 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline, extended 2026-10-21 with the system/browser/§7 metric families and an honest `--live` mode — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks) — WS-10 on 2026-10-21: LLM client hardening, live-verified (14/14 checks) — WS-12 on 2026-10-21: runtime attack-surface hardening, live-verified — WS-11 on 2026-10-21: the docs, the env file and the ops surface, reconciled and live-verified (29/29 checks)); next: the M5 live pilot · Owner: project · Created: 2026-10-11 · **WS-13 started 2026-10-21: the React operator console (in `/frontend`), spec in [13-frontend.md](13-frontend.md)**
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -12,20 +12,22 @@ New dependencies**.
 
 ## Document index
 
-| Doc | Workstream | Plan phase | Milestone |
-|---|---|---|---|
-| [01-data-foundation.md](01-data-foundation.md) | Alembic migrations, CORS, settings, DB models | Phase 1 (finish) | M1 |
-| [02-job-discovery.md](02-job-discovery.md) | Greenhouse / Lever / Remotive adapters, search planner, persistence | Phase 3–4 | M1 |
-| [03-matching-engine.md](03-matching-engine.md) | Real Chroma store, gemini-embedding-2, real scorers | Phase 5 + §18 | M1 |
-| [04-pipeline-and-api.md](04-pipeline-and-api.md) | Job workflow rewrite, resume/search/match REST API | Phase 6 + §30 | M1 |
-| [05-tailoring-and-research.md](05-tailoring-and-research.md) | ATS analyzer, DOCX rendering, research engine | Phase 7–8 | M2 |
-| [06-security-preconditions.md](06-security-preconditions.md) | SECURITY.md §14 gates: allowlist, approval flow, evidence, audit | Phase 2 security + §28 | M3 |
-| [07-application-tracking.md](07-application-tracking.md) | Application lifecycle tables, transitions, tracking API | Phase 12 | M3 |
-| [08-browser-automation.md](08-browser-automation.md) | Fake-ATS variants, generic adapter hardening, unknown-question pause | Phase 9 | M4 |
-| [09-evaluation.md](09-evaluation.md) | Golden datasets, metrics (nDCG@k, factuality rate), eval runner | Phase 13 | M4 |
-| [10-llm-client-hardening.md](10-llm-client-hardening.md) | Retries/timeouts, temperature fix, usage logging, provider abstraction | Cross-cutting | M1/M3 |
-| [11-docs-and-ops.md](11-docs-and-ops.md) | README quickstart, `.env.example`, docs reconciliation, optional Dockerfile | §52 / portfolio | M5 |
-| [12-runtime-attack-surface-hardening.md](12-runtime-attack-surface-hardening.md) | Rate limiting, body caps, the embedding flood, XSS neutralization, the prompt fence, path containment | Cross-cutting | M3 |
+| Doc | Workstream | Plan phase | Milestone | Status |
+|---|---|---|---|---|
+| [01-data-foundation.md](01-data-foundation.md) | Alembic migrations, CORS, settings, DB models | Phase 1 (finish) | M1 | Done 2026-10-11 |
+| [02-job-discovery.md](02-job-discovery.md) | Greenhouse / Lever / Remotive adapters, search planner, persistence | Phase 3–4 | M1 | Done 2026-10-11 |
+| [03-matching-engine.md](03-matching-engine.md) | Real Chroma store, gemini-embedding-2, real scorers | Phase 5 + §18 | M1 | Done 2026-10-21 |
+| [04-pipeline-and-api.md](04-pipeline-and-api.md) | Job workflow rewrite, resume/search/match REST API | Phase 6 + §30 | M1 | Done 2026-10-11 (live) |
+| [05-tailoring-and-research.md](05-tailoring-and-research.md) | ATS analyzer, DOCX rendering, research engine | Phase 7–8 | M2 | Done 2026-10-21 (live) |
+| [06-security-preconditions.md](06-security-preconditions.md) | SECURITY.md §14 gates: allowlist, approval flow, evidence, audit | Phase 2 security + §28 | M3 | Done 2026-10-21 (live, 12/12) |
+| [07-application-tracking.md](07-application-tracking.md) | Application lifecycle tables, transitions, tracking API | Phase 12 | M3 | Done 2026-10-21 (live, 21/21) |
+| [08-browser-automation.md](08-browser-automation.md) | Fake-ATS variants, generic adapter hardening, unknown-question pause | Phase 9 | M4 | Done 2026-10-21 (live, 25/25) |
+| [09-evaluation.md](09-evaluation.md) | Golden datasets, metrics (nDCG@k, factuality rate), eval runner | Phase 13 | M4 | Done 2026-10-21 (live, 34/34) |
+| [10-llm-client-hardening.md](10-llm-client-hardening.md) | Retries/timeouts, temperature fix, usage logging, provider abstraction | Cross-cutting | M1/M3 | Done 2026-10-21 (live, 14/14) |
+| [11-docs-and-ops.md](11-docs-and-ops.md) | README quickstart, `.env.example`, docs reconciliation | §52 / portfolio | M5 | Done 2026-10-21 (live, 29/29) |
+| [12-runtime-attack-surface-hardening.md](12-runtime-attack-surface-hardening.md) | Rate limiting, body caps, the embedding flood, XSS neutralization, the prompt fence, path containment | Cross-cutting | M3 | Done 2026-10-21 (live) |
+| [13-frontend.md](13-frontend.md) | React operator console: resume, matches, tailor, approvals, tracker, operations | Plan §30 (lifted by WS-13) | M5 | In progress 2026-10-21 |
+| [14-appsec-hardening.md](14-appsec-hardening.md) | Multi-user security: authentication, **authorization**, per-user data isolation, audit identity, retention, CI, production posture | Cross-cutting | M3 → M5 | In progress — A0 (the ownership spine) done 2026-10-21 |
 
 ## Current state — feature gap table (audit of 2026-10-11)
 
@@ -56,7 +58,7 @@ New dependencies**.
 4. **Security preconditions in `docs/SECURITY.md` §14 gate any real submission.** Workstream 06 is a hard gate before M5.
 5. **APIs and HTTP before browser automation**; browser automation only as a controlled fallback.
 6. **Every external action auditable; every submission verified with evidence before success is claimed.**
-7. **No dependencies without clear justification** — this roadmap adds `chromadb`, `httpx` (explicit), `python-multipart` (FastAPI upload requirement), `fastembed` (the local embedding provider) and `pytest-xdist` (the test-runner plugin the per-commit gate uses). Everything else (retries, rate limiting, SSRF guards) is hand-rolled.
+7. **No dependencies without clear justification** — this roadmap adds `chromadb`, `httpx` (explicit), `python-multipart` (FastAPI upload requirement), `fastembed` (the local embedding provider), `pytest-xdist` and `pytest-asyncio` (the test-runner plugins the per-commit gate uses). Everything else (retries, rate limiting, SSRF guards) is hand-rolled.
 8. **Phase order respected** (`docs/PROJECT_PLAN.md` §41); the uncommitted modules (`src/graph/`, `src/jobs/`, `src/matching/`, …) are extended in place, never reverted.
 
 ## Milestone sequence
@@ -113,6 +115,8 @@ M5  Controlled live pilot + docs
     Single real Greenhouse posting, PREPARE_ONLY → REQUIRE_APPROVAL with a
     human in the loop; 11 README/docs reconciliation.
     AUTO_SUBMIT remains disabled and out of scope.
+    ✅ 11 README/docs reconciliation DONE 2026-10-21 (live-verified 29/29)
+    ⬜ The live pilot itself — the remaining M5 work
 ```
 
 ### Workstream dependency graph
@@ -138,6 +142,7 @@ M5  Controlled live pilot + docs
 | `python-multipart` | 04 | Required by FastAPI `UploadFile` for resume upload |
 | `fastembed>=0.9.0` | 04 (FU-7) | Local in-process embedding provider (EmbeddingGemma-2 int8 ONNX): removes the free-tier Gemini embedding quota entirely; adds only the wrapper plus ~300 MiB model weights (pattern-restricted download; onnxruntime + tokenizers already present via chromadb) |
 | `pytest-xdist>=3.8.0` | 07 | Test-runner plugin only — no runtime code. The suite runs in ~90 s serially and ~31 s with `-n 4`, and every commit in a workstream is gated on a green suite, so the gate is the cost centre. `pytest` and `ruff` are already project dependencies, so this follows the existing convention |
+| `pytest-asyncio>=1.4.0` | 11 | Test-runner plugin only — no runtime code. 53 tests are `async def` and carry `@pytest.mark.asyncio`; the plugin was present in the developer environment but **undeclared**, so a clean `pip install -e .` produced a suite with 68 failures. Found by the WS-11 clean-environment acceptance run, and declared here |
 
 Retries, backoff, rate limiting, SSRF guards, and audit sanitization are implemented by hand — no `tenacity`, no `slowapi`, per the no-unjustified-dependencies rule.
 
@@ -156,7 +161,11 @@ Retries, backoff, rate limiting, SSRF guards, and audit sanitization are impleme
 
 ## Explicitly out of scope
 
-- React/frontend (plan §30) — backend + agent system only.
+- ~~React/frontend (plan §30)~~ — **lifted by WS-13** (2026-10-21). A React
+  operator console now lives in `/frontend`, as its own package with its own
+  toolchain; the runtime backend in `src/` is unchanged and the console
+  consumes the existing API over HTTP. The scope, the API contract and the
+  acceptance criteria are in [13-frontend.md](13-frontend.md).
 - LinkedIn job retrieval (no public API; the placeholder adapter stays disabled).
 - CAPTCHA/MFA bypass of any kind (SEC-09) — flows stop with `blocked_human_review`.
 - `AUTO_SUBMIT` policy enablement — implemented as unreachable enum value until a future, separately-approved decision.
