@@ -289,6 +289,12 @@
       "skillPath": "skills/micro-interaction/SKILL.md",
       "computedHash": "5da171547f62f04a7c243607f276f8b4d1a8a449150ca5eb1c00aeb6cd15ece4"
     },
+    "mobile-android-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/ui-design/skills/mobile-android-design/SKILL.md",
+      "computedHash": "143a60d6a0744a5058adf984e3a64b75cd2ef3714a15557f4ff6fd95e39ff23a"
+    },
     "modern-web-design": {
       "source": "freshtechbro/claudedesignskills",
       "sourceType": "github",
