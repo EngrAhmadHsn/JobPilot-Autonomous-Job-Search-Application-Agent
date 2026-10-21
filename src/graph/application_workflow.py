@@ -163,12 +163,20 @@ def _rejection_node(state: ApplicationWorkflowState) -> ApplicationWorkflowState
         if not reason:
             reason = "Application was not approved"
 
+        # WS-08: the submission's own metadata travels with the result. The
+        # questions a form asked and could not be answered, the errors a
+        # server returned, the challenge that stopped the run — they are the
+        # reason a human is needed, and they must not be flattened away.
+        metadata: dict = {"workflow_id": state.workflow_id, "adapter": state.adapter_name}
+        if state.submission_result is not None:
+            metadata.update(state.submission_result.metadata)
+
         state.final_result = ApplicationResult(
             success=False,
             status=status,
             message=reason,
             evidence=evidence,
-            metadata={"workflow_id": state.workflow_id, "adapter": state.adapter_name},
+            metadata=metadata,
         )
 
     return state
