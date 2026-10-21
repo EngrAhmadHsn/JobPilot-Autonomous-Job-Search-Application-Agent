@@ -149,11 +149,27 @@ documented as the v2 path, not foreclosed.
 **Not hand-rolled JWT.** A hand-rolled token scheme is how subtle
 verification bugs get in.
 
-**The frontend today is a scaffold.** `frontend/` is a Vite/React shell
-with shadcn/ui components and **no API calls at all** — so there is no
-existing client to migrate, and a small typed API client is needed
-regardless. The auth transport decision is therefore not constrained by
-the current frontend.
+**The frontend is a real client.** The first draft of this document said
+`frontend/` had "no API calls at all", so the transport decision was
+unconstrained. **That was wrong**, and the correction matters: WS-13 shipped
+a typed API client (`frontend/src/lib/api/client.ts`) that calls
+`/api/resumes`, `/api/jobs/search`, `/api/tailor`, `/api/applications/*`
+and the two artifact downloads, and it currently sends
+`credentials: "omit"` with the comment *"The API has no authentication and
+must never receive a cookie."* That line is now false, and the console has
+to be changed as part of A1:
+
+- the console keeps **no token in JavaScript** (an `HttpOnly` cookie is not
+  readable by a script, and a token in `localStorage` is readable by any
+  script that gets injected), so the browser uses the **cookie** transport;
+- the console must send `credentials: "include"` (the Vite dev proxy makes it
+  same-origin, so this only matters for a cross-origin deployment) and must
+  echo the **CSRF token** in a header on every unsafe request;
+- the CLI and the repo's own scripts (`scripts/verify_ws06.py`,
+  `scripts/refresh_jobs.py`) use the **bearer** transport.
+
+Both transports resolve to **one** identity: the same user store, the same
+token table, the same principal.
 
 ## Execution plan
 
@@ -175,6 +191,370 @@ account lifecycle (A3).
 | **E** | **CI, security tests, dependency hygiene, migration checks.** GitHub Actions running pytest + ruff + `pip-audit`; a migration check (upgrade head from a clean DB, and the downgrade path); the two-user isolation suite **in CI** — an isolation control that is not in CI is a control that decays. | A2 |
 | **F** | **Production configuration, deployment guidance, documentation.** Fail-fast production rules; the bind/TLS guidance; the `.env` and `data/` ACLs; the runbook; the README rewrite (its security section is currently stale and self-contradictory). | A0 |
 | **G** | **AI-provider privacy, SSRF, tracing, encryption, multi-tenant threat review.** The shared embedding cache holds **candidate query vectors** (verified — `candidate_query_text()` embeds the profile's name, title, skills and summary, and the vector lands in the shared `embedding_cache.sqlite`); tenant starvation of the shared quota (T7); vector inversion; prompt isolation; SSRF pinning; encryption at rest. | A2, B |
+
+## The detailed execution plan
+
+Each phase below is a **complete, independently verifiable unit**: it names
+the files it touches, the behaviour it adds, the test that proves it, and
+the gate it must pass. The order is by dependency, not by severity, and
+**AC-ISO must hold after every phase**.
+
+The shared discipline for every phase:
+
+- **the control is mechanical.** A rule that is written down is a rule that
+  decays; a rule that a test fails on is a rule that survives. Every phase
+  adds a test that fails if the control is removed.
+- **the phase is not done until the whole suite is green** and `ruff check
+  src tests scripts` is clean.
+- **the doc is updated in the same phase.** A phase that changes an API
+  surface updates the README's API table and `.env.example` in the same
+  commit — the WS-11 doc tests fail the build otherwise.
+
+---
+
+### Phase A0 — the ownership spine *(done; verification re-run by this session)*
+
+**Goal.** A user-scoped row has an owner, and the only way to read one is
+through an accessor that filters by it.
+
+**Delivered.** `src/db/users.py` (`UserDB`, the principal), `owner_id` on the
+eight user-scoped tables (`NOT NULL`, indexed, server default = the legacy
+owner — the fail-closed direction), the migration
+`f6a7b8c9d0e1`, `src/db/access.py` (`UserScope` + the scoped accessors),
+`src/api/scope.py` (`current_scope()`), and `tests/test_tenant_isolation.py`
+(the two-user matrix).
+
+**This session's work — the A0 verification.** A0 was implemented by a
+previous session and its record is a claim, not a proof. The verification is
+a **fresh test file** (`tests/test_ws14_a0_verification.py`) that checks the
+claims A0 makes, from the outside, against the real schema and the real
+migrated database:
+
+1. the **migration itself** is exercised — `alembic upgrade head` on an
+   empty database produces the `users` table and the `owner_id` column on
+   all eight tables, and `alembic downgrade` removes them;
+2. the **backfill** is real — rows that pre-date the migration are owned by
+   the `legacy` account afterwards, and no row is lost;
+3. the **schema contract** holds — every user-scoped table's `owner_id` is
+   `NOT NULL` and indexed (read from the live SQLAlchemy metadata *and* from
+   the SQLite `PRAGMA table_info` / `PRAGMA index_list`, so a column that
+   is nullable in the model but `NOT NULL` in the database is caught);
+4. the **accessors** filter — every accessor returns nothing for a foreign
+   owner;
+5. the **routes** do not query a user-scoped table directly (AC-ISO check 2),
+   and the route sources contain **no `LEGACY_OWNER_ID` literal** — the
+   note A0 left for A2.
+
+**Acceptance.** The verification file is green, and it is a *new* file: it
+does not reuse the assertions of `tests/test_tenant_isolation.py`, so a
+regression in either is caught.
+
+---
+
+### Phase A1 — identity
+
+**Goal.** A caller is a **principal**. The API can tell who is asking, and
+it refuses a caller it cannot identify.
+
+**Files.**
+
+- `src/auth/__init__.py` — the package.
+- `src/auth/schemas.py` — `UserRead`, `UserCreate`, `UserUpdate` (the
+  `fastapi-users` v15 library ships only the *base* schemas; the concrete
+  ones are ours to define).
+- `src/auth/manager.py` — the `UserManager` (argon2 hashing, the token
+  secrets, the `str` id mixin, the audit hooks).
+- `src/auth/db_adapter.py` — **our own** `BaseUserDatabase` and
+  `AccessTokenDatabase` implementations over the application's **synchronous**
+  SQLAlchemy session. `fastapi-users` ships an async-only
+  `SQLAlchemyUserDatabase`; this codebase is synchronous end to end, so the
+  adapter is written here rather than dragging `aiosqlite` and a second
+  engine into the process.
+- `src/auth/tokens.py` — the `access_tokens` table (the server-side session
+  store) and its model.
+- `src/auth/backends.py` — the cookie and bearer backends.
+- `src/auth/csrf.py` — the double-submit CSRF control.
+- `src/auth/routes.py` — the `/api/auth/*` routes.
+- `src/db/users.py` — the `id` column gets a Python-side default (so
+  `fastapi-users` can create a row without an id), and the `users` row gains
+  the lifecycle fields A3 uses.
+- `migrations/versions/<rev>_ws14_access_tokens.py` — the token table.
+- `src/config/settings.py` — `AUTH_SECRET`, `AUTH_COOKIE_SECURE`,
+  `AUTH_SESSION_TTL_SECONDS`, `AUTH_REQUIRE_VERIFIED`.
+- `frontend/src/lib/api/client.ts` — `credentials: "include"` and the CSRF
+  header.
+- `tests/test_auth.py` — the identity tests.
+
+**Behaviour.**
+
+- `POST /api/auth/register` → `201` with the user (never the hash).
+- `POST /api/auth/cookie/login` → `204` + `Set-Cookie`
+  (`HttpOnly`, `SameSite=Lax`, `Secure` in production).
+- `POST /api/auth/cookie/logout` → `204` + the cookie is cleared **and the
+  server-side session is destroyed**.
+- `POST /api/auth/token/login` → `200 {"access_token", "token_type"}` — the
+  bearer transport for the CLI and the repo's scripts.
+- `POST /api/auth/token/logout` → `204` + the session is destroyed.
+- `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`,
+  `POST /api/auth/request-verify-token`, `POST /api/auth/verify` — the
+  account flows. The reset and verification tokens are issued; **sending
+  them by e-mail is out of scope** (no SMTP provider), so they are written
+  to the audit trail and returned only in development.
+- `GET /api/auth/me` → the authenticated principal.
+- A request with **no** credential to a protected endpoint → `401`.
+- A password is stored **only** as an argon2 hash. The plaintext never
+  reaches a log, an audit row, or the database.
+
+**CSRF.** `fastapi-users` v15 has **no** CSRF protection for the cookie
+transport (its only CSRF code is the OAuth state check). So the control is
+ours: a `csrf_token` cookie (readable by the console's JavaScript, `Secure`
+in production) and an `X-CSRF-Token` header, compared with
+`secrets.compare_digest`. It is enforced by a middleware on every **unsafe**
+request (POST/PATCH/PUT/DELETE) that carries the **session cookie** — a
+request that authenticates with a bearer token is exempt, because a bearer
+token is not sent ambiently by a browser and therefore is not a CSRF vector.
+
+**Acceptance.** `tests/test_auth.py` proves: the password is never stored or
+logged in the clear; a session is issued on login and destroyed on logout; a
+bearer token and a cookie resolve to the **same** principal; a request
+without a credential is refused; CSRF is enforced on the cookie transport and
+not on the bearer transport; a duplicate registration is refused; an
+inactive account cannot log in.
+
+---
+
+### Phase A2 — enforcement
+
+**Goal.** The scope a route acts as is the **authenticated principal's**,
+never the legacy owner, and a foreign resource is indistinguishable from a
+missing one.
+
+**Files.** `src/api/scope.py` (the flip), `src/api/routes/*.py` (the
+`LEGACY_OWNER_ID` literals at the write paths become `scope.user_id`), the
+approval routes (the approver comes from the session), `src/db/access.py`
+(the `get_*` accessors stay the only way in), and
+`tests/test_isolation.py` (the two-user matrix **over HTTP**).
+
+**Behaviour.**
+
+- `current_scope()` depends on the authenticated principal. One function
+  changes; every route becomes tenant-scoped. This is the flip A0 was
+  designed for.
+- Every write path records `owner_id=scope.user_id`. A grep test fails if
+  `LEGACY_OWNER_ID` appears in a route module.
+- The approver identity is the principal. A body-supplied approver is
+  **ignored** (and the fact that one was supplied is audited).
+- Every foreign resource answers `404` with a body **byte-identical** to the
+  body for a resource that does not exist.
+- A protected endpoint without a credential answers `401`.
+
+**Acceptance.** `tests/test_isolation.py`: for **every** endpoint that
+reaches a user-scoped table, user A's resource id yields `404` for user B
+and `200` for user A; the two `404` bodies are byte-identical; the
+direct-query grep finds nothing; the `LEGACY_OWNER_ID` grep finds nothing;
+and the unauthenticated case yields `401`.
+
+---
+
+### Phase A3 — the account lifecycle
+
+**Goal.** A user can change their own credentials, end their own sessions,
+and close their own account — and a closed account can do none of it again.
+
+**Files.** `src/auth/routes.py` (`PATCH /api/auth/me`,
+`POST /api/auth/sessions/revoke`, `DELETE /api/auth/sessions/{token}`,
+`DELETE /api/auth/me`), `src/db/tokens.py` (the session list and the
+revocation), `src/db/users.py` (the soft delete), and `tests/test_auth.py`
+(the lifecycle cases).
+
+**Behaviour.**
+
+- `PATCH /api/auth/me` changes the e-mail and/or the password. A password
+  change **revokes every other session** of that user.
+- `POST /api/auth/sessions/revoke` revokes **all** sessions; the caller
+  stays logged in on the current one only if they kept it — the rule is
+  "revoke all *other* sessions" for the "change my password" case and
+  "revoke everything" for the explicit "log me out everywhere" case, which
+  also ends the current session.
+- `DELETE /api/auth/sessions/{token}` revokes one session.
+- `DELETE /api/auth/me` is the **deletion request**: the account is
+  deactivated (`is_active = False`) and its sessions are destroyed
+  immediately; the irreversible purge is Phase D's job.
+- A deactivated account cannot authenticate, and its resources no longer
+  resolve.
+
+**Acceptance.** `tests/test_auth.py`: a password change revokes the other
+sessions; an email change takes effect; a revoked token stops working; a
+deactivated account cannot log in and cannot read its own resources.
+
+---
+
+### Phase B — filesystem permissions and per-user storage
+
+**Goal.** Every file the platform writes for a person lives in **that
+person's** directory, and the client never names a path.
+
+**Files.** `src/storage/paths.py` (the `data/users/{user_id}/…` layout and
+the per-user containment check), `src/api/validation.py` (the upload goes
+to the user's directory), `src/api/routes/tailoring.py` (the rendered DOCX
+goes to the user's directory), the browser layer (the evidence goes to the
+user's directory), `src/security/paths.py` (the allowed roots become
+per-user), and `tests/test_user_storage.py`.
+
+**Behaviour.**
+
+- The layout is `data/users/{user_id}/{resumes,tailored,evidence}/`.
+- A path supplied by a request is contained **inside the authenticated
+  user's own directory**, not merely inside a shared root.
+- The client names an **id**, never a path. The two artifact endpoints
+  already take an id (and a bare file name); the file name is resolved
+  inside the owner's evidence directory.
+- The stored `file_path` / `docx_path` columns keep the absolute path, so
+  the containment check has something to check.
+
+**Acceptance.** `tests/test_user_storage.py`: an upload lands in the
+user's directory; a rendered resume lands in the user's directory; a path
+naming another user's directory is refused; a second user cannot download
+the first user's artifact by id; the traversal attempt is still refused.
+
+---
+
+### Phase C — auditable actor identity
+
+**Goal.** An audit row says **who** did it, in a way that cannot be forged
+and cannot be misread.
+
+**Files.** `src/db/audit.py` (`actor_kind` + `actor_id`),
+`migrations/versions/<rev>_ws14_audit_actor.py`,
+`src/security/audit.py` (the writer takes a principal; it strips control
+characters from every string it stores), `src/security/redaction.py` (the
+stripping lives next to the other sanitisation), and
+`tests/test_audit_identity.py`.
+
+**Behaviour.**
+
+- `actor_kind` is one of `user` / `agent` / `system`; `actor_id` is the
+  principal's id (the user's id for a user, the adapter's name for an
+  agent). The old free-text `actor` column stays as a display string, but
+  it is **derived**, never supplied.
+- **Log-injection protection**: every string that reaches the audit store
+  is stripped of control characters (CR, LF, NUL and the other C0 range),
+  so a newline in a user-supplied field cannot forge a row. The strip
+  happens in `sanitize_metadata` and in the writer, so it cannot be
+  forgotten at a call site.
+- Every audit row is scoped to its owner and is readable only by them (and
+  by the platform's audit view).
+
+**Acceptance.** `tests/test_audit_identity.py`: the actor is a principal
+and not a free string; a newline in the resource, in the actor and in the
+metadata cannot forge a row; the stored strings contain no control
+characters; the audit read is owner-scoped.
+
+---
+
+### Phase D — retention, deletion, and the purge
+
+**Goal.** Data does not outlive its purpose, and "delete my account"
+means what it says.
+
+**Files.** `src/retention.py` (the age-based purge and the deletion
+cascade), `src/api/routes/auth.py` (a purge trigger, if a route is
+wanted), `scripts/purge_expired.py` (the operator entry point), and
+`tests/test_retention.py`.
+
+**Behaviour.**
+
+- An age-based purge removes the rows (and the files) that are older than
+  the configured retention window, per store.
+- The deletion cascade removes **every** artefact of an account: the
+  profile, the tailored resumes and their files, the applications, the
+  events, the evidence and its files, the approvals, the sessions — and the
+  embedding-cache entries that hold that user's candidate vectors.
+- The audit rows are **anonymized, not deleted**: the owner becomes
+  `anonymized` and the actor loses its identity. Non-repudiation needs
+  them; the personal data does not.
+- The purge is **idempotent** (running it twice changes nothing the second
+  time) and **auditable** (it writes what it removed).
+
+**Acceptance.** `tests/test_retention.py`: the expired rows and their
+files are gone; the cascade removes every artefact; the audit rows survive
+but carry no identity; the purge is idempotent; the purge is audited.
+
+---
+
+### Phase E — CI, the migration check, and dependency hygiene
+
+**Goal.** An isolation control that is not in CI is a control that decays.
+
+**Files.** `.github/workflows/ci.yml`, `scripts/verify_migrations.py` (the
+migration check as a runnable script, so it can be run locally and in CI),
+and `tests/test_migrations.py` (extended with the WS-14 revisions).
+
+**Behaviour.**
+
+- CI runs `pytest`, `ruff check src tests scripts`, and `pip-audit` on
+  every push and pull request.
+- The migration check: upgrade head from an empty database, upgrade from
+  the previous revision, and downgrade — each one preserving the rows.
+- The two-user isolation suite is in CI, because it is the suite that
+  matters most.
+
+**Acceptance.** The workflow file is valid; the migration script runs
+green locally; the migration tests cover the two new revisions.
+
+---
+
+### Phase F — production posture and documentation
+
+**Goal.** A production deployment cannot start in an unsafe configuration,
+and the documentation says what is true.
+
+**Files.** `src/config/settings.py` (the fail-fast rules),
+`src/main.py` (the bind/host guidance), `README.md` (the security section,
+which is currently stale and self-contradictory), `docs/RUNBOOK.md` (a new
+operational runbook), and `.env.example` (the new variables).
+
+**Behaviour.** Production refuses to start when: `AUTH_SECRET` is unset or
+shorter than 32 characters; `APP_DEBUG=true`; the CORS origins are
+wildcarded or unset; `SUBMISSION_POLICY` is unset; the session cookie is
+not `Secure`. The runbook contains **no** development server: it names
+`uvicorn` behind a TLS-terminating reverse proxy, the `data/` ACL, the
+`.env` permissions, the migration step and the purge command.
+
+**Acceptance.** A test starts the app with each unsafe configuration and
+asserts that it refuses; the README's security section matches the code
+(the WS-11 doc tests check this); the runbook has no `uvicorn --reload` and
+no `APP_DEBUG=true`.
+
+---
+
+### Phase G — AI-provider privacy, per-tenant quota, and the threat review
+
+**Goal.** The shared infrastructure does not become a side channel between
+tenants.
+
+**Files.** `src/llm/embeddings.py` (the candidate query text does not
+enter the shared cache, or the cache is partitioned per tenant),
+`src/security/limits.py` (per-tenant accounting), `src/matching/*` (the
+tenant key that reaches the embedding layer), and `docs/SECURITY.md` (the
+multi-tenant threat review).
+
+**Behaviour.**
+
+- The shared embedding cache holds **no candidate data**: the candidate
+  query vector is either stored under a **tenant-scoped key** or not
+  stored at all. A cache hit on an identical profile must not reveal that
+  another tenant submitted the same text.
+- The provider quota is accounted **per tenant**, so one tenant cannot
+  starve the others (T7).
+- The multi-tenant threat review is written up in `docs/SECURITY.md`: what
+  is shared, what is per-tenant, what is platform-wide, and what the
+  residual risks are.
+
+**Acceptance.** A test proves that the shared cache holds no candidate
+vector for a second tenant; a test proves that one tenant's spend does not
+consume another's budget; `docs/SECURITY.md` carries the review.
+
 
 ### The findings that Phase G must resolve (verified, not speculative)
 
@@ -276,12 +656,21 @@ against the same gate.
 
 | Package | Why |
 |---|---|
-| `fastapi-users[sqlalchemy]` | the identity stack: users table, password hashing, session handling, both transports, the account lifecycle |
-| `argon2-cffi` | the memory-hard password KDF (a `fastapi-users` extra) |
+| `fastapi-users>=15.0.0` | the identity stack: password hashing, session handling, both transports, the account lifecycle. The brief rules out hand-rolling an authentication protocol, and this is the established FastAPI library for it |
+| `pwdlib[argon2]>=0.3.0` | the memory-hard password KDF, reached through `fastapi_users.password.PasswordHelper`. The `argon2` extra pulls the `argon2-cffi` binding |
 
-Both are justified: the alternative is hand-rolling an authentication
-protocol, which the brief explicitly rules out. Everything else stays
-hand-rolled per the workspace rule.
+**The `sqlalchemy` extra is deliberately *not* taken.** `fastapi-users`
+ships an async-only `SQLAlchemyUserDatabase`, and this codebase is
+synchronous from the ORM down. Rather than import `aiosqlite` and a
+second engine to satisfy a library's async signature, the adapters are
+written here: `src/auth/db_adapter.py` (the user store) and
+`src/auth/tokens.py` (the session store), both over the application's own
+`Session`. They implement the library's protocols, so nothing else about
+the stack changes.
+
+Everything else stays hand-rolled per the workspace rule: the CSRF
+control, the audit actor, the retention purge, the per-user storage
+layout.
 
 ## Out of scope, and honest limits
 

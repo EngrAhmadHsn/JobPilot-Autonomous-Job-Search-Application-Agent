@@ -258,9 +258,32 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `PATCH /api/applications/{application_id}/status` | Change an application status | WS-07 |
 | `GET /api/applications/{application_id}/evidence` | Read the evidence records of an application | WS-13 |
 | `GET /api/applications/{application_id}/evidence/{filename}` | Download one evidence artifact (screenshot, trace) | WS-13 |
+| `POST /api/auth/register` | Create an account | WS-14 |
+| `POST /api/auth/cookie/login` | Log in (browser transport: an HttpOnly session cookie) | WS-14 |
+| `POST /api/auth/cookie/logout` | End the current session | WS-14 |
+| `POST /api/auth/token/login` | Log in (bearer transport: an access token for scripts) | WS-14 |
+| `POST /api/auth/token/logout` | End the current session | WS-14 |
+| `POST /api/auth/forgot-password` | Request a password-reset token | WS-14 |
+| `POST /api/auth/reset-password` | Set a new password with a reset token | WS-14 |
+| `POST /api/auth/request-verify-token` | Request an e-mail verification token | WS-14 |
+| `POST /api/auth/verify` | Verify the account with a verification token | WS-14 |
+| `GET /api/auth/me` | The authenticated principal | WS-14 |
+| `PATCH /api/auth/me` | Change the caller's own e-mail, password or name | WS-14 |
+| `DELETE /api/auth/me` | Request the account's deletion (deactivates it and ends its sessions) | WS-14 |
+| `GET /api/auth/sessions` | The caller's live sessions (without their tokens) | WS-14 |
+| `POST /api/auth/sessions/revoke` | End every session of the caller | WS-14 |
+| `POST /api/auth/sessions/revoke-others` | End every session except the current one | WS-14 |
+| `DELETE /api/auth/sessions/{token}` | End one session of the caller | WS-14 |
 
 The table is checked against the running application by `tests/test_docs_accuracy.py`, so a
 route added without a line here fails the suite.
+
+**Every route except `/` and `/api/health` needs a credential** (WS-14). A request
+without one is refused with a `401`. There are two transports, one identity: a browser
+uses the **cookie** (an `HttpOnly`, `SameSite=Lax` session cookie, with a double-submit
+`X-CSRF-Token` header on every unsafe request), and a script uses the **bearer token**
+(`Authorization: Bearer …`). Both resolve to the same account, and a session is a
+server-side row, so it can be revoked the moment it is revoked.
 
 ## Configuration
 

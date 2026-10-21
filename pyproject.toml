@@ -13,12 +13,23 @@ dependencies = [
     "chromadb>=1.0",
     "fastembed>=0.9.0",
     "fastapi>=0.141.1",
+    # WS-14 · A1: the identity stack. `fastapi-users` is the established
+    # FastAPI identity library — the account lifecycle, the password
+    # hashing and the session handling are its job, not a hand-rolled
+    # token scheme. The database adapters are ours (the library's are
+    # async-only and this codebase is synchronous end to end), so the
+    # `sqlalchemy` extra is not needed.
+    "fastapi-users>=15.0.0",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
     "langchain>=1.4.0",
     "langgraph>=1.2.11",
     "playwright>=1.51.0",
     "pydantic>=2.13.5",
+    # WS-14 · A1: the memory-hard password KDF, reached through
+    # `fastapi_users.password.PasswordHelper`. The `argon2` extra pulls
+    # the argon2-cffi binding.
+    "pwdlib[argon2]>=0.3.0",
     "python-docx>=1.1.0",
     "python-dotenv>=1.0.1",
     "python-multipart>=0.0.20",
