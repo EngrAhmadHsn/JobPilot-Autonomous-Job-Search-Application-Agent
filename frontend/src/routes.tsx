@@ -1,10 +1,10 @@
 import { Navigate, type RouteObject } from "react-router-dom"
 
 import { AppShell } from "@/components/layout/app-shell"
-import { Placeholder } from "@/screens/placeholder"
 import { JobDetailScreen } from "@/screens/job-detail-screen"
 import { MatchesScreen } from "@/screens/matches-screen"
 import { ApprovalsScreen } from "@/screens/approvals-screen"
+import { OperationsScreen } from "@/screens/operations-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
 import { TailorIndexScreen, TailorJobScreen } from "@/screens/tailor-screen"
 import { TrackerDetailScreen, TrackerScreen } from "@/screens/tracker-screen"
@@ -55,7 +55,7 @@ export const routes: RouteObject[] = [
       },
       {
         path: "operations",
-        element: <Placeholder title="Operations" phase="G" />,
+        element: <OperationsScreen />,
       },
     ],
   },

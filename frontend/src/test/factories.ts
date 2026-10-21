@@ -331,7 +331,9 @@ export function applicationEvidence() {
   }
 }
 
-export function refreshResponse(): JobRefreshResponse {
+export function refreshResponse(
+  overrides: Partial<JobRefreshResponse> = {}
+): JobRefreshResponse {
   return {
     stats: {
       found: 40,
@@ -347,5 +349,6 @@ export function refreshResponse(): JobRefreshResponse {
     embedding_requests_used: 35,
     quota_exhausted: false,
     degraded_embedding: false,
+    ...overrides,
   }
 }
