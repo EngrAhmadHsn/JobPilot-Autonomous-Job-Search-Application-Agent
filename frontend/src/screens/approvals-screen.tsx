@@ -48,9 +48,16 @@ const prepareSchema = z.object({
 
 type PrepareForm = z.infer<typeof prepareSchema>
 
-/** The decision form: who decided, and why. */
+/**
+ * The decision form: why.
+ *
+ * **There is no approver field** (WS-14). The approver is the
+ * authenticated principal, so asking the operator to type a name would
+ * collect a value the server ignores — and would suggest that the name
+ * is what gets recorded, which is no longer true. The decision is
+ * attributed to the account the operator is signed in as.
+ */
 const decisionSchema = z.object({
-  approver: z.string().min(1, "The approver's name is required"),
   reason: z.string().optional(),
 })
 
@@ -296,7 +303,7 @@ export function ApprovalsScreen() {
 
   const decisionForm = useForm<DecisionForm>({
     resolver: zodResolver(decisionSchema),
-    defaultValues: { approver: "", reason: "" },
+    defaultValues: { reason: "" },
   })
 
   // The saved profile prefills the candidate's details, so the operator
@@ -364,14 +371,8 @@ export function ApprovalsScreen() {
       action: "approve" | "reject"
     }) =>
       action === "approve"
-        ? api.approve(approvalId, {
-            approver: values.approver,
-            reason: values.reason,
-          })
-        : api.reject(approvalId, {
-            approver: values.approver,
-            reason: values.reason,
-          }),
+        ? api.approve(approvalId, { reason: values.reason })
+        : api.reject(approvalId, { reason: values.reason }),
   })
 
   const prepared = prepare.data
@@ -624,20 +625,10 @@ export function ApprovalsScreen() {
                       )}
                     >
                       <div className="grid gap-4">
-                        <Field
-                          id="approver"
-                          label="Approver"
-                          error={
-                            decisionForm.formState.errors.approver?.message
-                          }
-                          hint="Recorded against the decision, with the time."
-                        >
-                          <Input
-                            id="approver"
-                            placeholder="Your name"
-                            {...decisionForm.register("approver")}
-                          />
-                        </Field>
+                        <p className="text-sm text-muted-foreground">
+                          The decision is recorded against your account, with
+                          the time.
+                        </p>
                         <Field id="reason" label="Reason" optional>
                           <Input
                             id="reason"

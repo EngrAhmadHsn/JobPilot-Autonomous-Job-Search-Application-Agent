@@ -9,21 +9,37 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+
 import { useTheme } from "@/components/theme-provider"
+import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 
 /**
  * The account menu.
  *
- * The console is single-operator for now, so this is **not** a fake
- * signed-in user: it shows the profile the console is working with, the
- * theme, and an honest line about sign-in not being available yet. The
- * identity work (the API's user model and its scopes) is what will give
- * this menu a real name to show.
+ * It shows **the account the console is signed in as** (WS-14), the
+ * profile the console is working with, and the theme — and it offers a
+ * sign-out that ends the session **server-side**, not merely in the
+ * browser: a session is a row, and a row that is only forgotten by the
+ * browser is still a live credential.
  */
 export function AccountMenu() {
   const { theme, setTheme } = useTheme()
   const profileId = useCurrentProfileId()
+  const queryClient = useQueryClient()
+  const { data: identity } = useQuery({
+    queryKey: ["identity"],
+    queryFn: ({ signal }) => api.identity(signal),
+    retry: false,
+  })
+  const signOut = useMutation({
+    mutationFn: () => api.signOut(),
+    onSuccess: () => {
+      queryClient.setQueryData(["identity"], null)
+      queryClient.invalidateQueries()
+    },
+  })
 
   return (
     <DropdownMenu>
@@ -37,7 +53,9 @@ export function AccountMenu() {
         >
           {profileId ? "OP" : "—"}
         </span>
-        <span className="hidden text-muted-foreground sm:inline">Operator</span>
+        <span className="hidden text-muted-foreground sm:inline">
+          {identity?.email ?? "Operator"}
+        </span>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-64">
@@ -76,13 +94,12 @@ export function AccountMenu() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem disabled className="justify-start gap-2">
-          <span className="text-muted-foreground">Sign in</span>
+        <DropdownMenuItem
+          className="justify-start gap-2"
+          onSelect={() => signOut.mutate()}
+        >
+          <span>Sign out</span>
         </DropdownMenuItem>
-        <p className="px-2 pb-2 text-xs text-muted-foreground">
-          Accounts arrive with the API&apos;s identity work. Until then this
-          console talks to a local API and has no sign-in of its own.
-        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   )

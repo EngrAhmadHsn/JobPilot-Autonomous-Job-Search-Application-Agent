@@ -65,6 +65,8 @@ export type FactualityReport = DeepRequired<
 >
 export type Health =
   operations["health_check_api_health_get"]["responses"][200]["content"]["application/json"]
+/** The authenticated principal (WS-14). */
+export type Identity = DeepRequired<components["schemas"]["UserRead"]>
 export type JobInsights = DeepRequired<components["schemas"]["JobInsights"]>
 export type JobListing = DeepRequired<components["schemas"]["JobListing"]>
 /**

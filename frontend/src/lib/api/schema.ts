@@ -27,8 +27,15 @@ export interface paths {
      * List Applications
      * @description List the tracked applications, newest first.
      *
+     *     Only the caller's own applications are listed. The listing and the
+     *     total both go through the scoped accessors, so a total that counted
+     *     other users' rows — and a list that showed them — are both
+     *     impossible by construction rather than by a check somebody has to
+     *     remember.
+     *
      *     Args:
      *         db: The request-scoped database session.
+     *         scope: The caller's access scope.
      *         status: Filter by one or more statuses (repeat the parameter, or
      *             pass a comma-separated list).
      *         profile_id: Filter by the candidate profile.
@@ -62,6 +69,75 @@ export interface paths {
      *         HTTPException 404: the application is unknown.
      */
     get: operations["get_application_api_applications__application_id__get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/applications/{application_id}/evidence": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * List Application Evidence
+     * @description The evidence records of one tracked application.
+     *
+     *     The evidence rows are the record of what happened: the confirmation text
+     *     the page showed, the status the adapter reported, and the paths of the
+     *     artifacts. The tracking API answers with the application's *history*, not
+     *     with its evidence, so the console cannot show a past submission's
+     *     confirmation text without this.
+     *
+     *     Args:
+     *         application_id: The tracked application.
+     *         db: The request-scoped database session.
+     *         scope: The caller's access scope.
+     *
+     *     Returns:
+     *         The evidence records, newest first.
+     *
+     *     Raises:
+     *         HTTPException 404: The application is unknown.
+     */
+    get: operations["list_application_evidence_api_applications__application_id__evidence_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/applications/{application_id}/evidence/{filename}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Download Evidence
+     * @description Download one evidence artifact of a tracked application.
+     *
+     *     Args:
+     *         application_id: The tracked application the artifact belongs to.
+     *         filename: The artifact's file name (the screenshot or the trace).
+     *         db: The request-scoped database session.
+     *
+     *     Returns:
+     *         The artifact file.
+     *
+     *     Raises:
+     *         HTTPException 400: The file name is not a plain file name.
+     *         HTTPException 404: The application, or the artifact, is unknown.
+     */
+    get: operations["download_evidence_api_applications__application_id__evidence__filename__get"]
     put?: never
     post?: never
     delete?: never
@@ -231,6 +307,320 @@ export interface paths {
      *         HTTPException 403: The configured policy forbids the operation.
      */
     post: operations["prepare_application_api_applications_prepare_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/audit": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * List Audit Events
+     * @description The caller's own audit rows, newest first.
+     *
+     *     Args:
+     *         db: The request-scoped database session.
+     *         scope: The caller's access scope.
+     *         limit: How many rows to return (at most 500).
+     *
+     *     Returns:
+     *         The rows, and how many there are.
+     */
+    get: operations["list_audit_events_api_audit_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/cookie/login": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Auth:Cookie.Login */
+    post: operations["auth_cookie_login_api_auth_cookie_login_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/cookie/logout": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Auth:Cookie.Logout */
+    post: operations["auth_cookie_logout_api_auth_cookie_logout_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/forgot-password": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Reset:Forgot Password */
+    post: operations["reset_forgot_password_api_auth_forgot_password_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/me": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Read Me
+     * @description The authenticated principal.
+     *
+     *     This is the endpoint that turns "the caller is anonymous" into "the
+     *     caller is somebody", and it is the one the console calls first.
+     */
+    get: operations["read_me_api_auth_me_get"]
+    put?: never
+    post?: never
+    /**
+     * Request Account Deletion
+     * @description Request the deletion of the caller's account.
+     *
+     *     **This is the reversible half.** The account is deactivated and every
+     *     session is ended, so it cannot authenticate and cannot resolve its
+     *     resources any more. The irreversible half — the purge of the rows
+     *     and the files — is Phase D's job, and it is deliberately not done
+     *     from an HTTP request: a purge that runs on a click is a purge that
+     *     runs on a mistake.
+     */
+    delete: operations["request_account_deletion_api_auth_me_delete"]
+    options?: never
+    head?: never
+    /**
+     * Update Me
+     * @description Change the caller's own e-mail, password or display name.
+     *
+     *     A password change ends the caller's **other** sessions: the session
+     *     the change was made from stays, every other one goes. That is the
+     *     point of changing a password.
+     */
+    patch: operations["update_me_api_auth_me_patch"]
+    trace?: never
+  }
+  "/api/auth/register": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Register:Register */
+    post: operations["register_register_api_auth_register_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/request-verify-token": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Verify:Request-Token */
+    post: operations["verify_request_token_api_auth_request_verify_token_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/reset-password": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Reset:Reset Password */
+    post: operations["reset_reset_password_api_auth_reset_password_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/sessions": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Read Sessions
+     * @description The caller's live sessions.
+     *
+     *     The token itself is **not** returned — only a short prefix of it, so
+     *     the operator can tell two sessions apart in a list without the list
+     *     being a set of credentials.
+     */
+    get: operations["read_sessions_api_auth_sessions_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/sessions/{token}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Revoke One Session
+     * @description End one session of the caller.
+     *
+     *     A token that is not the caller's is **not found** — the same answer
+     *     as a token that does not exist, so the endpoint is not an existence
+     *     oracle.
+     */
+    delete: operations["revoke_one_session_api_auth_sessions__token__delete"]
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/sessions/revoke": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Revoke Every Session
+     * @description End **every** session of the caller, including this one.
+     *
+     *     This is "log me out everywhere", and the caller ends up logged out —
+     *     which is the point.
+     */
+    post: operations["revoke_every_session_api_auth_sessions_revoke_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/sessions/revoke-others": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Revoke The Other Sessions
+     * @description End every session of the caller **except** the current one.
+     */
+    post: operations["revoke_the_other_sessions_api_auth_sessions_revoke_others_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/token/login": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Auth:Bearer.Login */
+    post: operations["auth_bearer_login_api_auth_token_login_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/token/logout": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Auth:Bearer.Logout */
+    post: operations["auth_bearer_logout_api_auth_token_logout_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/auth/verify": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Verify:Verify */
+    post: operations["verify_verify_api_auth_verify_post"]
     delete?: never
     options?: never
     head?: never
@@ -426,6 +816,36 @@ export interface paths {
      * @description Return one stored tailoring record with its reports and file path.
      */
     get: operations["get_tailored_api_tailored__tailoring_id__get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/tailored/{tailoring_id}/download": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Download Tailored Docx
+     * @description Download the DOCX rendered for one tailoring.
+     *
+     *     Args:
+     *         tailoring_id: The tailoring record whose DOCX is wanted.
+     *         db: The request-scoped database session.
+     *
+     *     Returns:
+     *         The DOCX file.
+     *
+     *     Raises:
+     *         HTTPException 404: The tailoring, or its rendered file, is unknown.
+     */
+    get: operations["download_tailored_docx_api_tailored__tailoring_id__download_get"]
     put?: never
     post?: never
     delete?: never
@@ -669,13 +1089,21 @@ export interface components {
     /**
      * ApprovalDecisionRequest
      * @description A human decision on a prepared application.
+     *
+     *     **The approver is the authenticated principal, not this field**
+     *     (WS-14 · A2, threat T2). The field is still accepted so that an older
+     *     client keeps working, but its value is **ignored**: a caller cannot
+     *     approve an application *as somebody else* by naming them. When a
+     *     body carries an approver that is not the caller, the fact is audited.
+     *
+     *     The field is optional because it is no longer the source of truth.
      */
     ApprovalDecisionRequest: {
       /**
        * Approver
-       * @description Identity of the approving operator
+       * @description Ignored. The approver is the authenticated principal.
        */
-      approver: string
+      approver?: string | null
       /**
        * Reason
        * @description Why the application was approved or rejected
@@ -768,10 +1196,93 @@ export interface components {
        */
       title_alignment: number
     }
+    /** BearerResponse */
+    BearerResponse: {
+      /** Access Token */
+      access_token: string
+      /** Token Type */
+      token_type: string
+    }
+    /** Body_auth_bearer_login_api_auth_token_login_post */
+    Body_auth_bearer_login_api_auth_token_login_post: {
+      /** Client Id */
+      client_id?: string | null
+      /**
+       * Client Secret
+       * Format: password
+       */
+      client_secret?: string | null
+      /** Grant Type */
+      grant_type?: string | null
+      /**
+       * Password
+       * Format: password
+       */
+      password: string
+      /**
+       * Scope
+       * @default
+       */
+      scope: string
+      /** Username */
+      username: string
+    }
+    /** Body_auth_cookie_login_api_auth_cookie_login_post */
+    Body_auth_cookie_login_api_auth_cookie_login_post: {
+      /** Client Id */
+      client_id?: string | null
+      /**
+       * Client Secret
+       * Format: password
+       */
+      client_secret?: string | null
+      /** Grant Type */
+      grant_type?: string | null
+      /**
+       * Password
+       * Format: password
+       */
+      password: string
+      /**
+       * Scope
+       * @default
+       */
+      scope: string
+      /** Username */
+      username: string
+    }
+    /** Body_reset_forgot_password_api_auth_forgot_password_post */
+    Body_reset_forgot_password_api_auth_forgot_password_post: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string
+    }
+    /** Body_reset_reset_password_api_auth_reset_password_post */
+    Body_reset_reset_password_api_auth_reset_password_post: {
+      /** Password */
+      password: string
+      /** Token */
+      token: string
+    }
     /** Body_upload_resume_api_resumes_post */
     Body_upload_resume_api_resumes_post: {
       /** File */
       file: string
+    }
+    /** Body_verify_request_token_api_auth_request_verify_token_post */
+    Body_verify_request_token_api_auth_request_verify_token_post: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string
+    }
+    /** Body_verify_verify_api_auth_verify_post */
+    Body_verify_verify_api_auth_verify_post: {
+      /** Token */
+      token: string
     }
     /**
      * CandidateProfile
@@ -826,6 +1337,15 @@ export interface components {
        * @default
        */
       institution: string
+    }
+    /** ErrorModel */
+    ErrorModel: {
+      /** Detail */
+      detail:
+        | string
+        | {
+            [key: string]: string
+          }
     }
     /** ExperienceEntry */
     ExperienceEntry: {
@@ -1270,13 +1790,20 @@ export interface components {
     /**
      * StatusUpdateRequest
      * @description A human outcome for a tracked application.
+     *
+     *     **The actor is the authenticated principal, not this field**
+     *     (WS-14 · Phase A2, threat T2). The field is still accepted so that
+     *     an older client keeps working, but its value is **ignored**: a
+     *     caller cannot record an outcome *as somebody else* by naming them.
+     *     The actor rule that a human outcome must be set by a human is now
+     *     checked against the session, which is where the truth is.
      */
     StatusUpdateRequest: {
       /**
        * Actor
-       * @description Who is recording this. A human outcome needs a human identity: 'human:<who>'.
+       * @description Ignored. The actor is the authenticated principal.
        */
-      actor: string
+      actor?: string | null
       /**
        * Notes
        * @description A note stored with the application
@@ -1407,6 +1934,86 @@ export interface components {
       /** Tailoring Id */
       tailoring_id: string
     }
+    /**
+     * UserCreate
+     * @description What a registration may specify.
+     */
+    UserCreate: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string
+      /** Full Name */
+      full_name?: string | null
+      /**
+       * Is Active
+       * @default true
+       */
+      is_active: boolean | null
+      /**
+       * Is Superuser
+       * @default false
+       */
+      is_superuser: boolean | null
+      /**
+       * Is Verified
+       * @default false
+       */
+      is_verified: boolean | null
+      /** Password */
+      password: string
+    }
+    /**
+     * UserRead
+     * @description The public view of an account.
+     */
+    UserRead: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string
+      /** Full Name */
+      full_name?: string | null
+      /** Id */
+      id: string
+      /**
+       * Is Active
+       * @default true
+       */
+      is_active: boolean
+      /**
+       * Is Superuser
+       * @default false
+       */
+      is_superuser: boolean
+      /**
+       * Is Verified
+       * @default false
+       */
+      is_verified: boolean
+    }
+    /**
+     * UserUpdate
+     * @description What a user may change about their own account.
+     *
+     *     Declared from :class:`~fastapi_users.schemas.CreateUpdateDictModel`
+     *     rather than from ``BaseUserUpdate`` so that ``is_active``,
+     *     ``is_superuser`` and ``is_verified`` are **not fields at all**. The
+     *     endpoint this schema serves is "me": a user may change their own
+     *     e-mail and their own password, and nothing else. With
+     *     ``extra="forbid"`` a request that tries to promote itself is refused
+     *     with a 422 instead of being quietly dropped.
+     */
+    UserUpdate: {
+      /** Email */
+      email?: string | null
+      /** Full Name */
+      full_name?: string | null
+      /** Password */
+      password?: string | null
+    }
     /** ValidationError */
     ValidationError: {
       /** Context */
@@ -1523,6 +2130,71 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["ApplicationDetailResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  list_application_evidence_api_applications__application_id__evidence_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        application_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  download_evidence_api_applications__application_id__evidence__filename__get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        application_id: string
+        filename: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
         }
       }
       /** @description Validation Error */
@@ -1692,6 +2364,563 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["ApplicationPrepareResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  list_audit_events_api_audit_get: {
+    parameters: {
+      query?: {
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  auth_cookie_login_api_auth_cookie_login_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/x-www-form-urlencoded": components["schemas"]["Body_auth_cookie_login_api_auth_cookie_login_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ErrorModel"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  auth_cookie_logout_api_auth_cookie_logout_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Missing token or inactive user. */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+    }
+  }
+  reset_forgot_password_api_auth_forgot_password_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Body_reset_forgot_password_api_auth_forgot_password_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  read_me_api_auth_me_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["UserRead"]
+        }
+      }
+    }
+  }
+  request_account_deletion_api_auth_me_delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+    }
+  }
+  update_me_api_auth_me_patch: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UserUpdate"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["UserRead"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  register_register_api_auth_register_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UserCreate"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["UserRead"]
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ErrorModel"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  verify_request_token_api_auth_request_verify_token_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Body_verify_request_token_api_auth_request_verify_token_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  reset_reset_password_api_auth_reset_password_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Body_reset_reset_password_api_auth_reset_password_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ErrorModel"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  read_sessions_api_auth_sessions_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+    }
+  }
+  revoke_one_session_api_auth_sessions__token__delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        token: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  revoke_every_session_api_auth_sessions_revoke_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+    }
+  }
+  revoke_the_other_sessions_api_auth_sessions_revoke_others_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+    }
+  }
+  auth_bearer_login_api_auth_token_login_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/x-www-form-urlencoded": components["schemas"]["Body_auth_bearer_login_api_auth_token_login_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          /**
+           * @example {
+           *       "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiOTIyMWZmYzktNjQwZi00MzcyLTg2ZDMtY2U2NDJjYmE1NjAzIiwiYXVkIjoiZmFzdGFwaS11c2VyczphdXRoIiwiZXhwIjoxNTcxNTA0MTkzfQ.M10bjOe45I5Ncu_uXvOmVV8QxnL-nZfcH96U90JaocI",
+           *       "token_type": "bearer"
+           *     }
+           */
+          "application/json": components["schemas"]["BearerResponse"]
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ErrorModel"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  auth_bearer_logout_api_auth_token_logout_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
+        }
+      }
+      /** @description Missing token or inactive user. */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+    }
+  }
+  verify_verify_api_auth_verify_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Body_verify_verify_api_auth_verify_post"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["UserRead"]
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["ErrorModel"]
         }
       }
       /** @description Validation Error */
@@ -1959,6 +3188,37 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["StoredTailoringResponse"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  download_tailored_docx_api_tailored__tailoring_id__download_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        tailoring_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
         }
       }
       /** @description Validation Error */

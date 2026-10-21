@@ -352,3 +352,21 @@ export function refreshResponse(
     ...overrides,
   }
 }
+
+/**
+ * The authenticated principal (WS-14).
+ *
+ * The console is signed in by default in the mocked API, so the screens
+ * render without a sign-in step. A test that needs the signed-out state
+ * overrides `GET /api/auth/me` with a 401.
+ */
+export function identityResponse() {
+  return {
+    id: "user-1",
+    email: "operator@example.com",
+    full_name: "Operator",
+    is_active: true,
+    is_superuser: false,
+    is_verified: true,
+  }
+}

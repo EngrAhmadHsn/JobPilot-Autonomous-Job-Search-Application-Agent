@@ -5,7 +5,10 @@ import { Link, Outlet } from "react-router-dom"
 import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 
+import { SignInScreen } from "@/screens/sign-in-screen"
+
 import { AccountMenu } from "./account-menu"
+import { ProfileChip } from "./profile-chip"
 import { BrandMark } from "./brand-mark"
 import { AdminNav, NavGroups } from "./nav-groups"
 
@@ -51,6 +54,19 @@ function ApiStatus() {
  */
 export function AppShell() {
   const profileId = useCurrentProfileId()
+  const identity = useQuery({
+    queryKey: ["identity"],
+    queryFn: ({ signal }) => api.identity(signal),
+    retry: false,
+  })
+
+  // WS-14: the API has an identity, so the console needs one. A caller
+  // with no session is refused by every protected route, so the console
+  // asks the server who it is and shows the sign-in screen when the
+  // answer is no.
+  if (identity.isError) {
+    return <SignInScreen />
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -74,24 +90,19 @@ export function AppShell() {
 
             <div className="flex items-center gap-2">
               <ApiStatus />
-              <span className="hidden items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground md:inline-flex">
-                <span
-                  aria-hidden="true"
-                  className="size-1.5 rounded-full bg-terracotta"
-                />
-                {profileId ?? "no profile"}
-              </span>
+              <ProfileChip profileId={profileId} />
               <AccountMenu />
             </div>
           </div>
 
           {/*
-            One navigation row. On a narrow screen it scrolls sideways rather
-            than wrapping into a second band — a wrapped nav costs a whole
-            line of the viewport, and a horizontal scroll costs none.
+            One navigation row. On a narrow screen the items wrap onto a
+            second line: a scrollable nav would need a scrollbar, and a
+            scrollbar in a header is a control the operator did not ask
+            for.
           */}
-          <div className="flex items-center justify-between gap-4 border-t border-border py-1.5">
-            <div className="min-w-0 flex-1 overflow-x-auto">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border py-1.5">
+            <div className="min-w-0 flex-1">
               <NavGroups />
             </div>
             <AdminNav />

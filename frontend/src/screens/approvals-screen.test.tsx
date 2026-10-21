@@ -56,7 +56,9 @@ describe("the approvals screen", () => {
     expect(screen.queryByText("What will be submitted")).not.toBeInTheDocument()
   })
 
-  it("requires the approver's name before it can approve", async () => {
+  it("does not ask for an approver name, and says who decides", async () => {
+    // WS-14: the approver is the authenticated principal. Asking the
+    // operator for a name would collect a value the server ignores.
     const user = userEvent.setup()
     renderApp({ route: "/approvals" })
 
@@ -66,14 +68,13 @@ describe("the approvals screen", () => {
     )
     await screen.findByText("What will be submitted")
 
-    await user.click(screen.getByRole("button", { name: "Approve and submit" }))
-
+    expect(screen.queryByLabelText("Approver")).not.toBeInTheDocument()
     expect(
-      await screen.findByText("The approver's name is required")
+      screen.getByText(/recorded against your account/i)
     ).toBeInTheDocument()
   })
 
-  it("approves with the approver's identity and shows the evidence", async () => {
+  it("approves without naming an approver and shows the evidence", async () => {
     let sentBody: unknown = null
     server.use(
       http.post(
@@ -93,12 +94,13 @@ describe("the approvals screen", () => {
     )
     await screen.findByText("What will be submitted")
 
-    await user.type(screen.getByLabelText("Approver"), "Ada")
     await user.type(screen.getByLabelText("Reason"), "Looks right")
     await user.click(screen.getByRole("button", { name: "Approve and submit" }))
 
     expect(await screen.findByText("The decision")).toBeInTheDocument()
-    expect(sentBody).toEqual({ approver: "Ada", reason: "Looks right" })
+    // The decision carries the reason only; the server attributes it to
+    // the authenticated principal.
+    expect(sentBody).toEqual({ reason: "Looks right" })
     expect(screen.getByText("Application submitted")).toBeInTheDocument()
   })
 
@@ -126,7 +128,6 @@ describe("the approvals screen", () => {
     )
     await screen.findByText("What will be submitted")
 
-    await user.type(screen.getByLabelText("Approver"), "Ada")
     await user.click(screen.getByRole("button", { name: "Approve and submit" }))
 
     expect(
@@ -162,7 +163,6 @@ describe("the approvals screen", () => {
     )
     await screen.findByText("What will be submitted")
 
-    await user.type(screen.getByLabelText("Approver"), "Ada")
     await user.click(screen.getByRole("button", { name: "Reject" }))
 
     await waitFor(() => {

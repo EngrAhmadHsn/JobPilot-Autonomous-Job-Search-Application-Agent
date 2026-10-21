@@ -251,7 +251,10 @@ export function TrackerScreen() {
  */
 export function TrackerDetailScreen() {
   const { applicationId = "" } = useParams()
-  const [approver, setApprover] = useState("")
+  // There is no "your name" field (WS-14): the actor is the
+  // authenticated principal, so a name typed here would be a value the
+  // server ignores. The outcome is recorded against the account the
+  // operator is signed in as.
   const [outcome, setOutcome] = useState<string>(HUMAN_OUTCOME_STATUS_NAMES[0])
   const [notes, setNotes] = useState("")
 
@@ -269,7 +272,7 @@ export function TrackerDetailScreen() {
   })
 
   const update = useMutation({
-    mutationFn: (values: { status: string; actor: string; notes?: string }) =>
+    mutationFn: (values: { status: string; notes?: string }) =>
       api.updateApplicationStatus(applicationId, values),
     onSuccess: () => {
       application.refetch()
@@ -434,34 +437,21 @@ export function TrackerDetailScreen() {
           <Banner tone="neutral" title="A human outcome is recorded by a human">
             <p>
               The agent prepares, submits and verifies. It never decides that an
-              employer made an offer. The actor is recorded as{" "}
-              <code className="font-mono text-[11px]">
-                human:&lt;your name&gt;
-              </code>
-              .
+              employer made an offer. The outcome is recorded against your
+              account, so it is attributable to a person and to nobody else.
             </p>
           </Banner>
 
           <form
-            className="grid gap-3 sm:grid-cols-[1fr_1fr_2fr_auto] sm:items-end"
+            className="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end"
             onSubmit={(event) => {
               event.preventDefault()
-              if (!approver.trim()) return
               update.mutate({
                 status: outcome,
-                actor: `human:${approver.trim()}`,
                 notes: notes.trim() ? notes.trim() : undefined,
               })
             }}
           >
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Your name</span>
-              <Input
-                value={approver}
-                onChange={(event) => setApprover(event.target.value)}
-                placeholder="Ada"
-              />
-            </label>
             <label className="space-y-1">
               <span className="text-sm font-medium">Outcome</span>
               <select
@@ -483,10 +473,7 @@ export function TrackerDetailScreen() {
                 onChange={(event) => setNotes(event.target.value)}
               />
             </label>
-            <Button
-              type="submit"
-              disabled={update.isPending || !approver.trim()}
-            >
+            <Button type="submit" disabled={update.isPending}>
               {update.isPending ? "Recording…" : "Record the outcome"}
             </Button>
           </form>

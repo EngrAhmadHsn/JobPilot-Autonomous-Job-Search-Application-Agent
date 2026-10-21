@@ -7,6 +7,7 @@ import {
   applicationList,
   approvalDecision,
   healthResponse,
+  identityResponse,
   jobDetail,
   jobSearchResponse,
   matchesHistory,
@@ -32,6 +33,22 @@ const BASE = "http://api.test"
 
 export const server = setupServer(
   http.get(`${BASE}/api/health`, () => HttpResponse.json(healthResponse())),
+
+  // The identity (WS-14). The mocked console is signed in by default,
+  // so the screens render; a test that needs the signed-out state
+  // overrides this route with a 401.
+  http.get(`${BASE}/api/auth/me`, () => HttpResponse.json(identityResponse())),
+  http.post(
+    `${BASE}/api/auth/cookie/login`,
+    () => new HttpResponse(null, { status: 204 })
+  ),
+  http.post(
+    `${BASE}/api/auth/cookie/logout`,
+    () => new HttpResponse(null, { status: 204 })
+  ),
+  http.post(`${BASE}/api/auth/register`, () =>
+    HttpResponse.json(identityResponse(), { status: 201 })
+  ),
 
   http.post(`${BASE}/api/resumes`, () =>
     HttpResponse.json(resumeUploadResponse())

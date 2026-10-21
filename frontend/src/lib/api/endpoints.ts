@@ -10,7 +10,7 @@
  * they are the *client's* bound, not the server's: the server may still be
  * working after the console gave up, and the console says so.
  */
-import { request } from "./client"
+import { request, requestForm } from "./client"
 import type {
   ApplicationDetail,
   ApplicationEvidenceRecord,
@@ -21,6 +21,7 @@ import type {
   ApprovalDecisionResponse,
   ApprovalStatus,
   Health,
+  Identity,
   JobDetail,
   JobRefreshResponse,
   JobSearchRequest,
@@ -45,6 +46,47 @@ export const api = {
   /** Is the API up? */
   health: (signal?: AbortSignal) =>
     request<Health>("/api/health", { signal, timeoutMs: 8_000 }),
+
+  /**
+   * The authenticated principal.
+   *
+   * A 401 is the answer for a caller with no session, so the console
+   * asks this on every load and shows the sign-in screen when it is
+   * refused.
+   */
+  identity: (signal?: AbortSignal) =>
+    request<Identity>("/api/auth/me", { signal, timeoutMs: 8_000 }),
+
+  /**
+   * Sign in.
+   *
+   * The session is an `HttpOnly` cookie the server sets, so there is
+   * nothing to hold in JavaScript — the request carries the credentials
+   * and the response carries a cookie.
+   */
+  signIn: (email: string, password: string, signal?: AbortSignal) =>
+    requestForm(
+      "/api/auth/cookie/login",
+      { username: email, password },
+      signal
+    ),
+
+  /** End the session, server-side. */
+  signOut: (signal?: AbortSignal) =>
+    request<void>("/api/auth/cookie/logout", {
+      method: "POST",
+      signal,
+      timeoutMs: 8_000,
+    }),
+
+  /** Create an account. */
+  createAccount: (email: string, password: string, signal?: AbortSignal) =>
+    request<Identity>("/api/auth/register", {
+      method: "POST",
+      json: { email, password },
+      signal,
+      timeoutMs: 15_000,
+    }),
 
   /** Upload a resume (DOCX/TXT/MD, <= 5 MB) and get the parsed profile. */
   uploadResume: (file: File, signal?: AbortSignal) => {

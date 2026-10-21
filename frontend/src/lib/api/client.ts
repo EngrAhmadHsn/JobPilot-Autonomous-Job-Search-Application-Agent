@@ -96,6 +96,63 @@ export class AbortedError extends Error {
   }
 }
 
+/**
+ * A form-encoded request.
+ *
+ * The sign-in endpoint takes `application/x-www-form-urlencoded`
+ * (`username` and `password`), which is what the OAuth2 password grant
+ * the backend uses expects. It is the one call the console makes that
+ * is not JSON.
+ *
+ * The CSRF header is added here too, for the same reason it is added
+ * to the JSON requests: an unsafe request that carries the session
+ * cookie has to prove it was not a cross-site one.
+ */
+export async function requestForm<T>(
+  path: string,
+  fields: Record<string, string>,
+  signal?: AbortSignal
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/x-www-form-urlencoded",
+  }
+  const csrf = csrfToken()
+  if (csrf) headers["X-CSRF-Token"] = csrf
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: new URLSearchParams(fields).toString(),
+    credentials: "include",
+    signal,
+  })
+
+  if (!response.ok) {
+    const raw = await response.text()
+    let parsed: unknown
+    try {
+      parsed = raw ? JSON.parse(raw) : undefined
+    } catch {
+      parsed = raw
+    }
+    const { detail } = readDetail(response.status, parsed)
+    throw new ApiError({
+      status: response.status,
+      detail,
+      issues: [],
+      retryAfterSeconds: parseRetryAfter(response),
+      body: parsed,
+    })
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+  const raw = await response.text()
+  return (raw ? JSON.parse(raw) : undefined) as T
+}
+
 export interface RequestOptions {
   method?: "GET" | "HEAD" | "POST" | "PATCH" | "PUT" | "DELETE"
   /** A JSON body. Mutually exclusive with `formData`. */

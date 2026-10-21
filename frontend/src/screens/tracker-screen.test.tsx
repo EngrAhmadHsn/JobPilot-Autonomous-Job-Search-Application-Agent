@@ -89,12 +89,18 @@ describe("the tracker detail", () => {
     const user = userEvent.setup()
     renderApp({ route: "/tracker/application-1" })
 
-    await user.type(await screen.findByLabelText("Your name"), "Ada")
-    await user.selectOptions(screen.getByLabelText("Outcome"), "interview")
-    await user.click(screen.getByRole("button", { name: "Record the outcome" }))
+    await user.selectOptions(
+      await screen.findByLabelText("Outcome"),
+      "interview"
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Record the outcome" })
+    )
 
+    // WS-14: the actor is the authenticated principal, so the console
+    // does not collect one and does not send one.
     await waitFor(() => {
-      expect(sentBody).toEqual({ status: "interview", actor: "human:Ada" })
+      expect(sentBody).toEqual({ status: "interview" })
     })
   })
 
@@ -112,8 +118,9 @@ describe("the tracker detail", () => {
     const user = userEvent.setup()
     renderApp({ route: "/tracker/application-1" })
 
-    await user.type(await screen.findByLabelText("Your name"), "Ada")
-    await user.click(screen.getByRole("button", { name: "Record the outcome" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Record the outcome" })
+    )
 
     expect(
       await screen.findByText(
@@ -134,8 +141,9 @@ describe("the tracker detail", () => {
     const user = userEvent.setup()
     renderApp({ route: "/tracker/application-1" })
 
-    await user.type(await screen.findByLabelText("Your name"), "Ada")
-    await user.click(screen.getByRole("button", { name: "Record the outcome" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Record the outcome" })
+    )
 
     expect(
       await screen.findByText(

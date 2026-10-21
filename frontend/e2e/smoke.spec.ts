@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESUME = join(HERE, "fixtures", "resume.txt")
 
+
 /**
  * The end-to-end smoke path.
  *
@@ -20,8 +21,17 @@ const RESUME = join(HERE, "fixtures", "resume.txt")
 test("the operator can go from a resume to a tracked application", async ({
   page,
 }) => {
-  // 1. Upload a resume -----------------------------------------------------
+  // 0. Sign in -------------------------------------------------------------
+  //
+  // The API has an identity (WS-14), so the console asks the server who
+  // it is and shows the sign-in screen when the answer is no. The
+  // account is created on the first run and reused after that.
   await page.goto("/resume")
+  await signIn(page)
+
+  // 1. Sign in, then upload a resume ---------------------------------------
+  await page.goto("/resume")
+  await signIn(page)
   await page.getByLabel("Résumé file").setInputFiles(RESUME)
   await page.getByRole("button", { name: /Upload and analyse résumé/ }).click()
 
@@ -68,7 +78,9 @@ test("the operator can go from a resume to a tracked application", async ({
   await expect(page.getByText(/Nothing has been submitted yet/)).toBeVisible()
 
   // 5. Approve — the irreversible step ------------------------------------
-  await page.getByLabel("Approver").fill("Ada")
+  //
+  // There is no approver field: the decision is recorded against the
+  // signed-in account (WS-14).
   await page.getByLabel("Reason").fill("Looks right")
   await page.getByRole("button", { name: "Approve and submit" }).click()
 
@@ -91,6 +103,42 @@ test("the operator can go from a resume to a tracked application", async ({
 })
 
 /**
+ * Sign in — creating the account the first time.
+ *
+ * The console is signed in through the cookie transport, so the browser
+ * holds an `HttpOnly` session cookie and the console holds no token.
+ */
+async function signIn(page: import("@playwright/test").Page) {
+  // A **fresh** account per run. The account is a real one, and a real
+  // account from a previous run would carry a password this run does
+  // not know — so the run would fail on a credential rather than on a
+  // defect.
+  const stamp = Date.now().toString(36)
+  const email = process.env.E2E_ACCOUNT ?? `operator-${stamp}@example.com`
+  const password = process.env.E2E_PASSWORD ?? "a-long-enough-password"
+
+  await page.getByLabel("Email").fill(email)
+  await page.getByLabel("Password").fill(password)
+  await page.getByRole("button", { name: "Sign in" }).click()
+
+  // The console either signs in, or refuses the credentials because the
+  // account does not exist yet. In the second case it creates it and
+  // signs in again.
+  const signedIn = await page
+    .getByRole("link", { name: "Matches" })
+    .waitFor({ timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (signedIn) return
+
+  await page.getByRole("button", { name: /No account yet/ }).click()
+  await page.getByLabel("Email").fill(email)
+  await page.getByLabel("Password").fill(password)
+  await page.getByRole("button", { name: "Create the account" }).click()
+  await page.getByRole("link", { name: "Matches" }).waitFor({ timeout: 20_000 })
+}
+
+/**
  * The keyboard path.
  *
  * Everything the operator can do with a mouse, they must be able to do with
@@ -99,6 +147,9 @@ test("the operator can go from a resume to a tracked application", async ({
  * a focus ring that is not drawn is not a focus ring.
  */
 test("the console is reachable by keyboard", async ({ page }) => {
+  await page.goto("/resume")
+  await signIn(page)
+  await signIn(page)
   await page.goto("/resume")
 
   const visited: string[] = []
