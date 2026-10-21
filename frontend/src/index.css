@@ -267,22 +267,26 @@
   .shine::before {
     content: "";
     position: absolute;
-    inset: 0;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 30%;
     z-index: -1;
-    transform: translateX(-120%) skewX(-16deg);
+    transform: translateX(-190%) skewX(-16deg);
     background: linear-gradient(
       90deg,
-      transparent,
-      color-mix(in oklab, currentColor 22%, transparent),
-      transparent
+      transparent 0%,
+      color-mix(in oklab, currentColor 34%, transparent) 42%,
+      color-mix(in oklab, currentColor 34%, transparent) 58%,
+      transparent 100%
     );
-    transition: transform 620ms var(--ease-soft);
+    transition: transform 700ms var(--ease-soft);
     pointer-events: none;
   }
 
   .shine:hover::before,
   .shine:focus-visible::before {
-    transform: translateX(120%) skewX(-16deg);
+    transform: translateX(430%) skewX(-16deg);
   }
 
   /* The one orchestrated entrance: the onboarding, once. */

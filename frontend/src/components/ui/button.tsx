@@ -7,7 +7,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        /*
+          The primary button keeps its colour on hover: the light that
+          crosses it (the `.shine` sweep) is the feedback, and a button that
+          also fades would wash the sweep out.
+        */
+        default: "bg-primary text-primary-foreground",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
