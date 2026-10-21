@@ -88,8 +88,18 @@ class Settings:
         self.chroma_dir = os.getenv("CHROMA_DIR", "./data/chroma")
         self.match_weights = self._parse_match_weights(os.getenv("MATCH_WEIGHTS"))
 
-        # Submission policy (WS-06)
-        self.submission_policy = os.getenv("SUBMISSION_POLICY", "REQUIRE_APPROVAL")
+        # Submission policy (WS-06). An unknown value is a configuration
+        # error, not a silent fallback: the policy decides whether an
+        # application may be executed at all, so a typo must fail loudly.
+        from src.security.policy import SubmissionPolicy
+
+        self.submission_policy = os.getenv("SUBMISSION_POLICY", "REQUIRE_APPROVAL").strip().upper()
+        valid_policies = {policy.value for policy in SubmissionPolicy}
+        if self.submission_policy not in valid_policies:
+            raise RuntimeError(
+                f"SUBMISSION_POLICY must be one of {', '.join(sorted(valid_policies))}, got "
+                f"{self.submission_policy!r}. Refusing to start."
+            )
         self.allowed_domains = [
             d.strip()
             for d in os.getenv("ALLOWED_DOMAINS", _DEFAULT_ALLOWED_DOMAINS).split(",")
