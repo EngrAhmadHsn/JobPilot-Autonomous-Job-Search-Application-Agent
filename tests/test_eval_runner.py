@@ -30,7 +30,14 @@ def results() -> dict:
 
 def test_offline_run_populates_every_metric(results: dict) -> None:
     metrics = results["metrics"]
-    assert set(metrics) == {"extraction", "dedup", "ranking", "tailoring", "ats"}
+    assert set(metrics) == {
+        "extraction",
+        "dedup",
+        "ranking",
+        "tailoring",
+        "ats",
+        "relevance",
+    }
     for section in metrics.values():
         for value in section.values():
             if isinstance(value, (int, float)):
@@ -39,6 +46,19 @@ def test_offline_run_populates_every_metric(results: dict) -> None:
     assert results["dataset"]["profiles"] == 4
     assert results["dataset"]["jobs"] == 25
     assert results["dataset"]["tailoring_pairs"] == 6
+
+
+def test_the_offline_run_names_the_stand_ins_it_used(results: dict) -> None:
+    """A report must say what produced it. The offline run serves canned
+    drafts and a lexical stand-in, and says so."""
+    providers = results["providers"]
+    assert providers["llm"]["provider"] == "canned-drafts"
+    assert providers["embeddings"]["provider"] == "lexical-standin"
+    assert results["reproducible"] is True
+
+
+def test_the_offline_run_is_reproducible(results: dict) -> None:
+    assert results["reproducible"] is True
 
 
 def test_dataset_hash_is_stable_and_documented(results: dict) -> None:
@@ -121,7 +141,7 @@ def test_check_fails_when_a_threshold_is_lowered(tmp_path: Path, monkeypatch) ->
     thresholds_path = REPO_ROOT / "src" / "evaluation" / "thresholds.json"
     original = thresholds_path.read_text(encoding="utf-8")
     payload = json.loads(original)
-    payload["extraction.field_accuracy"] = 1.01  # unreachable on purpose
+    payload["min"]["extraction.field_accuracy"] = 1.01  # unreachable on purpose
     thresholds_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     try:
         result = subprocess.run(
@@ -136,3 +156,44 @@ def test_check_fails_when_a_threshold_is_lowered(tmp_path: Path, monkeypatch) ->
         assert "threshold failures" in result.stdout
     finally:
         thresholds_path.write_text(original, encoding="utf-8")
+
+
+def test_check_fails_when_a_maximum_threshold_is_exceeded(tmp_path: Path) -> None:
+    """A rate that is good when it is *low* is gated the same way."""
+    thresholds_path = REPO_ROOT / "src" / "evaluation" / "thresholds.json"
+    original = thresholds_path.read_text(encoding="utf-8")
+    payload = json.loads(original)
+    payload["max"]["ranking.false_positive_rate"] = -1.0  # unreachable on purpose
+    thresholds_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(RUNNER), "--check", "--out-dir", str(tmp_path)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "threshold failures" in result.stdout
+    finally:
+        thresholds_path.write_text(original, encoding="utf-8")
+
+
+def test_the_report_says_which_families_it_could_not_measure(tmp_path: Path) -> None:
+    """A family the run did not measure must be named, not left to be
+    assumed measured."""
+    result = subprocess.run(
+        [sys.executable, str(RUNNER), "--out-dir", str(tmp_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(next(tmp_path.glob("report-*.json")).read_text(encoding="utf-8"))
+    assert "system" in payload["unavailable"]
+    assert "browser" in payload["unavailable"]
+    report = next(tmp_path.glob("report-*.md")).read_text(encoding="utf-8")
+    assert "Not measured in this run" in report
