@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.db.audit import AuditEventDB
 from src.security.redaction import sanitize_metadata
 
 logger = logging.getLogger(__name__)
@@ -64,8 +65,6 @@ class AuditEvent(BaseModel):
 
 def _write_row(event: AuditEvent, session: Session | None) -> int | None:
     """Insert the event; return the row id (or ``None`` when the write failed)."""
-    from src.db.audit import AuditEventDB
-
     owns_session = session is None
     if session is None:
         from src.db.session import SessionLocal

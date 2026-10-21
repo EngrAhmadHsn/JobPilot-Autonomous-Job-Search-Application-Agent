@@ -262,3 +262,30 @@ class TestPiiMaskingFilter:
         )
         PiiMaskingFilter().filter(record)
         assert record.args == (7,)
+
+
+class TestAuditModelRegistration:
+    """The audit model is registered on the shared metadata.
+
+    The model used to be imported *inside* the write function. A model that
+    is imported late is not registered on ``Base.metadata`` when a test
+    builds its database with ``create_all()``, so the ``audit_events`` table
+    was simply missing there and every audit write failed — silently, because
+    a failing audit store never breaks the caller.
+    """
+
+    def test_the_audit_table_is_registered_on_the_metadata(self) -> None:
+        assert "audit_events" in Base.metadata.tables
+
+    def test_the_audit_store_writes_to_the_table_it_uses(self, db_session: Session) -> None:
+        record_audit(
+            "application.prepare",
+            actor="agent",
+            resource="res-1",
+            outcome="success",
+            session=db_session,
+        )
+
+        rows = db_session.scalars(select(AuditEventDB)).all()
+        assert len(rows) == 1
+        assert rows[0].action == "application.prepare"
