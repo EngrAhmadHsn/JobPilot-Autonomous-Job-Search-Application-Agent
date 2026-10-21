@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01…09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline, extended 2026-10-21 with the system/browser/§7 metric families and an honest `--live` mode — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks)); next: WS-10, WS-11 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…10 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline, extended 2026-10-21 with the system/browser/§7 metric families and an honest `--live` mode — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks) — WS-10 on 2026-10-21: LLM client hardening, live-verified (14/14 checks)); next: WS-11 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -31,7 +31,7 @@ New dependencies**.
 | Feature (plan phase) | Extent | Key evidence |
 |---|---|---|
 | Resume parsing → CandidateProfile (Ph 2) | ~90% | Real deterministic DOCX/TXT/MD parser (`src/resume/parser.py`), validated Pydantic profile (`src/resume/profile.py`); persisted + upload API (WS-04); no PDF parsing |
-| LLM brain (unplanned addition) | Working | Gemini via google-genai Interactions API, structured output, `store=False` (`src/llm/client.py`); temperature config dead; google-only |
+| LLM brain (unplanned addition) | **Production-shaped** | Gemini via google-genai Interactions API, structured output, `store=False` (`src/llm/client.py`); **WS-10 (2026-10-21)**: the temperature now reaches the provider, every call is bounded by a timeout, retryable failures are retried with jittered backoff, the call is paced inside the provider's per-minute budget, the token spend is written to the audit trail (counts only), and a second `openai-compatible` path exists behind the same taxonomy. Live-verified 14/14; the live run found the SDK's own retry layer sleeping for 14 hours on a `Retry-After` header — both internal retry layers are now off |
 | Job sources + adapters (Ph 3) | ~90% | Real Greenhouse/Lever/Remotive adapters with recorded-JSON fixtures, SSRF-guarded HTTP client, planner + registry (WS-02); LinkedIn deliberately unregistered |
 | Normalization + dedup (Ph 4) | ~90% | Normalization at the source boundary, real dedup + JobDB upsert both wired into the live search path (registry persist + the WS-04 pipeline's persist node) |
 | Hybrid matching engine (Ph 5) | ~95% | Six real scorers from data (`src/matching/engine.py`), real Chroma store + `gemini-embedding-2` with content-hash cache and drift guard (`src/rag/chroma_store.py`); semantic wiring live since WS-04; FU-7 switched embeddings to the local fastembed provider (EmbeddingGemma-2 int8, default) with Gemini kept selectable |
@@ -76,9 +76,15 @@ M2  Tailoring complete (§43) — ✅ DONE 2026-10-21
 
 M3  Security preconditions + tracking (SECURITY.md §14)
     06 allowlist v2 + approval flow + evidence + audit ─► 07 tracking   ✅ 06 + 07 DONE 2026-10-21
-    10 LLM hardening (retries, usage, rate limit)
+    10 LLM hardening (retries, usage, rate limit)                        ✅ DONE 2026-10-21
     Outcome: submission path is fail-closed, approval-gated, evidence-backed.
     Submission still restricted to fake ATS.
+    WS-10 verified live (scripts/verify_ws10.py): 14/14 checks — the real
+    SDK against a local capture server proves the temperature is on the wire
+    and the privacy flag is sent, a throttled call fails in seconds instead
+    of sleeping for Retry-After, a 429-then-200 is one logical call and two
+    attempts, and the usage row carries the counts and no prompt. The run
+    found three real defects, all fixed (see the workstream doc).
     WS-06 verified live (scripts/verify_ws06.py): 12/12 checks against a real
     HTTP server and a real Chromium browser.
     WS-07 verified live (scripts/verify_ws07.py): 21/21 checks — the whole
