@@ -26,7 +26,6 @@ from src.db.jobs import JobDB, listing_from_row
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.db.tailored import build_tailored_row, stored_from_row
-from src.db.users import LEGACY_OWNER_ID
 from src.llm.client import LLMError
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
@@ -89,7 +88,7 @@ def tailor_resume_endpoint(
     """
     profile_row = access.get_profile(db, scope, req.profile_id)
     if profile_row is None:
-        raise HTTPException(status_code=404, detail=f"Profile {req.profile_id!r} not found")
+        raise HTTPException(status_code=404, detail="Profile not found")
     job_row = db.get(JobDB, req.job_id)
     if job_row is None:
         raise HTTPException(status_code=404, detail=f"Job {req.job_id!r} not found")
@@ -116,7 +115,7 @@ def tailor_resume_endpoint(
         ) from exc
 
     row = build_tailored_row(
-        owner_id=LEGACY_OWNER_ID,
+        owner_id=scope.user_id,
         profile_id=req.profile_id,
         job_id=req.job_id,
         tailored=outcome.tailored,
@@ -157,7 +156,7 @@ def get_tailored(
     """Return one stored tailoring record with its reports and file path."""
     row = access.get_tailored(db, scope, tailoring_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Tailoring {tailoring_id!r} not found")
+        raise HTTPException(status_code=404, detail="Tailoring not found")
     stored = stored_from_row(row)
     return StoredTailoringResponse(
         tailoring_id=stored.tailoring_id,

@@ -42,24 +42,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["artifacts"])
 
 
-def _evidence_model() -> type:
-    """The evidence model, resolved at call time.
-
-    The database layer names its models after their tables, and the evidence
-    model is being renamed to match (``ApplicationEvidenceDB``). The route
-    only needs the two path columns, so it resolves whichever name the
-    database layer currently exports rather than pinning a name that a
-    rename elsewhere would break.
-    """
-    from src.db import evidence as evidence_module
-
-    for name in ("ApplicationEvidenceDB", "ApplicationEvidence"):
-        model = getattr(evidence_module, name, None)
-        if model is not None:
-            return model
-    raise HTTPException(status_code=500, detail="The evidence model is unavailable")
-
-
 #: The media types the artifact endpoints may serve.
 _MEDIA_TYPES = {
     ".png": "image/png",
@@ -123,7 +105,7 @@ def download_tailored_docx(
     """
     row = access.get_tailored(db, scope, tailoring_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Tailoring {tailoring_id!r} not found")
+        raise HTTPException(status_code=404, detail="Tailoring not found")
 
     try:
         path = assert_within_allowed_roots(row.docx_path, what="rendered resume")
@@ -164,11 +146,16 @@ def download_evidence(
     """
     name = _safe_file_name(filename)
 
-    if access.get_application(db, scope, application_id) is None:
-        raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
+    application = access.get_application(db, scope, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
 
-    model = _evidence_model()
-    evidence = db.query(model).filter(model.application_id == application_id).all()
+    # WS-14 · A2: the evidence rows are read through the scoped accessor.
+    # The route used to query the table directly with a dynamically
+    # resolved model name — which is exactly the shape the "no direct
+    # route queries" rule exists to catch, and which a text search for a
+    # model name cannot see.
+    evidence = access.list_evidence(db, scope, application.workflow_id)
     if not evidence:
         raise HTTPException(status_code=404, detail="This application has no evidence")
 
@@ -220,7 +207,7 @@ def list_application_evidence(
     """
     application = access.get_application(db, scope, application_id)
     if application is None:
-        raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
+        raise HTTPException(status_code=404, detail="Application not found")
 
     records = access.list_evidence(db, scope, application.workflow_id)
     return {

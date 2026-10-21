@@ -43,7 +43,6 @@ from src.applications.tracking import (
     EVENT_APPROVAL_REJECTED,
     ApplicationStatus,
     create_application,
-    find_application,
     human_actor,
     record_event,
     transition,
@@ -56,7 +55,6 @@ from src.db.approval import (
 )
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
-from src.db.users import LEGACY_OWNER_ID
 from src.graph.executor import (
     execute_approved,
     new_workflow_id,
@@ -153,9 +151,21 @@ class ApplicationPrepareResponse(BaseModel):
 
 
 class ApprovalDecisionRequest(BaseModel):
-    """A human decision on a prepared application."""
+    """A human decision on a prepared application.
 
-    approver: str = Field(..., min_length=1, description="Identity of the approving operator")
+    **The approver is the authenticated principal, not this field**
+    (WS-14 · A2, threat T2). The field is still accepted so that an older
+    client keeps working, but its value is **ignored**: a caller cannot
+    approve an application *as somebody else* by naming them. When a
+    body carries an approver that is not the caller, the fact is audited.
+
+    The field is optional because it is no longer the source of truth.
+    """
+
+    approver: str | None = Field(
+        None,
+        description="Ignored. The approver is the authenticated principal.",
+    )
     reason: str | None = Field(None, description="Why the application was approved or rejected")
 
 
@@ -214,7 +224,7 @@ def _load_approval(approval_id: str, db: Session, scope: UserScope) -> ApprovalR
     """
     row = access.get_approval(db, scope, approval_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Approval request {approval_id!r} not found")
+        raise HTTPException(status_code=404, detail="Approval request not found")
     return row
 
 
@@ -324,7 +334,7 @@ def prepare_application(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     row = build_approval_row(
-        owner_id=LEGACY_OWNER_ID,
+        owner_id=scope.user_id,
         workflow_id=workflow_id,
         adapter_name=adapter.name,
         prepared=prepared,
@@ -340,6 +350,7 @@ def prepare_application(
     # AWAITING_APPROVAL, because an approval request now exists.
     application_id = _track_prepare(
         db,
+        owner_id=scope.user_id,
         workflow_id=workflow_id,
         adapter_name=adapter.name,
         approval_id=row.id,
@@ -444,6 +455,7 @@ def _profile_facts(db: Session, profile_id: str | None, scope: UserScope) -> dic
 def _track_prepare(
     db: Session,
     *,
+    owner_id: str,
     workflow_id: str,
     adapter_name: str,
     approval_id: str,
@@ -462,7 +474,7 @@ def _track_prepare(
     try:
         application = create_application(
             db,
-            owner_id=LEGACY_OWNER_ID,
+            owner_id=owner_id,
             workflow_id=workflow_id,
             adapter_name=adapter_name,
             job_url=job_url,
@@ -493,6 +505,7 @@ def _record_tracking_event(
     application_id: str,
     event_type: str,
     *,
+    owner_id: str,
     actor: str,
     metadata: dict | None = None,
 ) -> None:
@@ -502,7 +515,7 @@ def _record_tracking_event(
             db,
             application_id,
             event_type,
-            owner_id=LEGACY_OWNER_ID,
+            owner_id=owner_id,
             actor=actor,
             metadata=metadata,
         )
@@ -579,22 +592,41 @@ def approve_application(
             detail=f"Approval request {approval_id!r} was already decided ({row.status})",
         )
 
+    # WS-14 · A2 (T2): the approver is the **authenticated principal**.
+    # A body-supplied approver is ignored, and the attempt to name
+    # somebody else is recorded.
+    approver = scope.user_id
+    if req.approver and req.approver != approver:
+        record_audit(
+            ACTION_APPROVE,
+            actor=approver,
+            resource=approval_id,
+            outcome=OUTCOME_DENIED,
+            owner_id=approver,
+            metadata={
+                "reason": "the request named a different approver; it was ignored",
+                "named_approver": req.approver,
+            },
+            workflow_id=row.workflow_id,
+        )
+
     policy = get_submission_policy()
     try:
         assert_execution_allowed(policy)
     except (PolicyError, AutoSubmitNotAllowed) as exc:
         record_audit(
             ACTION_APPROVE,
-            actor=req.approver,
+            actor=approver,
             resource=approval_id,
             outcome=OUTCOME_BLOCKED,
+            owner_id=approver,
             metadata={"reason": str(exc), "policy": policy.value},
             workflow_id=row.workflow_id,
         )
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     row.status = ApprovalStatus.APPROVED
-    row.approver = req.approver
+    row.approver = approver
     row.decision_reason = req.reason
     row.decided_at = datetime.now(UTC)
     db.commit()
@@ -605,13 +637,14 @@ def approve_application(
     # WS-07: the decision is an event in the tracked application's history.
     # The application itself stays in AWAITING_APPROVAL until the agent
     # actually performs the submission.
-    application = find_application(db, approval_id=approval_id)
+    application = access.get_application_by_approval(db, scope, approval_id)
     if application is not None:
         _record_tracking_event(
             db,
             application.id,
             EVENT_APPROVAL_GRANTED,
-            actor=human_actor(req.approver),
+            owner_id=approver,
+            actor=human_actor(approver),
             metadata={"reason": req.reason, "approval_id": approval_id},
         )
 
@@ -620,7 +653,7 @@ def approve_application(
         adapter,
         workflow_id=row.workflow_id,
         approval_id=approval_id,
-        approver=req.approver,
+        approver=approver,
         decision_reason=req.reason or "",
         session=db,
         application_id=application.id if application is not None else None,
@@ -632,9 +665,10 @@ def approve_application(
 
     record_audit(
         ACTION_APPROVE,
-        actor=req.approver,
+        actor=approver,
         resource=approval_id,
         outcome=OUTCOME_SUCCESS if result.success else OUTCOME_BLOCKED,
+        owner_id=approver,
         metadata={
             "workflow_id": row.workflow_id,
             "status": result.status,
@@ -683,30 +717,48 @@ def reject_application(
             detail=f"Approval request {approval_id!r} was already decided ({row.status})",
         )
 
+    # WS-14 · A2 (T2): the approver is the authenticated principal, and a
+    # body-supplied one is ignored.
+    approver = scope.user_id
+    if req.approver and req.approver != approver:
+        record_audit(
+            ACTION_REJECT,
+            actor=approver,
+            resource=approval_id,
+            outcome=OUTCOME_DENIED,
+            owner_id=approver,
+            metadata={
+                "reason": "the request named a different approver; it was ignored",
+                "named_approver": req.approver,
+            },
+            workflow_id=row.workflow_id,
+        )
+
     row.status = ApprovalStatus.REJECTED
-    row.approver = req.approver
+    row.approver = approver
     row.decision_reason = req.reason
     row.decided_at = datetime.now(UTC)
     db.commit()
 
     # WS-07: a decline at the gate is a human outcome, so the tracked
     # application moves to REJECTED with a human actor.
-    application = find_application(db, approval_id=approval_id)
+    application = access.get_application_by_approval(db, scope, approval_id)
     if application is not None:
         _transition_tracked(
             db,
             application,
             ApplicationStatus.REJECTED,
-            actor=human_actor(req.approver),
+            actor=human_actor(approver),
             event_type=EVENT_APPROVAL_REJECTED,
             metadata={"reason": req.reason, "approval_id": approval_id},
         )
 
     record_audit(
         ACTION_REJECT,
-        actor=req.approver,
+        actor=approver,
         resource=approval_id,
         outcome=OUTCOME_SUCCESS,
+        owner_id=approver,
         metadata={"workflow_id": row.workflow_id, "reason": req.reason},
         workflow_id=row.workflow_id,
     )
@@ -714,7 +766,7 @@ def reject_application(
     logger.info(
         "[%s] Application rejected by %s",
         row.workflow_id,
-        req.approver,
+        approver,
         extra={"workflow_id": row.workflow_id},
     )
 
@@ -725,7 +777,7 @@ def reject_application(
         status=ApprovalStatus.REJECTED,
         success=False,
         message=req.reason or "Application rejected by the approver",
-        metadata={"approver": req.approver},
+        metadata={"approver": approver},
     )
 
 

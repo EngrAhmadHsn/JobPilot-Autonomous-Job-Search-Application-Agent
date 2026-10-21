@@ -34,7 +34,6 @@ from src.db.jobs import JobDB, listing_from_row
 from src.db.matches import build_match_rows, match_row_to_dict
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
-from src.db.users import LEGACY_OWNER_ID
 from src.graph.job_executor import (
     JobRefreshReport,
     JobRefreshStats,
@@ -170,7 +169,7 @@ def search_jobs(
     """
     profile_row = access.get_profile(db, scope, req.profile_id)
     if profile_row is None:
-        raise HTTPException(status_code=404, detail=f"Profile {req.profile_id!r} not found")
+        raise HTTPException(status_code=404, detail="Profile not found")
     profile = profile_from_row(profile_row)
 
     # SEC-13 audit event (ids/counts only, never PII).
@@ -187,7 +186,7 @@ def search_jobs(
     report = executor(profile, req.query, req.location, req.top_n)
 
     if report.results:
-        db.add_all(build_match_rows(req.profile_id, report.results, owner_id=LEGACY_OWNER_ID))
+        db.add_all(build_match_rows(req.profile_id, report.results, owner_id=scope.user_id))
         db.commit()
 
     record_audit(
@@ -246,7 +245,7 @@ def get_profile_matches(
 ) -> MatchesHistoryResponse:
     """Persisted match history for one profile, oldest first."""
     if access.get_profile(db, scope, profile_id) is None:
-        raise HTTPException(status_code=404, detail=f"Profile {profile_id!r} not found")
+        raise HTTPException(status_code=404, detail="Profile not found")
     rows = access.list_job_matches(db, scope, profile_id)
     return MatchesHistoryResponse(
         profile_id=profile_id, matches=[match_row_to_dict(row) for row in rows]

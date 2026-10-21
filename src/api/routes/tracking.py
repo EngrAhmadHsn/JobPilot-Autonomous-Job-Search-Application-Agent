@@ -24,7 +24,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
@@ -32,7 +31,6 @@ from src.applications.tracking import (
     ActorNotPermittedError,
     ApplicationStatus,
     IllegalTransitionError,
-    application_events,
     transition,
 )
 from src.db import access
@@ -135,8 +133,15 @@ def _summary(row: ApplicationDB) -> ApplicationSummary:
     )
 
 
-def _detail(row: ApplicationDB, db: Session) -> ApplicationDetailResponse:
-    """The application with its full history, in append order."""
+def _detail(
+    row: ApplicationDB, db: Session, scope: UserScope
+) -> ApplicationDetailResponse:
+    """The application with its full history, in append order.
+
+    The history is read through the scoped accessor, so the events of an
+    application the caller may read are the events **they** may read —
+    the two cannot drift apart.
+    """
     events = [
         ApplicationEventResponse(
             id=event.id,
@@ -147,7 +152,7 @@ def _detail(row: ApplicationDB, db: Session) -> ApplicationDetailResponse:
             metadata=dict(event.extra_metadata or {}),
             recorded_at=event.recorded_at,
         )
-        for event in application_events(db, row.id)
+        for event in access.list_application_events(db, scope, row.id)
     ]
     return ApplicationDetailResponse(**_summary(row).model_dump(), events=events)
 
@@ -180,6 +185,7 @@ def _parse_statuses(values: list[str] | None) -> list[ApplicationStatus]:
 @router.get("", response_model=ApplicationListResponse)
 def list_applications(
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
     status: Annotated[list[str] | None, Query()] = None,
     profile_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
@@ -187,8 +193,15 @@ def list_applications(
 ) -> ApplicationListResponse:
     """List the tracked applications, newest first.
 
+    Only the caller's own applications are listed. The listing and the
+    total both go through the scoped accessors, so a total that counted
+    other users' rows — and a list that showed them — are both
+    impossible by construction rather than by a check somebody has to
+    remember.
+
     Args:
         db: The request-scoped database session.
+        scope: The caller's access scope.
         status: Filter by one or more statuses (repeat the parameter, or
             pass a comma-separated list).
         profile_id: Filter by the candidate profile.
@@ -199,21 +212,22 @@ def list_applications(
         The page of applications and the total number that matched.
     """
     statuses = _parse_statuses(status)
+    status_filter = statuses[0].value if len(statuses) == 1 else None
 
-    filters = []
-    if statuses:
-        filters.append(ApplicationDB.status.in_([item.value for item in statuses]))
-    if profile_id:
-        filters.append(ApplicationDB.profile_id == profile_id)
-
-    total = db.scalar(select(func.count()).select_from(ApplicationDB).where(*filters)) or 0
-    rows = db.scalars(
-        select(ApplicationDB)
-        .where(*filters)
-        .order_by(ApplicationDB.created_at.desc(), ApplicationDB.id.desc())
-        .limit(limit)
-        .offset(offset)
-    ).all()
+    rows = access.list_applications(
+        db,
+        scope,
+        status=status_filter,
+        profile_id=profile_id,
+        limit=limit,
+        offset=offset,
+    )
+    total = access.count_applications(
+        db,
+        scope,
+        status=status_filter,
+        profile_id=profile_id,
+    )
 
     return ApplicationListResponse(
         items=[_summary(row) for row in rows],
@@ -236,8 +250,8 @@ def get_application(
     """
     row = access.get_application(db, scope, application_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
-    return _detail(row, db)
+        raise HTTPException(status_code=404, detail="Application not found")
+    return _detail(row, db, scope)
 
 
 @router.patch("/{application_id}/status", response_model=ApplicationDetailResponse)
@@ -269,7 +283,7 @@ def update_application_status(
     """
     row = access.get_application(db, scope, application_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
+        raise HTTPException(status_code=404, detail="Application not found")
 
     try:
         target = ApplicationStatus(req.status)
@@ -297,4 +311,4 @@ def update_application_status(
         row.notes = req.notes
         db.commit()
 
-    return _detail(row, db)
+    return _detail(row, db, scope)

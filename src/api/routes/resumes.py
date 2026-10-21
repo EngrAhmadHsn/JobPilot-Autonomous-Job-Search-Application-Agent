@@ -28,7 +28,6 @@ from src.db.profiles import (
     profile_from_row,
 )
 from src.db.session import get_db
-from src.db.users import LEGACY_OWNER_ID
 from src.resume.parser import parse_resume
 from src.resume.profile import CandidateProfile, validate_candidate_profile
 from src.security.audit import (
@@ -61,7 +60,9 @@ class ResumeProfileResponse(BaseModel):
 
 @router.post("", response_model=ResumeUploadResponse)
 def upload_resume(
-    file: UploadFile, db: Annotated[Session, Depends(get_db)]
+    file: UploadFile,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ResumeUploadResponse:
     """Parse and persist an uploaded resume (DOCX/TXT/MD, <= 5 MB).
 
@@ -79,6 +80,7 @@ def upload_resume(
             actor=SYSTEM_ACTOR,
             resource=file.filename or "upload",
             outcome=OUTCOME_ERROR,
+            owner_id=scope.user_id,
             metadata={"reason": str(exc)},
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -96,13 +98,14 @@ def upload_resume(
             actor=SYSTEM_ACTOR,
             resource=profile_id,
             outcome=OUTCOME_ERROR,
+            owner_id=scope.user_id,
             metadata={"reason": "the stored file could not be parsed"},
         )
         raise HTTPException(status_code=400, detail=f"Resume could not be parsed: {exc}") from exc
 
     warnings = validate_candidate_profile(profile)
 
-    row = build_profile_row(profile, str(file_path), owner_id=LEGACY_OWNER_ID)
+    row = build_profile_row(profile, str(file_path), owner_id=scope.user_id)
     db.add(row)
     db.commit()
 
@@ -112,6 +115,7 @@ def upload_resume(
         actor=SYSTEM_ACTOR,
         resource=profile_id,
         outcome=OUTCOME_SUCCESS,
+        owner_id=scope.user_id,
         metadata={
             "extension": extension,
             "bytes": file_path.stat().st_size,
@@ -138,5 +142,5 @@ def get_resume(
     """Return the stored profile JSON for one uploaded resume."""
     row = access.get_profile(db, scope, profile_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"Profile {profile_id!r} not found")
+        raise HTTPException(status_code=404, detail="Profile not found")
     return ResumeProfileResponse(profile_id=row.id, profile=profile_from_row(row))
