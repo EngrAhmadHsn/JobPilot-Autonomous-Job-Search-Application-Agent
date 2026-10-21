@@ -233,7 +233,7 @@
       "source": "pbakaus/impeccable",
       "sourceType": "github",
       "skillPath": ".agents/skills/impeccable/SKILL.md",
-      "computedHash": "1a563228fc964107046ceda86034c60f527b1037a40b9372fac16e2473a83c82"
+      "computedHash": "add02d48c58cc0e8456d9edca166d807611f88321f035ddf92e95ae543bd415c"
     },
     "interface-review": {
       "source": "jakubkrehel/skills",
