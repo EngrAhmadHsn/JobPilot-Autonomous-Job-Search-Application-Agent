@@ -85,6 +85,12 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
 
     name = "fake-ats-playwright"
 
+    def __init__(self) -> None:
+        # The browser session opened for the current submission. It is closed
+        # (and Playwright stopped) when the submission ends.
+        self._browser: Browser | None = None
+        self._playwright: Playwright | None = None
+
     def supports_url(self, url: str) -> bool:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
@@ -249,7 +255,10 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
             )
             return self.verify(result)
         finally:
-            page.context.close()
+            try:
+                page.context.close()
+            finally:
+                self._shutdown_browser()
 
     def verify(self, result: ApplicationResult) -> ApplicationResult:
         if result.evidence is None:
@@ -286,15 +295,55 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
         ended up on is checked **after** it: a redirect to a host that is not
         on the allowlist is a failure, not a detail (SECURITY.md §6.5).
 
+        The Playwright instance and the browser are kept on the adapter so
+        that :meth:`submit` can shut them down. They must be stopped: the
+        sync API runs its dispatcher in a greenlet *in this thread*, so a
+        leaked instance leaves a running event loop behind and the next
+        browser use in the same thread fails with "Sync API inside the
+        asyncio loop".
         """
         assert_navigation_allowed(job_url, allow_localhost=self._allow_localhost())
 
         playwright: Playwright = sync_playwright().start()
-        browser: Browser = playwright.chromium.launch(headless=True)
+        try:
+            browser: Browser = playwright.chromium.launch(headless=True)
+        except Exception:
+            self._stop_playwright(playwright)
+            raise
         page: Page = browser.new_page()
-        page.goto(job_url, wait_until="domcontentloaded")
-        assert_navigation_allowed(page.url, allow_localhost=self._allow_localhost())
+        try:
+            page.goto(job_url, wait_until="domcontentloaded")
+            assert_navigation_allowed(page.url, allow_localhost=self._allow_localhost())
+        except Exception:
+            self._close_browser(browser, playwright)
+            raise
+        self._playwright = playwright
+        self._browser = browser
         return page
+
+    @staticmethod
+    def _stop_playwright(playwright: Playwright) -> None:
+        """Stop a Playwright instance, ignoring teardown errors."""
+        try:
+            playwright.stop()
+        except Exception as exc:  # noqa: BLE001 - teardown must not mask the outcome
+            logger.warning("Playwright could not be stopped cleanly: %s", exc)
+
+    def _close_browser(self, browser: Browser | None, playwright: Playwright | None) -> None:
+        """Close the browser and stop Playwright."""
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception as exc:  # noqa: BLE001 - teardown must not mask the outcome
+                logger.warning("The browser could not be closed cleanly: %s", exc)
+        if playwright is not None:
+            self._stop_playwright(playwright)
+
+    def _shutdown_browser(self) -> None:
+        """Close whatever this adapter opened."""
+        self._close_browser(self._browser, self._playwright)
+        self._browser = None
+        self._playwright = None
 
     @staticmethod
     def _allow_localhost() -> bool:

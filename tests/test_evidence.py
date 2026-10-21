@@ -349,6 +349,69 @@ class TestNavigationGuard:
         assert result.status == "unsafe_navigation"
 
 
+class TestBrowserLifecycle:
+    """The browser session must be closed, or the next one fails.
+
+    A leaked Playwright instance leaves a running event loop in the thread
+    (its dispatcher runs in a greenlet there), and the *next* browser use in
+    that thread dies with "Sync API inside the asyncio loop". The live
+    verification run found exactly that; this test is the regression guard.
+    """
+
+    def test_two_consecutive_submissions_both_succeed(self, evidence_dir: Path) -> None:
+        pytest.importorskip("playwright.sync_api")
+        from tests.fixtures.fake_ats import serve_fake_ats
+
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                browser.close()
+        except Exception as exc:  # noqa: BLE001 - the browser is an optional dev dependency
+            pytest.skip(f"The Playwright browser is not installed: {exc}")
+
+        adapter = FakeAtsPlaywrightAdapter()
+        with serve_fake_ats() as base:
+            first = adapter.submit(_prepared_for(f"{base}/apply", "wf-first"))
+            second = adapter.submit(_prepared_for(f"{base}/apply", "wf-second"))
+
+        assert first.success is True
+        assert first.status == "verified"
+        assert second.success is True
+        assert second.status == "verified"
+
+    def test_the_browser_is_closed_after_a_submission(
+        self, evidence_dir: Path, sample_request: ApplicationRequest, monkeypatch
+    ) -> None:
+        adapter = FakeAtsPlaywrightAdapter()
+        page = FakePage()
+        monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+        adapter.submit(_prepared(sample_request))
+
+        assert page.context.closed is True
+        assert adapter._browser is None
+        assert adapter._playwright is None
+
+
+def _prepared_for(job_url: str, workflow_id: str) -> PreparedApplication:
+    """A prepared application for a given URL and workflow."""
+    request = ApplicationRequest(
+        job_title="Senior Python Engineer",
+        company_name="Acme Labs",
+        job_url=job_url,
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 555 0101",
+    )
+    return PreparedApplication(
+        request=request,
+        prepared_fields={"candidate_name": "Ada Lovelace"},
+        workflow_id=workflow_id,
+    )
+
+
 class TestFailureStatusPreservation:
     """A failed submission keeps its own reason instead of a generic failure.
 
