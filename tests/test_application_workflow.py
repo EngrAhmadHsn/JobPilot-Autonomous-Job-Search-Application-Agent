@@ -371,6 +371,36 @@ class TestTrackingWiring:
         assert tracked.status == ApplicationStatus.AWAITING_APPROVAL.value
         assert tracked.submitted_at is None
 
+    def test_a_failed_evidence_write_still_records_the_submission(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request, monkeypatch
+    ):
+        """The evidence write and the tracking writes are independent.
+
+        A submission that happened must be recorded as a submission even
+        when its evidence could not be stored — otherwise the audit trail
+        under-reports what the agent did. Found by the WS-09 live
+        verification, against a database missing the evidence table.
+        """
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("no such table: application_evidence")
+
+        monkeypatch.setattr("src.graph.nodes.ApplicationEvidence", explode)
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        db_session.expire_all()
+        assert tracked.status == ApplicationStatus.SUBMITTED.value
+        assert tracked.submitted_at is not None
+
+        events = self._events(db_session, tracked.id)
+        evidence_events = [e for e in events if e.event_type == EVENT_EVIDENCE_RECORDED]
+        assert len(evidence_events) == 1
+        assert evidence_events[0].extra_metadata["evidence_stored"] is False
+        assert evidence_events[0].extra_metadata["evidence_id"] is None
+
     def test_a_successful_verification_moves_the_application_to_verified(
         self, db_session, tracked, initial_state, mock_adapter, sample_request
     ):

@@ -301,7 +301,13 @@ def _record_submission(
                 extra={"workflow_id": state.workflow_id},
             )
             _rollback_quietly(tracking_session)
-            return
+            # The evidence write failed, but the **submission happened**.
+            # Skipping the tracking writes would leave the application
+            # claiming it was never submitted — an audit trail that
+            # under-reports what the agent did. The two writes are
+            # independent by contract, so the lifecycle is still recorded
+            # and the event says the evidence is missing.
+            evidence_record = None
 
         if app_row is None:
             return
@@ -329,11 +335,14 @@ def _record_submission(
             EVENT_EVIDENCE_RECORDED,
             actor=AGENT_ACTOR,
             metadata={
-                "evidence_id": evidence_record.id,
+                "evidence_id": evidence_record.id if evidence_record is not None else None,
                 "status": result.status,
                 "success": result.success,
-                "screenshot_path": evidence_record.screenshot_path,
-                "trace_path": evidence_record.trace_path,
+                "screenshot_path": (
+                    evidence_record.screenshot_path if evidence_record is not None else None
+                ),
+                "trace_path": evidence_record.trace_path if evidence_record is not None else None,
+                "evidence_stored": evidence_record is not None,
             },
         )
     except Exception as db_exc:  # noqa: BLE001 - tracking must never block submission
