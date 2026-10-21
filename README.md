@@ -195,8 +195,10 @@ committed alongside it.
 
 The API is the product's engine; the console is how a human drives it. It lives
 in [`frontend/`](frontend) — its own package, its own toolchain — and talks to
-the API over HTTP. It is a **single-operator** console: there is no login,
-because the API has no authentication either.
+the API over HTTP. It signs in like any other client: the session lives in an
+`HttpOnly` cookie the browser attaches on its own, so the console keeps no
+token in JavaScript, and every unsafe request carries the double-submit
+`X-CSRF-Token` header.
 
 ```bash
 cd frontend
@@ -314,20 +316,80 @@ the refresh: the model identity is stored with the vectors, and the store raises
 
 ## Security posture
 
+### The caller is a principal
+
+**Every route except `/` and `/api/health` needs a credential** (WS-14). A request without
+one is refused with a `401`. There are two transports and one identity:
+
+- a **cookie** for the browser — `HttpOnly`, `SameSite=Lax`, `Secure` in production — with a
+  double-submit `X-CSRF-Token` header required on every unsafe request;
+- a **bearer token** for the CLI and the repo's own scripts.
+
+A session is a **server-side row**, not a signed blob: a stateless token cannot be revoked
+before it expires, and "log me out everywhere" has to work now. A password change ends
+every session but the one it was made from.
+
+### The data belongs to the caller
+
+Every user-scoped table carries a `NOT NULL`, indexed `owner_id`, and every read of one goes
+through a scoped accessor in `src/db/access.py` — a route may not query those tables
+directly, and a test greps the route sources to prove it. A resource that belongs to
+somebody else is **404, not 403**, with a byte-identical body to the one for a resource that
+does not exist, so the API is not an existence oracle.
+
+The approver of an application is the **authenticated principal**, not a field in the
+request body: a caller cannot approve an application *as somebody else*. The same holds for
+the actor of a status change.
+
+Every file the platform writes for a person lives in **that person's own directory**
+(`data/users/{user_id}/…`), and the containment check asks "is this path inside the caller's
+own directory", not "inside a directory the application owns" — the second question includes
+the other users' directories once there is more than one user.
+
+### The audit trail is attributable and unforgeable
+
+The actor of an audit row is a **principal** — a kind (`user`, `agent`, `system`) and an id —
+and the readable label is derived from the two, so they cannot disagree. Every string that
+reaches the store is stripped of its control characters, so a newline in a user-supplied
+field cannot forge a row. The rows are owner-scoped and readable over HTTP at
+`GET /api/audit`.
+
+### Data does not outlive its purpose
+
+An age-based purge removes the rows **and the files** that are past the retention window
+(`scripts/purge_expired.py --expired`). "Delete my account" removes every artefact of the
+account — the profile, the tailored resumes, the applications, the evidence, the sessions,
+the files — and **anonymizes** the audit rows rather than deleting them: a trail that can be
+rewritten is not a trail, and non-repudiation needs the record to survive the person.
+
+### The submission is a human decision
+
 The default submission policy is `REQUIRE_APPROVAL`: an application is prepared, a human
 records a decision with an identity and a reason, and only an approved record may execute.
-`AUTO_SUBMIT` is defined but unreachable, and the API refuses it.
+`AUTO_SUBMIT` is defined but unreachable, and the API refuses it. A production deployment
+must **declare** the policy — a default is not a decision.
 
-Web content is **data, never instructions**. Board HTML is neutralized at the contract, the
-listing's text reaches the model inside a nonce-fenced untrusted block, and every project
-bullet is stripped of injection patterns. Navigation is checked against an exact-match domain
-allowlist before *and* after every hop, including on every page of a multi-step form. A
-CAPTCHA or an MFA prompt stops the flow with `blocked_human_review`; the system never tries
-to solve one. Every run gets a fresh browser context, so no cookie or storage survives it.
-Secrets stay in the environment and out of the prompts, the logs and the browser traces.
+### Web content is data, never instructions
+
+Board HTML is neutralized at the contract, the listing's text reaches the model inside a
+nonce-fenced untrusted block, and every project bullet is stripped of injection patterns.
+Navigation is checked against an exact-match domain allowlist before *and* after every hop,
+including on every page of a multi-step form. A CAPTCHA or an MFA prompt stops the flow with
+`blocked_human_review`; the system never tries to solve one. Every run gets a fresh browser
+context, so no cookie or storage survives it. Secrets stay in the environment and out of the
+prompts, the logs and the browser traces.
+
+### A production deployment refuses to start unsafely
+
+With `APP_ENV=production` the application refuses to start when the CORS origins are unset
+or wildcarded, the identity secret is missing or short, the session cookie is not `Secure`,
+the submission policy is undeclared, `APP_DEBUG` is on, or an API embedding provider has no
+key. An application that runs with an unsafe configuration is worse than one that refuses to
+run, because the first looks healthy.
 
 The full threat model, the control register and the open rows are in
-[`docs/SECURITY.md`](docs/SECURITY.md).
+[`docs/SECURITY.md`](docs/SECURITY.md). The operational half — how to deploy it, how to
+check it, what to do when it breaks — is in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## Repository layout
 
@@ -378,10 +440,13 @@ WS-10.
   ATS. A live pilot — one posting, `PREPARE_ONLY`, then `REQUIRE_APPROVAL` — is the M5
   milestone and the gate for a real-ATS adapter.
 - **PDF resumes are not parsed.** DOCX, TXT and Markdown are.
-- **The API has no authentication.** The rate limit bounds abuse; it does not identify a
-  caller. The API is a single-operator surface and says so.
-- **No data-retention policy, no malware scanning of uploads, and PII still lives inside the
-  stored resume documents.** These are the open rows in `docs/SECURITY.md` §12.
+- **The account lifecycle is implemented, but the mail is not.** The password-reset and
+  e-mail-verification tokens are issued and delivered to a local mailbox directory
+  (`data/outbound/`); a deployment that adds an SMTP provider replaces
+  `src/auth/delivery.py` and nothing else changes. There is no password-policy
+  enforcement beyond a minimum length, and no e-mail address confirmation by default.
+- **No malware scanning of uploads, and PII still lives inside the stored resume
+  documents.** These are the open rows in `docs/SECURITY.md` §12.
 - **A full-corpus search with no filter can return one result fewer than requested** and
   report `degraded=true`. This is a Chroma edge case, not a matching bug.
 - **The `openai-compatible` LLM provider is experimental.** It is verified against a mock

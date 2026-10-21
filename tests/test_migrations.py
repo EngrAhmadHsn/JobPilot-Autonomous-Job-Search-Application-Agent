@@ -456,10 +456,41 @@ def test_production_startup_succeeds_with_explicit_origins() -> None:
             "CORS_ORIGINS": "https://app.example.com",
             # WS-14: production also needs an identity secret.
             "AUTH_SECRET": "a" * 48,
+            # WS-14 · Phase F: production must declare the policy.
+            "SUBMISSION_POLICY": "REQUIRE_APPROVAL",
         }
     )
     assert result.returncode == 0
     assert "startup-ok" in result.stdout
+
+
+def test_production_startup_fails_fast_without_a_submission_policy() -> None:
+    """WS-14 · Phase F: the policy must be declared, not defaulted."""
+    result = _import_app_subprocess(
+        {
+            "APP_ENV": "production",
+            "CORS_ORIGINS": "https://app.example.com",
+            "AUTH_SECRET": "a" * 48,
+            "SUBMISSION_POLICY": "",
+        }
+    )
+    assert result.returncode != 0
+    assert "SUBMISSION_POLICY" in result.stderr
+
+
+def test_production_startup_fails_fast_with_debug_on() -> None:
+    """WS-14 · Phase F: the debug flag is a development convenience."""
+    result = _import_app_subprocess(
+        {
+            "APP_ENV": "production",
+            "CORS_ORIGINS": "https://app.example.com",
+            "AUTH_SECRET": "a" * 48,
+            "SUBMISSION_POLICY": "REQUIRE_APPROVAL",
+            "APP_DEBUG": "true",
+        }
+    )
+    assert result.returncode != 0
+    assert "APP_DEBUG" in result.stderr
 
 
 def test_production_startup_fails_fast_without_an_identity_secret() -> None:

@@ -124,7 +124,10 @@ class Settings:
         # application may be executed at all, so a typo must fail loudly.
         from src.security.policy import SubmissionPolicy
 
-        self.submission_policy = os.getenv("SUBMISSION_POLICY", "REQUIRE_APPROVAL").strip().upper()
+        self._raw_submission_policy = os.getenv("SUBMISSION_POLICY")
+        self.submission_policy = (
+            self._raw_submission_policy or "REQUIRE_APPROVAL"
+        ).strip().upper()
         valid_policies = {policy.value for policy in SubmissionPolicy}
         if self.submission_policy not in valid_policies:
             raise RuntimeError(
@@ -298,6 +301,32 @@ class Settings:
             raise RuntimeError(
                 "APP_ENV=production requires a Secure session cookie "
                 "(AUTH_COOKIE_SECURE must not be false). Refusing to start."
+            )
+        # A production deployment must SAY which policy it runs. The
+        # development default is a sensible one, but a default is not a
+        # decision: the policy decides whether an application may be
+        # executed at all, and a deployment that never made that
+        # decision should not be allowed to submit anything.
+        if not self._raw_submission_policy:
+            raise RuntimeError(
+                "APP_ENV=production requires an explicit SUBMISSION_POLICY setting; "
+                "it is unset. Refusing to start."
+            )
+        # The debug flag turns on the interactive API documentation and
+        # the tracebacks that come with it. A production deployment
+        # running with it on is a deployment that shows its internals
+        # to whoever asks.
+        if self.app_debug:
+            raise RuntimeError(
+                "APP_ENV=production forbids APP_DEBUG=true. Refusing to start."
+            )
+        # An API provider needs its key. The local embedding provider
+        # needs none, so the check follows the configuration rather
+        # than being unconditional.
+        if self.embedding_provider == "gemini" and not self.llm_api_key:
+            raise RuntimeError(
+                "EMBEDDING_PROVIDER=gemini requires LLM_API_KEY in production. "
+                "Refusing to start."
             )
 
 
