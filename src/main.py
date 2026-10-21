@@ -8,6 +8,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.middleware import (
+    BodySizeLimitMiddleware,
+    ConcurrencyLimitMiddleware,
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+)
 from src.api.routes.applications import router as applications_router
 from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
@@ -60,8 +66,22 @@ app = FastAPI(
     description="Autonomous AI Job Application Agent",
     debug=settings.app_debug,
     lifespan=lifespan,
+    # WS-12: the interactive API docs are an HTML surface that renders the
+    # OpenAPI schema, and they are enabled by default. They are a
+    # development convenience, not a production feature: outside
+    # development the routes are removed entirely rather than protected by
+    # a password, so there is no second factor to forget.
+    docs_url="/docs" if settings.app_env == "development" else None,
+    redoc_url="/redoc" if settings.app_env == "development" else None,
+    openapi_url="/openapi.json" if settings.app_env == "development" else None,
 )
 
+# WS-12: the middleware order matters.
+#
+# CORS is added first, so it is the **outermost** layer: a request that the
+# rate limiter refuses still gets the CORS headers the browser needs to
+# read the error, and the security headers are applied to the CORS
+# preflight response too.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -69,6 +89,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["*"],
 )
+# The body cap is inside the rate limiter: a request that is over the rate
+# limit is refused without its body ever being read, so a flood costs the
+# server a header parse rather than a body read.
+app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(ConcurrencyLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(health_router)
 app.include_router(applications_router)
