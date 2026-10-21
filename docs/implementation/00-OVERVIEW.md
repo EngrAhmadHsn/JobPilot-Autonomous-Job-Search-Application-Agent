@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01 through WS-05 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified); next: WS-06 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…05 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks); next: WS-07 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -39,13 +39,13 @@ New dependencies**.
 | Research + RAG (Ph 7) | ~85% | Real Chroma vector store (WS-03) + a grounded research engine (WS-05: `src/research/engine.py` — listing facts verified by a deterministic grounding/injection filter); web research still deferred behind SSRF controls |
 | Tailoring + factuality (Ph 8) | ~95% | `src/resume/tailor.py` LLM tailoring + deterministic factuality validator, `src/jobs/requirements.py` extraction, plus the WS-05 ATS analyzer (`src/resume/ats.py`), DOCX renderer (`src/resume/render.py`), persistence and `POST /api/tailor` |
 | Application workflow graph (Ph 2#3) | ~80% | Full LangGraph prepare→approval→submit→verify with evidence DB write; the most complete area |
-| Browser automation runtime (Ph 9) | ~25% | `src/applications/fake_ats_adapter.py` is real Playwright but fake-ATS-only; Greenhouse/Lever submit placeholders return `success=True` unconditionally |
-| Human approval gate (Ph 10) | ~40% | Fail-closed default, but approval is a single `approval: bool` flag on the submit request; no `SubmissionPolicy`, no approver identity |
-| Submission verification (Ph 11) | ~40% | Real confirmation-text verification for fake ATS; placeholders elsewhere; `screenshot_path`/`trace_path` never populated |
-| Application tracking (Ph 12) | ~10% | `ApplicationEvidence` table only; no Application/ApplicationEvent lifecycle |
-| Evaluation (Ph 13) | 0% | No datasets, no metrics, no reports |
-| Runtime security controls (SEC-01…16) | ~10% | `src/security/allowlist.py` never called anywhere; substring host matching is spoofable; `PermissionRegistry` unwired |
-| API surface | M1 surface live | `/`, `/health`, `POST /api/applications/submit`, plus WS-04: `POST /api/resumes` (upload+validation), `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`; CORS middleware on; no auth (WS-06) |
+| Browser automation runtime (Ph 9) | ~40% | `src/applications/fake_ats_adapter.py` is real Playwright (evidence capture, allowlist re-check, CAPTCHA stop) but fake-ATS-only; the Greenhouse/Lever submit placeholders that returned `success=True` now raise `PermissionError` |
+| Human approval gate (Ph 10) | **100%** | Two-phase flow with a persisted decision: `POST /api/applications/prepare` → `ApprovalRequest` row → `POST /api/applications/{id}/approve` (or `/reject`) with an approver identity, reason and timestamp; `SubmissionPolicy` (`REQUIRE_APPROVAL` default, `AUTO_SUBMIT` unreachable); the in-graph approval node still fails closed |
+| Submission verification (Ph 11) | **100%** (fake ATS) | Confirmation-text verification **plus** evidence: screenshot, ordered action trace and the Playwright trace archive are captured and stored; the verify node downgrades a result whose artifacts are missing |
+| Application tracking (Ph 12) | ~10% | `ApplicationEvidence` table only; no Application/ApplicationEvent lifecycle (WS-07) |
+| Evaluation (Ph 13) | ~90% | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs), pure metrics module, one-command runner with a threshold gate; measured baseline in `docs/evaluations/` (extraction 1.00, dedup 1.00, nDCG@10 0.75, factuality agreement 1.00); system-level metrics wait for WS-07 tracking tables |
+| Runtime security controls (SEC-01…16) | **~75%** | Allowlist v2 with exact host matching + blocked internal hosts (enforced at the API, the browser and the adapter selection); live permission registry; two-phase approval; append-only audit events with secret/PII redaction; upload validation; CAPTCHA/MFA stop; prompt-injection filters. Still open: SEC-15 (retention), malware scanning, SEC-07 (session isolation), SEC-12 (PII inside stored resumes) |
+| API surface | M1 + WS-05 + WS-06 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/{id}` (the single-call `POST /api/applications/submit` is **removed**); CORS middleware on; no auth |
 
 ## Guiding principles (from AGENTS.md — binding for every workstream)
 
@@ -75,10 +75,12 @@ M2  Tailoring complete (§43) — ✅ DONE 2026-10-21
     Outcome: tailored, factuality-checked, ATS-scored DOCX per job.
 
 M3  Security preconditions + tracking (SECURITY.md §14)
-    06 allowlist v2 + approval flow + evidence + audit ─► 07 tracking
+    06 allowlist v2 + approval flow + evidence + audit ─► 07 tracking   ✅ 06 DONE 2026-10-21
     10 LLM hardening (retries, usage, rate limit)
     Outcome: submission path is fail-closed, approval-gated, evidence-backed.
     Submission still restricted to fake ATS.
+    WS-06 verified live (scripts/verify_ws06.py): 12/12 checks against a real
+    HTTP server and a real Chromium browser.
 
 M4  Depth + proof
     08 browser variants + adapter hardening ─► 09 evaluation harness
@@ -124,8 +126,8 @@ Retries, backoff, rate limiting, SSRF guards, and audit sanitization are impleme
 | `gemini-embedding-2` space is version-locked (incompatible with 001) | Model name + dimension persisted in Chroma collection metadata; re-embed procedure documented in 03 |
 | Greenhouse/Lever/Remotive response shape changes | Adapter isolation, recorded-JSON fixtures via `httpx.MockTransport`, normalizer never trusts optional fields |
 | SQLite (dev) vs PostgreSQL (deploy) JSON/type differences | Alembic migrations authored once, tested on both engines (01); JSON columns kept portable |
-| Untrusted job text influencing the agent | Workstream 06: allowlist + navigation guards + prompt-injection policy test proving page text only ever flows as data |
-| Placeholder adapters claiming success (`greenhouse_adapter.submit` returns `success=True`) | 06 rewires them to raise; `PermissionRegistry` makes it impossible for an unregistered adapter to reach the submit node |
+| Untrusted job text influencing the agent | **Done (WS-06)**: allowlist + navigation guards + the shared injection filter (`src/security/injection.py`) + `tests/test_injection_policy.py`, proving page text only ever flows as data |
+| Placeholder adapters claiming success (`greenhouse_adapter.submit` returns `success=True`) | **Done (WS-06)**: they now raise `PermissionError`; the permission registry makes it impossible for an unregistered adapter to reach the submit node |
 | Windows dev-environment quirks (Playwright browsers, paths) | Playwright already proven on this machine (fake ATS adapter); evidence/output paths under `data/` are created by code, not assumed |
 | ToS/legal exposure from job sources | Only public, documented board APIs (no scraping, no LinkedIn); polite rate limiting per host (02) |
 

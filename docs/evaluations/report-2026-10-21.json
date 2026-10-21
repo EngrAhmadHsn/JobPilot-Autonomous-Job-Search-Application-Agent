@@ -1,0 +1,250 @@
+{
+  "dataset": {
+    "hash": "8777fc3e0e7dfcb60aba3bf2cff5d24f642a93637b9489b5fd97b91e28a153b0",
+    "jobs": 25,
+    "profiles": 4,
+    "tailoring_pairs": 6
+  },
+  "metrics": {
+    "ats": {
+      "coverage_delta": 0.111111,
+      "mean_score": 87.0
+    },
+    "dedup": {
+      "f1": 1.0,
+      "false_negative": 0,
+      "false_positive": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positive": 5
+    },
+    "extraction": {
+      "education_precision": 1.0,
+      "education_recall": 1.0,
+      "experience_precision": 1.0,
+      "experience_recall": 1.0,
+      "field_accuracy": 1.0,
+      "skills_f1": 1.0,
+      "summary_coverage": 1.0
+    },
+    "ranking": {
+      "degraded_ndcg_at_10": 0.744298,
+      "degraded_precision_at_5": 0.4,
+      "ndcg_at_10": 0.753736,
+      "precision_at_5": 0.4,
+      "semantic_delta_ndcg_at_10": 0.009438
+    },
+    "tailoring": {
+      "agreement": 1.0,
+      "expected_violations": 2,
+      "found_violations": 2,
+      "pairs": 6,
+      "violation_recall": 1.0
+    }
+  },
+  "mode": "offline",
+  "pairs": [
+    {
+      "ats_score": 100.0,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-001",
+      "passed": true,
+      "profile": "alex_rivera_backend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "violations": []
+    },
+    {
+      "ats_score": 71.7,
+      "coverage_after": 1.0,
+      "coverage_before": 0.6666666666666666,
+      "job": "golden:job-002",
+      "passed": false,
+      "profile": "alex_rivera_backend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [
+        "Rust"
+      ],
+      "violations": [
+        "Removed 1 skill(s) not present in profile"
+      ]
+    },
+    {
+      "ats_score": 92.5,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-003",
+      "passed": true,
+      "profile": "mina_chen_ml",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "violations": []
+    },
+    {
+      "ats_score": 83.5,
+      "coverage_after": 1.0,
+      "coverage_before": 0.6666666666666666,
+      "job": "golden:job-004",
+      "passed": false,
+      "profile": "mina_chen_ml",
+      "removed_experience": [
+        "Globex"
+      ],
+      "removed_projects": [],
+      "removed_skills": [],
+      "violations": [
+        "Removed experience for unknown company 'Globex'"
+      ]
+    },
+    {
+      "ats_score": 92.5,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-005",
+      "passed": true,
+      "profile": "sam_okoye_data",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "violations": []
+    },
+    {
+      "ats_score": 81.8,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-007",
+      "passed": true,
+      "profile": "lena_fischer_frontend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "violations": []
+    }
+  ],
+  "profiles": [
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 2,
+          "matched": 2,
+          "precision": 1.0,
+          "produced": 2,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "alex_rivera_backend",
+      "ranking": {
+        "candidates": 20,
+        "degraded_ndcg_at_10": 0.684834,
+        "degraded_precision_at_5": 0.2,
+        "ndcg_at_10": 0.689566,
+        "precision_at_5": 0.2,
+        "semantic_delta_ndcg_at_10": 0.004732
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "mina_chen_ml",
+      "ranking": {
+        "candidates": 20,
+        "degraded_ndcg_at_10": 0.750826,
+        "degraded_precision_at_5": 0.6,
+        "ndcg_at_10": 0.765611,
+        "precision_at_5": 0.6,
+        "semantic_delta_ndcg_at_10": 0.014785
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "sam_okoye_data",
+      "ranking": {
+        "candidates": 20,
+        "degraded_ndcg_at_10": 0.733877,
+        "degraded_precision_at_5": 0.4,
+        "ndcg_at_10": 0.752111,
+        "precision_at_5": 0.4,
+        "semantic_delta_ndcg_at_10": 0.018234
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 0,
+          "matched": 0,
+          "precision": 1.0,
+          "produced": 0,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "lena_fischer_frontend",
+      "ranking": {
+        "candidates": 20,
+        "degraded_ndcg_at_10": 0.807657,
+        "degraded_precision_at_5": 0.4,
+        "ndcg_at_10": 0.807657,
+        "precision_at_5": 0.4,
+        "semantic_delta_ndcg_at_10": 0.0
+      }
+    }
+  ]
+}
