@@ -576,6 +576,24 @@ consume another's budget; `docs/SECURITY.md` carries the review.
 
 **Cross-cutting (AC-ISO)** — see above; it must hold after every phase.
 
+**The measured version (Phase G).** The four security metrics are not
+assertions; they are numbers in the evaluation report, measured by
+**probing the real application** (`src/evaluation/security.py`):
+
+| Metric | Target | Measured |
+|---|---|---|
+| `security.unauthenticated_access_rate` | 0 | **0.0** — all 13 protected endpoints refuse an anonymous caller |
+| `security.cross_user_isolation_violations` | 0 | **0** — of 9 user-scoped endpoints, none leaks another account's rows |
+| `security.authorization_coverage` | 1.0 | **1.0** — every user-scoped endpoint has an isolation test |
+| `security.audit_attribution_rate` | 1.0 | **1.0** — every action carries a resolvable principal |
+
+The coverage metric is measured against the **isolation suite's
+source**, not against the code that does the measuring — a number
+computed from the same code that does the work would be circular. It
+found a real gap: the suite did not exercise the match history, the two
+evidence endpoints or the audit read, and the coverage was 0.56. The
+suite now covers all of them, and the metric holds the line.
+
 **A0** — every user-scoped table has an indexed `NOT NULL owner_id`; the
 migration upgrades and downgrades; the backfill assigns the existing
 rows to a single `legacy` owner without losing a row; the two-user

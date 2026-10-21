@@ -117,6 +117,11 @@ async function signIn(page: import("@playwright/test").Page) {
   const email = process.env.E2E_ACCOUNT ?? `operator-${stamp}@example.com`
   const password = process.env.E2E_PASSWORD ?? "a-long-enough-password"
 
+  // The API may serve the console to a caller with no session (the legacy
+  // scope), in which case there is no sign-in screen to fill in and the
+  // run continues straight into the console.
+  if ((await page.getByLabel("Email").count()) === 0) return
+
   await page.getByLabel("Email").fill(email)
   await page.getByLabel("Password").fill(password)
   await page.getByRole("button", { name: "Sign in" }).click()
