@@ -2867,3 +2867,118 @@ footprints; this phase-order deviation was user-directed and accepted.
   rate) not yet measured.
 - Database persistence of `CandidateProfile` not wired (model + validation done;
   storage pending Phase 2 #4 evidence/DB work).
+
+---
+
+# 53. Plan-to-Reality Reconciliation (added 2026-10-21 — WS-11)
+
+This appendix is the **backward-looking** record: what the plan above said, what was actually
+built, and where the two differ. The plan's own sections are left exactly as they were
+written, because they are the only record of the intent; this section does not rewrite them.
+
+The **forward-looking** plan is [`docs/implementation/00-OVERVIEW.md`](implementation/00-OVERVIEW.md),
+one document per workstream, with the file-level tasks, the acceptance criteria and the tests.
+
+## 53.1 How to read the table
+
+- **Plan item** — the section of this document that specified the work.
+- **Status** — `Done`, `Done (partial)`, `Deferred` or `Not applicable`, with no "probably".
+- **Evidence** — the file, the test or the measured number that proves the status. A status
+  without evidence is an opinion, and an opinion does not close a plan item.
+- **Deviation** — what the plan said that reality did not do, and why.
+
+## 53.2 The phase table
+
+| Plan item | Status | Evidence | Deviation |
+|---|---|---|---|
+| §41 Phase 0 — environment audit | Done | The audit that produced `docs/implementation/` (2026-10-11) | None |
+| §41 Phase 1 — project foundation | Done | `src/config/settings.py`, `src/db/base.py`, `migrations/versions/171f645abf1a`, `tests/test_settings.py`, `tests/test_migrations.py` | The plan assumed a PostgreSQL-first stack; the runtime supports both, and the dev default is SQLite |
+| §41 Phase 2 — resume intelligence | Done | `src/resume/parser.py`, `src/resume/profile.py`, `src/api/routes/resumes.py`, `tests/test_resume_parser.py`; extraction metrics all **1.0000** (`docs/evaluations/report-2026-10-21.md`) | **PDF parsing is not implemented** (DOCX, TXT and Markdown are) — see §53.3, deviation 2 |
+| §41 Phase 3 — job source abstraction | Done | `src/jobs/contracts.py`, `greenhouse_adapter.py`, `lever_adapter.py`, `ashby_adapter.py`, `remotive_adapter.py`, `tests/test_jobs.py` | The **LinkedIn placeholder remains unregistered**: LinkedIn has no public board API — see §53.3, deviation 5 |
+| §41 Phase 4 — normalization + deduplication | Done | `src/jobs/normalize.py`, `src/jobs/deduplicate.py`, `src/db/jobs.py`, `tests/test_deduplicate.py`; dedup precision/recall/F1 = **1.0000** | None |
+| §41 Phase 5 — matching engine | Done | `src/matching/engine.py` (six scorers), `src/matching/weights.py`, `src/rag/chroma_store.py`, `tests/test_matching.py`; nDCG@10 = **0.7537**, precision@5 = **0.4000** | The semantic channel uses a **local** embedding model by default (FU-7) rather than the cloud one — see §53.3, deviation 6 |
+| §41 Phase 6 — LangGraph | Done | `src/graph/job_workflow.py`, `src/graph/job_executor.py`, `tests/test_job_workflow.py`, `tests/test_workflow_e2e.py`; M1 verified live over HTTP on 2026-10-11 | None |
+| §41 Phase 7 — research + RAG | Done (partial) | `src/rag/chroma_store.py`, `src/research/engine.py`, `tests/test_research.py`, `tests/test_chroma_store.py` | **URL fetching is still deferred** behind the SSRF controls; the research engine is grounded in the listing text only |
+| §41 Phase 8 — resume tailoring | Done | `src/resume/tailor.py`, `src/jobs/requirements.py`, `tests/test_tailor.py`; tailoring factuality agreement = **1.0000**, violation recall = **1.0000** | Built **before** Phases 3–7 were real — see §53.3, deviation 3 |
+| §26 ATS analysis | Done | `src/resume/ats.py`, `src/resume/render.py`, `tests/test_ats.py`, `tests/test_render.py`; ATS mean score = **87.0** | Not a phase in the plan; it arrived with WS-05 — see §53.3, deviation 4 |
+| §41 Phase 9 — browser application agent | Done (fake ATS) | `src/applications/fake_ats_adapter.py`, `src/applications/form.py`, `tests/test_browser_variants.py`; WS-08 live-verified **25/25** against a real browser | A **real-ATS adapter does not exist yet**: the M5 pilot — see §53.3, deviation 7 |
+| §41 Phase 10 — human approval | Done | `src/db/approval.py`, `src/security/policy.py`, `src/api/routes/applications.py`, `tests/test_approval_flow.py`; WS-06 live-verified **12/12** | The plan's Phase 2 #3 route took an `approval: bool` flag; that design was **removed** in WS-06 — see §53.3, deviation 8 |
+| §41 Phase 11 — verification | Done (fake ATS) | `src/applications/evidence.py`, `src/graph/nodes.py` (the verify node), `tests/test_evidence.py` | Evidence is captured for the fake ATS; the real-ATS path is unproven |
+| §41 Phase 12 — application tracking | Done | `src/applications/tracking.py`, `src/db/applications.py`, `src/api/routes/tracking.py`, `tests/test_tracking.py`; WS-07 live-verified **21/21** | The tracking surface was designed here, beyond the plan's detail — see §53.3, deviation 9 |
+| §41 Phase 13 — evaluation | Done | `src/evaluation/`, `scripts/run_eval.py`, `tests/test_eval_runner.py`, `docs/evaluations/report-2026-10-21.md`; WS-09 live-verified **34/34** | Not a phase in the plan's original list in this shape; it arrived with WS-09 — see §53.3, deviation 4 |
+| §23 Human-in-the-loop | Done | `src/security/policy.py` (`REQUIRE_APPROVAL` is the default; `AUTO_SUBMIT` is unreachable) | None |
+| §24 Unknown application questions | Done | `src/applications/form.py` (the answer rule), `src/applications/fake_ats_adapter.py` (`needs_human`) | None |
+| §28 Security model | Done (with open rows) | `src/security/allowlist.py`, `permissions.py`, `audit.py`, `injection.py`, `limits.py`, `paths.py`, `page_guards.py`; `docs/SECURITY.md` §14.1 | **Retention, malware scanning, PII minimisation inside stored resumes and API authentication are still open** (§53.4) |
+| §35 Failure recovery, §34 observability | Done | `src/llm/resilience.py`, `src/llm/usage.py`, the `degraded` / `quota_exhausted` reporting in the refresh report; WS-10 live-verified **14/14** | The live run found the SDK's own retry layer sleeping 14 hours on a `Retry-After` header; both internal retry layers are now off |
+| §47 Avoid over-engineering | Honoured | The modular monolith; retries, rate limiting, SSRF guards and audit sanitization are hand-rolled, not dependencies | None |
+| §50 Final architectural principle | Honoured | Business logic lives in deterministic Python, not in prompts; the LLM drafts and nothing else | None |
+| §42 / §43 / §44 — M1, M2, M3 | Done | M1 verified live over HTTP (2026-10-11); M2 and M3 verified in the WS-05/06/07/10 live runs | — |
+| §4 / §9 / §10 / §11 — Cursor skills, hooks, plugins, MCP | Done (development-time) | `.cursor/`, `.zcode/`, `skills-lock.json` | These are **development-time** tooling and are not the runtime architecture — see §53.3, deviation 10 |
+
+## 53.3 The named deviations
+
+Each one is: what the plan said → what the code does → why → and whether it is open or closed.
+
+1. **The dict-based candidate profile → the validated Pydantic `CandidateProfile`.**
+   *Closed.* The plan's own §2 pipeline (parse → profile → validate) is now what the code
+   does: `src/resume/parser.py` → `src/resume/profile.py` → `validate_candidate_profile()`.
+   The deviation is closed, not merely noted.
+2. **PDF resume support.** *Open.* The plan says "PDF/DOCX as appropriate"; the parser handles
+   DOCX, TXT and Markdown. PDF needs a parser that does not lie about its text layer, and no
+   such dependency was added without justification.
+3. **Phase 8 shipped before Phases 3–7 were real.** *Closed, and the order was restored.*
+   The tailoring stage was built first, on user direction, to make one vertical proof of the
+   factuality-first principle: one real resume, one real listing, one real draft, zero
+   fabricated claims. WS-01…WS-04 then implemented the earlier phases in order, and WS-04
+   joined them into one workflow.
+4. **Two stages that were not in the plan's phase list: ATS analysis and evaluation.**
+   *Closed.* They arrived as WS-05 and WS-09. The plan's §7 metric list and §26 ATS section
+   are the specification they were built against; the measured numbers are in
+   `docs/evaluations/`.
+5. **The LinkedIn placeholder adapter.** *Closed as a permanent exclusion.* LinkedIn has no
+   public board API, so the adapter is contract-compliant but unregistered, and the registry
+   makes it impossible to reach the submit node. The roadmap says the same: public, documented
+   board APIs only, no scraping.
+6. **The embedding provider.** *Open, deliberately.* FU-7 switched the default from the planned
+   cloud model to a local one (EmbeddingGemma-2 int8, 768 dimensions, no quota). The model
+   identity and its dimension are persisted with the vectors, and the store raises
+   `VectorStoreMismatch` rather than mixing two embedding spaces — so the switch is safe, and
+   the cloud path stays selectable for A/B and fallback.
+7. **A real-ATS adapter.** *Open.* The browser layer is proven against the local fake ATS
+   (eleven page variants). The M5 pilot — one real posting, `PREPARE_ONLY` first, then
+   `REQUIRE_APPROVAL` with a human in the loop — is the gate for the real adapter, and
+   `docs/SECURITY.md` §14 is the gate for that.
+8. **The single-call submit route.** *Closed.* The Phase 2 #3 design exposed
+   `POST /api/applications/submit` with an `approval: bool` flag. That is exactly the hole
+   SEC-05 forbids, so WS-06 removed the route and replaced it with a persisted two-phase
+   flow. Every submission now provably has an approved decision row behind it.
+9. **The tracking and approval surface grew beyond the plan's detail.** *Closed.* WS-07 added
+   the `applications` and `application_events` tables, a transition matrix with an actor rule
+   (a human outcome is only settable by a human), and the tracking API.
+10. **MCP is development-time, not the runtime.** *Honoured, and recorded here because the
+    plan's §5 and §11 read as if MCP might be the runtime path.* The runtime browser layer is
+    the Playwright **Python** client in `src/applications/`; the Playwright MCP is for
+    inspection and validation during development.
+11. **The database.** *Open, deliberately.* The plan's stack lists PostgreSQL. The runtime
+    supports PostgreSQL and runs on SQLite by default, because a single-operator deployment
+    should not need a server. The migrations were authored once and are tested on both
+    engines, and the JSON columns were kept portable.
+
+## 53.4 What is still open
+
+| Item | Where it is tracked |
+|---|---|
+| The real-ATS adapter and the M5 live pilot | `docs/implementation/00-OVERVIEW.md`, `docs/SECURITY.md` §14.1 |
+| Data retention and purge (SEC-15) | `docs/SECURITY.md` §12 |
+| Malware scanning of uploads and job pages | `docs/SECURITY.md` §12 |
+| PII minimisation inside the stored resume documents (SEC-12) | `docs/SECURITY.md` §12 |
+| API authentication | `docs/SECURITY.md` §12 |
+| PDF resume parsing | this appendix, deviation 2 |
+| URL-based web research behind the SSRF controls | `docs/implementation/00-OVERVIEW.md` |
+
+## 53.5 The forward plan
+
+`docs/implementation/00-OVERVIEW.md` is the live plan: the workstream index, the feature-gap
+table, the dependency graph, the risk register and the milestone sequence. Each workstream
+document carries its own goal, its current state, its file-level tasks, its acceptance criteria
+and its tests, and — once executed — its implementation notes.
