@@ -1,11 +1,28 @@
-"""Tests for the workflow executor and adapter selection logic."""
+"""Tests for the workflow executor and adapter selection logic (WS-06).
+
+The executor has two entry points since WS-06: ``prepare_application`` builds
+the payload for review, ``execute_approved`` executes a payload a human has
+already approved. The second one must submit *the persisted payload* — the
+prepare node is idempotent precisely so that a re-preparation cannot swap the
+payload under the approver's feet.
+"""
+
+from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.applications.contracts import ApplicationRequest, ApplicationResult
-from src.graph.executor import execute_application_workflow, select_adapter_for_url
+from src.applications.contracts import (
+    ApplicationRequest,
+    ApplicationResult,
+    PreparedApplication,
+)
+from src.graph.executor import (
+    execute_approved,
+    prepare_application,
+    select_adapter_for_url,
+)
 from src.graph.state import ApplicationWorkflowState
 
 
@@ -29,10 +46,8 @@ def sample_request():
 def mock_adapter():
     """Create a mock ApplicationAdapter."""
     adapter = MagicMock()
-    adapter.name = "test-adapter"
+    adapter.name = "fake-ats-playwright"
     adapter.supports_url = MagicMock(return_value=True)
-
-    # Make it an async context manager mock if needed
     return adapter
 
 
@@ -90,27 +105,51 @@ class TestSelectAdapterForUrl:
 
     def test_select_adapter_returns_correct_adapter(self, adapter_list):
         """Test that the returned adapter is the correct one."""
-        # Only adapter-2 supports the URL
         for adapter in adapter_list:
             adapter.supports_url.return_value = False
         adapter_list[1].supports_url.return_value = True
 
         url = "http://example.com/jobs/123"
+
         adapter = select_adapter_for_url(url, adapter_list)
 
         assert adapter is adapter_list[1]
 
 
-class TestExecuteApplicationWorkflow:
-    """Tests for the execute_application_workflow function."""
+class TestPrepareApplication:
+    """Preparing builds a payload; it never submits."""
 
-    def test_workflow_execution_returns_result(self, sample_request, mock_adapter):
-        """Test that execute_application_workflow returns an ApplicationResult."""
-        # Mock the build_application_workflow to return a simple graph
+    def test_prepare_stamps_the_workflow_id(self, sample_request, mock_adapter):
+        mock_adapter.prepare.return_value = PreparedApplication(request=sample_request)
+
+        result = prepare_application(sample_request, mock_adapter, workflow_id="wf-123")
+
+        assert result.workflow_id == "wf-123"
+        mock_adapter.prepare.assert_called_once_with(sample_request)
+
+    def test_prepare_generates_a_workflow_id(self, sample_request, mock_adapter):
+        mock_adapter.prepare.return_value = PreparedApplication(request=sample_request)
+
+        result = prepare_application(sample_request, mock_adapter)
+
+        assert result.workflow_id
+
+    def test_prepare_is_refused_without_the_capability(self, sample_request):
+        adapter = MagicMock()
+        adapter.name = "rogue-adapter"
+
+        with pytest.raises(PermissionError):
+            prepare_application(sample_request, adapter)
+
+        adapter.prepare.assert_not_called()
+
+
+class TestExecuteApproved:
+    """Execution runs the graph with the persisted, approved payload."""
+
+    def test_execution_returns_result(self, sample_request, mock_adapter):
         with patch("src.graph.executor.build_application_workflow") as mock_build:
             mock_graph = MagicMock()
-
-            # Real state instance: the executor distinguishes state vs dict results
             mock_result_state = ApplicationWorkflowState(
                 request=sample_request,
                 final_result=ApplicationResult(
@@ -120,113 +159,102 @@ class TestExecuteApplicationWorkflow:
                     metadata={"workflow_id": "test-001"},
                 ),
             )
-
-            # Configure the graph.invoke() to return our mock state
             mock_graph.invoke = MagicMock(return_value=mock_result_state)
             mock_build.return_value = mock_graph
 
-            result = execute_application_workflow(
-                request=sample_request,
-                adapter=mock_adapter,
-                approval=True,
+            prepared = PreparedApplication(request=sample_request, workflow_id="wf-1")
+            result = execute_approved(
+                prepared,
+                mock_adapter,
+                workflow_id="wf-1",
+                approval_id="ap-1",
+                approver="operator",
             )
 
-            assert result is not None
             assert isinstance(result, ApplicationResult)
             assert result.success is True
             assert result.status == "verified"
 
-    def test_workflow_execution_with_rejection(self, sample_request, mock_adapter):
-        """Test workflow execution when application is rejected."""
+    def test_execution_restores_the_approved_payload(self, sample_request, mock_adapter):
+        """The adapter must not re-prepare: the approved payload is submitted."""
         with patch("src.graph.executor.build_application_workflow") as mock_build:
             mock_graph = MagicMock()
-
             mock_result_state = ApplicationWorkflowState(
                 request=sample_request,
-                final_result=ApplicationResult(
-                    success=False,
-                    status="rejected",
-                    message="Application rejected at approval gate",
-                    metadata={},
-                ),
+                final_result=ApplicationResult(success=True, status="verified", message="ok"),
             )
-
             mock_graph.invoke = MagicMock(return_value=mock_result_state)
             mock_build.return_value = mock_graph
 
-            result = execute_application_workflow(
-                request=sample_request,
-                adapter=mock_adapter,
-                approval=False,
+            prepared = PreparedApplication(request=sample_request, workflow_id="wf-1")
+            execute_approved(
+                prepared,
+                mock_adapter,
+                workflow_id="wf-1",
+                approval_id="ap-1",
+                approver="operator",
             )
 
-            assert result.success is False
-            assert result.status == "rejected"
+            mock_adapter.prepare.assert_not_called()
+            invoked_state = mock_graph.invoke.call_args.args[0]
+            assert invoked_state.prepared_application is prepared
+            assert invoked_state.approval_status is True
+            assert invoked_state.approval_metadata["approver"] == "operator"
+            assert invoked_state.approval_id == "ap-1"
 
-    def test_workflow_execution_handles_no_final_result(self, sample_request, mock_adapter):
-        """Test that executor handles case where final_result is not set."""
+    def test_execution_handles_no_final_result(self, sample_request, mock_adapter):
         with patch("src.graph.executor.build_application_workflow") as mock_build:
             mock_graph = MagicMock()
-
-            # Simulate a workflow that doesn't set final_result (should not happen, but defensive)
             mock_result_state = ApplicationWorkflowState(request=sample_request)
-
             mock_graph.invoke = MagicMock(return_value=mock_result_state)
             mock_build.return_value = mock_graph
 
-            result = execute_application_workflow(
-                request=sample_request,
-                adapter=mock_adapter,
-                approval=True,
+            result = execute_approved(
+                PreparedApplication(request=sample_request),
+                mock_adapter,
+                workflow_id="wf-1",
+                approval_id="ap-1",
+                approver="operator",
             )
 
             assert result.success is False
             assert result.status == "workflow_error"
             assert "without producing" in result.message
 
-    def test_workflow_execution_handles_exception(self, sample_request, mock_adapter):
-        """Test that executor handles exceptions gracefully."""
+    def test_execution_handles_exception(self, sample_request, mock_adapter):
         with patch("src.graph.executor.build_application_workflow") as mock_build:
-            # Simulate graph.invoke() raising an exception
             mock_graph = MagicMock()
             mock_graph.invoke = MagicMock(side_effect=ValueError("Test error"))
             mock_build.return_value = mock_graph
 
-            result = execute_application_workflow(
-                request=sample_request,
-                adapter=mock_adapter,
-                approval=True,
+            result = execute_approved(
+                PreparedApplication(request=sample_request),
+                mock_adapter,
+                workflow_id="wf-1",
+                approval_id="ap-1",
+                approver="operator",
             )
 
             assert result.success is False
             assert result.status == "workflow_error"
             assert "Test error" in result.message
 
-    def test_workflow_execution_uses_correct_adapter(self, sample_request, mock_adapter):
-        """Test that execute_application_workflow uses the provided adapter."""
+    def test_execution_uses_the_given_adapter(self, sample_request, mock_adapter):
         with patch("src.graph.executor.build_application_workflow") as mock_build:
             mock_graph = MagicMock()
-
             mock_result_state = ApplicationWorkflowState(
                 request=sample_request,
-                final_result=ApplicationResult(
-                    success=True,
-                    status="verified",
-                    message="Success",
-                    metadata={},
-                ),
+                final_result=ApplicationResult(success=True, status="verified", message="Success"),
             )
-
             mock_graph.invoke = MagicMock(return_value=mock_result_state)
             mock_build.return_value = mock_graph
 
-            result = execute_application_workflow(
-                request=sample_request,
-                adapter=mock_adapter,
-                approval=True,
+            execute_approved(
+                PreparedApplication(request=sample_request),
+                mock_adapter,
+                workflow_id="wf-1",
+                approval_id="ap-1",
+                approver="operator",
             )
 
-            assert result.success is True
-
-            # Verify build_application_workflow was called with the adapter
             mock_build.assert_called_once_with(mock_adapter)

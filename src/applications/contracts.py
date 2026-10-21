@@ -26,6 +26,9 @@ class PreparedApplication(BaseModel):
     cover_letter: str | None = None
     prepared_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     requires_manual_review: bool = False
+    # The workflow this payload belongs to (WS-06). The evidence artifacts
+    # are named after it, and the approval record carries it.
+    workflow_id: str | None = None
 
 
 class SubmissionEvidence(BaseModel):

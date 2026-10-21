@@ -40,6 +40,9 @@ class ApplicationWorkflowState:
     # Workflow metadata
     workflow_id: str = ""
     adapter_name: str = ""
+    # WS-06: the persisted approval this run is (or was) bound to.
+    approval_id: str | None = None
+    approver: str | None = None
     error: str | None = None
     error_details: dict | None = None
 

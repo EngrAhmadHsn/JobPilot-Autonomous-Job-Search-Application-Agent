@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from src.applications.contracts import ApplicationResult
+
 if TYPE_CHECKING:
     from src.applications.contracts import ApplicationAdapter
     from src.graph.state import ApplicationWorkflowState
@@ -20,6 +22,12 @@ def prepare_node(
     This node calls adapter.prepare() to transform the raw ApplicationRequest into
     a PreparedApplication with validated fields and structure.
 
+    The node is **idempotent** (WS-06): when the state already carries a
+    prepared application, that payload is reused instead of being rebuilt.
+    Phase two of the approval flow restores the payload a human approved from
+    the approval record; re-preparing it here could submit something the
+    approver never saw.
+
     Args:
         state: Current workflow state
         adapter: The ApplicationAdapter instance (selected based on job URL)
@@ -30,12 +38,20 @@ def prepare_node(
     Raises:
         ValueError if adapter.prepare() fails
     """
+    if state.prepared_application is not None:
+        logger.info(
+            f"[{state.workflow_id}] Reusing the persisted prepared application",
+            extra={"workflow_id": state.workflow_id, "adapter": adapter.name},
+        )
+        return state
+
     try:
         logger.info(
             f"[{state.workflow_id}] Preparing application for {state.request.company_name}",
             extra={"workflow_id": state.workflow_id, "job_url": state.request.job_url},
         )
         prepared = adapter.prepare(state.request)
+        prepared.workflow_id = state.workflow_id or prepared.workflow_id
         state.prepared_application = prepared
         logger.info(
             f"[{state.workflow_id}] Application prepared successfully",
@@ -198,6 +214,7 @@ def verify_node(
             extra={"workflow_id": state.workflow_id},
         )
         verified_result = adapter.verify(state.submission_result)
+
         state.final_result = verified_result
         logger.info(
             f"[{state.workflow_id}] Verification complete: success={verified_result.success}",
