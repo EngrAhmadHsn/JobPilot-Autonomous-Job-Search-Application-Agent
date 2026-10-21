@@ -141,7 +141,7 @@ Each control below records:
 | SEC-04 | Playwright MCP as dev-time browser tool | dev inspection capability, controlled exploration | `.cursor/mcp.json` | Implemented | MCP server startup validation |
 | SEC-05 | Human approval gate before submission | accidental or unauthorized application submission | `src/security/policy.py`, `src/db/approval.py`, `src/api/routes/applications.py` (prepare → approve/reject), `src/graph/nodes.py::approval_node` | **Implemented** — two-phase, persisted, approver identity + reason; `AUTO_SUBMIT` unreachable | `tests/test_approval_flow.py`, `tests/test_submit_api.py`, `tests/test_policy.py` |
 | SEC-06 | Domain allowlist | malicious redirect, fake ATS, phishing websites | `src/security/allowlist.py` (exact host match + blocked hosts), enforced in the API route, the browser adapter (pre- and post-navigation) and adapter `supports_url` | **Implemented** | `tests/test_allowlist.py` (38 tests) |
-| SEC-07 | Browser session isolation | cross-session contamination and cookie leakage | per-submission browser context in `src/applications/fake_ats_adapter.py` (WS-08 extends it) | Partial (one browser per submission; no persistent profile) | `tests/test_evidence.py::TestBrowserLifecycle` |
+| SEC-07 | Browser session isolation | cross-session contamination and cookie leakage | an explicit `browser.new_context()` per run in `src/applications/fake_ats_adapter.py` (WS-08), closed in the same `finally` that stops the browser; no persistent profile | **Implemented** (WS-08, 2026-10-21) — two consecutive runs share no cookie and no browser storage | `tests/test_isolation.py`, `tests/test_evidence.py::TestBrowserLifecycle`, live run in `scripts/verify_ws08.py` |
 | SEC-08 | Least privilege MCP permissions | overbroad tool access | `src/security/permissions.py`, `src/security/registry_setup.py`, enforced in `submit_node` / `verify_node`; the Greenhouse/Lever `submit()` placeholders now raise | **Implemented** | `tests/test_permissions.py` (15 tests) |
 | SEC-09 | CAPTCHA/MFA restrictions | bypass of anti-bot controls | `src/security/page_guards.py`, `src/applications/fake_ats_adapter.py` (stops with `blocked_human_review`) | **Implemented** | `tests/test_page_guards.py`, `tests/test_evidence.py`, live run in `scripts/verify_ws06.py` |
 | SEC-10 | File upload validation | malicious resume files | `src/api/validation.py` (extension, size, real-file check, generated name), used by `POST /api/resumes` | **Implemented** | `tests/test_upload_validation.py` (15 tests) |
@@ -639,8 +639,10 @@ endpoints (`169.254.169.254`, `169.254.170.2`, `100.100.100.200`, `metadata.goog
 
 **Remaining gaps (explicitly not covered by WS-06).** Malware scanning of uploaded files
 (the validator checks type, size and real-file structure only), data retention and purge
-(SEC-15), browser session isolation beyond one context per submission (SEC-07), and PII
-minimisation inside stored resumes (SEC-12).
+(SEC-15), and PII minimisation inside stored resumes (SEC-12). Browser session isolation
+(SEC-07) was closed by WS-08: every run now gets an explicit, fresh browser context, and two
+consecutive runs are proven to share neither a cookie nor browser storage
+(`tests/test_isolation.py`, `scripts/verify_ws08.py`).
 
 **Live verification.** `scripts/verify_ws06.py` runs the whole flow against a real HTTP server
 and a real Chromium browser: 12/12 checks passed on 2026-10-21 (allowlist refusal, prepare →
