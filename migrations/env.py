@@ -33,6 +33,7 @@ from src.config.settings import get_settings
 
 # Import model modules so they register on Base.metadata before autogenerate.
 # New model modules added by later workstreams must be imported here too.
+from src.auth.tokens import AccessTokenDB  # noqa: F401  (registers the model)
 from src.db import (  # noqa: F401
     applications,
     approval,

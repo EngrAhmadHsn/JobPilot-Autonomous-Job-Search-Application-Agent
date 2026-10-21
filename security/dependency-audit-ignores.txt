@@ -1,0 +1,63 @@
+# The dependency audit's exception list (WS-14 · Phase E).
+#
+# `pip-audit` runs in CI on every push, and it fails the build on any
+# finding that is not on this list. The list is here, rather than in the
+# workflow file, so that the exception is reviewed together with the
+# dependencies it applies to.
+#
+# Format:
+#
+#   [package]     opens a group; the package the ids below belong to
+#   # ...         the reason, in one or more comment lines
+#   ID            one vulnerability id
+#
+# A group with no reason, an id that names no group, and a duplicate id
+# are all failures: an unexplained exception is not an exception, it is
+# a hole in the gate.
+
+[chromadb]
+# PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814 and PYSEC-2026-3815
+# are all in the ChromaDB **server**: the /api/v2/tenants/... endpoints,
+# the RBAC provider, and the per-tenant authorization checks.
+#
+# This application uses chromadb.PersistentClient — the embedded mode,
+# in-process, with no HTTP server and no tenants. The vulnerable code is
+# unreachable because the code that reaches it is not running.
+PYSEC-2026-311
+PYSEC-2026-3813
+PYSEC-2026-3814
+PYSEC-2026-3815
+
+[pillow]
+# The CVE-2026-112xxx range is in the image-decoding paths: appending to
+# a PDF, seeking a GIF frame, and the related decompression-bomb
+# handling.
+#
+# Pillow is a transitive dependency of fastembed, which needs it for the
+# image embedding models. This application embeds TEXT only, so those
+# paths are never called.
+#
+# Pillow 13 fixes them, and fastembed pins pillow<13.0, so the fix is
+# not available until fastembed allows it. Revisit then.
+CVE-2026-112390
+CVE-2026-112391
+CVE-2026-112392
+CVE-2026-112395
+CVE-2026-112397
+CVE-2026-112399
+CVE-2026-112400
+CVE-2026-112401
+CVE-2026-112402
+CVE-2026-112404
+CVE-2026-112405
+CVE-2026-112406
+CVE-2026-112891
+CVE-2026-112892
+CVE-2026-112893
+CVE-2026-112894
+CVE-2026-112895
+CVE-2026-112896
+CVE-2026-112897
+CVE-2026-112899
+CVE-2026-112900
+CVE-2026-112901

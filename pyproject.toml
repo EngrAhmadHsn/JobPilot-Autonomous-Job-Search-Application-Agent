@@ -41,6 +41,20 @@ dependencies = [
     "uvicorn>=0.35.0",
 ]
 
+# The development and CI toolchain. It is an extra rather than a
+# separate requirements file so that ``pip install -e ".[dev]"`` is the
+# one command the CI workflow (and a new contributor) needs.
+[project.optional-dependencies]
+dev = [
+    "pip-audit>=2.9.0",
+    # The CI-gate test parses the workflow file.
+    "pyyaml>=6.0.2",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.16.7",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

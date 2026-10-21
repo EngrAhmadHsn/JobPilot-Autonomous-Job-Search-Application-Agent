@@ -1,0 +1,95 @@
+name: CI
+
+# WS-14 · Phase E: "an isolation control that is not in CI is a control
+# that decays."
+#
+# The suite runs the whole gate on every push and pull request:
+#
+#   - the linter (ruff), because a rule that is not enforced is a
+#     comment;
+#   - the test suite, including the two-user isolation matrix — the
+#     suite that matters most;
+#   - the migration check, because a migration that does not apply (or
+#     does not reverse) breaks a deployment, and the check has to run
+#     somewhere other than on the developer's machine;
+#   - the dependency audit, because a known-vulnerable dependency in a
+#     project that handles resumes and employer applications is not a
+#     theoretical finding.
+#
+# The browser tests need a real Chromium. They are the slow part of the
+# suite, so they are a separate job that runs in parallel with the
+# gate; a pull request is not green until both are.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  gate:
+    name: Lint, test, migrate, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install the project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests scripts
+
+      - name: Test
+        run: pytest tests -q -n auto --dist loadfile
+
+      - name: The migration check
+        run: python scripts/verify_migrations.py
+
+      - name: Audit the dependencies
+        # The script applies the documented exception list in
+        # security/dependency-audit-ignores.txt. Anything that is not on
+        # that list fails the build.
+        run: python scripts/audit_dependencies.py
+
+  browser:
+    name: The browser suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install the project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: The browser tests
+        run: pytest tests/test_browser_variants.py tests/test_application_workflow.py tests/test_fake_ats_server.py -q
