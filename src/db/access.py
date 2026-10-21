@@ -1,0 +1,238 @@
+"""Scoped data access — the authorization layer (WS-13 · A0).
+
+**Why this module exists.** WS-13 changed the threat model: the caller is
+no longer assumed to be the operator, so a request may be trying to read
+somebody else's data. The tempting fix is a check in each route — and
+that is a check that one of the routes will eventually miss. There are
+**eleven** direct reads of user-scoped tables across the route modules
+today, and every one of them is a potential IDOR.
+
+So the check lives here, in the layer that fetches the data, and the
+routes are forbidden from touching those tables directly. A route that
+wants a profile asks this module for it, and this module applies the
+owner's filter whether or not the route remembered to.
+
+**The rules, in code.**
+
+- A :class:`UserScope` is the *only* way to reach user-scoped data, and
+  it is built from a verified principal — never from a request body, a
+  header, a query parameter or a path.
+- Every accessor filters by ``owner_id``. A superuser scope may read
+  across owners; that is the platform's own audit view, and it is the
+  only exception.
+- A resource that exists but belongs to somebody else is **not found**,
+  not "forbidden". The accessors return ``None`` for both, so the caller
+  answers 404 and the API never becomes an existence oracle.
+- The one table that is *not* user-scoped is ``jobs``: it holds public
+  board data and is deliberately shared. It has no accessors here
+  because it needs none.
+
+**What A0 does and does not change.** A0 lands the schema and these
+accessors, and the routes start calling them — but until Phase A2 the
+scope the routes pass is still the single legacy owner, so the
+*behaviour* is unchanged while the *shape* of every call is already the
+final one. That is deliberate: it means A2 is a small, mechanical change
+(the scope source) rather than a rewrite (the call sites), and it means
+no intermediate commit claims an isolation it does not have.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import Select, select
+from sqlalchemy.orm import Session
+
+from src.db.applications import ApplicationDB, ApplicationEventDB
+from src.db.approval import ApprovalRequestDB
+from src.db.audit import AuditEventDB
+from src.db.evidence import ApplicationEvidenceDB
+from src.db.matches import JobMatchDB
+from src.db.profiles import CandidateProfileDB
+from src.db.tailored import TailoredResumeDB
+from src.db.users import LEGACY_OWNER_ID
+
+__all__ = [
+    "LEGACY_SCOPE",
+    "UserScope",
+    "get_application",
+    "get_approval",
+    "get_profile",
+    "get_tailored",
+    "list_applications",
+    "list_audit_events",
+    "list_profiles",
+    "list_tailored",
+]
+
+
+@dataclass(frozen=True)
+class UserScope:
+    """The principal a request acts as.
+
+    Built from a **verified** identity. The two fields are the whole
+    contract: ``user_id`` says whose data may be touched, and
+    ``is_superuser`` says whether the platform's audit view may look
+    across owners.
+    """
+
+    user_id: str
+    is_superuser: bool = False
+
+    def owns(self, owner_id: str | None) -> bool:
+        """True when a row with this owner may be read by this scope."""
+        if self.is_superuser:
+            return True
+        return owner_id is not None and owner_id == self.user_id
+
+
+#: The scope that owns everything that predates the identity work.
+#:
+#: The migration backfills every existing row to a single ``legacy``
+#: owner, so this scope sees the whole corpus. It is the *only* scope
+#: that is not derived from an authenticated principal, and it is
+#: replaced by the request's scope in Phase A2. It is deliberately
+#: conspicuous: a reader should be able to see exactly where the
+#: single-tenant assumption still lives.
+LEGACY_SCOPE = UserScope(user_id=LEGACY_OWNER_ID, is_superuser=True)
+
+
+def _owned(statement: Select, model: type, scope: UserScope) -> Select:
+    """Add the owner filter to *statement* unless the scope may read all."""
+    if scope.is_superuser:
+        return statement
+    return statement.where(model.owner_id == scope.user_id)
+
+
+# -- candidate profiles -------------------------------------------------------
+
+
+def get_profile(db: Session, scope: UserScope, profile_id: str) -> CandidateProfileDB | None:
+    """The profile *profile_id* if this scope may read it, else ``None``."""
+    if not profile_id:
+        return None
+    statement = select(CandidateProfileDB).where(CandidateProfileDB.id == profile_id)
+    return db.execute(_owned(statement, CandidateProfileDB, scope)).scalar_one_or_none()
+
+
+def list_profiles(db: Session, scope: UserScope) -> list[CandidateProfileDB]:
+    """Every profile this scope may read."""
+    statement = select(CandidateProfileDB).order_by(CandidateProfileDB.created_at.desc())
+    return list(db.execute(_owned(statement, CandidateProfileDB, scope)).scalars())
+
+
+# -- job matches --------------------------------------------------------------
+
+
+def list_job_matches(db: Session, scope: UserScope, profile_id: str) -> list[JobMatchDB]:
+    """The match history of one profile, if the scope may read it."""
+    statement = (
+        select(JobMatchDB).where(JobMatchDB.profile_id == profile_id).order_by(JobMatchDB.id.desc())
+    )
+    return list(db.execute(_owned(statement, JobMatchDB, scope)).scalars())
+
+
+# -- tailored resumes ---------------------------------------------------------
+
+
+def get_tailored(db: Session, scope: UserScope, tailoring_id: str) -> TailoredResumeDB | None:
+    """The tailored resume *tailoring_id* if this scope may read it."""
+    if not tailoring_id:
+        return None
+    statement = select(TailoredResumeDB).where(TailoredResumeDB.id == tailoring_id)
+    return db.execute(_owned(statement, TailoredResumeDB, scope)).scalar_one_or_none()
+
+
+def list_tailored(
+    db: Session, scope: UserScope, profile_id: str | None = None
+) -> list[TailoredResumeDB]:
+    """The tailored resumes this scope may read, optionally for one profile."""
+    statement = select(TailoredResumeDB).order_by(TailoredResumeDB.created_at.desc())
+    if profile_id:
+        statement = statement.where(TailoredResumeDB.profile_id == profile_id)
+    return list(db.execute(_owned(statement, TailoredResumeDB, scope)).scalars())
+
+
+# -- applications -------------------------------------------------------------
+
+
+def get_application(db: Session, scope: UserScope, application_id: str) -> ApplicationDB | None:
+    """The application *application_id* if this scope may read it.
+
+    This is the accessor that closes the IDOR the brief named: reading
+    ``/api/applications/123`` as another user returns ``None``, and the
+    route answers 404 — the same answer it gives for an id that never
+    existed.
+    """
+    if not application_id:
+        return None
+    statement = select(ApplicationDB).where(ApplicationDB.id == application_id)
+    return db.execute(_owned(statement, ApplicationDB, scope)).scalar_one_or_none()
+
+
+def list_applications(
+    db: Session,
+    scope: UserScope,
+    *,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[ApplicationDB]:
+    """The applications this scope may read, filtered and paged."""
+    statement = select(ApplicationDB).order_by(ApplicationDB.created_at.desc())
+    if status:
+        statement = statement.where(ApplicationDB.status == status)
+    statement = statement.limit(max(1, min(limit, 200))).offset(max(0, offset))
+    return list(db.execute(_owned(statement, ApplicationDB, scope)).scalars())
+
+
+def list_application_events(
+    db: Session, scope: UserScope, application_id: str
+) -> list[ApplicationEventDB]:
+    """The history of one application, if the scope may read it."""
+    statement = (
+        select(ApplicationEventDB)
+        .where(ApplicationEventDB.application_id == application_id)
+        .order_by(ApplicationEventDB.id)
+    )
+    return list(db.execute(_owned(statement, ApplicationEventDB, scope)).scalars())
+
+
+# -- approvals ----------------------------------------------------------------
+
+
+def get_approval(db: Session, scope: UserScope, approval_id: str) -> ApprovalRequestDB | None:
+    """The approval request *approval_id* if this scope may read it."""
+    if not approval_id:
+        return None
+    statement = select(ApprovalRequestDB).where(ApprovalRequestDB.id == approval_id)
+    return db.execute(_owned(statement, ApprovalRequestDB, scope)).scalar_one_or_none()
+
+
+# -- evidence -----------------------------------------------------------------
+
+
+def list_evidence(db: Session, scope: UserScope, workflow_id: str) -> list[ApplicationEvidenceDB]:
+    """The evidence rows of one workflow, if the scope may read them."""
+    statement = (
+        select(ApplicationEvidenceDB)
+        .where(ApplicationEvidenceDB.workflow_id == workflow_id)
+        .order_by(ApplicationEvidenceDB.id)
+    )
+    return list(db.execute(_owned(statement, ApplicationEvidenceDB, scope)).scalars())
+
+
+# -- audit --------------------------------------------------------------------
+
+
+def list_audit_events(
+    db: Session,
+    scope: UserScope,
+    *,
+    limit: int = 200,
+) -> list[AuditEventDB]:
+    """The audit rows this scope may read."""
+    statement = (
+        select(AuditEventDB).order_by(AuditEventDB.id.desc()).limit(max(1, min(limit, 1000)))
+    )
+    return list(db.execute(_owned(statement, AuditEventDB, scope)).scalars())
