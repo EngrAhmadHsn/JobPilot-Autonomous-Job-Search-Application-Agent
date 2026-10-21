@@ -1,6 +1,6 @@
 # Implementation Roadmap — Overview
 
-Status: **In progress** — WS-01…07 and WS-09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks)); next: WS-10, WS-11 · Owner: project · Created: 2026-10-11
+Status: **In progress** — WS-01…09 done (WS-01…04 on 2026-10-11; M1 achieved, live over HTTP — WS-05 on 2026-10-21, live-verified — WS-09 on 2026-10-21: evaluation harness with measured baseline, extended 2026-10-21 with the system/browser/§7 metric families and an honest `--live` mode — WS-06 on 2026-10-21: security preconditions, live-verified with a real browser (12/12 checks) — WS-07 on 2026-10-21: application tracking, live-verified (21/21 checks) — WS-08 on 2026-10-21: browser-automation depth, live-verified (25/25 checks)); next: WS-10, WS-11 · Owner: project · Created: 2026-10-11
 
 This folder is the concrete, file-level implementation roadmap that closes the gap between
 `docs/PROJECT_PLAN.md` (intent) and the current codebase (reality). It was produced from a
@@ -43,7 +43,7 @@ New dependencies**.
 | Human approval gate (Ph 10) | **100%** | Two-phase flow with a persisted decision: `POST /api/applications/prepare` → `ApprovalRequest` row → `POST /api/applications/{id}/approve` (or `/reject`) with an approver identity, reason and timestamp; `SubmissionPolicy` (`REQUIRE_APPROVAL` default, `AUTO_SUBMIT` unreachable); the in-graph approval node still fails closed |
 | Submission verification (Ph 11) | **100%** (fake ATS) | Confirmation-text verification **plus** evidence: screenshot, ordered action trace and the Playwright trace archive are captured and stored; the verify node downgrades a result whose artifacts are missing |
 | Application tracking (Ph 12) | **100%** | `Application` + `ApplicationEvent` tables (WS-07), a transition matrix with an actor rule (a human outcome is only settable by a human), the graph and the API wired to it, and a tracking API (list/detail/PATCH); live-verified 21/21 |
-| Evaluation (Ph 13) | ~90% | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs), pure metrics module, one-command runner with a threshold gate; measured baseline in `docs/evaluations/` (extraction 1.00, dedup 1.00, nDCG@10 0.75, factuality agreement 1.00); the system-level metrics can now be computed from the WS-07 tracking tables |
+| Evaluation (Ph 13) | **~100%** | Golden dataset (4 synthetic resumes, 25 labeled listings, 6 tailoring pairs, 8 application scenarios); pure metric modules for extraction, dedup, ranking, tailoring, ATS, relevance, the application-lifecycle (WS-07 tracking) and browser-automation (WS-08) families; one-command runner with a threshold gate; a measured baseline in `docs/evaluations/`. The `--live` mode now really uses the configured LLM and embedding provider and names them in the report; the system and browser metrics are live-verified over a real browser and a real database (26/26 checks) |
 | Runtime security controls (SEC-01…16) | **~80%** | Allowlist v2 with exact host matching + blocked internal hosts (enforced at the API, the browser and the adapter selection, and on **every** page of a multi-step form); live permission registry; two-phase approval; append-only audit events with secret/PII redaction; upload validation; CAPTCHA/MFA stop; prompt-injection filters; **SEC-07 closed by WS-08** (an explicit fresh browser context per run, proven to share no cookie and no storage). Still open: SEC-15 (retention), malware scanning, SEC-12 (PII inside stored resumes) |
 | API surface | M1 + WS-05 + WS-06 + WS-07 live | `/`, `/health`, plus WS-04: `POST /api/resumes`, `GET /api/resumes/{id}`, `POST /api/jobs/search`, `GET /api/jobs/{id}`, `GET /api/profiles/{id}/matches`, plus WS-05: `POST /api/tailor`, `GET /api/tailored/{id}`, plus WS-06: `POST /api/applications/prepare`, `POST /api/applications/{id}/approve`, `POST /api/applications/{id}/reject`, `GET /api/applications/approvals/{id}` (the single-call `POST /api/applications/submit` is **removed**), plus WS-07: `GET /api/applications`, `GET /api/applications/{id}`, `PATCH /api/applications/{id}/status`; WS-08 adds no route — the prepare response now also carries the **names** of the profile facts the agent may answer a form question with; CORS middleware on; no auth |
 
@@ -93,6 +93,14 @@ M4  Depth + proof
     variant through the full prepare → approve → submit → verify flow, the
     unknown-question pause, the challenge stop, the validation retry, the
     session-isolation proof, and the evidence on disk.
+    WS-09 verified live (scripts/verify_ws09.py): 26/26 checks against a real
+    HTTP server, a real Chromium browser and a real database — the eight
+    application scenarios through the real workflow, the application-lifecycle
+    and browser-automation metrics computed from the tracking rows the
+    workflow actually wrote, and the offline report regenerated. The live
+    verification also found and fixed a real defect in the submit node: a
+    failed evidence write used to cancel the tracking writes, leaving the
+    audit trail claiming an application had never been submitted.
 
 M5  Controlled live pilot + docs
     Single real Greenhouse posting, PREPARE_ONLY → REQUIRE_APPROVAL with a

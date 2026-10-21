@@ -1,6 +1,6 @@
 {
   "dataset": {
-    "hash": "8777fc3e0e7dfcb60aba3bf2cff5d24f642a93637b9489b5fd97b91e28a153b0",
+    "hash": "6ddec277c3f2e2ec35b867c6b4f4bd9e9019c3a7ffafb58da8189270d32ee239",
     "jobs": 25,
     "profiles": 4,
     "tailoring_pairs": 6
@@ -30,9 +30,18 @@
     "ranking": {
       "degraded_ndcg_at_10": 0.744298,
       "degraded_precision_at_5": 0.4,
+      "false_negative_rate": 0.772222,
+      "false_positive_rate": 0.0,
+      "match_decision_threshold": 70.0,
       "ndcg_at_10": 0.753736,
       "precision_at_5": 0.4,
+      "recall_at_10": 0.645833,
       "semantic_delta_ndcg_at_10": 0.009438
+    },
+    "relevance": {
+      "duplicate_rate": 0.2,
+      "hallucination_rate": 0.060606,
+      "job_relevance": 1.0
     },
     "tailoring": {
       "agreement": 1.0,
@@ -49,11 +58,14 @@
       "coverage_after": 1.0,
       "coverage_before": 1.0,
       "job": "golden:job-001",
+      "job_relevance": 1.0,
       "passed": true,
+      "produced_claims": 7,
       "profile": "alex_rivera_backend",
       "removed_experience": [],
       "removed_projects": [],
       "removed_skills": [],
+      "stripped_claims": 0,
       "violations": []
     },
     {
@@ -61,13 +73,16 @@
       "coverage_after": 1.0,
       "coverage_before": 0.6666666666666666,
       "job": "golden:job-002",
+      "job_relevance": 1.0,
       "passed": false,
+      "produced_claims": 5,
       "profile": "alex_rivera_backend",
       "removed_experience": [],
       "removed_projects": [],
       "removed_skills": [
         "Rust"
       ],
+      "stripped_claims": 1,
       "violations": [
         "Removed 1 skill(s) not present in profile"
       ]
@@ -77,11 +92,14 @@
       "coverage_after": 1.0,
       "coverage_before": 1.0,
       "job": "golden:job-003",
+      "job_relevance": 1.0,
       "passed": true,
+      "produced_claims": 6,
       "profile": "mina_chen_ml",
       "removed_experience": [],
       "removed_projects": [],
       "removed_skills": [],
+      "stripped_claims": 0,
       "violations": []
     },
     {
@@ -89,13 +107,16 @@
       "coverage_after": 1.0,
       "coverage_before": 0.6666666666666666,
       "job": "golden:job-004",
+      "job_relevance": 1.0,
       "passed": false,
+      "produced_claims": 5,
       "profile": "mina_chen_ml",
       "removed_experience": [
         "Globex"
       ],
       "removed_projects": [],
       "removed_skills": [],
+      "stripped_claims": 1,
       "violations": [
         "Removed experience for unknown company 'Globex'"
       ]
@@ -105,11 +126,14 @@
       "coverage_after": 1.0,
       "coverage_before": 1.0,
       "job": "golden:job-005",
+      "job_relevance": 1.0,
       "passed": true,
+      "produced_claims": 5,
       "profile": "sam_okoye_data",
       "removed_experience": [],
       "removed_projects": [],
       "removed_skills": [],
+      "stripped_claims": 0,
       "violations": []
     },
     {
@@ -117,11 +141,14 @@
       "coverage_after": 1.0,
       "coverage_before": 1.0,
       "job": "golden:job-007",
+      "job_relevance": 1.0,
       "passed": true,
+      "produced_claims": 5,
       "profile": "lena_fischer_frontend",
       "removed_experience": [],
       "removed_projects": [],
       "removed_skills": [],
+      "stripped_claims": 0,
       "violations": []
     }
   ],
@@ -151,8 +178,18 @@
         "candidates": 20,
         "degraded_ndcg_at_10": 0.684834,
         "degraded_precision_at_5": 0.2,
+        "matching": {
+          "false_negative": 12,
+          "false_negative_rate": 0.8,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 70.0,
+          "true_negative": 10,
+          "true_positive": 3
+        },
         "ndcg_at_10": 0.689566,
         "precision_at_5": 0.2,
+        "recall_at_10": 0.5,
         "semantic_delta_ndcg_at_10": 0.004732
       }
     },
@@ -181,8 +218,18 @@
         "candidates": 20,
         "degraded_ndcg_at_10": 0.750826,
         "degraded_precision_at_5": 0.6,
+        "matching": {
+          "false_negative": 8,
+          "false_negative_rate": 0.888889,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 70.0,
+          "true_negative": 16,
+          "true_positive": 1
+        },
         "ndcg_at_10": 0.765611,
         "precision_at_5": 0.6,
+        "recall_at_10": 0.75,
         "semantic_delta_ndcg_at_10": 0.014785
       }
     },
@@ -211,8 +258,18 @@
         "candidates": 20,
         "degraded_ndcg_at_10": 0.733877,
         "degraded_precision_at_5": 0.4,
+        "matching": {
+          "false_negative": 3,
+          "false_negative_rate": 0.6,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 70.0,
+          "true_negative": 20,
+          "true_positive": 2
+        },
         "ndcg_at_10": 0.752111,
         "precision_at_5": 0.4,
+        "recall_at_10": 0.666667,
         "semantic_delta_ndcg_at_10": 0.018234
       }
     },
@@ -241,10 +298,35 @@
         "candidates": 20,
         "degraded_ndcg_at_10": 0.807657,
         "degraded_precision_at_5": 0.4,
+        "matching": {
+          "false_negative": 4,
+          "false_negative_rate": 0.8,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 70.0,
+          "true_negative": 20,
+          "true_positive": 1
+        },
         "ndcg_at_10": 0.807657,
         "precision_at_5": 0.4,
+        "recall_at_10": 0.666667,
         "semantic_delta_ndcg_at_10": 0.0
       }
     }
-  ]
+  ],
+  "providers": {
+    "embeddings": {
+      "model": "none",
+      "provider": "lexical-standin"
+    },
+    "llm": {
+      "model": "none",
+      "provider": "canned-drafts"
+    }
+  },
+  "reproducible": true,
+  "unavailable": {
+    "browser": "the browser-automation metrics need a browser and a live database; run scripts/verify_ws09.py",
+    "system": "the application-lifecycle metrics need a browser and a live database; run scripts/verify_ws09.py"
+  }
 }
