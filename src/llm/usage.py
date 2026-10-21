@@ -25,6 +25,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from src.db.users import LEGACY_OWNER_ID
+
 logger = logging.getLogger(__name__)
 
 # The kinds of call that are accounted for.
@@ -71,6 +73,10 @@ def record_usage(
     Never raises: a failing audit store must not break an LLM call in
     flight. The failure is logged, and the caller carries on.
     """
+    # WS-14 · Phase G: the spend is attributed to the tenant that made
+    # it, so "who spent the quota" has an answer. Outside a request
+    # there is no tenant and the row belongs to the platform.
+    from src.llm.tenant import current_tenant
     from src.security.audit import (
         ACTION_LLM_USAGE,
         OUTCOME_ERROR,
@@ -79,12 +85,14 @@ def record_usage(
         record_audit,
     )
 
+    tenant = current_tenant()
     try:
         record_audit(
             action=ACTION_LLM_USAGE,
             actor=SYSTEM_ACTOR,
             resource=f"llm:{usage.provider}:{usage.model}",
             outcome=outcome or (OUTCOME_SUCCESS if usage.error_type is None else OUTCOME_ERROR),
+            owner_id=tenant or LEGACY_OWNER_ID,
             metadata=usage.to_audit_metadata(),
             workflow_id=workflow_id,
         )

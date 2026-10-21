@@ -114,9 +114,14 @@ def test_cache_hit_miss_accounting(tmp_path):
     assert len(api.calls) == 2  # only "gamma" was a miss
     assert api.calls[1]["contents"] == ["gamma"]
 
-    # A query sharing a document's exact text is a cache hit too.
+    # WS-14 · Phase G: a query is NEVER a cache hit, even when its text
+    # is byte-identical to a cached document. The query is the
+    # candidate's own text, and the cache is shared: a hit would tell a
+    # second tenant that somebody else submitted the same text, and the
+    # stored vector is a fingerprint of the candidate.
     embedding.embed_query("alpha")
-    assert len(api.calls) == 2
+    assert len(api.calls) == 3
+    assert api.calls[2]["contents"] == ["alpha"]
 
     # A fresh instance over the same cache file still needs no API calls.
     warm = make_embedding(

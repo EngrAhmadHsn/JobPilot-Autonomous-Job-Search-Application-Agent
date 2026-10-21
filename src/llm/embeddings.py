@@ -438,7 +438,24 @@ class FastembedEmbedding:
         return [[float(value) for value in vector] for vector in raw]
 
     def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([self._truncate(text)])[0]
+        """Embed one query, and **never cache it** (WS-14 · Phase G).
+
+        The query is the candidate's own text — their title, their
+        skills, their summary. The corpus embeddings are shared board
+        data and are worth caching; a candidate's vector is not shared
+        data, and a shared cache that holds it is two problems at once:
+
+        - a cache hit on an identical profile tells a second tenant
+          that somebody else submitted the same text;
+        - the stored vector is a fingerprint of the candidate, and a
+          vector can be inverted far enough to say what the text was
+          about.
+
+        So the query is embedded fresh every time and never written to
+        the disk. The cost is one embedding call per search, which for
+        the local provider is milliseconds.
+        """
+        return self._embed_local([self._truncate(text)])[0]
 
     # -- internals ----------------------------------------------------------
 
@@ -534,7 +551,29 @@ class EmbeddingCache:
             " day TEXT PRIMARY KEY,"
             " count INTEGER NOT NULL)"
         )
+        # WS-14 · Phase G: the per-tenant spend, next to the platform's
+        # own counter. The two have to live together: the fair share is
+        # computed from both, and a counter in one place and a counter
+        # in another is two truths.
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS tenant_spend ("
+            " day TEXT NOT NULL,"
+            " owner_id TEXT NOT NULL,"
+            " count INTEGER NOT NULL,"
+            " PRIMARY KEY (day, owner_id))"
+        )
         self._conn.commit()
+
+    @property
+    def connection(self):
+        """The cache's SQLite connection.
+
+        The per-tenant spend counters live in this database, next to the
+        platform's own daily request counter (WS-14 · Phase G), so the
+        fair share is computed from two counters that are always
+        consistent with each other.
+        """
+        return self._conn
 
     @staticmethod
     def _utc_day() -> str:
@@ -766,7 +805,15 @@ class GeminiEmbedding:
         return [vectors[index] for index in range(len(texts))]
 
     def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([self._truncate(text)])[0]
+        """Embed one query, and **never cache it** (WS-14 · Phase G).
+
+        The same reasoning as the local provider, with one extra cost:
+        the query is the candidate's own text, so it never goes into the
+        shared cache — and on this provider a cache miss is a real API
+        call, so the per-tenant fair share below is what keeps one
+        tenant's searches from spending everybody's quota.
+        """
+        return self._embed_with_quota([self._truncate(text)])[0]
 
     # -- quota budget (FU-4) --------------------------------------------------
 
@@ -814,6 +861,10 @@ class GeminiEmbedding:
                     f"Embedding daily budget spent ({self._rpd_limit} batch requests/day); "
                     "stopping cleanly — resume after the daily reset (cache keeps progress)"
                 )
+            # WS-14 · Phase G: the fair share. A tenant may not spend
+            # more than its share of the platform's daily budget, so one
+            # tenant's searches cannot starve the others (threat T7).
+            self._assert_tenant_allowance()
             self._throttle()
         attempts = 0
         while True:
@@ -841,7 +892,34 @@ class GeminiEmbedding:
                 used,
                 self._rpd_limit,
             )
+            # The spend is attributed to the tenant, so "who spent the
+            # quota" has an answer and the fair share can be computed.
+            from src.llm.tenant import current_tenant, record_spend
+
+            tenant = current_tenant()
+            if tenant:
+                record_spend(self._cache.connection, tenant)
         return vectors
+
+    def _assert_tenant_allowance(self) -> None:
+        """Refuse the call when the tenant has spent its share.
+
+        The share is the platform's daily budget divided by the number
+        of tenants that have spent today. A single tenant has the whole
+        budget; a second tenant halves it, and the budget that is left
+        goes to whichever tenant has used less.
+        """
+        from src.llm.tenant import TenantBudgetExceeded, current_tenant, tenant_allowance
+
+        if not current_tenant():
+            return
+        allowance = tenant_allowance(self._cache.connection, self._rpd_limit)
+        if allowance <= 0:
+            raise TenantBudgetExceeded(
+                "This account has used its share of the embedding budget for today "
+                f"({self._rpd_limit} batch requests/day, shared between the accounts "
+                "that are using it). Try again after the daily reset."
+            )
 
     # -- internals ----------------------------------------------------------
 

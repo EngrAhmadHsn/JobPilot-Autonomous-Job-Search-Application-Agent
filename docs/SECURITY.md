@@ -34,9 +34,16 @@ This document intentionally distinguishes between:
 
 ## 2. Current implementation status
 
-_Reconciled 2026-10-21 (WS-11). This section used to describe the 2026-10-11 state — a minimal
+_Reconciled 2026-10-22 (WS-14). This section used to describe the 2026-10-11 state — a minimal
 FastAPI app and the Cursor configuration — while §5 and §12 in this same file described the
-present. The document contradicted itself; the present is below._
+present. The document contradicted itself; the present is below.
+
+**The multi-user change.** WS-14 changed the threat model: the caller is
+no longer assumed to be the operator. §6.16 is the review that change
+required — what is shared, what is per-tenant, what is platform-wide, and
+what the residual risks are. The controls it names are implemented and
+tested; the entries under "planned" and "not yet implemented" above are
+the ones that are not._
 
 ### Implemented
 
@@ -94,15 +101,14 @@ present. The document contradicted itself; the present is below._
 
 - runtime secret management with a secret scanning policy
 - malware scanning of uploaded resumes and job pages
-- retention and deletion policy for resumes and PII
-- authentication on the API itself — the rate limit bounds abuse; it does not identify a
-  caller, and the API remains a single-operator surface
+- per-tenant encryption keys, and encryption at rest for the shared stores
+- an SMTP provider for the password-reset and verification tokens (the flow
+  is implemented; the delivery is a mailbox file — see §6.16)
 
 ### Not yet implemented
 
 - browser automation runtime for a real (non-fake) ATS
 - end-to-end verification and replay capability for a real ATS
-- data retention policy enforcement
 - resume redaction and PII minimization inside the stored documents
 - production secret management (vault or encrypted secrets store)
 - malicious content scanning for uploaded resumes and job pages
@@ -494,11 +500,103 @@ the workflow (`tests/test_evidence.py::TestFailureStatusPreservation`).
   - store only minimal required records
   - classify data as active, archive, or purge-worthy
 - Implementation location:
-  - planned storage layer and lifecycle policy
+  - `src/retention.py` — the age-based purge, the deletion cascade and the
+    anonymisation
+  - `scripts/purge_expired.py` — the operator's entry point
+  - `src/config/settings.py` — the retention windows
 - Verification/test:
-  - retention policy tests
-  - purge behavior tests
-- Status: planned
+  - `tests/test_retention.py` — the purge, the cascade, the idempotence and
+    the audit
+- Status: **Met** (WS-14 · Phase D, 2026-10-22)
+
+**The audit rows are the exception, and the exception is the point.** A
+purged account's audit rows are **anonymized, not deleted**: the owner,
+the actor and the resource lose the identity, and the action, the
+outcome, the timestamp and the (already sanitized) metadata stay.
+Non-repudiation needs the record of what happened to survive the person
+it happened to, and a trail that can be rewritten is not a trail.
+
+### 6.16 Multi-user deployment: the changed threat model
+
+_Added 2026-10-22 (WS-14). This is the review the multi-user work
+required, and it is a review of what is **shared**, what is
+**per-tenant**, and what is **platform-wide**._
+
+**The change.** Until WS-14 the caller was the operator: one trusted
+principal on one machine. The web content was untrusted, and the
+resource-exhaustion risks were real, but a caller who guessed an id
+reached their own data. The project is heading for a real multi-user
+deployment, and under that assumption the gaps WS-12 closed are the
+*easy* ones.
+
+| ID | Threat | Consequence | Control | Where |
+|---|---|---|---|---|
+| T1 | **Horizontal escalation** — read another user's data by changing an id | live before WS-14 | every user-scoped table carries an indexed `NOT NULL owner_id`; every read goes through a scoped accessor; a route may not query those tables directly | `src/db/access.py`, `src/api/scope.py` |
+| T2 | **Vertical escalation** — act as another user | live: the approver was a request-body field | the approver is the authenticated principal; a body-supplied approver is ignored and the attempt is audited | `src/api/routes/applications.py` |
+| T3 | **Existence oracle** — 403 vs 404 reveals that a resource exists | live | a foreign resource is `404` with a **byte-identical** body to a missing one | `src/api/routes/*` |
+| T4 | **Cross-tenant file read** — evidence, uploads, tailored DOCX | live | every file lives under `data/users/{user_id}/…`; the containment check is against the **caller's own** directory | `src/storage/paths.py` |
+| T5 | **Agent run bleed** — one user's profile or browser session entering another's context | latent | a fresh browser context per run; the owner travels on the `PreparedApplication` | `src/applications/fake_ats_adapter.py` |
+| T6 | **Credential confusion** — user credentials mixed with platform secrets | latent | the platform's keys stay server-side; a user's password is a hash and never reaches a prompt, a log or the database | `src/auth/manager.py` |
+| T7 | **Tenant starvation** — one tenant burns the shared provider quota | live | the spend is attributed per tenant, and a tenant may not spend more than its fair share of the daily budget | `src/llm/tenant.py` |
+| T8 | **Audit forgery** — deny an action, or forge another user's rows | live: the actor was a free string | the actor is a **principal** (kind + id) and the label is derived; every stored string is stripped of its control characters | `src/security/audit.py` |
+| T9 | **Incomplete deletion** — residue after "delete my account" | latent | the cascade removes every artefact; the audit rows are anonymized, not deleted | `src/retention.py` |
+
+**What is shared, and why that is correct.**
+
+| Shared | Why it is safe |
+|---|---|
+| the `jobs` corpus and its Chroma vectors | public board data. It is what makes the matching worth running, and it holds no candidate data |
+| the embedding cache | it holds **corpus** vectors only. A candidate's *query* is embedded fresh and never written to it (see below) |
+| the embedding provider's daily quota | bounded, and now shared **fairly**: the budget is divided between the tenants that have spent today, so one tenant cannot take it all |
+
+**What is per-tenant.**
+
+Every user-scoped table (profiles, matches, tailored resumes, applications, application
+events, evidence, approvals, audit rows), the session store, the storage directory
+(`data/users/{user_id}/…`), and the provider spend.
+
+**The candidate's query vector — the finding that was verified, not
+speculated.** `candidate_query_text(profile)` composes the candidate's
+title, their skills and their summary. That text was embedded through
+the same path as the corpus, so its **vector** was written into the
+shared `embedding_cache.sqlite`. Two consequences: a cache hit on an
+identical profile told a second tenant that somebody else had
+submitted the same text, and the stored vector is a fingerprint of the
+candidate that can be inverted far enough to say what the text was
+about.
+
+The fix is that a **query is never cached**. The corpus — shared board
+data — still is, because that is what makes the daily refresh
+incremental. The cost is one embedding call per search, which for the
+local provider is milliseconds and for the API provider is one call
+inside the tenant's fair share.
+
+**What is platform-wide, and what that costs.**
+
+The provider's daily quota and its request rate are platform-wide, the
+rate limiter keys on the transport peer (so behind a proxy every user
+shares one bucket unless the proxy sets `X-Forwarded-For`), and the
+SQLite database is a single file. These are deployment properties
+rather than security controls, and they are what a multi-user
+deployment inherits by choosing SQLite. A deployment that needs more
+than one application server needs a different database and a
+per-instance rate limiter; the data model does not change.
+
+**The residual risks, stated plainly.**
+
+- The **token mailbox** (`data/outbound/`) holds password-reset and
+  verification tokens in files. A deployment with an SMTP provider
+  replaces `src/auth/delivery.py`; until then, the mailbox is the
+  delivery channel and it is as sensitive as the tokens it holds.
+- The **shared Chroma corpus** is readable by anyone who can read the
+  data directory. It holds board data, not candidate data, but it is
+  not encrypted at rest.
+- The **per-user storage layout** is a separation, not an encryption.
+  The data directory's ACL is the control that keeps one user's
+  directory unreadable to another; the runbook says so.
+- **Per-tenant encryption keys** are not implemented. A deployment that
+  needs them needs a key-management design, which is a larger piece of
+  work than this one.
 
 ## 7. Browser automation security policy
 
@@ -638,19 +736,18 @@ Status: planned
 
 - secure browser session handling beyond one context per submission
 - malware scanning of uploads
-- retention and purge policy
 - production secret vault integration
-- authentication on the API itself (SEC-23 / WS-13 A1) — the rate limit
-  bounds abuse; it does not identify a caller. The **tenant isolation
-  mechanism** (SEC-22) has landed and is tested, but the identity that
-  keys it does not exist yet, so the API is still effectively a
-  single-operator surface and says so.
+- per-tenant encryption keys and encryption at rest for the shared stores
+- an SMTP provider for the account tokens (the flow is implemented and
+  the tokens are delivered to a mailbox file — see §6.16)
 
 ### Not yet implemented
 
 - browser submission workflow for a real ATS (the fake ATS only)
 - end-to-end verification and replay capability
-- environment policy enforcement and production deployment protections
+- malware scanning of uploads
+- resume redaction and PII minimisation inside the stored documents
+- per-tenant encryption keys, and encryption at rest for the shared stores
 
 ## 13. Final security statement
 

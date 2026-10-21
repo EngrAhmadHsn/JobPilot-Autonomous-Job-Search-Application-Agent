@@ -46,5 +46,25 @@ def current_scope(
     The principal is either an ordinary user (who sees only their own
     rows) or a superuser (the platform's own audit view, which is the one
     deliberate exception in :mod:`src.db.access`).
+
+    The scope is also **published** as the current tenant, so the
+    provider-spend accounting knows whose budget a call is spending
+    (WS-14 · Phase G). The publication happens here — the one place
+    that knows the principal — rather than in each route.
     """
-    return UserScope(user_id=user.id, is_superuser=bool(user.is_superuser))
+
+    scope = UserScope(user_id=user.id, is_superuser=bool(user.is_superuser))
+    _publish_tenant(scope.user_id)
+    return scope
+
+
+def _publish_tenant(owner_id: str) -> None:
+    """Publish *owner_id* as the tenant for the rest of the request.
+
+    The context variable is set on the current task's context, which
+    the request handler's task owns, so it is visible to everything the
+    request calls and invisible to another request.
+    """
+    from src.llm.tenant import _TENANT
+
+    _TENANT.set(owner_id)
