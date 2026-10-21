@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -82,6 +83,23 @@ MAX_SUBMIT_ATTEMPTS = 2
 _TYPED_KINDS = frozenset(
     {"text", "textarea", "email", "tel", "number", "url", "password", "search", "date"}
 )
+
+
+def launch_options() -> dict[str, bool]:
+    """The Chromium launch options, read from the environment.
+
+    ``PLAYWRIGHT_HEADLESS`` decides whether the browser runs with a window.
+    The default is headless, which is what a server wants; setting it to
+    ``false`` on a workstation lets an operator watch the form being filled,
+    which is the fastest way to understand a browser-layer failure.
+
+    The flag is deliberately *only* about the window. Every security control
+    around the browser — the allowlist, the fresh context per run, the
+    challenge stop, the evidence capture — is independent of it, so a
+    visible browser is not a weaker one.
+    """
+    raw = os.getenv("PLAYWRIGHT_HEADLESS", "true").strip().lower()
+    return {"headless": raw not in {"false", "0", "no", "off"}}
 
 
 @dataclass
@@ -769,7 +787,7 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
 
         playwright: Playwright = sync_playwright().start()
         try:
-            browser: Browser = playwright.chromium.launch(headless=True)
+            browser: Browser = playwright.chromium.launch(**launch_options())
         except Exception:
             self._stop_playwright(playwright)
             raise
