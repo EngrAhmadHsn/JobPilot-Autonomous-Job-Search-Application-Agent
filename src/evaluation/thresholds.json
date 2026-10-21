@@ -25,14 +25,14 @@
     "min": {
       "system.successful_rate": 0.3,
       "system.verification_rate": 1.0,
-      "system.lifecycle_fidelity": 1.0
+      "system.lifecycle_fidelity": 1.0,
+      "browser.form_completion_rate": 0.3,
+      "browser.verification_success_rate": 1.0
     },
     "max": {
       "system.incorrect_submission_rate": 0.0,
       "system.human_intervention_rate": 0.5,
-      "browser.form_completion_rate": 0.3,
-      "browser.navigation_failure_rate": 0.0,
-      "browser.verification_success_rate": 1.0
+      "browser.navigation_failure_rate": 0.0
     }
   }
 }
