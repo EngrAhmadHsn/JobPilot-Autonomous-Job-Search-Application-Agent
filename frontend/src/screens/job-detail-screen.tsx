@@ -92,6 +92,7 @@ export function JobDetailScreen() {
         <div className="flex items-center gap-2">
           {match ? <OverallScore value={match.overall_score} /> : null}
           <Button
+            nativeButton={false}
             render={<Link to={`/tailor/${encodeURIComponent(listing.id)}`} />}
           >
             Tailor for this job

@@ -76,6 +76,7 @@ function MatchCard({ pair }: { pair: JobMatchPair }) {
         <Button
           variant="outline"
           size="sm"
+          nativeButton={false}
           render={<Link to={`/matches/${encodeURIComponent(job.id)}`} />}
         >
           Open the job
@@ -152,7 +153,7 @@ export function MatchesScreen() {
         title="No profile selected"
         description="A search matches a candidate profile against the stored job corpus. Upload a resume first."
         action={
-          <Button render={<Link to="/resume" />}>
+          <Button nativeButton={false} render={<Link to="/resume" />}>
             Go to the Resume screen
           </Button>
         }

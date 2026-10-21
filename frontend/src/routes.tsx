@@ -5,6 +5,7 @@ import { Placeholder } from "@/screens/placeholder"
 import { JobDetailScreen } from "@/screens/job-detail-screen"
 import { MatchesScreen } from "@/screens/matches-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
+import { TailorIndexScreen, TailorJobScreen } from "@/screens/tailor-screen"
 
 /**
  * The console's routes.
@@ -32,11 +33,11 @@ export const routes: RouteObject[] = [
       },
       {
         path: "tailor",
-        element: <Placeholder title="Tailor" phase="D" />,
+        element: <TailorIndexScreen />,
       },
       {
         path: "tailor/:jobId",
-        element: <Placeholder title="Tailor" phase="D" />,
+        element: <TailorJobScreen />,
       },
       {
         path: "approvals",

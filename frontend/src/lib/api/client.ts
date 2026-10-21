@@ -116,6 +116,16 @@ export interface RequestOptions {
 /** The default timeout: enough for a slow read, short enough to notice. */
 export const DEFAULT_TIMEOUT_MS = 30_000
 
+/**
+ * The absolute URL of an API path.
+ *
+ * Used for the links the browser follows directly (a DOCX download, an
+ * evidence screenshot) rather than for a `fetch`.
+ */
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`
+}
+
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
   const url = `${API_BASE_URL}${path}`
   if (!query) return url
