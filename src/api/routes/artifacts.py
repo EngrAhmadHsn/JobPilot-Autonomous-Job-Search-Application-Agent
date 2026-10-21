@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
+from src.config.settings import get_settings
 from src.db import access
 from src.db.session import get_db
 from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
@@ -84,6 +85,22 @@ def _safe_file_name(name: str) -> str:
 
 def _media_type(path: Path) -> str:
     return _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
+
+def _artifact_path(stored: str) -> Path:
+    """Where a stored artifact path points.
+
+    The browser layer stores an evidence artifact as a **bare file name**
+    (``b3046adb.png``), relative to the evidence directory, and a rendered
+    resume as a path relative to the data directory. A bare name is
+    therefore resolved inside the evidence directory — the one directory the
+    artifact may live in — and everything else is used as it is. The
+    containment check that follows is what actually decides.
+    """
+    candidate = Path(stored)
+    if not candidate.is_absolute() and len(candidate.parts) == 1:
+        candidate = Path(get_settings().evidence_dir) / candidate
+    return candidate
 
 
 @router.get("/api/tailored/{tailoring_id}/download")
@@ -159,7 +176,7 @@ def download_evidence(
         for stored in (record.screenshot_path, record.trace_path):
             if not stored:
                 continue
-            candidate = Path(stored)
+            candidate = _artifact_path(stored)
             if candidate.name != name:
                 continue
             try:

@@ -226,3 +226,46 @@ def test_evidence_list_returns_the_confirmation_text(api: TestClient, tmp_path: 
 
 def test_evidence_list_of_an_unknown_application_is_404(api: TestClient) -> None:
     assert api.get("/api/applications/nope/evidence").status_code == 404
+
+
+def test_evidence_download_resolves_a_bare_file_name(api: TestClient, tmp_path: Path) -> None:
+    """The browser layer stores an evidence artifact as a bare file name.
+
+    The stored value is ``b3046adb.png`` — relative to the evidence
+    directory, not a path. The endpoint has to resolve it there, or the
+    console shows a broken image for every real submission.
+    """
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "workflow-3.png").write_bytes(PNG_BYTES)
+
+    with next(api.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+        application = build_application_row(
+            workflow_id="workflow-3",
+            job_id="greenhouse:1",
+            adapter_name="fake-ats",
+            job_url="http://127.0.0.1:8901/basic",
+            job_title="AI Engineer",
+            company_name="Acme",
+            status="verified",
+        )
+        db.add(application)
+        db.add(
+            ApplicationEvidence(
+                workflow_id="workflow-3",
+                adapter_name="fake-ats",
+                job_url="http://127.0.0.1:8901/basic",
+                application_id=application.id,
+                confirmation_text="Application submitted",
+                screenshot_path="workflow-3.png",
+                trace_path="workflow-3.trace.json",
+                status="verified",
+            )
+        )
+        db.commit()
+        application_id = application.id
+
+    response = api.get(f"/api/applications/{application_id}/evidence/workflow-3.png")
+
+    assert response.status_code == 200
+    assert response.content == PNG_BYTES
