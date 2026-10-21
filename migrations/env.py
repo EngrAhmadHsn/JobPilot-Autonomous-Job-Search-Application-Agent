@@ -42,6 +42,7 @@ from src.db import (  # noqa: F401
     matches,
     profiles,
     tailored,
+    users,
 )
 from src.db.base import Base
 from src.db.session import ensure_sqlite_parent_dir
