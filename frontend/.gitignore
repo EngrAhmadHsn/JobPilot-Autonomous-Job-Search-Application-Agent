@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Playwright's run artifacts
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
 # The repository's root .gitignore excludes every directory named "lib/"
 # (it is a Python build artefact). The console's own source lives in
 # src/lib/, and a deeper .gitignore overrides a shallower one, so the

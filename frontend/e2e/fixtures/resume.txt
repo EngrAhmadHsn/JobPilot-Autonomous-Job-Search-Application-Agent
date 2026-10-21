@@ -1,0 +1,27 @@
+Ada Lovelace
+AI Engineer
+ada@example.com
++44 20 7946 0000
+London, UK
+
+Summary
+Analytical engine programmer with experience in symbolic computation and applied machine learning.
+
+Skills
+Python, SQL, Machine Learning, Linear Algebra, Distributed Systems
+
+Experience
+Analyst, Analytical Engine Project, 1842-1843
+- Designed the first published algorithm intended for a machine.
+- Wrote notes on the Bernoulli numbers.
+
+Projects
+Bernoulli Numbers, Notes, Mathematics
+- Computed the numbers analytically.
+
+Education
+BSc Mathematics, University of London, 1840-1843
+
+Work preferences
+Remote: hybrid
+Employment types: full-time
