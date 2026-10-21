@@ -387,6 +387,13 @@ class FastembedEmbedding:
 
     # -- public API ---------------------------------------------------------
 
+    @staticmethod
+    def _cache_limit() -> int:
+        """The cap on the number of vectors the embedding cache may hold."""
+        from src.security.limits import get_limits
+
+        return get_limits().max_cache_entries
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
@@ -422,6 +429,7 @@ class FastembedEmbedding:
                     self.dimensionality,
                     vector,
                 )
+            self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 
     def _embed_local(self, texts: list[str]) -> list[list[float]]:
@@ -491,12 +499,22 @@ class EmbeddingCache:
     The same database holds the persistent ``api_requests`` UTC-day counter
     (FU-4): successful API batch requests, counted across process restarts so
     the daily budget is accurate even when the backfill and the app alternate.
+
+    WS-12: the table is bounded. Every unique text earns a row, so a flood
+    of fake listings would grow it without limit — the disk-exhaustion half
+    of the embedding-flood attack. :meth:`prune` drops the oldest rows once
+    the cap is passed.
     """
+
+    #: How many writes happen between two real row counts. Counting is a
+    #: full scan, and the table is exactly what a flood makes large.
+    _PRUNE_CHECK_INTERVAL = 256
 
     def __init__(self, path: str | Path) -> None:
         target = Path(path)
         ensure_dir(target.parent)
         self._conn = sqlite3.connect(target)
+        self._writes_since_prune = 0
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS embeddings ("
             " key TEXT PRIMARY KEY,"
@@ -504,6 +522,12 @@ class EmbeddingCache:
             " dim INTEGER NOT NULL,"
             " vector BLOB NOT NULL,"
             " created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        # WS-12: the eviction order is "oldest first", and the order has to
+        # be cheap to read. Without this index every prune is a full sort of
+        # the table, which is exactly the cost a flooding corpus creates.
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_created_at ON embeddings (created_at)"
         )
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS api_requests ("
@@ -535,6 +559,58 @@ class EmbeddingCache:
             (key, model, dim, blob),
         )
         self._conn.commit()
+
+    def count(self) -> int:
+        """How many vectors the cache holds."""
+        row = self._conn.execute("SELECT count(*) FROM embeddings").fetchone()
+        return int(row[0]) if row else 0
+
+    def prune_if_needed(self, max_entries: int) -> int:
+        """Prune the cache when it has grown past *max_entries*.
+
+        The count is only taken when this process has written enough rows to
+        make it plausible, because ``count(*)`` is a full scan of the table
+        and the table is exactly what a flooding corpus makes large. The
+        in-process counter is therefore the fast path and the real count is
+        the confirmation.
+        """
+        self._writes_since_prune += 1
+        if self._writes_since_prune < self._PRUNE_CHECK_INTERVAL:
+            return 0
+        self._writes_since_prune = 0
+        if self.count() <= max_entries:
+            return 0
+        return self.prune(max_entries)
+
+    def prune(self, max_entries: int) -> int:
+        """Drop the oldest vectors until at most *max_entries* remain.
+
+        WS-12: the cache is a permanent table, so without a bound it grows
+        until the disk is full — and a flood of unique fake listings is the
+        cheapest way to fill it, because every one of them is a cache miss
+        that earns a row. The oldest entries go first: a listing that has
+        not been re-embedded in a long time is the least likely to be
+        embedded again.
+
+        Returns:
+            The number of entries removed.
+        """
+        if max_entries < 1:
+            return 0
+        total = self.count()
+        excess = total - max_entries
+        if excess <= 0:
+            return 0
+        # Delete in one statement: the oldest rows, by insertion order.
+        self._conn.execute(
+            "DELETE FROM embeddings WHERE key IN ("
+            "  SELECT key FROM embeddings ORDER BY created_at ASC, rowid ASC LIMIT ?"
+            ")",
+            (excess,),
+        )
+        self._conn.commit()
+        logger.info("Pruned %d embedding cache entries (cap %d)", excess, max_entries)
+        return excess
 
     def record_api_request(self) -> int:
         """Count one successful API batch request for the current UTC day.
@@ -637,6 +713,13 @@ class GeminiEmbedding:
 
     # -- public API ---------------------------------------------------------
 
+    @staticmethod
+    def _cache_limit() -> int:
+        """The cap on the number of vectors the embedding cache may hold."""
+        from src.security.limits import get_limits
+
+        return get_limits().max_cache_entries
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
@@ -679,6 +762,7 @@ class GeminiEmbedding:
                     self.dimensionality,
                     vector,
                 )
+            self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 
     def embed_query(self, text: str) -> list[float]:

@@ -67,6 +67,10 @@ class JobRefreshStats(BaseModel):
     deduped: int = 0  # unique listings after dedup
     persisted: int = 0  # rows upserted into the jobs table
     embedded: int = 0  # listings upserted into the vector store
+    # WS-12: what the abuse controls dropped. A limit that discards data
+    # silently is indistinguishable from a bug, so every drop is counted.
+    screened_out: int = 0  # dropped by the fake-job / spam screen
+    admission_capped: int = 0  # dropped by the corpus admission limits
 
 
 class JobRefreshReport(BaseModel):
@@ -190,6 +194,25 @@ def _filter_complete(listings: list[JobListing]) -> tuple[list[JobListing], int]
     return kept, len(listings) - len(kept)
 
 
+def _corpus_size(session_factory: sessionmaker | None = None) -> int | None:
+    """How many listings the corpus already holds (``None`` when unknown).
+
+    Used by the admission control to keep the corpus inside its cap. A
+    failure to count is not fatal: the caller reports ``None`` and the
+    corpus limit is simply not applied for this run.
+    """
+    try:
+        from src.db.jobs import JobDB
+        from src.db.session import SessionLocal
+
+        factory = session_factory or SessionLocal
+        with factory() as session:
+            return int(session.query(JobDB).count())
+    except Exception:
+        logger.exception("Counting the corpus failed; the corpus cap is not applied")
+        return None
+
+
 def refresh_jobs(
     *,
     sources: dict[str, JobSource] | None = None,
@@ -236,6 +259,37 @@ def refresh_jobs(
 
     unique = deduplicate(kept)
 
+    # WS-12: screen the batch before anything is persisted or embedded. A
+    # board is untrusted input: a flood of machine-generated listings must
+    # not reach the corpus, the vector store, or the embedding budget.
+    from src.jobs.spam import screen_listings
+
+    screened, spam_verdict = screen_listings(unique)
+    if spam_verdict.dropped:
+        logger.warning(
+            "Spam screening dropped %d of %d listings: %s",
+            len(spam_verdict.dropped),
+            len(unique),
+            "; ".join(reason for _id, reason in spam_verdict.dropped[:5]),
+        )
+    unique = screened
+
+    # WS-12: admission control — no single board and no single refresh may
+    # grow the corpus without bound, and the corpus itself is capped so the
+    # full-corpus read in the search stays affordable.
+    from src.security.admission import admit_listings
+
+    admission = admit_listings(unique, corpus_size=_corpus_size(session_factory))
+    unique = admission.admitted
+    if admission.total_dropped:
+        logger.warning(
+            "Admission control dropped %d listings (per-source %d, per-refresh %d, corpus %d)",
+            admission.total_dropped,
+            admission.per_source_capped,
+            admission.per_refresh_capped,
+            admission.corpus_capped,
+        )
+
     persisted = 0
     if unique:
         from src.db.jobs import save_jobs
@@ -262,10 +316,25 @@ def refresh_jobs(
                 from src.rag.chroma_store import ChromaVectorStore
 
                 store = ChromaVectorStore(embedding_fn=embedding)
+            # WS-12: the embedding work per refresh is bounded. A flood of
+            # unique listings would otherwise spend the provider's whole
+            # daily quota — and fill the embedding cache — on texts nobody
+            # will ever search for, starving the legitimate ones.
+            from src.security.limits import get_limits
+
+            embed_budget = get_limits().max_embed_per_refresh
+            to_embed = unique[:embed_budget]
+            if len(to_embed) < len(unique):
+                logger.warning(
+                    "Embedding budget capped at %d listings for this refresh; "
+                    "%d listings stay persisted and are embedded by a later run",
+                    embed_budget,
+                    len(unique) - len(to_embed),
+                )
             estimate = getattr(embedding, "estimate_api_requests", None)
             if estimate is not None:
-                planned = estimate([store.document_text(job) for job in unique])
-            embedded = store.upsert_jobs(unique)
+                planned = estimate([store.document_text(job) for job in to_embed])
+            embedded = store.upsert_jobs(to_embed)
         except Exception as exc:
             from src.llm.client import LLMDailyQuotaExhausted
 
@@ -296,6 +365,8 @@ def refresh_jobs(
         deduped=len(unique),
         persisted=persisted,
         embedded=embedded,
+        screened_out=len(spam_verdict.dropped),
+        admission_capped=admission.total_dropped,
     )
     report = JobRefreshReport(
         stats=stats,
@@ -358,8 +429,20 @@ def search_stored_jobs(
         from src.db.session import SessionLocal
 
         factory = SessionLocal
+    # WS-12: the corpus read is bounded. Every search loads the corpus, so
+    # an unbounded corpus is an unbounded search — the corpus cap in the
+    # admission control is the primary defence, and this limit is the
+    # backstop for a corpus that grew before the cap was in place.
+    from src.security.limits import get_limits
+
+    corpus_limit = get_limits().max_corpus_listings
     with factory() as session:
-        rows = session.query(JobDB).all()
+        rows = session.query(JobDB).limit(corpus_limit).all()
+    if len(rows) >= corpus_limit:
+        logger.warning(
+            "Search considered %d listings (the corpus cap); results may be partial",
+            len(rows),
+        )
     jobs = [listing_from_row(row) for row in rows]
 
     if query and query.strip():

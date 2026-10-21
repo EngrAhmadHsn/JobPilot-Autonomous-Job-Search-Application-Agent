@@ -48,6 +48,10 @@ EMBED_BATCH_SIZE = 100
 
 MAX_DESCRIPTION_CHARS = 8_000
 
+#: How many vectors are loaded per page in the full-corpus similarity scan.
+#: The scan is bounded so the peak memory is this, not the corpus size.
+SCAN_PAGE_SIZE = 500
+
 
 class VectorStoreMismatch(RuntimeError):
     """The persisted collection was built with a different embedding space."""
@@ -244,18 +248,48 @@ class ChromaVectorStore:
         search report a phantom gap and flip ``degraded``. That path needs a
         score for every listing anyway, so it computes the cosine against the
         persisted vectors directly — exact, complete, free of the off-by-one.
+
+        WS-12: the scan is **bounded**. The corpus is capped by the
+        admission control, but the cap is a configuration value and this is
+        the most expensive read in the system (it loads every vector). The
+        vectors are therefore fetched in pages, so the peak memory is the
+        page size rather than the size of the corpus, and the scan stops at
+        the configured ceiling even when the corpus is larger than the cap
+        (the cap may have been raised after the corpus was built).
         """
         if self._collection.count() == 0:
             return {}
         vector = self._embedding_fn.embed_query(build_query_text(query_text))
-        result = self._collection.get(include=["embeddings"])
-        ids = result.get("ids") or []
-        embeddings = result.get("embeddings")
-        if embeddings is None:  # numpy array: `or []` would raise on truthiness
-            embeddings = []
+
+        from src.security.limits import get_limits
+
+        limit = get_limits().max_corpus_listings
         scores: dict[str, float] = {}
-        for job_id, embedding in zip(ids, embeddings):
-            scores[job_id] = self._cosine_similarity(vector, embedding)
+
+        # The ids first (cheap — no vectors), then the vectors in pages.
+        all_ids = self._collection.get(include=[]).get("ids") or []
+        # The budget is spent over the pages, not per page: the last page
+        # is trimmed to whatever is left of the limit, so a corpus larger
+        # than the limit is really *cut* at the limit rather than merely
+        # warned about.
+        remaining = min(len(all_ids), limit)
+        for start in range(0, remaining, SCAN_PAGE_SIZE):
+            page_ids = all_ids[start : min(start + SCAN_PAGE_SIZE, remaining)]
+            result = self._collection.get(ids=page_ids, include=["embeddings"])
+            ids = result.get("ids") or []
+            embeddings = result.get("embeddings")
+            if embeddings is None:  # numpy array: `or []` would raise on truthiness
+                embeddings = []
+            for job_id, embedding in zip(ids, embeddings):
+                scores[job_id] = self._cosine_similarity(vector, embedding)
+
+        if len(all_ids) > limit:
+            logger.warning(
+                "Similarity scan covered %d of %d listings (the corpus exceeds the %d cap)",
+                len(scores),
+                len(all_ids),
+                limit,
+            )
         return scores
 
     @staticmethod

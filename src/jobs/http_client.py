@@ -79,16 +79,18 @@ def create_client(timeout: float | None = None) -> httpx.AsyncClient:
 
 
 def _is_forbidden_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """True when ``ip`` must never be contacted by the job-source layer."""
-    # An IPv4-mapped IPv6 address (::ffff:10.0.0.1) must be judged by its
-    # embedded IPv4 address, or the private v4 ranges could be smuggled in.
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        return _is_forbidden_ip(ip.ipv4_mapped)
-    if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_reserved:
-        return True
-    if isinstance(ip, ipaddress.IPv4Address):
-        return ip.is_private  # RFC 1918: 10/8, 172.16/12, 192.168/16
-    return ip.is_private  # IPv6 unique-local fc00::/7 and friends
+    """True when ``ip`` must never be contacted by the job-source layer.
+
+    WS-12: this delegates to the one predicate in
+    :mod:`src.security.allowlist` rather than keeping a second copy. The
+    two copies had drifted — the allowlist's refused CGNAT
+    (``100.64.0.0/10``) and multicast addresses, this one did not — and a
+    blocklist with two versions of itself is only as strict as its weakest
+    copy.
+    """
+    from src.security.allowlist import is_forbidden_ip
+
+    return is_forbidden_ip(ip)
 
 
 def assert_url_allowed(url: str) -> None:
@@ -166,6 +168,32 @@ def _backoff_delay(attempt: int, base: float) -> float:
     return base * (2 ** (attempt - 1)) + random.uniform(0, base / 2)
 
 
+def _assert_response_size(response: httpx.Response, url: str) -> None:
+    """Refuse a response whose body is larger than the cap.
+
+    WS-12: a job board is untrusted input, and ``client.get`` buffers the
+    whole body in memory. A board that returns a 2 GB JSON body would
+    exhaust the process before a single listing was parsed. The declared
+    ``Content-Length`` is checked first (the cheap case); the body is
+    counted as well, so a response that omits or lies about its length is
+    still bounded.
+    """
+    from src.security.limits import get_limits
+
+    cap = get_limits().max_response_bytes
+    declared = response.headers.get("content-length")
+    if declared is not None:
+        try:
+            declared_size = int(declared)
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > cap:
+            raise SourceError(f"GET {url} declared {declared_size} bytes, over the {cap} byte cap")
+    actual = len(response.content or b"")
+    if actual > cap:
+        raise SourceError(f"GET {url} returned {actual} bytes, over the {cap} byte cap")
+
+
 async def guarded_get(
     client: httpx.AsyncClient,
     url: str,
@@ -176,10 +204,14 @@ async def guarded_get(
 ) -> httpx.Response:
     """SSRF-checked, rate-limited, retrying GET. Returns a 2xx response.
 
+    The response body is bounded by ``max_response_bytes``: a board that
+    returns a huge body must not be able to exhaust the process's memory
+    before a single listing is parsed.
+
     Raises:
         SSRFBlockedError: URL failed the SSRF guard (before any request).
-        SourceError: non-retryable HTTP status, redirects, or retries
-            exhausted for transport errors / 429 / 5xx.
+        SourceError: non-retryable HTTP status, redirects, a response over
+            the size cap, or retries exhausted for transport errors / 429 / 5xx.
     """
     assert_url_allowed(url)
     active_limiter = limiter or get_default_limiter()
@@ -200,6 +232,7 @@ async def guarded_get(
             await asyncio.sleep(delay)
             continue
         if 200 <= response.status_code < 300:
+            _assert_response_size(response, url)
             return response
         if response.status_code == 429 or response.status_code >= _RETRYABLE_STATUS_START:
             if attempt >= max_retries:
