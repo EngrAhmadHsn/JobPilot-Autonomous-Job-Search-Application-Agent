@@ -25,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.applications.contracts import ApplicationResult, PreparedApplication
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 
 
 class ApprovalStatus:
@@ -43,6 +44,16 @@ class ApprovalRequestDB(Base):
     __tablename__ = "approval_requests"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: The principal that owns this row (WS-13 · A0). NOT NULL and
+    #: indexed: ownership is a column, not a convention a route has to
+    #: remember. Every access goes through ``src.db.access``.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     workflow_id: Mapped[str] = mapped_column(String, index=True)
     adapter_name: Mapped[str] = mapped_column(String)
     job_url: Mapped[str] = mapped_column(String)
@@ -82,6 +93,7 @@ def generate_approval_id() -> str:
 
 def build_approval_row(
     *,
+    owner_id: str = LEGACY_OWNER_ID,
     workflow_id: str,
     adapter_name: str,
     prepared: PreparedApplication,
@@ -90,6 +102,7 @@ def build_approval_row(
     request = prepared.request
     return ApprovalRequestDB(
         id=generate_approval_id(),
+        owner_id=owner_id,
         workflow_id=workflow_id,
         adapter_name=adapter_name,
         job_url=request.job_url,

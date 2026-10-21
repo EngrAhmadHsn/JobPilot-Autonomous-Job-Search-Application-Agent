@@ -16,6 +16,7 @@ from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 
 if TYPE_CHECKING:
     from src.graph.job_state import JobMatchPair
@@ -27,6 +28,16 @@ class JobMatchDB(Base):
     __tablename__ = "job_matches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    #: The principal that owns this row (WS-13 · A0). NOT NULL and
+    #: indexed: ownership is a column, not a convention a route has to
+    #: remember. Every access goes through ``src.db.access``.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     profile_id: Mapped[str] = mapped_column(String, index=True)
     job_id: Mapped[str] = mapped_column(String, index=True)
     scores: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -45,7 +56,9 @@ _SCORE_FIELDS = (
 )
 
 
-def build_match_rows(profile_id: str, pairs: list[JobMatchPair]) -> list[JobMatchDB]:
+def build_match_rows(
+    profile_id: str, pairs: list[JobMatchPair], *, owner_id: str = LEGACY_OWNER_ID
+) -> list[JobMatchDB]:
     """Map (job, match) pairs onto new rows (caller owns the session/commit)."""
     rows: list[JobMatchDB] = []
     for pair in pairs:
@@ -55,6 +68,7 @@ def build_match_rows(profile_id: str, pairs: list[JobMatchPair]) -> list[JobMatc
         scores["matched_requirements"] = list(match.matched_requirements)
         rows.append(
             JobMatchDB(
+                owner_id=owner_id,
                 profile_id=profile_id,
                 job_id=pair.job.id,
                 scores=scores,

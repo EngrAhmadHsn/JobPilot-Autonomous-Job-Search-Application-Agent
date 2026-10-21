@@ -17,6 +17,7 @@ from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 
 
 class AuditEventDB(Base):
@@ -25,6 +26,16 @@ class AuditEventDB(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True, autoincrement=True)
+    #: The principal that owns this row (WS-13 · A0). NOT NULL and
+    #: indexed: ownership is a column, not a convention a route has to
+    #: remember. Every access goes through ``src.db.access``.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     actor: Mapped[str] = mapped_column(String, index=True)
     action: Mapped[str] = mapped_column(String, index=True)

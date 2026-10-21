@@ -20,6 +20,7 @@ from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
 from src.resume.tailor import FactualityReport, TailoredResume
@@ -31,6 +32,16 @@ class TailoredResumeDB(Base):
     __tablename__ = "tailored_resumes"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: The principal that owns this row (WS-13 · A0). NOT NULL and
+    #: indexed: ownership is a column, not a convention a route has to
+    #: remember. Every access goes through ``src.db.access``.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     profile_id: Mapped[str] = mapped_column(String, index=True)
     job_id: Mapped[str] = mapped_column(String, index=True)
     tailored: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -62,6 +73,7 @@ def generate_tailoring_id() -> str:
 
 def build_tailored_row(
     *,
+    owner_id: str = LEGACY_OWNER_ID,
     profile_id: str,
     job_id: str,
     tailored: TailoredResume,
@@ -73,6 +85,7 @@ def build_tailored_row(
     """Map a tailoring result onto a new row (the caller owns the session)."""
     return TailoredResumeDB(
         id=generate_tailoring_id(),
+        owner_id=owner_id,
         profile_id=profile_id,
         job_id=job_id,
         tailored=tailored.model_dump(mode="json"),

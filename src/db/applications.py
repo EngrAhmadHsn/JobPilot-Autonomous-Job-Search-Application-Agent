@@ -35,6 +35,7 @@ from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
+from src.db.users import LEGACY_OWNER_ID
 
 
 class ApplicationDB(Base):
@@ -43,6 +44,16 @@ class ApplicationDB(Base):
     __tablename__ = "applications"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: The principal that owns this row (WS-13 · A0). NOT NULL and
+    #: indexed: ownership is a column, not a convention a route has to
+    #: remember. Every access goes through ``src.db.access``.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     # The candidate profile this application belongs to. Nullable: the
     # prepare flow has no profile until the caller supplies one.
     profile_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
@@ -77,6 +88,16 @@ class ApplicationEventDB(Base):
     # The autoincrement id *is* the ordering: the history is read in append
     # order, never in timestamp order.
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    #: The principal that owns this row (WS-13 · A0). An event belongs to
+    #: the same owner as the application it records, so the history can
+    #: never be read by someone who cannot read the application.
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        default=LEGACY_OWNER_ID,
+        server_default=LEGACY_OWNER_ID,
+    )
     application_id: Mapped[str] = mapped_column(String, index=True)
     event_type: Mapped[str] = mapped_column(String, index=True)
     # ``agent`` | ``system`` | ``human:<who>``.
@@ -97,6 +118,7 @@ def generate_application_id() -> str:
 
 def build_application_row(
     *,
+    owner_id: str = LEGACY_OWNER_ID,
     workflow_id: str,
     job_id: str,
     adapter_name: str,
@@ -111,6 +133,7 @@ def build_application_row(
     """Map a new application onto a row (the caller owns the session)."""
     return ApplicationDB(
         id=generate_application_id(),
+        owner_id=owner_id,
         profile_id=profile_id,
         job_id=job_id,
         workflow_id=workflow_id,
