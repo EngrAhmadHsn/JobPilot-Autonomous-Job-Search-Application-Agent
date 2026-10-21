@@ -19,6 +19,10 @@ class ApplicationEvidence(Base):
     workflow_id: Mapped[str] = mapped_column(String, index=True)
     adapter_name: Mapped[str] = mapped_column(String)
     job_url: Mapped[str] = mapped_column(String)
+    # WS-07: the tracked application this evidence belongs to. Nullable so
+    # the evidence written before WS-07 stays readable; the submit node
+    # fills it in for every new submission.
+    application_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     confirmation_text: Mapped[str | None] = mapped_column(String, nullable=True)
     screenshot_path: Mapped[str | None] = mapped_column(String, nullable=True)
     trace_path: Mapped[str | None] = mapped_column(String, nullable=True)

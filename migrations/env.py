@@ -33,7 +33,16 @@ from src.config.settings import get_settings
 
 # Import model modules so they register on Base.metadata before autogenerate.
 # New model modules added by later workstreams must be imported here too.
-from src.db import approval, audit, evidence, jobs, matches, profiles, tailored  # noqa: F401
+from src.db import (  # noqa: F401
+    applications,
+    approval,
+    audit,
+    evidence,
+    jobs,
+    matches,
+    profiles,
+    tailored,
+)
 from src.db.base import Base
 from src.db.session import ensure_sqlite_parent_dir
 
