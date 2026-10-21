@@ -688,10 +688,18 @@ layout.
 
 ## Status
 
-Specification written 2026-10-21. **Phase A0 (the ownership spine) is
-done** — see the record below. Execution continues at **A1** (identity).
+**Done 2026-10-22.** The specification was written 2026-10-21, the
+detailed per-phase execution plan was added 2026-10-22, and every phase
+has been executed and proved: **A0** (verified, not taken on trust),
+**A1** (identity), **A2** (enforcement), **A3** (the account
+lifecycle), **B** (per-user storage), **C** (the audit principal),
+**D** (retention and the purge), **E** (CI), **F** (the production
+posture) and **G** (the provider privacy and the threat review).
 
-### Phase A0 — the ownership spine (done 2026-10-21)
+The whole suite is green and the linter is clean. The record of each
+phase is below, in the order the phases ran.
+
+### Phase A0 — the ownership spine (done 2026-10-21; verified 2026-10-22)
 
 **Delivered.**
 
@@ -761,3 +769,193 @@ exists and is tested, and the *identity* it is keyed on does not.
   replace every one of them with the request's scope**, and the
   equivalent of check 2 should be extended to catch a `LEGACY_OWNER_ID`
   appearing in a route module.
+
+---
+
+## The execution record
+
+Each phase below is what was actually delivered, and what it cost. The
+**findings** are the parts that changed the design: a control that was
+not there, or was there in a shape that did not hold.
+
+### A0 — the ownership spine: **verified, not taken on trust**
+
+A0 was implemented by a previous session, and its record in this
+document was a **claim**. The verification is a fresh test file
+(`tests/test_ws14_a0_verification.py`, 19 checks) that checks the
+claims from the outside: the migration applies and reverses, the
+backfill assigns the legacy owner without losing a row, the
+`owner_id` column is `NOT NULL` and indexed **in the database** (read
+from SQLite's own `PRAGMA`, not only from the ORM model), the
+accessors filter, and the routes neither query a user-scoped table
+directly nor name the legacy owner.
+
+**The verification found one thing that mattered.** The A0 record said
+the routes acted as the legacy scope, and it did — but the *check* that
+enforced it was a text search for `db.get(Model` and `db.query(Model`,
+and it had two holes. A2 found them (see below).
+
+### A1 — identity
+
+`fastapi-users` v15 for the account lifecycle, the argon2 hashing and
+the session handling. The database adapters are **ours** — the
+library's are async-only and this codebase is synchronous end to end —
+so `aiosqlite` and a second engine are not needed.
+
+Two transports, one identity: an `HttpOnly`, `SameSite=Lax` session
+cookie for the browser, a bearer token for the CLI and the repo's
+scripts. The sessions are **server-side rows**, not signed blobs: a
+stateless token cannot be revoked before it expires, and "log me out
+everywhere" has to work now.
+
+**The CSRF control is ours**, because `fastapi-users` v15 has none for
+the cookie transport — its only CSRF code is the OAuth state check. It
+is a middleware rather than a per-route dependency, because a
+per-route dependency is a check that one of the routes will eventually
+forget.
+
+**The finding.** The reset-password flow crashed whenever `AUTH_SECRET`
+was unset, and the token had nowhere to go: it went to the log, and it
+went to the audit trail — whose redaction policy drops any value whose
+key looks like a token, which is the right policy. So a credential was
+heading for the one place it must never be, and the flow was broken at
+the same time. The tokens now go to a local mailbox directory.
+
+### A2 — enforcement
+
+The scope is the authenticated principal's. Two holes closed:
+
+- **`GET /api/applications` had no scope at all.** It queried the
+  applications table directly and counted and listed *every* user's
+  rows. The A0 grep missed it because the check looked for
+  `db.get(Model` and the route built its query with `select(Model`.
+- **`GET /api/applications/{id}/evidence/{filename}`** resolved the
+  evidence model name at runtime and passed the *variable* to
+  `db.query` — the same evasion, in a shape a text search cannot see.
+
+The mechanical check is now written against the **AST**, so it catches
+`select(Model)` and an indirect model name too.
+
+The approver identity comes from the session. The "not found" answers
+for the user-scoped resources no longer echo the requested id, so a
+foreign resource and a missing one are byte-identical.
+
+**The status-update route had the same body-supplied-actor flaw as the
+approver**, and it was closed too.
+
+### A3 — the account lifecycle
+
+A password change ends the account's other sessions; a password reset
+ends all of them; a session can be revoked one at a time or all at
+once; a deletion request deactivates the account and ends its
+sessions, and the irreversible purge is Phase D's job.
+
+### B — per-user storage
+
+The layout is `data/users/{user_id}/{resumes,tailored,evidence}/`, and
+the containment check asks "is this path inside the **caller's own**
+directory" rather than "inside a directory the application owns" — the
+second question includes the other users' directories once there is
+more than one user. The owner reaches the three write paths: the
+upload takes it as an argument, the tailored resume gets it as the
+output directory, and the evidence gets it on the `PreparedApplication`
+— the internal object, so it never reaches the employer the way the
+submitted request does.
+
+### C — the audit principal
+
+The actor is a **principal** (a kind and an id) and the readable label
+is *derived*, so the three cannot disagree. Every string that reaches
+the store is stripped of the C0 range and of DEL — in the writer, so it
+cannot be forgotten at a call site — and the characters are **removed**
+rather than replaced, so `"a\nb"` and `"a b"` cannot collapse into the
+same stored value.
+
+### D — retention and the purge
+
+The age-based purge removes the rows **and the files**; the cascade
+removes every artefact of an account; the audit rows are **anonymized,
+not deleted**.
+
+**The finding.** The evidence is stored as a *bare file name*, relative
+to the evidence directory, so the purge could not resolve it and the
+files survived. It now resolves against the owner's own evidence
+directory, per row, because one purge may span several owners.
+
+### E — CI
+
+The gate runs the linter, the whole suite, the migration check and the
+dependency audit on every push. The dependency audit's exception list
+is **in the repository** and is checked mechanically: every group must
+name a package the project depends on, every group must state a
+reason, and no id may be listed twice.
+
+### F — the production posture
+
+The rules are: the CORS origins must be declared and must not be
+wildcarded; the identity secret must be present and at least 32
+characters; the session cookie must be `Secure`; the submission policy
+must be **declared**, not defaulted; `APP_DEBUG` must be off; and an
+API embedding provider must have its key. Each rule is checked in a
+subprocess, because the point is that the application *refuses to
+start*.
+
+The runbook is new, and it is a deployment document: a reverse proxy
+terminating TLS, the API bound to the loopback, the ACLs, the
+migrations before the upgrade, the daily purge, and what to do when it
+breaks. It contains no development server, and a test says so.
+
+### G — the provider privacy
+
+A **query is never cached**: the corpus — shared board data — still
+is, but the candidate's own query vector never reaches the shared
+file. The provider's daily quota is now shared **fairly**: the budget
+is divided between the tenants that have spent today, so a single
+operator is unaffected and one tenant cannot take it all.
+
+The multi-tenant threat review is in `docs/SECURITY.md` §6.16.
+
+### The live run — what it found that the suite could not
+
+The end-to-end run (the console, the real API, the real fake ATS, a real
+browser submitting a real form) found **three defects the unit suite
+could not see**, because every unit test ran *without an owner* and so
+never noticed that the owner was wrong.
+
+1. **`create_application` accepted an `owner_id` and used it for the
+   event but not for the row.** The tracked application was built with
+   the default, so it landed on the legacy owner: the account that
+   prepared it could not see its own application, and **the next account
+   to register claimed it**. The live run showed an application created
+   by one account and owned by another.
+2. **The evidence record was written with no owner at all** — the same
+   shape of mistake — so the account that made the submission could not
+   read the evidence it had produced.
+3. **The verification looked for the evidence in the shared directory**
+   while Phase B had moved it to the account's own directory. A
+   submission that had in fact left a screenshot and a trace behind was
+   downgraded to `verification_failed` — "the evidence artifacts are
+   missing" — because the check was looking in the wrong place.
+
+Each of the three now has a test that would have failed before. The
+lesson is the one the phases are named after: **a control that is only
+exercised in one configuration is not a control.** The suite exercised
+the shared-owner path thoroughly and the per-owner path not at all.
+
+**A fourth finding was operational.** The two WS-14 migrations have to
+be applied before the API can serve a session: without the
+`access_tokens` table, every login is a 500. The runbook says to run
+`alembic upgrade head` — and the **migration check**
+(`scripts/verify_migrations.py`) is what proves the chain applies before
+a deployment does.
+
+### What is still open
+
+- **E-mail delivery.** The reset and verification tokens are issued and
+  delivered to a mailbox file. A deployment with an SMTP provider
+  replaces `src/auth/delivery.py`.
+- **Malware scanning of uploads**, and PII minimisation inside the
+  stored documents (SEC-12).
+- **Per-tenant encryption keys**, and encryption at rest for the shared
+  stores.
+- **The real-ATS pilot** — the M5 milestone, which is not WS-14's work.
