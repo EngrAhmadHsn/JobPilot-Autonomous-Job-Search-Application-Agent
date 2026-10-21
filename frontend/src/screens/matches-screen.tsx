@@ -8,6 +8,7 @@ import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
 import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
@@ -73,14 +74,13 @@ function MatchCard({ pair }: { pair: JobMatchPair }) {
           </div>
         </details>
 
-        <Button
+        <LinkButton
           variant="outline"
           size="sm"
-          nativeButton={false}
-          render={<Link to={`/matches/${encodeURIComponent(job.id)}`} />}
+          to={`/matches/${encodeURIComponent(job.id)}`}
         >
           Open the job
-        </Button>
+        </LinkButton>
       </CardContent>
     </Card>
   )
@@ -152,11 +152,7 @@ export function MatchesScreen() {
       <EmptyState
         title="No profile selected"
         description="A search matches a candidate profile against the stored job corpus. Upload a resume first."
-        action={
-          <Button nativeButton={false} render={<Link to="/resume" />}>
-            Go to the Resume screen
-          </Button>
-        }
+        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
       />
     )
   }

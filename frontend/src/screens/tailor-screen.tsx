@@ -9,6 +9,7 @@ import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore } from "@/components/common/score-grid"
 import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { apiUrl } from "@/lib/api/client"
@@ -293,11 +294,7 @@ export function TailorJobScreen() {
       <EmptyState
         title="No profile selected"
         description="A tailored resume is built from a candidate profile. Upload a resume first."
-        action={
-          <Button nativeButton={false} render={<Link to="/resume" />}>
-            Go to the Resume screen
-          </Button>
-        }
+        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
       />
     )
   }
@@ -422,11 +419,7 @@ export function TailorIndexScreen() {
       <EmptyState
         title="No profile selected"
         description="A tailored resume is built from a candidate profile. Upload a resume first."
-        action={
-          <Button nativeButton={false} render={<Link to="/resume" />}>
-            Go to the Resume screen
-          </Button>
-        }
+        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
       />
     )
   }
@@ -458,11 +451,7 @@ export function TailorIndexScreen() {
             <EmptyState
               title="No matches yet"
               description="Run a search on the Matches screen first — the match history is what this list is built from."
-              action={
-                <Button nativeButton={false} render={<Link to="/matches" />}>
-                  Go to the Matches screen
-                </Button>
-              }
+              action={<LinkButton to="/matches">Go to the Matches screen</LinkButton>}
             />
           ) : null}
 

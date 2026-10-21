@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link, useParams } from "react-router-dom"
+import { useParams } from "react-router-dom"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
-import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { api } from "@/lib/api/endpoints"
@@ -91,12 +91,9 @@ export function JobDetailScreen() {
         </div>
         <div className="flex items-center gap-2">
           {match ? <OverallScore value={match.overall_score} /> : null}
-          <Button
-            nativeButton={false}
-            render={<Link to={`/tailor/${encodeURIComponent(listing.id)}`} />}
-          >
+          <LinkButton to={`/tailor/${encodeURIComponent(listing.id)}`}>
             Tailor for this job
-          </Button>
+          </LinkButton>
         </div>
       </div>
 

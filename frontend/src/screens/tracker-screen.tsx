@@ -9,6 +9,7 @@ import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { StatusBadge, StatusExplainer } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
@@ -296,13 +297,9 @@ export function TrackerDetailScreen() {
             {record.company_name} · <StatusBadge status={record.status} />
           </p>
         </div>
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<Link to="/tracker" />}
-        >
+        <LinkButton variant="outline" to="/tracker">
           Back to the list
-        </Button>
+        </LinkButton>
       </div>
 
       <StatusExplainer status={record.status} />
