@@ -21,6 +21,16 @@
     "ranking.false_negative_rate": 0.85,
     "relevance.hallucination_rate": 0.1
   },
+  "security": {
+    "min": {
+      "security.authorization_coverage": 1.0,
+      "security.audit_attribution_rate": 1.0
+    },
+    "max": {
+      "security.unauthenticated_access_rate": 0.0,
+      "security.cross_user_isolation_violations": 0
+    }
+  },
   "system": {
     "min": {
       "system.successful_rate": 0.3,

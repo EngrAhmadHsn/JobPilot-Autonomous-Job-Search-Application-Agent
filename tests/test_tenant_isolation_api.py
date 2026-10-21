@@ -46,6 +46,10 @@ from src.db.base import Base
 from src.db.session import get_db
 from src.main import app
 
+#: A one-pixel PNG header — the evidence artifact the download
+#: endpoint has to find.
+PNG_BYTES = bytes([137, 80, 78, 71, 13, 10, 26, 10])
+
 ALICE = "alice@example.com"
 BOB = "bob@example.com"
 PASSWORD = "correct horse battery staple"
@@ -169,6 +173,48 @@ def _seed_profile(client: TestClient, token: str, name: str) -> str:
         return row.id
 
 
+def _seed_application(client: TestClient, token: str) -> str:
+    """Write a tracked application, with its evidence, for the token's account."""
+    from src.db.applications import build_application_row
+    from src.db.evidence import ApplicationEvidenceDB
+    from src.storage.paths import KIND_EVIDENCE, user_dir
+
+    owner = _user_id(client, token)
+
+    # The artifact itself: the evidence lives in the owner's own
+    # directory, and the download endpoint resolves it there.
+    directory = user_dir(owner, KIND_EVIDENCE)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "screenshot.png").write_bytes(PNG_BYTES)
+
+    with next(client.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+        application = build_application_row(
+            owner_id=owner,
+            workflow_id="wf-1",
+            job_id="greenhouse:1",
+            adapter_name="fake-ats",
+            job_url="http://127.0.0.1:8901/basic",
+            job_title="Engineer",
+            company_name="Acme",
+            status="verified",
+        )
+        db.add(application)
+        db.commit()
+        db.add(
+            ApplicationEvidenceDB(
+                owner_id=owner,
+                application_id=application.id,
+                workflow_id="wf-1",
+                adapter_name="fake-ats",
+                job_url="http://127.0.0.1:8901/basic",
+                status="verified",
+                screenshot_path="screenshot.png",
+            )
+        )
+        db.commit()
+        return application.id
+
+
 def _seed_approval(client: TestClient, token: str) -> str:
     """Write a pending approval owned by the token's account."""
     from src.db.approval import ApprovalRequestDB, generate_approval_id
@@ -261,6 +307,102 @@ class TestTheTwoUserMatrix:
     def test_the_health_endpoint_stays_open(self, api: TestClient) -> None:
         """A liveness probe is not a protected resource."""
         assert api.get("/api/health").status_code == 200
+
+
+class TestTheEndpointsTheSuiteCovers:
+    """The endpoints the coverage metric measures.
+
+    Every user-scoped endpoint has to appear here. The coverage metric
+    (``src/evaluation/security.py``) reads this file's source, so an
+    endpoint that is not exercised here lowers the number — and a number
+    that quietly drops is how a coverage requirement stops meaning
+    anything.
+    """
+
+    def test_the_match_history_of_another_profile_is_not_readable(
+        self, api: TestClient
+    ) -> None:
+        _register(api, ALICE)
+        _register(api, BOB)
+        alice_token = _token(api, ALICE)
+        bob_token = _token(api, BOB)
+
+        profile_id = _seed_profile(api, alice_token, "alice")
+
+        assert (
+            api.get(
+                f"/api/profiles/{profile_id}/matches", headers=_as(alice_token)
+            ).status_code
+            == 200
+        )
+        assert (
+            api.get(
+                f"/api/profiles/{profile_id}/matches", headers=_as(bob_token)
+            ).status_code
+            == 404
+        )
+
+    def test_the_evidence_of_another_application_is_not_readable(
+        self, api: TestClient
+    ) -> None:
+        _register(api, ALICE)
+        _register(api, BOB)
+        alice_token = _token(api, ALICE)
+        bob_token = _token(api, BOB)
+
+        application_id = _seed_application(api, alice_token)
+
+        assert (
+            api.get(
+                f"/api/applications/{application_id}/evidence", headers=_as(alice_token)
+            ).status_code
+            == 200
+        )
+        assert (
+            api.get(
+                f"/api/applications/{application_id}/evidence", headers=_as(bob_token)
+            ).status_code
+            == 404
+        )
+
+    def test_the_evidence_file_of_another_application_is_not_downloadable(
+        self, api: TestClient
+    ) -> None:
+        _register(api, ALICE)
+        _register(api, BOB)
+        alice_token = _token(api, ALICE)
+        bob_token = _token(api, BOB)
+
+        application_id = _seed_application(api, alice_token)
+
+        assert (
+            api.get(
+                f"/api/applications/{application_id}/evidence/screenshot.png",
+                headers=_as(alice_token),
+            ).status_code
+            == 200
+        )
+        assert (
+            api.get(
+                f"/api/applications/{application_id}/evidence/screenshot.png",
+                headers=_as(bob_token),
+            ).status_code
+            == 404
+        )
+
+    def test_the_audit_trail_shows_only_the_callers_rows(self, api: TestClient) -> None:
+        _register(api, ALICE)
+        _register(api, BOB)
+        alice_token = _token(api, ALICE)
+        bob_token = _token(api, BOB)
+
+        alice_rows = api.get("/api/audit", headers=_as(alice_token)).json()
+        bob_rows = api.get("/api/audit", headers=_as(bob_token)).json()
+
+        alice_id = _user_id(api, alice_token)
+        bob_id = _user_id(api, bob_token)
+        assert all(row["actor_id"] != bob_id for row in alice_rows["events"])
+        assert all(row["actor_id"] != alice_id for row in bob_rows["events"])
 
 
 class TestTheApproverIsThePrincipal:

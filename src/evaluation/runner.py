@@ -34,6 +34,7 @@ from src.applications.tracking import (
 from src.db.users import LEGACY_OWNER_ID
 from src.evaluation.browser import browser_scores
 from src.evaluation.scenarios import Scenario, ScenarioSet, find_by_workflow, read_runs
+from src.evaluation.security import security_scores
 from src.evaluation.systems import system_scores
 from src.graph.executor import execute_approved
 
@@ -185,10 +186,15 @@ def run_scenarios(
     }
     system = system_scores(runs, expected_events)
     browser = browser_scores(runs)
+    # WS-14: the security family. It is measured by probing the real
+    # application, so it says something about the application and not
+    # only about the scenarios.
+    security = security_scores()
 
     return {
         "system": system,
         "browser": browser,
+        "security": security,
         "runs": runs,
         "scenarios": [
             {
