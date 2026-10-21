@@ -1,0 +1,16 @@
+{
+  "extraction.field_accuracy": 0.95,
+  "extraction.skills_f1": 0.85,
+  "extraction.summary_coverage": 0.9,
+  "extraction.experience_precision": 0.9,
+  "extraction.experience_recall": 0.9,
+  "extraction.education_precision": 0.9,
+  "extraction.education_recall": 0.9,
+  "dedup.precision": 0.98,
+  "dedup.recall": 0.9,
+  "ranking.ndcg_at_10": 0.6,
+  "ranking.precision_at_5": 0.4,
+  "tailoring.factuality_agreement": 0.9,
+  "tailoring.violation_recall": 0.9,
+  "ats.coverage_delta": 0.0
+}
