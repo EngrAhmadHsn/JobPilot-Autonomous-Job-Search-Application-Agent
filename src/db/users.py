@@ -50,7 +50,13 @@ class UserDB(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: The account id. The Python-side default is what the identity stack
+    #: relies on: ``fastapi-users`` creates a row without supplying an
+    #: id (``create_update_dict`` excludes it), so the column has to
+    #: generate one. It is a *Python* default on purpose — the id is an
+    #: application-level opaque string, and the database never needs to
+    #: mint one.
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_user_id)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     #: The password hash, never the password. A plaintext password must
     #: never reach this column: the account-lifecycle code (A1) hashes it

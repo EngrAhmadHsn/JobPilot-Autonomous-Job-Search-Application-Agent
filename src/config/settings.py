@@ -144,7 +144,57 @@ class Settings:
         # Rendered tailored resumes (WS-05); defaults under the data dir.
         self.tailored_dir = os.getenv("TAILORED_DIR", "") or str(Path(self.data_dir) / "tailored")
 
+        # -- Identity (WS-14 · A1) -----------------------------------------
+        #
+        # The API has no anonymous access any more: a caller is a
+        # principal, and the principal is what the owner filter is keyed
+        # on. These knobs decide how that identity is established and how
+        # long it lives.
+        #
+        # ``auth_secret`` signs the password-reset and e-mail-verification
+        # tokens. It is **not** a session secret — the sessions are
+        # server-side rows, and revoking one is a DELETE — but a leaked
+        # secret would let an attacker mint a reset token for any account.
+        # It is therefore required in production and must be long.
+        self.auth_secret = os.getenv("AUTH_SECRET", "")
+        # The cookie that carries the session for the browser transport.
+        self.auth_session_cookie_name = (
+            os.getenv("AUTH_SESSION_COOKIE_NAME", "aja_session").strip() or "aja_session"
+        )
+        # The double-submit CSRF cookie. It is deliberately **not**
+        # HttpOnly: the console's JavaScript has to read it to echo it in
+        # the ``X-CSRF-Token`` header. It is not a credential — it grants
+        # nothing without the session cookie.
+        self.auth_csrf_cookie_name = os.getenv("AUTH_CSRF_COOKIE_NAME", "aja_csrf").strip() or (
+            "aja_csrf"
+        )
+        # ``Secure`` on the session cookie. It is a **tri-state**: unset
+        # means "follow the environment" — off in development, because the
+        # development server is plain HTTP on localhost, and **on** in
+        # production, without exception. An explicit "false" in production
+        # is refused at startup rather than quietly honoured.
+        self.auth_cookie_secure = os.getenv("AUTH_COOKIE_SECURE", "").strip().lower()
+        # How long a session lives before it is refused.
+        self.auth_session_ttl_seconds = int(os.getenv("AUTH_SESSION_TTL_SECONDS", "86400"))
+        if self.auth_session_ttl_seconds < 60:
+            raise RuntimeError(
+                f"AUTH_SESSION_TTL_SECONDS must be at least 60 seconds, got "
+                f"{self.auth_session_ttl_seconds!r}. Refusing to start."
+            )
+        # Whether a login requires a **verified** e-mail address. Off by
+        # default: this deployment has no SMTP provider, so a verified
+        # account could never be created and the API would be unusable.
+        # A production deployment that sends mail turns it on.
+        self.auth_require_verified = os.getenv("AUTH_REQUIRE_VERIFIED", "false").lower() == "true"
+        # Whether the first registered account may claim the rows that
+        # pre-date the identity work (the ``legacy`` owner). On by default:
+        # that is how an operator's existing corpus reaches the operator's
+        # own account instead of being orphaned. Phase D purges it instead
+        # when the answer is "nobody".
+        self.auth_claim_legacy = os.getenv("AUTH_CLAIM_LEGACY", "true").lower() == "true"
+
         self._validate_production_cors()
+        self._validate_production_identity()
 
     @staticmethod
     def _parse_match_weights(raw: str | None) -> dict[str, float] | None:
@@ -163,6 +213,19 @@ class Settings:
             return validate_weights({str(key): value for key, value in parsed.items()})
         except ValueError as exc:
             raise RuntimeError(f"Invalid MATCH_WEIGHTS: {exc}") from exc
+
+    def cookie_secure(self) -> bool:
+        """Whether the session cookie carries the ``Secure`` attribute.
+
+        A method rather than a plain attribute, because the answer
+        depends on the environment: unset means "off in development, on
+        in production", and the production rule is checked at startup.
+        """
+        if self.auth_cookie_secure in ("1", "true", "yes"):
+            return True
+        if self.auth_cookie_secure in ("0", "false", "no"):
+            return False
+        return self.app_env == "production"
 
     def _validate_production_cors(self) -> None:
         """Fail fast on unsafe CORS configuration when APP_ENV=production.
@@ -184,6 +247,32 @@ class Settings:
                 "APP_ENV=production forbids wildcard CORS origins "
                 "(CORS_ORIGINS contains '*'). List explicit origins instead. "
                 "Refusing to start."
+            )
+
+    def _validate_production_identity(self) -> None:
+        """Fail fast on an unsafe identity configuration in production.
+
+        The identity settings decide whether a session can be forged, so a
+        production deployment that is missing them must not start: an
+        application that runs with a guessable session secret is worse than
+        an application that refuses to run, because the first looks healthy.
+        """
+        if self.app_env != "production":
+            return
+        if not self.auth_secret:
+            raise RuntimeError(
+                "APP_ENV=production requires an explicit AUTH_SECRET setting; it is "
+                "unset or empty. Refusing to start."
+            )
+        if len(self.auth_secret) < 32:
+            raise RuntimeError(
+                "AUTH_SECRET must be at least 32 characters long in production, got "
+                f"{len(self.auth_secret)}. Refusing to start."
+            )
+        if self.auth_cookie_secure in ("0", "false", "no"):
+            raise RuntimeError(
+                "APP_ENV=production requires a Secure session cookie "
+                "(AUTH_COOKIE_SECURE must not be false). Refusing to start."
             )
 
 

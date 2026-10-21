@@ -22,6 +22,8 @@ from src.api.routes.jobs import router as jobs_router
 from src.api.routes.resumes import router as resumes_router
 from src.api.routes.tailoring import router as tailoring_router
 from src.api.routes.tracking import router as tracking_router
+from src.auth.csrf import CSRFProtectionMiddleware
+from src.auth.routes import router as auth_router
 from src.config.settings import get_settings
 from src.core.logging import configure_logging
 
@@ -97,8 +99,17 @@ app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ConcurrencyLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# WS-14 · A1: the double-submit CSRF check. It sits **inside** the
+# security headers, so a refused request still carries them, and outside
+# the routers, so it applies to every unsafe request that authenticates
+# with the session cookie — including the ones a future route adds.
+app.add_middleware(CSRFProtectionMiddleware)
 
 app.include_router(health_router)
+# WS-14 · A1: the identity API. It is mounted before the data routes so
+# that a request without a credential is refused by the auth dependency
+# rather than by a data route's own check.
+app.include_router(auth_router)
 app.include_router(applications_router)
 app.include_router(resumes_router)
 app.include_router(jobs_router)

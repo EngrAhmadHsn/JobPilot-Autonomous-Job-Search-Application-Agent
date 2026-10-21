@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from src.db.applications import ApplicationDB, ApplicationEventDB
@@ -55,7 +55,10 @@ from src.db.users import LEGACY_OWNER_ID
 __all__ = [
     "LEGACY_SCOPE",
     "UserScope",
+    "claim_legacy_rows",
+    "count_applications",
     "get_application",
+    "get_application_by_approval",
     "get_approval",
     "get_profile",
     "get_tailored",
@@ -102,6 +105,62 @@ def _owned(statement: Select, model: type, scope: UserScope) -> Select:
     if scope.is_superuser:
         return statement
     return statement.where(model.owner_id == scope.user_id)
+
+
+# -- the legacy corpus --------------------------------------------------------
+
+
+#: The user-scoped tables, in the order the claim walks them. The order
+#: is irrelevant to the outcome and is kept stable so the claim is
+#: reproducible.
+_OWNED_MODELS: tuple[type, ...] = (
+    CandidateProfileDB,
+    JobMatchDB,
+    TailoredResumeDB,
+    ApplicationDB,
+    ApplicationEventDB,
+    ApplicationEvidenceDB,
+    ApprovalRequestDB,
+    AuditEventDB,
+)
+
+
+def claim_legacy_rows(db: Session, user_id: str) -> int:
+    """Give the rows that pre-date the identity work to *user_id*.
+
+    The migration backfilled every pre-existing row to the single
+    ``legacy`` owner, because those rows had no owner the data could
+    justify. That owner is an account nobody can authenticate as, so the
+    rows are reachable by nobody — which is safe, and useless.
+
+    The **first** account to register takes them: an operator's existing
+    resumes, matches, applications and audit rows should reach the
+    operator's own account rather than be orphaned. The claim is
+    therefore a one-time transfer: once the legacy rows are gone, a
+    second registration claims nothing, so a later user cannot take
+    over the first user's data by registering.
+
+    Args:
+        db: The database session.
+        user_id: The account that takes the rows.
+
+    Returns:
+        How many rows were transferred.
+    """
+    if not user_id or user_id == LEGACY_OWNER_ID:
+        return 0
+
+    moved = 0
+    for model in _OWNED_MODELS:
+        result = (
+            db.query(model)
+            .filter(model.owner_id == LEGACY_OWNER_ID)
+            .update({"owner_id": user_id}, synchronize_session=False)
+        )
+        moved += int(result or 0)
+    if moved:
+        db.commit()
+    return moved
 
 
 # -- candidate profiles -------------------------------------------------------
@@ -175,15 +234,60 @@ def list_applications(
     scope: UserScope,
     *,
     status: str | None = None,
+    profile_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[ApplicationDB]:
-    """The applications this scope may read, filtered and paged."""
+    """The applications this scope may read, filtered and paged.
+
+    The filters are applied **inside** the owner filter, not after it:
+    a filter that ran on the unfiltered set would be a filter that
+    counted other users' rows.
+    """
     statement = select(ApplicationDB).order_by(ApplicationDB.created_at.desc())
     if status:
         statement = statement.where(ApplicationDB.status == status)
+    if profile_id:
+        statement = statement.where(ApplicationDB.profile_id == profile_id)
     statement = statement.limit(max(1, min(limit, 200))).offset(max(0, offset))
     return list(db.execute(_owned(statement, ApplicationDB, scope)).scalars())
+
+
+def count_applications(
+    db: Session,
+    scope: UserScope,
+    *,
+    status: str | None = None,
+    profile_id: str | None = None,
+) -> int:
+    """How many applications this scope may read, with the same filters.
+
+    The count is scoped too. A total that counted other users' rows
+    would leak the size of somebody else's activity, and a paginated
+    list whose total disagrees with its items is a bug in its own right.
+    """
+    statement = select(func.count()).select_from(ApplicationDB)
+    if status:
+        statement = statement.where(ApplicationDB.status == status)
+    if profile_id:
+        statement = statement.where(ApplicationDB.profile_id == profile_id)
+    return int(db.execute(_owned(statement, ApplicationDB, scope)).scalar() or 0)
+
+
+def get_application_by_approval(
+    db: Session, scope: UserScope, approval_id: str
+) -> ApplicationDB | None:
+    """The application that was created from this approval, if any.
+
+    The approval and the application are two rows for one act, and both
+    carry an owner. Looking the application up by its approval id must
+    therefore be scoped too — otherwise the lookup is a second, unfiltered
+    door into the applications table.
+    """
+    if not approval_id:
+        return None
+    statement = select(ApplicationDB).where(ApplicationDB.approval_id == approval_id)
+    return db.execute(_owned(statement, ApplicationDB, scope)).scalar_one_or_none()
 
 
 def list_application_events(

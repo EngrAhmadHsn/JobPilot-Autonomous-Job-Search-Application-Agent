@@ -48,6 +48,11 @@ ACTION_TRACKING_EVENT = "application.event"
 # WS-10: the token spend of the LLM client. One row per generation call,
 # holding counts only — never a prompt, never an answer, never a key.
 ACTION_LLM_USAGE = "llm.usage"
+# WS-14 · A1: the identity lifecycle. One row per registration, login,
+# logout, password change, session revocation and account deletion.
+# The action is always ``auth``; the *event* is in the metadata, so the
+# trail can be queried by kind without a combinatorial action vocabulary.
+ACTION_AUTH = "auth"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"
