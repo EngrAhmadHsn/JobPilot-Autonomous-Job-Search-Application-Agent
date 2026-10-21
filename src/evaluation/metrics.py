@@ -237,6 +237,204 @@ def factuality_scores(
     }
 
 
+def live_factuality_scores(
+    produced: Sequence[Mapping[str, object]],
+) -> dict[str, float | int]:
+    """The pipeline's own factuality behaviour over live drafts.
+
+    The hand labels in the golden set describe the *canned* drafts. A live
+    draft is different text, so agreement against those labels would be
+    meaningless. What a live run can honestly measure is the guard's own
+    behaviour: how often a live draft needed stripping, and how much was
+    stripped.
+
+    Args:
+        produced: The produced records — each with ``passed``,
+            ``violations`` and the three ``removed_*`` lists.
+
+    Returns:
+        The pass rate, the strip rate, and the counts behind them.
+    """
+    total = len(produced)
+    passed = 0
+    stripped_pairs = 0
+    stripped_claims = 0
+    violations = 0
+    for record in produced:
+        if bool(record.get("passed")):
+            passed += 1
+        removed = 0
+        for field in ("removed_skills", "removed_experience", "removed_projects"):
+            removed += len(list(record.get(field) or []))
+        stripped_claims += removed
+        if removed:
+            stripped_pairs += 1
+        violations += len(list(record.get("violations") or []))
+
+    return {
+        "pairs": total,
+        "passed": passed,
+        "pass_rate": round(passed / total, 6) if total else 1.0,
+        "stripped_pairs": stripped_pairs,
+        "strip_rate": round(stripped_pairs / total, 6) if total else 0.0,
+        "stripped_claims": stripped_claims,
+        "violations": violations,
+    }
+
+
+def recall_at_k(
+    ranked_ids: Sequence[str],
+    labels: Mapping[str, int],
+    k: int = 10,
+    min_grade: int = GRADE_RELEVANT,
+) -> float:
+    """Share of the relevant listings that appear in the top *k*.
+
+    The counterpart to :func:`precision_at_k`: precision asks "of what we
+    showed, how much was relevant", recall asks "of what was relevant, how
+    much did we show". A ranking can score well on one and badly on the
+    other, so both are reported.
+
+    Args:
+        ranked_ids: The ranked listing ids, best first.
+        labels: The graded relevance of every listing.
+        k: The slice of the ranking to consider.
+        min_grade: The grade at which a listing counts as relevant.
+
+    Returns:
+        The recall, or 1.0 when nothing is relevant (nothing to find).
+    """
+    relevant = {job_id for job_id, grade in labels.items() if grade >= min_grade}
+    if not relevant:
+        return 1.0
+    shown = set(list(ranked_ids)[:k])
+    return round(len(relevant & shown) / len(relevant), 6)
+
+
+def duplicate_rate(total_listings: int, duplicates: int) -> float:
+    """Share of the corpus that was a duplicate.
+
+    The corpus-level view, complementing the dedup *precision* and
+    *recall* of the deduplicator: those score the deduplicator against
+    the annotations, this states how much duplication there was to
+    remove in the first place.
+    """
+    if total_listings <= 0:
+        return 0.0
+    return round(duplicates / total_listings, 6)
+
+
+def matching_error_rates(
+    ranked_ids: Sequence[str],
+    labels: Mapping[str, int],
+    scores: Mapping[str, float],
+    threshold: float,
+    min_grade: int = GRADE_PARTIAL,
+) -> dict[str, float | int]:
+    """The false-positive and false-negative rates of the match decision.
+
+    The engine produces a score, not a decision. A decision needs a
+    threshold, and this metric takes it as an argument — the caller
+    declares it, and the report prints it, so the number is never
+    mistaken for a property of the engine.
+
+    A listing is **predicted relevant** when its score reaches the
+    threshold, and **actually relevant** when its label reaches
+    ``min_grade``. The rates are over the two populations separately,
+    which is what makes them comparable to each other.
+
+    Args:
+        ranked_ids: The ranked listing ids (the ranking under test).
+        labels: The graded relevance of every listing.
+        scores: The score of every listing.
+        threshold: The decision threshold on the score.
+        min_grade: The grade at which a listing counts as relevant.
+
+    Returns:
+        The two rates, with the confusion counts behind them.
+    """
+    true_positive = 0
+    false_positive = 0
+    true_negative = 0
+    false_negative = 0
+
+    for job_id, label in labels.items():
+        if label < GRADE_IRRELEVANT:
+            continue
+        predicted = scores.get(job_id, 0.0) >= threshold
+        actually = label >= min_grade
+        if predicted and actually:
+            true_positive += 1
+        elif predicted and not actually:
+            false_positive += 1
+        elif not predicted and actually:
+            false_negative += 1
+        else:
+            true_negative += 1
+
+    positives = true_positive + false_negative
+    negatives = false_positive + true_negative
+    return {
+        "threshold": threshold,
+        "true_positive": true_positive,
+        "false_positive": false_positive,
+        "true_negative": true_negative,
+        "false_negative": false_negative,
+        "false_positive_rate": (round(false_positive / negatives, 6) if negatives else 0.0),
+        "false_negative_rate": (round(false_negative / positives, 6) if positives else 0.0),
+    }
+
+
+def job_relevance(
+    job_required_skills: Sequence[str],
+    tailored_skills: Sequence[str],
+    tailored_text: str = "",
+) -> float:
+    """Share of the job's required skills the tailored resume carries.
+
+    The job-relevance measure: a tailored resume that drops the job's
+    core requirements is not a tailored resume, however well it scores on
+    ATS structure.
+
+    Args:
+        job_required_skills: The job's required skills.
+        tailored_skills: The skills the tailored resume highlights.
+        tailored_text: The tailored resume's free text (bullets, summary),
+            searched as well, so a skill mentioned in a bullet counts.
+
+    Returns:
+        The share of required skills present, or 1.0 when the job names
+        no required skills.
+    """
+    required = [str(skill).strip() for skill in job_required_skills if str(skill).strip()]
+    if not required:
+        return 1.0
+    haystack_skills = {str(skill).strip().casefold() for skill in tailored_skills}
+    haystack_text = tailored_text.casefold()
+    present = sum(
+        1
+        for skill in required
+        if skill.casefold() in haystack_skills or skill.casefold() in haystack_text
+    )
+    return round(present / len(required), 6)
+
+
+def hallucination_rate(
+    produced_claims: int,
+    stripped_claims: int,
+) -> float:
+    """Share of the tailored claims that were not supported by the profile.
+
+    The factuality validator removes every claim the candidate's document
+    does not support. The share it removes is the rate at which the model
+    invented something — the number the plan calls the hallucination
+    rate.
+    """
+    if produced_claims <= 0:
+        return 0.0
+    return round(stripped_claims / produced_claims, 6)
+
+
 # --------------------------------------------------------------------- ATS
 
 
@@ -252,11 +450,17 @@ __all__ = [
     "coverage_delta",
     "dcg_at_k",
     "dedup_scores",
+    "duplicate_rate",
     "entry_scores",
     "factuality_scores",
     "field_accuracy",
+    "hallucination_rate",
+    "job_relevance",
+    "live_factuality_scores",
+    "matching_error_rates",
     "mean",
     "ndcg_at_k",
     "precision_at_k",
+    "recall_at_k",
     "set_f1",
 ]
