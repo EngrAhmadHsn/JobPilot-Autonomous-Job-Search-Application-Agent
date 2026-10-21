@@ -257,4 +257,4 @@ class TestExecuteApproved:
                 approver="operator",
             )
 
-            mock_build.assert_called_once_with(mock_adapter)
+            mock_build.assert_called_once_with(mock_adapter, session=None)

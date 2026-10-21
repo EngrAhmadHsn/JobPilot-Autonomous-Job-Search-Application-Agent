@@ -7,13 +7,83 @@ from typing import TYPE_CHECKING
 
 from src.applications.contracts import ApplicationResult
 from src.applications.evidence import missing_evidence_files
+from src.db.evidence import ApplicationEvidence
 from src.security.registry_setup import get_registry
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from src.applications.contracts import ApplicationAdapter
+    from src.db.applications import ApplicationDB
     from src.graph.state import ApplicationWorkflowState
 
 logger = logging.getLogger(__name__)
+
+
+def _tracking_session(session: Session | None) -> tuple[Session, bool]:
+    """The session to write the tracking rows through, and whether we own it.
+
+    The caller may inject a session (the API hands over its request-scoped
+    one). When there is none, a short-lived session is opened — the WS-06
+    fallback that lets the graph run without a request.
+    """
+    if session is not None:
+        return session, False
+    from src.db.session import SessionLocal
+
+    return SessionLocal(), True
+
+
+def _find_tracked_application(
+    state: ApplicationWorkflowState, session: Session
+) -> ApplicationDB | None:
+    """The tracked application for this run, or ``None`` when it is not tracked.
+
+    The lookup tries the ids the run carries: the application id, the
+    approval id, then the workflow id. A run outside the API is simply not
+    tracked — no error, and no invented row.
+    """
+    from src.applications.tracking import find_application
+
+    for lookup in (
+        {"application_id": state.application_id},
+        {"approval_id": state.approval_id},
+        {"workflow_id": state.workflow_id},
+    ):
+        if not any(lookup.values()):
+            continue
+        found = find_application(session, **lookup)
+        if found is not None:
+            return found
+    return None
+
+
+def _rollback_quietly(session: Session) -> None:
+    """Discard a failed partial write without letting the rollback raise."""
+    try:
+        session.rollback()
+    except Exception as exc:  # noqa: BLE001 - a failed rollback must not mask the cause
+        logger.warning("Rollback after a tracking failure failed too: %s", exc)
+
+
+def _tracked_application_or_none(
+    state: ApplicationWorkflowState, session: Session
+) -> ApplicationDB | None:
+    """The tracked application for this run, or ``None``.
+
+    A lookup failure is never fatal: the run simply is not tracked. The
+    lookup is isolated from the writes that follow it, so a missing
+    ``applications`` table can never cost a submission its evidence.
+    """
+    try:
+        return _find_tracked_application(state, session)
+    except Exception as exc:  # noqa: BLE001 - a failed lookup must not block the write
+        logger.warning(
+            f"[{state.workflow_id}] Tracking lookup failed (non-blocking): {exc!s}",
+            extra={"workflow_id": state.workflow_id},
+        )
+        _rollback_quietly(session)
+        return None
 
 
 def prepare_node(
@@ -112,7 +182,10 @@ def approval_node(state: ApplicationWorkflowState) -> ApplicationWorkflowState:
 
 
 def submit_node(
-    state: ApplicationWorkflowState, adapter: ApplicationAdapter
+    state: ApplicationWorkflowState,
+    adapter: ApplicationAdapter,
+    *,
+    session: Session | None = None,
 ) -> ApplicationWorkflowState:
     """Submit node: calls adapter.submit() to perform the actual submission.
 
@@ -123,6 +196,8 @@ def submit_node(
     Args:
         state: Current workflow state (must include prepared_application and approval=True)
         adapter: The ApplicationAdapter instance
+        session: An optional session for the WS-07 tracking writes. When it
+            is omitted the node opens its own, as it always has.
 
     Returns:
         Updated state with submission_result populated
@@ -159,38 +234,11 @@ def submit_node(
             extra={"workflow_id": state.workflow_id},
         )
         result = adapter.submit(state.prepared_application)
-        # Evidence DB integration (Phase 2 #4): store submission evidence
-        try:
-            from src.db.evidence import ApplicationEvidence
-            from src.db.session import SessionLocal
-
-            with SessionLocal() as session:
-                evidence_record = ApplicationEvidence(
-                    workflow_id=state.workflow_id,
-                    adapter_name=adapter.name,
-                    job_url=state.prepared_application.request.job_url,
-                    confirmation_text=result.evidence.confirmation_text
-                    if result.evidence
-                    else None,
-                    screenshot_path=result.evidence.screenshot_path if result.evidence else None,
-                    trace_path=result.evidence.trace_path if result.evidence else None,
-                    status=result.status,
-                    metadata=result.metadata,
-                )
-                session.add(evidence_record)
-                session.commit()
-                logger.info(
-                    f"[{state.workflow_id}] Evidence recorded to DB (id={evidence_record.id})",
-                    extra={
-                        "workflow_id": state.workflow_id,
-                        "evidence_id": evidence_record.id,
-                    },
-                )
-        except Exception as db_exc:  # noqa: BLE001 - evidence storage must never block submission
-            logger.warning(
-                f"[{state.workflow_id}] Evidence DB storage failed (non-blocking): {db_exc!s}",
-                extra={"workflow_id": state.workflow_id},
-            )
+        # Evidence DB integration (Phase 2 #4) + WS-07 tracking: store the
+        # submission evidence and move the tracked application to SUBMITTED.
+        # A failure here is logged and swallowed — a missing history must
+        # never cost a submission.
+        _record_submission(state, adapter, result, session)
         state.submission_result = result
         logger.info(
             f"[{state.workflow_id}] Submission completed with status: {result.status}",
@@ -207,8 +255,103 @@ def submit_node(
         raise
 
 
+def _record_submission(
+    state: ApplicationWorkflowState,
+    adapter: ApplicationAdapter,
+    result: ApplicationResult,
+    session: Session | None,
+) -> None:
+    """Store the submission evidence and move the application to SUBMITTED.
+
+    A submission that did not succeed is **not** recorded as ``SUBMITTED``:
+    the application stays where it is and the evidence of the attempt is
+    recorded instead. Nothing here may raise — a tracking failure is logged,
+    not propagated.
+
+    The evidence write and the tracking writes are independent: neither can
+    cost the other. The evidence is the record of what happened, and it must
+    survive even when the tracking tables are unavailable.
+    """
+    tracking_session, owned = _tracking_session(session)
+    try:
+        app_row = _tracked_application_or_none(state, tracking_session)
+        try:
+            evidence_record = ApplicationEvidence(
+                workflow_id=state.workflow_id,
+                adapter_name=adapter.name,
+                # The submit node refuses to run without a prepared payload.
+                job_url=state.prepared_application.request.job_url,
+                # WS-07: the evidence names the application it belongs to.
+                application_id=app_row.id if app_row is not None else None,
+                confirmation_text=result.evidence.confirmation_text if result.evidence else None,
+                screenshot_path=result.evidence.screenshot_path if result.evidence else None,
+                trace_path=result.evidence.trace_path if result.evidence else None,
+                status=result.status,
+                extra_metadata=result.metadata,
+            )
+            tracking_session.add(evidence_record)
+            tracking_session.commit()
+            logger.info(
+                f"[{state.workflow_id}] Evidence recorded to DB (id={evidence_record.id})",
+                extra={"workflow_id": state.workflow_id, "evidence_id": evidence_record.id},
+            )
+        except Exception as db_exc:  # noqa: BLE001 - evidence storage must never block submission
+            logger.warning(
+                f"[{state.workflow_id}] Evidence DB storage failed (non-blocking): {db_exc!s}",
+                extra={"workflow_id": state.workflow_id},
+            )
+            _rollback_quietly(tracking_session)
+            return
+
+        if app_row is None:
+            return
+
+        from src.applications.tracking import (
+            AGENT_ACTOR,
+            EVENT_EVIDENCE_RECORDED,
+            ApplicationStatus,
+            record_event,
+            transition,
+        )
+
+        if result.success:
+            transition(
+                app_row,
+                ApplicationStatus.SUBMITTED,
+                actor=AGENT_ACTOR,
+                db=tracking_session,
+                application_url=result.evidence.url if result.evidence else None,
+            )
+
+        record_event(
+            tracking_session,
+            app_row.id,
+            EVENT_EVIDENCE_RECORDED,
+            actor=AGENT_ACTOR,
+            metadata={
+                "evidence_id": evidence_record.id,
+                "status": result.status,
+                "success": result.success,
+                "screenshot_path": evidence_record.screenshot_path,
+                "trace_path": evidence_record.trace_path,
+            },
+        )
+    except Exception as db_exc:  # noqa: BLE001 - tracking must never block submission
+        logger.warning(
+            f"[{state.workflow_id}] Tracking storage failed (non-blocking): {db_exc!s}",
+            extra={"workflow_id": state.workflow_id},
+        )
+        _rollback_quietly(tracking_session)
+    finally:
+        if owned:
+            tracking_session.close()
+
+
 def verify_node(
-    state: ApplicationWorkflowState, adapter: ApplicationAdapter
+    state: ApplicationWorkflowState,
+    adapter: ApplicationAdapter,
+    *,
+    session: Session | None = None,
 ) -> ApplicationWorkflowState:
     """Verify node: calls adapter.verify() to confirm successful submission.
 
@@ -219,6 +362,7 @@ def verify_node(
     Args:
         state: Current workflow state (must include submission_result)
         adapter: The ApplicationAdapter instance
+        session: An optional session for the WS-07 tracking writes.
 
     Returns:
         Updated state with final_result populated and verified
@@ -280,11 +424,6 @@ def verify_node(
             )
 
         state.final_result = verified_result
-        logger.info(
-            f"[{state.workflow_id}] Verification complete: success={verified_result.success}",
-            extra={"workflow_id": state.workflow_id, "success": verified_result.success},
-        )
-        return state
     except Exception as e:
         logger.error(
             f"[{state.workflow_id}] Verify node failed: {e!s}",
@@ -293,3 +432,61 @@ def verify_node(
         state.error = f"Verification failed: {e!s}"
         state.error_details = {"exception": type(e).__name__, "message": str(e)}
         raise
+
+    # WS-07: the tracked application follows the verification. A verified
+    # application is VERIFIED; a failed verification moves it back to
+    # AWAITING_APPROVAL with the reason attached. The tracking write is
+    # outside the try above: it must never turn a result into a failure.
+    _record_verification(state, verified_result, session)
+
+    logger.info(
+        f"[{state.workflow_id}] Verification complete: success={verified_result.success}",
+        extra={"workflow_id": state.workflow_id, "success": verified_result.success},
+    )
+    return state
+
+
+def _record_verification(
+    state: ApplicationWorkflowState,
+    result: ApplicationResult,
+    session: Session | None,
+) -> None:
+    """Move the tracked application to VERIFIED, or back to AWAITING_APPROVAL."""
+    tracking_session, owned = _tracking_session(session)
+    try:
+        app_row = _tracked_application_or_none(state, tracking_session)
+        if app_row is None:
+            return
+
+        from src.applications.tracking import (
+            AGENT_ACTOR,
+            EVENT_VERIFICATION_FAILED,
+            ApplicationStatus,
+            transition,
+        )
+
+        if result.success:
+            transition(
+                app_row,
+                ApplicationStatus.VERIFIED,
+                actor=AGENT_ACTOR,
+                db=tracking_session,
+            )
+        else:
+            transition(
+                app_row,
+                ApplicationStatus.AWAITING_APPROVAL,
+                actor=AGENT_ACTOR,
+                db=tracking_session,
+                event_type=EVENT_VERIFICATION_FAILED,
+                metadata={"reason": result.message, "status": result.status},
+            )
+    except Exception as db_exc:  # noqa: BLE001 - tracking must never break the result
+        logger.warning(
+            f"[{state.workflow_id}] Verification tracking failed (non-blocking): {db_exc!s}",
+            extra={"workflow_id": state.workflow_id},
+        )
+        _rollback_quietly(tracking_session)
+    finally:
+        if owned:
+            tracking_session.close()

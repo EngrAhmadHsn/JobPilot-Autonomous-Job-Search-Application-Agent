@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 from src.applications.contracts import (
     ApplicationRequest,
@@ -10,6 +12,15 @@ from src.applications.contracts import (
     PreparedApplication,
     SubmissionEvidence,
 )
+from src.applications.tracking import (
+    EVENT_EVIDENCE_RECORDED,
+    EVENT_VERIFICATION_FAILED,
+    ApplicationStatus,
+    create_application,
+)
+from src.db.applications import ApplicationEventDB
+from src.db.base import Base
+from src.db.evidence import ApplicationEvidence
 from src.graph.conditionals import should_submit_conditional, should_verify_conditional
 from src.graph.nodes import approval_node, prepare_node, submit_node, verify_node
 from src.graph.state import ApplicationWorkflowState
@@ -227,9 +238,201 @@ class TestVerifyNode:
             verify_node(initial_state, mock_adapter)
 
 
-class TestConditionals:
-    """Tests for conditional routing logic."""
+class TestTrackingWiring:
+    """WS-07: the nodes move the tracked application and record the evidence."""
 
+    @pytest.fixture
+    def db_session(self, tmp_path):
+        engine = create_engine(f"sqlite:///{(tmp_path / 'workflow.db').as_posix()}")
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            yield session
+        engine.dispose()
+
+    @pytest.fixture
+    def tracked(self, db_session, sample_request):
+        """A tracked application in AWAITING_APPROVAL, bound to the state."""
+        app = create_application(
+            db_session,
+            workflow_id="test-001",
+            adapter_name="fake-ats-playwright",
+            job_url=sample_request.job_url,
+            job_title=sample_request.job_title,
+            company_name=sample_request.company_name,
+        )
+        from src.applications.tracking import transition
+
+        transition(
+            app,
+            ApplicationStatus.AWAITING_APPROVAL,
+            actor="agent",
+            db=db_session,
+        )
+        return app
+
+    def _prepared(self, sample_request):
+        return PreparedApplication(
+            request=sample_request,
+            prepared_fields={"candidate_name": "Jane Doe"},
+        )
+
+    def _events(self, db_session, application_id):
+        return list(
+            db_session.scalars(
+                select(ApplicationEventDB)
+                .where(ApplicationEventDB.application_id == application_id)
+                .order_by(ApplicationEventDB.id)
+            )
+        )
+
+    def test_a_successful_submission_moves_the_application_to_submitted(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        db_session.expire_all()
+        assert tracked.status == ApplicationStatus.SUBMITTED.value
+        assert tracked.submitted_at is not None
+        assert tracked.application_url == "http://localhost:8000/confirmation"
+
+    def test_the_submission_appends_one_event_per_move(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        events = self._events(db_session, tracked.id)
+        # One event per state change: created, awaiting approval, submitted.
+        # The fourth entry is the evidence record, which is not a state change.
+        moves = [event.to_status for event in events if event.to_status is not None]
+        assert moves == [
+            ApplicationStatus.PREPARED.value,
+            ApplicationStatus.AWAITING_APPROVAL.value,
+            ApplicationStatus.SUBMITTED.value,
+        ]
+        assert all(event.actor == "agent" for event in events)
+
+    def test_the_evidence_row_is_linked_to_the_application(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        evidence = db_session.scalars(select(ApplicationEvidence)).one()
+        assert evidence.application_id == tracked.id
+        assert evidence.workflow_id == "test-001"
+
+    def test_the_evidence_row_carries_the_result_metadata(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        evidence = db_session.scalars(select(ApplicationEvidence)).one()
+        assert evidence.extra_metadata == {"job_url": "http://localhost:8000/jobs/123"}
+
+    def test_the_evidence_is_recorded_as_an_event(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        events = self._events(db_session, tracked.id)
+        evidence_events = [e for e in events if e.event_type == EVENT_EVIDENCE_RECORDED]
+        assert len(evidence_events) == 1
+        assert evidence_events[0].extra_metadata["status"] == "submitted"
+
+    def test_a_failed_submission_is_not_recorded_as_submitted(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+        mock_adapter.submit.return_value = ApplicationResult(
+            success=False,
+            status="blocked_human_review",
+            message="a CAPTCHA stood in the way",
+            metadata={},
+        )
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        db_session.expire_all()
+        assert tracked.status == ApplicationStatus.AWAITING_APPROVAL.value
+        assert tracked.submitted_at is None
+
+    def test_a_successful_verification_moves_the_application_to_verified(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        verify_node(initial_state, mock_adapter, session=db_session)
+
+        db_session.expire_all()
+        assert tracked.status == ApplicationStatus.VERIFIED.value
+        assert tracked.verified_at is not None
+
+    def test_a_failed_verification_moves_it_back_with_the_reason(
+        self, db_session, tracked, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = tracked.id
+        submit_node(initial_state, mock_adapter, session=db_session)
+        mock_adapter.verify.return_value = ApplicationResult(
+            success=False,
+            status="verification_failed",
+            message="the confirmation text was not found",
+            metadata={},
+        )
+
+        verify_node(initial_state, mock_adapter, session=db_session)
+
+        db_session.expire_all()
+        assert tracked.status == ApplicationStatus.AWAITING_APPROVAL.value
+        events = self._events(db_session, tracked.id)
+        failure = events[-1]
+        assert failure.event_type == EVENT_VERIFICATION_FAILED
+        assert failure.from_status == ApplicationStatus.SUBMITTED.value
+        assert failure.to_status == ApplicationStatus.AWAITING_APPROVAL.value
+        assert "confirmation text" in failure.extra_metadata["reason"]
+
+    def test_the_nodes_work_without_a_database(self, initial_state, mock_adapter, sample_request):
+        """A run outside the API is simply not tracked — and never breaks."""
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.submission_result = ApplicationResult(
+            success=True, status="submitted", message="sent", metadata={}
+        )
+
+        result = submit_node(initial_state, mock_adapter)
+
+        assert result.submission_result is not None
+        result = verify_node(initial_state, mock_adapter)
+        assert result.final_result is not None
+
+    def test_an_untracked_run_writes_no_application(
+        self, db_session, initial_state, mock_adapter, sample_request
+    ):
+        initial_state.prepared_application = self._prepared(sample_request)
+        initial_state.application_id = "does-not-exist"
+
+        submit_node(initial_state, mock_adapter, session=db_session)
+
+        assert db_session.scalars(select(ApplicationEvidence)).one().application_id is None
+
+
+class TestConditionals:
     def test_should_submit_conditional_approved(self, initial_state):
         """Test should_submit_conditional routes to submit when approved."""
         initial_state.approval_status = True

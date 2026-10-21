@@ -32,6 +32,8 @@ from src.security.audit import (
 from src.security.registry_setup import get_registry
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from src.applications.contracts import (
         ApplicationAdapter,
         ApplicationRequest,
@@ -92,6 +94,8 @@ def execute_approved(
     approval_id: str,
     approver: str,
     decision_reason: str = "",
+    session: Session | None = None,
+    application_id: str | None = None,
 ) -> ApplicationResult:
     """Execute an application that a human has already approved.
 
@@ -107,6 +111,11 @@ def execute_approved(
         approval_id: The approval record this execution belongs to.
         approver: Who approved it.
         decision_reason: Why they approved it (recorded in the audit trail).
+        session: An optional session for the WS-07 tracking writes. The API
+            hands over its request-scoped session, so the tracking rows are
+            written in the same transaction as the rest of the request.
+        application_id: The tracked application this execution belongs to,
+            when it is known.
 
     Returns:
         The final application result. A failure is a result, never an
@@ -125,7 +134,7 @@ def execute_approved(
     )
 
     try:
-        graph = build_application_workflow(adapter)
+        graph = build_application_workflow(adapter, session=session)
 
         state = ApplicationWorkflowState(
             request=prepared.request,
@@ -140,6 +149,7 @@ def execute_approved(
             adapter_name=adapter.name,
             approval_id=approval_id,
             approver=approver,
+            application_id=application_id,
         )
 
         raw_result = graph.invoke(state, config={"configurable": {"thread_id": workflow_id}})
@@ -234,9 +244,7 @@ def record_prepare_audit(
     )
 
 
-def select_adapter_for_url(
-    job_url: str, adapters: list[ApplicationAdapter]
-) -> ApplicationAdapter:
+def select_adapter_for_url(job_url: str, adapters: list[ApplicationAdapter]) -> ApplicationAdapter:
     """Select the appropriate adapter for a given job URL.
 
     Iterates through available adapters and returns the first one that

@@ -12,12 +12,14 @@ from src.graph.conditionals import should_submit_conditional, should_verify_cond
 from src.graph.state import ApplicationWorkflowState
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from src.applications.contracts import ApplicationAdapter
 
 logger = logging.getLogger(__name__)
 
 
-def build_application_workflow(adapter: ApplicationAdapter):
+def build_application_workflow(adapter: ApplicationAdapter, *, session: Session | None = None):
     """Build the application workflow graph.
 
     Creates a LangGraph StateGraph with the following structure:
@@ -45,6 +47,9 @@ def build_application_workflow(adapter: ApplicationAdapter):
 
     Args:
         adapter: The ApplicationAdapter instance to use for prepare/submit/verify
+        session: An optional session for the WS-07 tracking writes. It is
+            held by the node closures and never travels in the graph state,
+            so the state stays serializable for the checkpointer.
 
     Returns:
         Compiled StateGraph ready for execution
@@ -65,11 +70,11 @@ def build_application_workflow(adapter: ApplicationAdapter):
     )
     graph.add_node(
         "submit",
-        lambda state: submit_node(cast(ApplicationWorkflowState, state), adapter),
+        lambda state: submit_node(cast(ApplicationWorkflowState, state), adapter, session=session),
     )
     graph.add_node(
         "verify",
-        lambda state: verify_node(cast(ApplicationWorkflowState, state), adapter),
+        lambda state: verify_node(cast(ApplicationWorkflowState, state), adapter, session=session),
     )
 
     # Add special nodes for rejection and verification failure

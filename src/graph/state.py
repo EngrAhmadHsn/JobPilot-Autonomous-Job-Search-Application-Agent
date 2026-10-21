@@ -43,6 +43,9 @@ class ApplicationWorkflowState:
     # WS-06: the persisted approval this run is (or was) bound to.
     approval_id: str | None = None
     approver: str | None = None
+    # WS-07: the tracked application this run belongs to. A plain string, so
+    # the state stays serializable for the LangGraph checkpointer.
+    application_id: str | None = None
     error: str | None = None
     error_details: dict | None = None
 
