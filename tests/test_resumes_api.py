@@ -102,12 +102,18 @@ def test_upload_empty_file_rejected(api: TestClient) -> None:
 
 
 def test_upload_corrupt_docx_rejected(api: TestClient, tmp_path: Path) -> None:
-    """A .docx that is not a ZIP package is rejected with a clear message."""
+    """A .docx that is not a real Office package is rejected by the validator.
+
+    WS-06 · SEC-10: the upload validator refuses the file before it is
+    stored, so the message names the problem instead of echoing the content.
+    """
     response = _upload(
         api, filename="corrupt.docx", content=b"this is definitely not a docx", mime=DOCX_MIME
     )
     assert response.status_code == 400
-    assert "could not be parsed" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "not a valid Office document" in detail or "could not be parsed" in detail
+    assert "definitely not a docx" not in detail
 
 
 def test_upload_txt_resume_round_trips(api: TestClient) -> None:
