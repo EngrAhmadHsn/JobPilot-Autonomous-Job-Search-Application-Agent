@@ -181,3 +181,48 @@ def test_evidence_download_of_an_unknown_application_is_404(api: TestClient) -> 
     response = api.get("/api/applications/nope/evidence/workflow-1.png")
 
     assert response.status_code == 404
+
+
+def test_evidence_list_returns_the_confirmation_text(api: TestClient, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    screenshot = evidence_dir / "workflow-2.png"
+    screenshot.write_bytes(PNG_BYTES)
+
+    with next(api.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+        application = build_application_row(
+            workflow_id="workflow-2",
+            job_id="greenhouse:1",
+            adapter_name="fake-ats",
+            job_url="http://127.0.0.1:8901/basic",
+            job_title="AI Engineer",
+            company_name="Acme",
+            status="verified",
+        )
+        db.add(application)
+        db.add(
+            ApplicationEvidence(
+                workflow_id="workflow-2",
+                adapter_name="fake-ats",
+                job_url="http://127.0.0.1:8901/basic",
+                application_id=application.id,
+                confirmation_text="Application submitted",
+                screenshot_path=str(screenshot),
+                trace_path="workflow-2.trace.json",
+                status="submitted",
+            )
+        )
+        db.commit()
+        application_id = application.id
+
+    response = api.get(f"/api/applications/{application_id}/evidence")
+
+    assert response.status_code == 200
+    evidence = response.json()["evidence"]
+    assert len(evidence) == 1
+    assert evidence[0]["confirmation_text"] == "Application submitted"
+    assert evidence[0]["screenshot_path"].endswith("workflow-2.png")
+
+
+def test_evidence_list_of_an_unknown_application_is_404(api: TestClient) -> None:
+    assert api.get("/api/applications/nope/evidence").status_code == 404

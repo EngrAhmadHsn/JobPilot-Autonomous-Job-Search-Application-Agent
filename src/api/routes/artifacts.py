@@ -31,9 +31,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from src.db.applications import ApplicationDB
+from src.api.scope import UserScope, current_scope
+from src.db import access
 from src.db.session import get_db
-from src.db.tailored import TailoredResumeDB
 from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ def _media_type(path: Path) -> str:
 def download_tailored_docx(
     tailoring_id: str,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> FileResponse:
     """Download the DOCX rendered for one tailoring.
 
@@ -103,7 +104,7 @@ def download_tailored_docx(
     Raises:
         HTTPException 404: The tailoring, or its rendered file, is unknown.
     """
-    row = db.get(TailoredResumeDB, tailoring_id)
+    row = access.get_tailored(db, scope, tailoring_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Tailoring {tailoring_id!r} not found")
 
@@ -128,6 +129,7 @@ def download_evidence(
     application_id: str,
     filename: str,
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> FileResponse:
     """Download one evidence artifact of a tracked application.
 
@@ -145,7 +147,7 @@ def download_evidence(
     """
     name = _safe_file_name(filename)
 
-    if db.get(ApplicationDB, application_id) is None:
+    if access.get_application(db, scope, application_id) is None:
         raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
 
     model = _evidence_model()
@@ -172,3 +174,48 @@ def download_evidence(
             return FileResponse(path, media_type=_media_type(path), filename=path.name)
 
     raise HTTPException(status_code=404, detail=f"No evidence file named {name!r}")
+
+
+@router.get("/api/applications/{application_id}/evidence")
+def list_application_evidence(
+    application_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> dict:
+    """The evidence records of one tracked application.
+
+    The evidence rows are the record of what happened: the confirmation text
+    the page showed, the status the adapter reported, and the paths of the
+    artifacts. The tracking API answers with the application's *history*, not
+    with its evidence, so the console cannot show a past submission's
+    confirmation text without this.
+
+    Args:
+        application_id: The tracked application.
+        db: The request-scoped database session.
+        scope: The caller's access scope.
+
+    Returns:
+        The evidence records, newest first.
+
+    Raises:
+        HTTPException 404: The application is unknown.
+    """
+    application = access.get_application(db, scope, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail=f"Application {application_id!r} not found")
+
+    records = access.list_evidence(db, scope, application.workflow_id)
+    return {
+        "evidence": [
+            {
+                "confirmation_text": record.confirmation_text,
+                "status": record.status,
+                "screenshot_path": record.screenshot_path,
+                "trace_path": record.trace_path,
+                "job_url": record.job_url,
+                "recorded_at": record.recorded_at.isoformat() if record.recorded_at else None,
+            }
+            for record in records
+        ]
+    }
