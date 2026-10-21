@@ -320,8 +320,9 @@ file supplies only the *inputs* and the *expectations*.
 | Metric | Definition |
 |---|---|
 | `system.successful_applications` | share of tracked applications that reached `verified` |
-| `system.failed_applications` | share that reached a terminal non-verified state (`rejected`) |
-| `system.human_intervention_rate` | share of runs where a human actor was required — an approval decision, or a human-set terminal outcome |
+| `system.failed_applications` | share that reached a terminal non-verified state (`rejected`, `withdrawn`) |
+| `system.human_intervention_rate` | share of runs that **stopped for a human** — the agent reached a question it could not answer, a challenge, or a form the server rejected, so the run ended `awaiting_approval` with no submission |
+| `system.human_outcome_rate` | share of runs whose terminal outcome a human set after a confirmed submission (`interview`, `offer`) |
 | `system.incorrect_submission_rate` | share of runs that reached `submitted` but never `verified` (a submission claimed but not confirmed) |
 | `system.lifecycle_fidelity` | share of runs whose recorded event sequence matches the scenario's expected sequence exactly |
 
@@ -339,9 +340,20 @@ rates are meaningful rather than flattering:
 | `rejected` | a human rejection at the gate → `rejected`, human actor |
 | `human_outcome` | a human setting `interview`/`offer` after verification |
 
+Every run falls in **exactly one** bucket — successful, failed, paused for
+a human, or a human outcome — so the buckets sum to the run count. That is
+asserted, because a metric that double-counts is worse than no metric.
+
 `human_intervention_rate` is then a *measured* property of the scenario
-mix, not a constant: the mix has 5 auto-completing runs and 3 that need a
-human.
+mix, not a constant: the mix has 3 runs that complete on their own and 3
+that need a human.
+
+**Why "stopped for a human" and not "a human was present".** The approval
+gate is mandatory in this design, so every run has a human in it: counting
+that would make the rate 1.0 and would measure nothing. What is worth
+measuring is how often the agent could *not* finish on its own. The live
+verification forced this correction — the first draft counted the
+approval, and the number was a constant wearing a measurement's clothes.
 
 **No browser in the metric path.** The scenarios need the real browser to
 produce the ATS's behaviour, so this phase is **live-verified**, not
@@ -416,6 +428,12 @@ the report names both.
 baseline and then raised. A metric with no threshold is not gated, and the
 report says so — an ungated metric must not look like a passing one.
 
+**The thresholds are a `min`/`max` pair, not a single floor.** A rate like
+the false-positive rate is good when it is **low** and the extraction
+accuracy is good when it is **high**; one direction cannot express both.
+The system and browser metrics live in their own `system` section, gated
+by the live script, because they need a browser.
+
 **`--check` becomes per-mode.** The offline thresholds gate the offline
 run. The live run is checked against the same numeric thresholds but its
 numbers are not reproducible, so the gate reports the comparison and does
@@ -426,10 +444,10 @@ says which gate applied.
 
 | Module | What it proves | Browser? | Network? |
 |---|---|---|---|
-| `tests/test_metrics.py` (extended) | every new metric against a hand-computed expectation; edge cases (empty input, no positives, no negatives) | no | no |
-| `tests/test_eval_runner.py` (extended) | the offline run still populates every metric and is byte-identical across runs; the report names its providers; `--check` fails on a lowered threshold | no | no |
-| `tests/test_eval_systems.py` (new) | the system metrics over a scripted tracker session: a run that reaches `verified`, one that stops at `needs_human`, one a human rejects; and the metric functions over those rows | no | no |
-| `tests/test_eval_scenarios.py` (new) | the golden scenario file is well-formed: every scenario names a real fake-ATS variant, every expectation is reachable | no | no |
+| `tests/test_metrics.py` (extended) | the factuality metric against a hand-computed expectation; edge cases (empty input, no positives, no negatives) | no | no |
+| `tests/test_eval_runner.py` (extended) | the offline run still populates every metric and is byte-identical across runs; the report names its providers and the families it did not measure; `--check` fails on a lowered minimum **and** on an exceeded maximum | no | no |
+| `tests/test_eval_metrics.py` (new) | every new metric against a hand-computed expectation: the discovery, matching, tailoring, system and browser families, plus the live-mode factuality metric | no | no |
+| `tests/test_eval_scenarios.py` (new) | the golden scenario file is well-formed: every scenario names a real fake-ATS variant, every expectation is reachable, every expected event type is real; and the tracker records the lifecycle the scenarios declare | no | no |
 | `scripts/verify_ws09.py` (new) | the **whole chain live**: the real workflow against the real fake ATS in Chromium, the real tracking tables, the system + browser metrics computed from the rows, and the report written | **yes** | no (localhost) |
 
 **Live verification must not be a rubber stamp.** The script asserts the
@@ -629,7 +647,7 @@ finish on its own: 3 of 8 (0.375).
 
 ## Phase K — live verification
 
-`scripts/verify_ws09.py` — **26/26 checks passed**: the real workflow
+`scripts/verify_ws09.py` — **34/34 checks passed**: the real workflow
 against the real fake ATS in Chromium, with a real database, and the
 system and browser metrics computed from the rows the workflow actually
 wrote. The script asserts the **values**, not merely that a run
