@@ -514,6 +514,16 @@ returns persisted match rows → results identical across a server restart.
 The Gemini `api_requests` counter in `embedding_cache.sqlite` is **empty**:
 the run made zero embedding API calls.
 
+**Final re-verification after the 8,000-char re-embed (2026-10-21, later the
+same day):** the corpus was re-embedded at the raised cap (5,106 listings
+fetched and embedded, zero API requests) and the listings that dropped off
+the boards were embedded too — **5,854 persisted listings, every one with a
+vector**. Live store-only search: HTTP 200 in **7.4 s**, `degraded=false`,
+`source_errors={}`, top-10 semantic 71.2–75.3 (overall 82.2–83.1), top hit
+"Machine Learning Engineer, Growth" (the ranking shifted with the longer
+input, as expected), Gemini `api_requests` counter still **empty** — zero
+embedding API calls in the entire run.
+
 **Post-migration fixes (same workstream, 2026-10-21):**
 
 1. **The local provider needed the shared content-hash cache.** Without it
