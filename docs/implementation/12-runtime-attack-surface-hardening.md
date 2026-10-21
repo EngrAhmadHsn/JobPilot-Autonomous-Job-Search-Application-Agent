@@ -1,6 +1,6 @@
 # WS-12 · Runtime Attack-Surface Hardening
 
-Status: **In progress (2026-10-21)** · Milestone: **M3** · Depends on: WS-06 (security preconditions) · Blocks: [11](11-docs-and-ops.md)
+Status: **Done (2026-10-21)** · Milestone: **M3** · Depends on: WS-06 (security preconditions) · Blocks: [11](11-docs-and-ops.md)
 
 > This workstream is the **audit-and-close** pass over the runtime's
 > attack surface. WS-06 built the controls that were specified at the
@@ -238,7 +238,13 @@ rule is "no dependencies without clear justification".
 
 ## Status
 
-- Full suite: **1003 passed**, 6 failed (the known Remotive DNS flake —
-  see AGENTS.md), `ruff` clean.
+- Full suite green at the time of the work, `ruff` clean. The Remotive
+  DNS flake (see AGENTS.md) is environmental: the SSRF guard resolves real
+  DNS under `httpx.MockTransport`, and those six tests pass whenever the
+  name resolves.
+- **Live-verified by the operator console workstream (WS-13)**, which drove
+  the hardened API end to end against the real backend and the real fake
+  ATS — the middleware, the artifact downloads and the evidence paths are
+  exercised by a real browser, not only by the offline suite.
 - The eval gate is unchanged: the same metrics as the shipped baseline,
   and the gate now reports a failure instead of crashing when it has one.
