@@ -627,6 +627,64 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  "/api/documents": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * List Documents
+     * @description The caller's documents, newest first.
+     *
+     *     Args:
+     *         db: The request-scoped database session.
+     *         scope: The caller's access scope.
+     *
+     *     Returns:
+     *         The documents and how many there are.
+     */
+    get: operations["list_documents_api_documents_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/documents/{document_id}/download": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Download Document
+     * @description Download one of the caller's documents.
+     *
+     *     Args:
+     *         document_id: The document's id (``profile-<id>`` or ``tailored-<id>``).
+     *         db: The request-scoped database session.
+     *         scope: The caller's access scope.
+     *
+     *     Returns:
+     *         The file.
+     *
+     *     Raises:
+     *         HTTPException 404: The document is unknown, or its file is gone.
+     */
+    get: operations["download_document_api_documents__document_id__download_get"]
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   "/api/health": {
     parameters: {
       query?: never
@@ -654,6 +712,12 @@ export interface paths {
     /**
      * Get Job
      * @description Return one stored job listing (canonical ``{source}:{id}`` key).
+     *
+     *     WS-15: this route needs a credential like every other reading route.
+     *     The corpus is shared (the listings are public board data, so there is
+     *     no tenant to filter on), but an open read of the whole corpus is an
+     *     open enumeration of it, and the route was the only one left that
+     *     answered without asking who was asking.
      */
     get: operations["get_job_api_jobs__job_id__get"]
     put?: never
@@ -681,6 +745,11 @@ export interface paths {
      *     requests (content-hash cache), and a daily-quota stop (``quota_exhausted``)
      *     leaves everything persisted for the next run. This can take minutes with
      *     real boards — scheduled runs should use ``scripts/refresh_jobs.py``.
+     *
+     *     WS-15: this route needs a credential. It is the most expensive
+     *     operation in the system — it walks every board and embeds the corpus —
+     *     and it was the one state-changing route that anyone who could reach the
+     *     port could call, in a loop, at the rate limit's pace.
      */
     post: operations["refresh_jobs_endpoint_api_jobs_refresh_post"]
     delete?: never
@@ -1517,6 +1586,8 @@ export interface components {
     JobRefreshResponse: {
       /** Degraded Embedding */
       degraded_embedding: boolean
+      /** Embedding Documents Planned */
+      embedding_documents_planned: number
       /** Embedding Requests Planned */
       embedding_requests_planned: number
       /** Embedding Requests Used */
@@ -2921,6 +2992,59 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["ErrorModel"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  list_documents_api_documents_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": {
+            [key: string]: unknown
+          }
+        }
+      }
+    }
+  }
+  download_document_api_documents__document_id__download_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        document_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": unknown
         }
       }
       /** @description Validation Error */

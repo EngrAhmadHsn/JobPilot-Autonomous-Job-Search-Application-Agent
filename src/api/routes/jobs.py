@@ -87,6 +87,9 @@ class JobRefreshResponse(BaseModel):
     source_errors: dict[str, str] = Field(default_factory=dict)
     embedding_requests_planned: int
     embedding_requests_used: int
+    # WS-15: the documents that had to be embedded (the cache misses). On
+    # the local provider this is the whole cost of the refresh.
+    embedding_documents_planned: int
     quota_exhausted: bool
     degraded_embedding: bool
 
@@ -147,6 +150,7 @@ def refresh_jobs_endpoint(
         source_errors=report.source_errors,
         embedding_requests_planned=report.embedding_requests_planned,
         embedding_requests_used=report.embedding_requests_used,
+        embedding_documents_planned=report.embedding_documents_planned,
         quota_exhausted=report.quota_exhausted,
         degraded_embedding=report.degraded_embedding,
     )

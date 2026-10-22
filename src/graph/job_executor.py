@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from sqlalchemy.orm import sessionmaker
 
     from src.jobs.contracts import JobListing, JobSource
+    from src.security.limits import SecurityLimits
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,11 @@ class JobRefreshReport(BaseModel):
     source_errors: dict[str, str] = Field(default_factory=dict)
     embedding_requests_planned: int = 0  # cache-miss estimate before embedding
     embedding_requests_used: int = 0  # actual batch requests spent
+    # WS-15: the documents that had to be **embedded** — the cache misses.
+    # On the local provider this is the whole cost of the refresh, and it
+    # is the number the daily work budget is denominated in, so it is the
+    # number an operator needs to see to understand what a refresh cost.
+    embedding_documents_planned: int = 0
     quota_exhausted: bool = False
     degraded_embedding: bool = False  # vector store failed; rows persisted only
 
@@ -213,6 +219,144 @@ def _corpus_size(session_factory: sessionmaker | None = None) -> int | None:
         return None
 
 
+def _share_by_source(listings: list[JobListing], limit: int) -> list[JobListing]:
+    """Take up to *limit* listings, round-robin across their sources.
+
+    WS-15: a board is untrusted input, so **one** board must not be able to
+    spend the whole embedding budget. The listings arrive in board order, and
+    a hostile board controls its own order, so taking "the first N" is
+    taking "whatever the attacker put first". Taking them round-robin
+    instead gives every source an equal share of the budget until its own
+    listings run out, so a flood on one board is bounded at roughly
+    ``1 / number_of_sources`` of the work.
+    """
+    if limit <= 0 or not listings:
+        return []
+    buckets: dict[str, list[JobListing]] = {}
+    order: list[str] = []
+    for listing in listings:
+        source = listing.source or "unknown"
+        if source not in buckets:
+            buckets[source] = []
+            order.append(source)
+        buckets[source].append(listing)
+
+    chosen: list[JobListing] = []
+    depth = 0
+    while len(chosen) < limit:
+        added = False
+        for source in order:
+            bucket = buckets[source]
+            if depth < len(bucket):
+                chosen.append(bucket[depth])
+                added = True
+                if len(chosen) >= limit:
+                    break
+        if not added:
+            break
+        depth += 1
+    return chosen
+
+
+def _select_for_embedding(
+    listings: list[JobListing],
+    embedding: object,
+    store: object,
+    *,
+    budget: int,
+) -> tuple[list[JobListing], int, bool]:
+    """Choose the listings this refresh will embed, and how much work that is.
+
+    WS-15: the budget is denominated in **cache misses** — the embeddings
+    that actually cost something. The first implementation took the first N
+    listings in board order, which meant:
+
+    - a listing that was already embedded still consumed budget, even
+      though re-embedding it costs a cache lookup and nothing else; and
+    - a flood that occupied the front of a board's response took the whole
+      budget, permanently, because a board's order is stable.
+
+    So the misses are selected first (and shared fairly between the
+    sources), the already-cached listings follow to refresh their
+    metadata, and the daily work budget caps the misses across a whole
+    day — the ceiling a flood that spreads itself over many refreshes
+    runs into.
+
+    Args:
+        listings: The admitted listings, in board order.
+        embedding: The embedding provider (asked what it already has).
+        store: The vector store (asked for the document text).
+        budget: The per-refresh cap on the embeddings that cost something.
+
+    Returns:
+        The listings to embed, the number of embeddings planned, and
+        whether the daily work budget is the reason the list is short.
+    """
+    if not listings:
+        return [], 0, False
+
+    texts = [store.document_text(job) for job in listings]
+    is_cached = getattr(embedding, "is_cached", None)
+    if is_cached is None:
+        flags = [False] * len(listings)
+    else:
+        flags = [bool(flag) for flag in is_cached(texts)]
+
+    misses = [job for job, cached in zip(listings, flags) if not cached]
+    hits = [job for job, cached in zip(listings, flags) if cached]
+
+    # The daily work budget: the ceiling across a whole day, which the
+    # per-refresh budget alone does not provide.
+    remaining = getattr(embedding, "remaining_work_budget", None)
+    remaining = remaining() if remaining is not None else None
+    work_exhausted = False
+    if remaining is not None and remaining < len(misses):
+        misses = misses[: max(0, remaining)]
+        work_exhausted = True
+
+    # The per-refresh budget, shared fairly between the sources.
+    misses = _share_by_source(misses, budget)
+    # The cached listings cost a lookup, not an embedding, so they ride
+    # along to refresh the store's metadata — bounded by the same budget.
+    to_embed = misses + _share_by_source(hits, budget)
+    return to_embed, len(misses), work_exhausted
+
+
+def _evict_stale_listings(
+    session_factory: sessionmaker | None,
+    limits: SecurityLimits,
+) -> list[str]:
+    """Make room in a full corpus by dropping the stalest listings.
+
+    WS-15: the corpus cap is a bound, and a bound that can only be reached
+    once and never left is an outage. The eviction is bounded too — one
+    refresh may not turn into a mass delete — and it takes the listings
+    that have not been seen on a board for the longest, so the listings
+    the boards keep serving stay.
+
+    Returns:
+        The ids of the evicted listings (so their vectors can go too).
+    """
+    from src.db.jobs import prune_stale_jobs
+
+    keep = max(0, limits.max_corpus_listings - limits.max_corpus_evictions_per_refresh)
+    try:
+        removed = prune_stale_jobs(
+            session_factory,
+            keep=keep,
+            limit=limits.max_corpus_evictions_per_refresh,
+        )
+    except Exception:
+        logger.exception("Evicting the stale listings failed; the corpus cap still applies")
+        return []
+    if removed:
+        logger.warning(
+            "The corpus was at its cap; evicted %d listings that had not been seen for the longest",
+            len(removed),
+        )
+    return removed
+
+
 def refresh_jobs(
     *,
     sources: dict[str, JobSource] | None = None,
@@ -278,8 +422,24 @@ def refresh_jobs(
     # grow the corpus without bound, and the corpus itself is capped so the
     # full-corpus read in the search stays affordable.
     from src.security.admission import admit_listings
+    from src.security.limits import get_limits
 
-    admission = admit_listings(unique, corpus_size=_corpus_size(session_factory))
+    limits = get_limits()
+
+    # WS-15: the corpus **evicts** before it admits. The cap used to be a
+    # one-way door: once the corpus was full, `room` was zero and nothing
+    # was admitted again — from any source, ever. A flood could end the
+    # application's life with five refreshes and no way back. The corpus
+    # now makes room by dropping the listings that have not been seen on a
+    # board for the longest, so the bound still protects the read path and
+    # the corpus still moves.
+    corpus_size = _corpus_size(session_factory)
+    evicted_ids: list[str] = []
+    if corpus_size is not None and corpus_size >= limits.max_corpus_listings:
+        evicted_ids = _evict_stale_listings(session_factory, limits)
+        corpus_size = _corpus_size(session_factory)
+
+    admission = admit_listings(unique, corpus_size=corpus_size)
     unique = admission.admitted
     if admission.total_dropped:
         logger.warning(
@@ -300,6 +460,7 @@ def refresh_jobs(
             logger.exception("Persisting %d listings failed; continuing unpersisted", len(unique))
 
     embedded, planned, used, quota_exhausted, degraded = 0, 0, 0, False, False
+    documents_planned = 0
     if unique:
         embedding = embedding_fn
         if embedding is None:
@@ -316,14 +477,33 @@ def refresh_jobs(
                 from src.rag.chroma_store import ChromaVectorStore
 
                 store = ChromaVectorStore(embedding_fn=embedding)
+            # The evicted listings lose their vectors too, so the store
+            # does not keep scoring rows the corpus no longer has.
+            if evicted_ids:
+                try:
+                    store.delete_jobs(evicted_ids)
+                except Exception:
+                    logger.exception(
+                        "Deleting the vectors of %d evicted listings failed; "
+                        "the search ignores them (they have no row)",
+                        len(evicted_ids),
+                    )
             # WS-12: the embedding work per refresh is bounded. A flood of
             # unique listings would otherwise spend the provider's whole
             # daily quota — and fill the embedding cache — on texts nobody
             # will ever search for, starving the legitimate ones.
-            from src.security.limits import get_limits
-
-            embed_budget = get_limits().max_embed_per_refresh
-            to_embed = unique[:embed_budget]
+            embed_budget = limits.max_embed_per_refresh
+            to_embed, misses_planned, work_exhausted = _select_for_embedding(
+                unique, embedding, store, budget=embed_budget
+            )
+            documents_planned = misses_planned
+            if work_exhausted:
+                quota_exhausted = True
+                logger.warning(
+                    "The daily embedding work budget is spent; %d listings stay "
+                    "persisted and are embedded after the daily reset",
+                    len(unique) - len(to_embed),
+                )
             if len(to_embed) < len(unique):
                 logger.warning(
                     "Embedding budget capped at %d listings for this refresh; "
@@ -372,6 +552,7 @@ def refresh_jobs(
         stats=stats,
         source_errors=source_errors,
         embedding_requests_planned=planned,
+        embedding_documents_planned=documents_planned,
         embedding_requests_used=used,
         quota_exhausted=quota_exhausted,
         degraded_embedding=degraded,

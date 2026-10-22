@@ -347,6 +347,8 @@ export function refreshResponse(
     source_errors: {},
     embedding_requests_planned: 35,
     embedding_requests_used: 35,
+    // WS-15: the documents that had to be embedded (the cache misses).
+    embedding_documents_planned: 35,
     quota_exhausted: false,
     degraded_embedding: false,
     ...overrides,

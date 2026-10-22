@@ -65,6 +65,9 @@ EXPECTED_COLUMNS = {
     "applications": {"owner_id"},
     "application_events": {"owner_id"},
     "application_evidence": {"owner_id"},
+    # WS-15: the corpus's eviction clock. Without it the corpus cap is a
+    # one-way door — a full corpus admits nothing, ever again.
+    "jobs": {"last_seen_at"},
 }
 
 

@@ -216,6 +216,23 @@ class ChromaVectorStore:
 
     # -- read path -----------------------------------------------------------
 
+    def delete_jobs(self, job_ids: list[str]) -> int:
+        """Remove the vectors of the given listings; returns the count.
+
+        WS-15: the corpus evicts its stale listings, and a listing that
+        has been evicted must not keep a vector — the store is what the
+        search reads, so a vector without a row is a listing that scores
+        against a profile but can never be fetched, shown, or applied to.
+        The two stores are therefore evicted together.
+        """
+        if not job_ids:
+            return 0
+        self._collection.delete(ids=list(job_ids))
+        logger.info(
+            "Deleted %d vectors from Chroma collection %s", len(job_ids), self.collection_name
+        )
+        return len(job_ids)
+
     def query_similar(self, query_text: str, n: int = 10) -> list[tuple[str, float]]:
         """Return (job_id, similarity 0-100) for the n most similar listings."""
         if self._collection.count() == 0:

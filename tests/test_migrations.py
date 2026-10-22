@@ -46,6 +46,9 @@ JOBS_COLUMNS = {
     "company_url",
     "posted_at",
     "extra_metadata",
+    # WS-15: the eviction clock — the sighting that decides which
+    # listings go when the corpus is full.
+    "last_seen_at",
 }
 
 EVIDENCE_COLUMNS = {

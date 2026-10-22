@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
@@ -13,6 +15,8 @@ from src.jobs.contracts import JobListing
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import sessionmaker
+
+logger = logging.getLogger(__name__)
 
 
 class JobDB(Base):
@@ -40,6 +44,13 @@ class JobDB(Base):
     company_url: Mapped[str | None] = mapped_column(String, nullable=True)
     posted_at: Mapped[str | None] = mapped_column(String, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # WS-15: when the listing was last seen on a board. The corpus is
+    # bounded, and a bound that can only be reached once and never left
+    # is an outage waiting for a flood. This column is what makes the
+    # corpus *evictable*: the listing that has not been seen for the
+    # longest is the one that goes, so a listing the boards keep serving
+    # stays and a flood's rows age out.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
 
 def listing_from_row(row: JobDB) -> JobListing:
@@ -89,6 +100,9 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
 
     factory = session_factory or SessionLocal
     persisted = 0
+    # WS-15: one sighting time for the whole batch, so the eviction order
+    # does not depend on the order the boards happened to answer in.
+    seen_at = datetime.now(UTC)
     with factory() as session:
         for listing in listings:
             row = JobDB(
@@ -112,8 +126,65 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
                 company_url=listing.company_url,
                 posted_at=listing.posted_at,
                 extra_metadata=dict(listing.metadata),
+                last_seen_at=seen_at,
             )
             session.merge(row)
             persisted += 1
         session.commit()
     return persisted
+
+
+def prune_stale_jobs(
+    session_factory: sessionmaker | None = None,
+    *,
+    keep: int,
+    limit: int,
+) -> list[str]:
+    """Delete the listings that have not been seen for the longest.
+
+    WS-15: the corpus is capped, and the cap used to be a one-way door —
+    once the corpus was full, **nothing** was admitted again, from any
+    source, ever. A flood could therefore end the application's life with
+    five refreshes and no way back.
+
+    The corpus now evicts. The listing that has not been seen on a board
+    for the longest goes first (a row that has never been seen goes before
+    one that has, because there is no evidence it is still live), so a
+    listing the boards keep serving stays and a flood's rows age out.
+
+    Args:
+        session_factory: Sessionmaker override (tests bind this to a tmp
+            database); defaults to the application ``SessionLocal``.
+        keep: How many listings to keep, at the very least.
+        limit: The most rows this call may delete. The eviction is bounded
+            so one refresh cannot turn into a mass delete.
+
+    Returns:
+        The ids of the deleted rows, so the caller can drop their vectors.
+    """
+    from src.db.session import SessionLocal
+
+    if keep < 0 or limit < 1:
+        return []
+    factory = session_factory or SessionLocal
+    with factory() as session:
+        total = int(session.query(JobDB).count())
+        excess = total - keep
+        if excess <= 0:
+            return []
+        excess = min(excess, limit)
+        # The oldest sighting first; a row that was never seen has no
+        # sighting at all, and NULL sorts first.
+        stale = (
+            session.query(JobDB.id)
+            .order_by(JobDB.last_seen_at.asc(), JobDB.id.asc())
+            .limit(excess)
+            .all()
+        )
+        removed = [row[0] for row in stale]
+        if not removed:
+            return []
+        session.query(JobDB).filter(JobDB.id.in_(removed)).delete(synchronize_session=False)
+        session.commit()
+    logger.info("Evicted %d stale listings from the corpus (keep %d)", len(removed), keep)
+    return removed

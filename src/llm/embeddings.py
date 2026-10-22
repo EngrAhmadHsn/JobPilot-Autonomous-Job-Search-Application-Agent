@@ -394,6 +394,41 @@ class FastembedEmbedding:
 
         return get_limits().max_cache_entries
 
+    def is_cached(self, texts: list[str]) -> list[bool]:
+        """Which of *texts* already have a vector in the cache.
+
+        WS-15: the refresh asks this before it plans its embedding work, so
+        the budget can be denominated in the embeddings that actually cost
+        something (the misses) rather than in the listings that happen to
+        be at the front of a board's response.
+        """
+        if not texts:
+            return []
+        return [
+            self._cache.get(
+                EmbeddingCache.key(self.model, self.dimensionality, self._truncate(text))
+            )
+            is not None
+            for text in texts
+        ]
+
+    def remaining_work_budget(self) -> int:
+        """Documents that may still be embedded today (the daily work cap).
+
+        WS-15: the local provider has no provider quota to spend, so before
+        this counter the flood had no ceiling across time at all. The count
+        is persistent (it lives in the cache database), so restarting the
+        process does not hand the attacker a fresh budget.
+        """
+        return max(0, self._work_limit() - self._cache.work_today())
+
+    @staticmethod
+    def _work_limit() -> int:
+        """The cap on the documents one UTC day may embed."""
+        from src.security.limits import get_limits
+
+        return get_limits().max_embed_work_per_day
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
@@ -415,6 +450,17 @@ class FastembedEmbedding:
             else:
                 misses.append((index, text))
         if misses:
+            # WS-15: the daily work budget. A flood that spreads itself
+            # over many refreshes must still hit a ceiling, and the stop
+            # has to be a *clean* one: the rows stay persisted, the cache
+            # keeps the completed work, and the next day resumes.
+            remaining = self.remaining_work_budget()
+            if remaining < len(misses):
+                raise LLMDailyQuotaExhausted(
+                    f"Daily embedding work budget spent "
+                    f"({self._work_limit()} documents/day); "
+                    "stopping cleanly — resume after the daily reset"
+                )
             fresh = self._embed_local([text for _, text in misses])
             if len(fresh) != len(misses):
                 raise LLMError(
@@ -429,6 +475,8 @@ class FastembedEmbedding:
                     self.dimensionality,
                     vector,
                 )
+            # The work is counted only once it has actually been done.
+            self._cache.record_work(len(misses))
             self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 
@@ -562,6 +610,16 @@ class EmbeddingCache:
             " count INTEGER NOT NULL,"
             " PRIMARY KEY (day, owner_id))"
         )
+        # WS-15: the daily **embedding work** counter. The API provider
+        # counts batch requests against a quota; the local provider has no
+        # quota to spend, so without this the flood had no ceiling at all
+        # across time — 2,000 embeddings per refresh, every refresh,
+        # forever. The counter counts the *documents actually embedded*
+        # (the cache misses), and it lives next to the vectors, so a
+        # restart does not hand the attacker a fresh budget.
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS embed_work ( day TEXT PRIMARY KEY, count INTEGER NOT NULL)"
+        )
         self._conn.commit()
 
     @property
@@ -672,6 +730,33 @@ class EmbeddingCache:
         ).fetchone()
         return int(row[0]) if row else 0
 
+    def record_work(self, count: int = 1) -> int:
+        """Count *count* documents as embedded today; return the day's total.
+
+        WS-15: this is the counter that bounds the embedding flood **over
+        time**, not over one refresh. It counts documents that were actually
+        embedded — the cache misses — because a cache hit costs a lookup
+        and nothing else, and a limit that counted hits would be a limit on
+        the wrong thing.
+        """
+        if count <= 0:
+            return self.work_today()
+        day = self._utc_day()
+        self._conn.execute(
+            "INSERT INTO embed_work (day, count) VALUES (?, ?) "
+            "ON CONFLICT(day) DO UPDATE SET count = count + ?",
+            (day, count, count),
+        )
+        self._conn.commit()
+        return self.work_today()
+
+    def work_today(self) -> int:
+        """How many documents have been embedded today (the UTC day)."""
+        row = self._conn.execute(
+            "SELECT count FROM embed_work WHERE day = ?", (self._utc_day(),)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
         self._conn.close()
 
@@ -759,6 +844,41 @@ class GeminiEmbedding:
 
         return get_limits().max_cache_entries
 
+    @staticmethod
+    def _work_limit() -> int:
+        """The cap on the documents one UTC day may embed."""
+        from src.security.limits import get_limits
+
+        return get_limits().max_embed_work_per_day
+
+    def is_cached(self, texts: list[str]) -> list[bool]:
+        """Which of *texts* already have a vector in the cache.
+
+        WS-15: the refresh asks this before it plans its embedding work, so
+        the budget can be denominated in the embeddings that actually cost
+        something (the misses) rather than in the listings that happen to
+        be at the front of a board's response.
+        """
+        if not texts:
+            return []
+        return [
+            self._cache.get(
+                EmbeddingCache.key(self.model, self.dimensionality, self._truncate(text))
+            )
+            is not None
+            for text in texts
+        ]
+
+    def remaining_work_budget(self) -> int:
+        """Documents that may still be embedded today (the daily work cap).
+
+        WS-15: the same ceiling the local provider has, so the two
+        providers are bounded the same way. The API provider's own quota
+        (batch requests per day) is the tighter of the two in practice;
+        this is the one that counts the documents.
+        """
+        return max(0, self._work_limit() - self._cache.work_today())
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
@@ -801,6 +921,9 @@ class GeminiEmbedding:
                     self.dimensionality,
                     vector,
                 )
+            # WS-15: the work is counted only once it has actually been
+            # done, and the count is the documents, not the batches.
+            self._cache.record_work(len(misses))
             self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 

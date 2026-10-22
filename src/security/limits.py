@@ -23,8 +23,13 @@ The categories, and what each one defends against:
 ``max_new_listings_per_refresh``  A refresh admitting an unbounded batch.
 ``max_corpus_listings``      The persisted corpus (and therefore every
                              full-corpus read) staying bounded.
+``max_corpus_evictions_per_refresh``  How many listings one refresh may
+                             evict to make room in a full corpus.
 ``max_embed_per_refresh``    Embedding work — and the provider quota — spent
                              per refresh.
+``max_embed_work_per_day``   The same work, across a whole day: the bound
+                             on a flood that spreads itself over many
+                             refreshes.
 ``max_cache_entries``        The on-disk embedding cache staying bounded.
 ``max_upload_*``             Zip-bomb and file-count guards on uploads.
 ``max_response_bytes``       A hostile job board returning a huge body.
@@ -61,9 +66,11 @@ class SecurityLimits:
     max_listings_per_source: int
     max_new_listings_per_refresh: int
     max_corpus_listings: int
+    max_corpus_evictions_per_refresh: int
 
     # -- embedding ---------------------------------------------------------
     max_embed_per_refresh: int
+    max_embed_work_per_day: int
     max_cache_entries: int
 
     # -- uploads -----------------------------------------------------------
@@ -146,6 +153,13 @@ def _build() -> SecurityLimits:
         # The corpus cap bounds every full-corpus read (the SQL scan in the
         # search and the vector scan in the store).
         max_corpus_listings=_int_env("MAX_CORPUS_LISTINGS", 50_000, minimum=1),
+        # How many listings one refresh may evict to make room in a full
+        # corpus. WS-15: the corpus evicts, so the cap is a bound and not a
+        # one-way door — but the eviction is bounded too, so a refresh can
+        # never turn into a mass delete.
+        max_corpus_evictions_per_refresh=_int_env(
+            "MAX_CORPUS_EVICTIONS_PER_REFRESH", 5_000, minimum=1
+        ),
         # Embedding work per refresh, counted in **cache misses** — the
         # embeddings that actually cost something. This is the knob that
         # stops a flood of unique fake listings from spending the
@@ -155,6 +169,7 @@ def _build() -> SecurityLimits:
         # bounds one run; this bounds the flood that spreads itself over
         # many runs, which is the shape an attacker actually uses. The
         # counter is persistent, so a restart does not reset it.
+        max_embed_work_per_day=_int_env("MAX_EMBED_WORK_PER_DAY", 5_000, minimum=1),
         # The embedding cache is a permanent SQLite table; without a bound it
         # grows until the disk is full.
         max_cache_entries=_int_env("MAX_CACHE_ENTRIES", 50_000, minimum=1),
