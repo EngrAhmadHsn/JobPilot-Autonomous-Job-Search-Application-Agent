@@ -13,6 +13,7 @@
 import { request, requestForm } from "./client"
 import type {
   ApplicationDetail,
+  DocumentRecord,
   ApplicationEvidenceRecord,
   ApplicationList,
   ApplicationPrepareRequest,
@@ -241,6 +242,19 @@ export const api = {
       `/api/applications/${encodeURIComponent(applicationId)}/evidence`,
       { signal, timeoutMs: 30_000 }
     ),
+
+  /**
+   * The account's document library.
+   *
+   * The uploaded résumés and the tailored résumés the agent produced, so
+   * the console can show what the account already has instead of asking
+   * the operator to type a server-side path.
+   */
+  documents: (signal?: AbortSignal) =>
+    request<{ documents: DocumentRecord[]; count: number }>("/api/documents", {
+      signal,
+      timeoutMs: 20_000,
+    }),
 
   /** Run the decoupled corpus refresh (boards → normalize → persist → embed). */
   refreshJobs: (signal?: AbortSignal) =>

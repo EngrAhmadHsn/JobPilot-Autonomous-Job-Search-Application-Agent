@@ -151,3 +151,23 @@ export interface ApplicationEvidenceRecord {
 export type WorkPreferences = DeepRequired<
   components["schemas"]["WorkPreferences"]
 >
+
+/**
+ * One document the account already has.
+ *
+ * The library is the union of the uploaded résumés (a résumé *is* a
+ * candidate profile in this system) and the tailored résumés the agent
+ * produced. The shape is written here because the route has no response
+ * model to generate it from.
+ */
+export interface DocumentRecord {
+  id: string
+  kind: "resume" | "tailored"
+  title: string
+  filename: string
+  path: string
+  size_bytes: number | null
+  created_at: string | null
+  profile_id: string | null
+  job_id: string | null
+}

@@ -6,6 +6,7 @@ import { z } from "zod"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { DocumentPicker } from "@/components/documents/document-picker"
 import { FieldList } from "@/components/common/field-list"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
@@ -298,6 +299,8 @@ export function ApprovalsScreen() {
     control: prepareForm.control,
     name: "custom_fields",
   })
+  const resumePath =
+    useWatch({ control: prepareForm.control, name: "resume_path" }) ?? ""
   const customFieldValues =
     useWatch({ control: prepareForm.control, name: "custom_fields" }) ?? []
 
@@ -463,19 +466,18 @@ export function ApprovalsScreen() {
 
           <FormSection
             title="Documents and custom fields"
-            description="A résumé path and a cover letter are optional. Custom fields are the questions the employer's form asks that the agent cannot answer from your profile."
+            description="The résumé is one of your own documents — the one you uploaded, or one the agent tailored for a job. A cover letter is optional, and custom fields are the questions the employer's form asks that the agent cannot answer from your profile."
           >
-            <Field
-              id="resume_path"
-              label="Résumé path"
-              optional
-              hint="A path on the server, inside its own data directory."
-            >
-              <Input
-                id="resume_path"
-                {...prepareForm.register("resume_path")}
+            <div className="sm:col-span-2">
+              <DocumentPicker
+                value={resumePath}
+                onChange={(path) =>
+                  prepareForm.setValue("resume_path", path, {
+                    shouldDirty: true,
+                  })
+                }
               />
-            </Field>
+            </div>
             <Field
               id="cover_letter"
               label="Cover letter"
@@ -544,7 +546,13 @@ export function ApprovalsScreen() {
           </FormSection>
         </form>
 
-        <aside className="lg:sticky lg:top-24">
+        {/*
+          The panel sticks below the header — the header's height is
+          published as `--header-height` and measured, so the panel is never
+          cut off by it. A panel taller than the space it sticks in scrolls
+          inside itself rather than under the viewport edge.
+        */}
+        <aside className="lg:sticky lg:top-[calc(var(--header-height,7rem)+1rem)]">
           <div className="space-y-4">
             {prepared ? (
               <>
@@ -679,7 +687,7 @@ export function ApprovalsScreen() {
                 </Card>
               </>
             ) : (
-              <Card className="rounded-2xl">
+              <Card className="rounded-2xl lg:max-h-[calc(100vh-var(--header-height,7rem)-2rem)] lg:overflow-y-auto">
                 <CardContent className="space-y-4 pt-6">
                   <h2 className="font-heading text-base font-semibold tracking-tight text-foreground">
                     Before you prepare

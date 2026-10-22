@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 import { cn } from "cn"
+import { useRef } from "react"
 import { Link, Outlet } from "react-router-dom"
 
+import { useHeaderHeight } from "@/hooks/use-header-height"
 import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 
@@ -54,6 +56,8 @@ function ApiStatus() {
  */
 export function AppShell() {
   const profileId = useCurrentProfileId()
+  const headerRef = useRef<HTMLElement>(null)
+  useHeaderHeight(headerRef)
   const identity = useQuery({
     queryKey: ["identity"],
     queryFn: ({ signal }) => api.identity(signal),
@@ -70,7 +74,10 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-40 border-b border-border bg-card">
+      <header
+        ref={headerRef}
+        className="sticky top-0 z-40 border-b border-border bg-card"
+      >
         <div className="console-container">
           <div className="flex h-16 items-center justify-between gap-4">
             <div className="flex items-center gap-3">

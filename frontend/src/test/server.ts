@@ -126,6 +126,36 @@ export const server = setupServer(
     HttpResponse.json(applicationDetail())
   ),
 
+  http.get(`${BASE}/api/documents`, () =>
+    HttpResponse.json({
+      documents: [
+        {
+          id: "profile-profile-1",
+          kind: "resume",
+          title: "Résumé — Ada Lovelace",
+          filename: "profile-1.docx",
+          path: "data/resumes/profile-1.docx",
+          size_bytes: 24576,
+          created_at: "2026-10-21T10:00:00Z",
+          profile_id: "profile-1",
+          job_id: null,
+        },
+        {
+          id: "tailored-tailoring-1",
+          kind: "tailored",
+          title: "Tailored résumé — greenhouse:1",
+          filename: "tailoring-1.docx",
+          path: "data/tailored/tailoring-1.docx",
+          size_bytes: 18944,
+          created_at: "2026-10-21T11:00:00Z",
+          profile_id: "profile-1",
+          job_id: "greenhouse:1",
+        },
+      ],
+      count: 2,
+    })
+  ),
+
   http.post(`${BASE}/api/jobs/refresh`, () =>
     HttpResponse.json(refreshResponse())
   )

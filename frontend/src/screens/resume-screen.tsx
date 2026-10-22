@@ -7,6 +7,7 @@ import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
+import { DocumentList } from "@/components/documents/document-picker"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Button } from "@/components/ui/button"
 
@@ -348,6 +349,15 @@ export function ResumeScreen() {
               </li>
             ))}
           </ul>
+        </Section>
+      ) : null}
+
+      {profileId ? (
+        <Section
+          title="Your documents"
+          description="The résumé you uploaded, and every tailored résumé the agent has written for you. Open one to see what will be attached to an application."
+        >
+          <DocumentList />
         </Section>
       ) : null}
 
