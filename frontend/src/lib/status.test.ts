@@ -55,3 +55,23 @@ describe("the status vocabulary", () => {
     expect(isHumanOutcomeStatus("verified")).toBe(false)
   })
 })
+
+/**
+ * WS-15: the status map is built with a null prototype, so a status named
+ * after an `Object.prototype` member is an unknown status — shown
+ * verbatim — and not a silent blank badge.
+ */
+describe("the status vocabulary and the prototype chain", () => {
+  it("shows a prototype-named status verbatim", () => {
+    for (const status of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "hasOwnProperty",
+    ]) {
+      const presentation = describeStatus(status)
+      expect(presentation.label).toBe(status)
+      expect(presentation.tone).toBe("neutral")
+    }
+  })
+})

@@ -151,11 +151,22 @@ const APPROVAL_STATUSES: Record<string, StatusPresentation> = {
   },
 }
 
-const ALL: Record<string, StatusPresentation> = {
-  ...APPLICATION_STATUSES,
-  ...RESULT_STATUSES,
-  ...APPROVAL_STATUSES,
-}
+/**
+ * Every known status, in one map.
+ *
+ * WS-15: the map is built with a **null prototype**. A plain object
+ * inherits from `Object.prototype`, so a server-supplied status of
+ * `"constructor"` or `"toString"` would be found on the prototype chain
+ * and returned as if it were a status — the badge would then render an
+ * empty label, and the unknown status would be swallowed instead of shown
+ * verbatim, which is the one thing this file promises to do.
+ */
+const ALL: Record<string, StatusPresentation> = Object.assign(
+  Object.create(null) as Record<string, StatusPresentation>,
+  APPLICATION_STATUSES,
+  RESULT_STATUSES,
+  APPROVAL_STATUSES
+)
 
 /** Every application status the backend knows, for the filter control. */
 export const APPLICATION_STATUS_NAMES = Object.keys(APPLICATION_STATUSES)
@@ -182,7 +193,10 @@ export function describeStatus(
       nextStep: "The server did not report a status for this record.",
     }
   }
-  const known = ALL[status]
+  // WS-15: the lookup is an **own** property lookup, so a status named
+  // "constructor" or "toString" is not found on the prototype chain and
+  // falls through to the verbatim branch below.
+  const known = Object.hasOwn(ALL, status) ? ALL[status] : undefined
   if (known) return known
   return {
     label: status,
