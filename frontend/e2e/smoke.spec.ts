@@ -116,18 +116,25 @@ async function signIn(page: import("@playwright/test").Page) {
   const email = process.env.E2E_ACCOUNT ?? `operator-${stamp}@example.com`
   const password = process.env.E2E_PASSWORD ?? "a-long-enough-password"
 
-  // The console decides in a moment whether it shows itself or the
-  // sign-in screen, so the helper **waits** for one of the two rather
-  // than guessing from a count taken too early. The account button is the
-  // signal that the console is authenticated: the navigation itself is
-  // rendered for a moment before the identity check answers, so it is not
-  // a readiness signal on its own.
-  const consoleReady = await page
-    .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 15_000 })
+  // The console renders itself for a moment before the identity check
+  // answers, so the presence of a control proves nothing about whether
+  // the session is good. The two real signals are: the account menu
+  // showing an **address** (signed in), and the sign-in screen (signed
+  // out). The helper waits for one of them.
+  const accountText = await page.evaluate(() => {
+    const element = document.querySelector(
+      'button[aria-label="Account and display settings"]'
+    )
+    return element?.textContent ?? ""
+  })
+  if (accountText.includes("@")) return
+
+  const needsCredentials = await page
+    .getByRole("heading", { name: "Sign in" })
+    .waitFor({ timeout: 20_000 })
     .then(() => true)
     .catch(() => false)
-  if (consoleReady) return
+  if (!needsCredentials) return
 
   await page.getByLabel("Email").waitFor({ state: "visible", timeout: 15_000 })
   await page.getByLabel("Email").fill(email)
@@ -139,7 +146,7 @@ async function signIn(page: import("@playwright/test").Page) {
   // signs in again.
   const signedIn = await page
     .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 10_000 })
+    .waitFor({ timeout: 30_000 })
     .then(() => true)
     .catch(() => false)
   if (signedIn) return
@@ -148,9 +155,12 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.getByLabel("Email").fill(email)
   await page.getByLabel("Password").fill(password)
   await page.getByRole("button", { name: "Create the account" }).click()
+  // Creating the account hashes the password with argon2, which takes
+  // seconds when the machine is busy. The wait has to allow for that, or
+  // the run fails on the provider's cost and not on the console.
   await page
     .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 30_000 })
+    .waitFor({ timeout: 90_000 })
 }
 
 /**
@@ -220,4 +230,37 @@ test("the account menu opens", async ({ page }) => {
 
   await expect(page.getByText("Sign out")).toBeVisible()
   await expect(page.getByText("Operator console")).toBeVisible()
+})
+
+/**
+ * The mobile navigation.
+ *
+ * A narrow screen cannot hold a horizontal bar of links, and a second band
+ * under the header is neither a good use of the viewport nor a good
+ * pattern. The navigation becomes a **modal drawer** — the Material 3
+ * answer for a phone — opened from a navigation icon, with the same
+ * groups, the current page marked, and the drawer closing when the
+ * operator picks a destination.
+ */
+test("the navigation is a drawer on a narrow screen", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 780 })
+  await page.goto("/matches")
+  await signIn(page)
+
+  // The horizontal bar is not in the DOM at this width: a screen reader
+  // must never meet the same destination twice.
+  await expect(page.getByRole("navigation", { name: "Screens" })).toHaveCount(0)
+
+  await page.getByRole("button", { name: "Open the navigation menu" }).click()
+
+  const drawer = page.getByRole("dialog")
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByRole("link", { name: "Matches" })).toBeVisible()
+  await expect(drawer.getByRole("link", { name: "Operations" })).toBeVisible()
+
+  await drawer.getByRole("link", { name: "Tracker" }).click()
+
+  await expect(page).toHaveURL(/\/tracker$/)
+  // The drawer closes on the choice, the way a drawer should.
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 })

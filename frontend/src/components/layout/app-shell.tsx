@@ -13,6 +13,7 @@ import { AccountMenu } from "./account-menu"
 import { ProfileChip } from "./profile-chip"
 import { BrandMark } from "./brand-mark"
 import { AdminNav, NavGroups } from "./nav-groups"
+import { NavDrawer } from "./nav-drawer"
 
 /** Whether the API answers. Refreshed every 30 seconds. */
 function ApiStatus() {
@@ -81,6 +82,13 @@ export function AppShell() {
         <div className="console-container">
           <div className="flex h-16 items-center justify-between gap-4">
             <div className="flex items-center gap-3">
+              {/*
+                On a narrow screen the navigation lives in a drawer; on a
+                wide one it is the horizontal bar below. The drawer and the
+                bar are never both in the DOM, so a screen reader never
+                meets the same destination twice.
+              */}
+              <NavDrawer />
               <BrandMark />
               <div className="leading-tight">
                 <Link
@@ -108,7 +116,7 @@ export function AppShell() {
             scrollbar in a header is a control the operator did not ask
             for.
           */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border py-1.5">
+          <div className="hidden flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border py-1.5 lg:flex">
             <div className="min-w-0 flex-1">
               <NavGroups />
             </div>

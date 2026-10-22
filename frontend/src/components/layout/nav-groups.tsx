@@ -9,6 +9,10 @@ import { NavLink } from "react-router-dom"
  * separate, quieter cluster — it maintains the corpus rather than being
  * part of an application, and it should not read as an equal step in the
  * operator's own workflow.
+ *
+ * It has two shapes: a horizontal bar on a wide screen, and the items of a
+ * drawer on a narrow one. The grouping and the wording are the same in
+ * both; only the arrangement changes.
  */
 export const NAV_GROUPS = [
   {
@@ -31,32 +35,42 @@ export const NAV_GROUPS = [
 
 export const ADMIN_NAV = [{ to: "/operations", label: "Operations" }] as const
 
+type NavVariant = "horizontal" | "vertical"
+
 function NavItem({
   to,
   label,
+  variant,
+  onNavigate,
   className,
 }: {
   to: string
   label: string
+  variant: NavVariant
+  onNavigate?: () => void
   className?: string
 }) {
+  const vertical = variant === "vertical"
+
   return (
     <NavLink
       to={to}
-      className={({ isActive: exact }) =>
+      onClick={onNavigate}
+      className={({ isActive }) =>
         cn(
-          "relative inline-flex h-9 items-center rounded-lg px-3 text-sm transition-colors duration-150",
-          exact
+          "relative inline-flex items-center rounded-lg transition-colors duration-150",
+          vertical ? "h-11 w-full px-3 text-[15px]" : "h-9 px-3 text-sm",
+          isActive
             ? "bg-accent font-medium text-primary"
             : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
           className
         )
       }
     >
-      {({ isActive: exact }) => (
+      {({ isActive }) => (
         <>
           {label}
-          {exact ? (
+          {!vertical && isActive ? (
             <span
               aria-hidden="true"
               className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-primary"
@@ -68,8 +82,41 @@ function NavItem({
   )
 }
 
-/** The horizontal navigation, grouped. */
-export function NavGroups({ className }: { className?: string }) {
+/** The navigation, in one of its two shapes. */
+export function NavGroups({
+  variant = "horizontal",
+  onNavigate,
+  className,
+}: {
+  variant?: NavVariant
+  onNavigate?: () => void
+  className?: string
+}) {
+  const vertical = variant === "vertical"
+
+  if (vertical) {
+    return (
+      <nav aria-label="Screens" className={cn("space-y-5", className)}>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="space-y-1">
+            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
+              {group.label}
+            </p>
+            {group.items.map((item) => (
+              <NavItem
+                key={item.to}
+                to={item.to}
+                label={item.label}
+                variant={variant}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        ))}
+      </nav>
+    )
+  }
+
   return (
     <nav
       aria-label="Screens"
@@ -80,11 +127,17 @@ export function NavGroups({ className }: { className?: string }) {
           {index > 0 ? (
             <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
           ) : null}
-          <span className="hidden text-xs font-medium text-muted-foreground/80 sm:inline">
+          <span className="text-xs font-medium text-muted-foreground/80">
             {group.label}
           </span>
           {group.items.map((item) => (
-            <NavItem key={item.to} to={item.to} label={item.label} />
+            <NavItem
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              variant={variant}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       ))}
@@ -93,18 +146,33 @@ export function NavGroups({ className }: { className?: string }) {
 }
 
 /** The maintenance cluster, kept out of the operator's workflow. */
-export function AdminNav({ className }: { className?: string }) {
+export function AdminNav({
+  variant = "horizontal",
+  onNavigate,
+  className,
+}: {
+  variant?: NavVariant
+  onNavigate?: () => void
+  className?: string
+}) {
+  const vertical = variant === "vertical"
+
   return (
     <nav
       aria-label="Administration"
-      className={cn("flex items-center gap-1", className)}
+      className={cn(
+        vertical ? "space-y-1" : "flex items-center gap-1",
+        className
+      )}
     >
       {ADMIN_NAV.map((item) => (
         <NavItem
           key={item.to}
           to={item.to}
           label={item.label}
-          className="text-muted-foreground/80"
+          variant={variant}
+          onNavigate={onNavigate}
+          className={vertical ? undefined : "text-muted-foreground/80"}
         />
       ))}
     </nav>

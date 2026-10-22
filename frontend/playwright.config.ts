@@ -24,9 +24,10 @@ const CONSOLE_URL = process.env.E2E_BASE_URL ?? "http://localhost:4173"
 
 export default defineConfig({
   testDir: "./e2e",
-  // The tailoring call alone can take a minute, and the approval step drives
-  // a real browser against the fake ATS.
-  timeout: 240_000,
+  // The tailoring call alone can take a minute, the approval step drives a
+  // real browser against the fake ATS, and creating the test account
+  // hashes a password with argon2 — which takes seconds on a busy machine.
+  timeout: 300_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
