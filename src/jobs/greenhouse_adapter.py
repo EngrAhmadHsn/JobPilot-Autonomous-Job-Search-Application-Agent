@@ -35,9 +35,19 @@ GREENHOUSE_BASE_URL = f"https://{GREENHOUSE_API_HOST}/v1/boards"
 # typo or an injection attempt and is refused before a URL is built.
 _BOARD_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+")
 
+# WS-15: job ids are URL path segments too, and they are board-supplied.
+# A Greenhouse id is a number, but the shape that matters is "a path
+# segment and nothing else" — no ``/``, no ``?``, no ``#``, no ``..``.
+_JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
+
 
 def _is_valid_board_token(token: str) -> bool:
     return bool(token) and _BOARD_TOKEN_RE.fullmatch(token) is not None
+
+
+def _is_valid_job_id(job_id: str) -> bool:
+    """True when *job_id* is safe to interpolate into a URL path."""
+    return bool(job_id) and _JOB_ID_RE.fullmatch(job_id) is not None
 
 
 def _query_tokens(query: str) -> list[str]:
@@ -105,6 +115,14 @@ class GreenhouseJobAdapter:
         return f"{GREENHOUSE_BASE_URL}/{token}/jobs" + ("?content=true" if content else "")
 
     def _job_url(self, token: str, job_id: str) -> str:
+        # WS-15: the job id is board-supplied, and it is interpolated into
+        # a URL path. A board that returned ``id = "../../v1/boards/other"``
+        # would send the request to a different path on the same host, and
+        # an id carrying a ``?`` would inject a query. The id is therefore
+        # checked against the same shape as the board token before a URL is
+        # built: a path segment and nothing else.
+        if not _is_valid_job_id(job_id):
+            raise ValueError(f"Refusing a Greenhouse URL for a malformed job id: {job_id!r}")
         return f"{GREENHOUSE_BASE_URL}/{token}/jobs/{job_id}?content=true"
 
     def _normalize(self, payload: dict[str, Any], token: str) -> JobListing | None:
