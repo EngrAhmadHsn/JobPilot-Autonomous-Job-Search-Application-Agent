@@ -22,11 +22,26 @@ symlink named ``resume.docx``.
 
 The check is done once, at the API boundary, so the browser layer can
 trust the path it receives.
+
+**One more thing this module decides: what "absolute" means.** ``pathlib``
+judges absoluteness with the rules of the **host**: on Linux, a Windows
+drive path such as ``C:/evidence/x.png`` is a *relative* path, so joining
+it onto the evidence directory produces the nonsense
+``data/evidence/C:/evidence/x.png``.
+
+A stored path may have been written on a Windows host and read on a
+Linux one — a database moved between machines, a shared volume, a
+container on a different platform. So the **convention** has to be
+recognised, not only the host's own notion of absolute. That is what
+:func:`is_absolute_path` is for, and every module that has to judge a
+stored path uses it.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import re
 from pathlib import Path
 
 from src.config.settings import get_settings
@@ -37,8 +52,49 @@ __all__ = [
     "PathNotAllowedError",
     "allowed_roots",
     "assert_within_allowed_roots",
+    "is_absolute_path",
+    "is_foreign_absolute_path",
     "is_within_allowed_roots",
 ]
+
+#: A Windows drive path: ``C:evidence/x.png`` with a separator after the
+#: colon, in either slash convention.
+_WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
+
+#: A Windows UNC path: a leading double separator and a host name.
+_WINDOWS_UNC = re.compile(r"^[\\/]{2}[^\\/]+[\\/]")
+
+
+def is_foreign_absolute_path(path: str | Path) -> bool:
+    """True when *path* is absolute in a convention **this host does not share**.
+
+    The question is host-relative, and each host has exactly one foreign
+    convention:
+
+    - on **POSIX**, the foreign one is the **Windows** convention: a
+      drive path (``C:/evidence/x.png``) and a UNC path
+      (``//server/share/x.png``) are relative there;
+    - on **Windows**, the foreign one is the **POSIX** convention: a
+      rooted path (``/evidence/x.png``) is rooted on the current drive,
+      which ``pathlib`` does not call absolute either.
+
+    A path like this may have been written on a different host and read
+    on this one, and joining it onto a directory produces a path that
+    looks plausible and points at nothing.
+    """
+    text = str(path)
+    if os.name == "nt":
+        return text.startswith(("/", "\\"))
+    return bool(_WINDOWS_DRIVE.match(text) or _WINDOWS_UNC.match(text))
+
+
+def is_absolute_path(path: str | Path) -> bool:
+    """True when *path* is absolute in **any** convention.
+
+    Host-independent, and the question the rest of the code asks: "is
+    this a whole path, or is it a name to be joined onto a directory?"
+    """
+    return Path(path).is_absolute() or is_foreign_absolute_path(path)
 
 
 class PathNotAllowedError(ValueError):

@@ -38,6 +38,7 @@ import shutil
 from pathlib import Path
 
 from src.config.settings import get_settings
+from src.security.paths import is_foreign_absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,15 @@ def assert_within_user_root(path: str | Path, user_id: str, *, what: str = "file
         root = user_root(user_id).resolve()
     except UserPathNotAllowedError as exc:
         raise UserPathNotAllowedError(str(exc)) from exc
+
+    # A path in a foreign convention (a Windows drive path read on a
+    # Linux host) cannot be inside this host's directory, so it is
+    # refused outright rather than resolved against the working
+    # directory — where it would land somewhere plausible and wrong.
+    if is_foreign_absolute_path(path):
+        raise UserPathNotAllowedError(
+            f"The {what} is an absolute path in a foreign convention"
+        )
 
     try:
         candidate = Path(path).resolve()

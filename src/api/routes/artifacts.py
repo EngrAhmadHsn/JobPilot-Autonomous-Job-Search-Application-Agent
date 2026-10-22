@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from src.api.scope import UserScope, current_scope
 from src.db import access
 from src.db.session import get_db
+from src.security.paths import is_absolute_path
 from src.storage.paths import (
     KIND_EVIDENCE,
     UserPathNotAllowedError,
@@ -84,7 +85,7 @@ def _artifact_path(stored: str, owner_id: str) -> Path:
     containment check that follows is what actually decides.
     """
     candidate = Path(stored)
-    if not candidate.is_absolute() and len(candidate.parts) == 1:
+    if not is_absolute_path(stored) and len(candidate.parts) == 1:
         candidate = user_dir(owner_id, KIND_EVIDENCE) / candidate
     return candidate
 

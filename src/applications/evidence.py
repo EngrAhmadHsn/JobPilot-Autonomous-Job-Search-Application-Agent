@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 
 from src.config.settings import get_settings
+from src.security.paths import is_absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,10 @@ def resolve_evidence_path(path: str | None, owner_id: str | None = None) -> Path
     if not path:
         return None
     candidate = Path(path)
-    if candidate.is_absolute():
+    # "Absolute" in **any** convention: a path written on a Windows host
+    # is absolute there, and joining it onto the evidence directory
+    # produces the nonsense "data/evidence/C:/evidence/x.png".
+    if is_absolute_path(path):
         return candidate
     if owner_id:
         from src.storage.paths import KIND_EVIDENCE, user_dir

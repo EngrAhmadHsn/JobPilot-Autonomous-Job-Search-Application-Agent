@@ -21,6 +21,7 @@ from src.applications.contracts import (
     PreparedApplication,
     SubmissionEvidence,
 )
+from src.applications.evidence import evidence_dir as shared_evidence_dir
 from src.applications.evidence import missing_evidence_files, resolve_evidence_path
 from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
 from src.config.settings import get_settings
@@ -29,6 +30,7 @@ from src.db.evidence import ApplicationEvidence
 from src.graph.nodes import submit_node, verify_node
 from src.graph.state import ApplicationWorkflowState
 from src.security.allowlist import DisallowedDomainError
+from src.security.paths import is_absolute_path, is_foreign_absolute_path
 from tests.fixtures.fake_page import FakePage
 
 
@@ -263,13 +265,89 @@ class TestEvidenceHelpers:
         evidence = SubmissionEvidence(url="u", screenshot_path="nope.png")
         assert missing_evidence_files(evidence) == ["screenshot"]
 
-    def test_resolve_evidence_path_handles_absolute_paths(self) -> None:
-        resolved = resolve_evidence_path(str(Path("C:/evidence/x.png")))
+    def test_resolve_evidence_path_handles_absolute_paths(self, tmp_path) -> None:
+        """An absolute path is returned as it is.
+
+        The property is "it is not joined onto the evidence directory",
+        so the assertion is about the **value**, not about
+        ``pathlib``'s notion of absolute — which follows the host and
+        is therefore not the same question on Linux and on Windows.
+        """
+        absolute = tmp_path / "x.png"
+        resolved = resolve_evidence_path(str(absolute))
         assert resolved is not None
-        assert resolved.is_absolute()
+        assert resolved == absolute
+        assert str(shared_evidence_dir()) not in str(resolved)
+
+    def test_a_path_from_another_host_is_not_joined_onto_the_evidence_directory(
+        self,
+    ) -> None:
+        """A Windows drive path is absolute on Windows and relative on
+        Linux, and ``pathlib`` follows the host.
+
+        A stored path may have been written on a Windows host and read
+        on a Linux one, so joining it onto the evidence directory
+        produced the nonsense "data/evidence/C:/evidence/x.png" — a
+        path that looks plausible and points at nothing. The convention
+        has to be recognised, not only the host's own notion of
+        absolute.
+        """
+        resolved = resolve_evidence_path("C:/evidence/x.png")
+        assert resolved is not None
+        assert str(resolved).replace("\\", "/") == "C:/evidence/x.png"
 
     def test_resolve_evidence_path_handles_none(self) -> None:
         assert resolve_evidence_path(None) is None
+
+
+class TestTheAbsolutePathRules:
+    """What "absolute" means when the host might not share the convention.
+
+    ``pathlib`` judges absoluteness with the rules of the **host**, and a
+    stored path may have been written on a different one. These are the
+    cases that broke: a Windows drive path read on Linux is *relative*
+    there, so joining it onto the evidence directory produced
+    ``data/evidence/C:/evidence/x.png`` — a path that looks plausible
+    and points at nothing.
+    """
+
+    def test_a_windows_drive_path_is_absolute(self) -> None:
+        """Absolute on every host, which is the whole point."""
+        assert is_absolute_path("C:/evidence/x.png")
+
+    def test_a_windows_unc_path_is_absolute(self) -> None:
+        assert is_absolute_path("//server/share/x.png")
+
+    def test_a_posix_rooted_path_is_absolute(self) -> None:
+        assert is_absolute_path("/evidence/x.png")
+
+    def test_a_relative_path_is_not_absolute(self) -> None:
+        assert not is_absolute_path("evidence/x.png")
+        assert not is_foreign_absolute_path("evidence/x.png")
+
+    def test_the_foreign_convention_is_the_other_hosts(self) -> None:
+        """Which convention is *foreign* depends on the host, and only on
+        the host."""
+        import os
+
+        if os.name == "nt":
+            # On Windows the foreign convention is the POSIX one.
+            assert is_foreign_absolute_path("/evidence/x.png")
+            assert not is_foreign_absolute_path("C:/evidence/x.png")
+        else:
+            # On POSIX the foreign convention is the Windows one.
+            assert is_foreign_absolute_path("C:/evidence/x.png")
+            assert is_foreign_absolute_path("//server/share/x.png")
+            assert not is_foreign_absolute_path("/evidence/x.png")
+
+    def test_a_windows_path_is_refused_by_the_containment_check(self) -> None:
+        """A path in a foreign convention cannot be inside this host's
+        directory, so it is refused outright rather than resolved against
+        the working directory."""
+        from src.storage.paths import UserPathNotAllowedError, assert_within_user_root
+
+        with pytest.raises(UserPathNotAllowedError):
+            assert_within_user_root("C:/evidence/x.png", "alice", what="evidence file")
 
 
 class TestNavigationGuard:
