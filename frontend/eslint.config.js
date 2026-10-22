@@ -56,6 +56,65 @@ export default defineConfig([
           selector: "NewExpression[callee.name='Function']",
           message: "The Function constructor is forbidden.",
         },
+        // WS-15: the gaps in the hand-rolled list. `react/no-danger` is not
+        // available (the plugin is not a dependency, and adding one is not
+        // worth it for six selectors), so the list below is the control —
+        // and a control with holes is a comment, not a control.
+        {
+          // `Function("…")` without `new` is the same constructor.
+          selector: "CallExpression[callee.name='Function']",
+          message: "The Function constructor is forbidden.",
+        },
+        {
+          // `window.eval("…")` is `eval` with extra steps.
+          selector:
+            "MemberExpression[object.name='window'][property.name='eval']",
+          message: "eval is forbidden.",
+        },
+        {
+          selector:
+            "MemberExpression[object.name='document'][property.name='write']",
+          message:
+            "document.write injects markup. Backend text is untrusted data: render it as plain text.",
+        },
+        {
+          selector: "MemberExpression[property.name='createContextualFragment']",
+          message:
+            "createContextualFragment builds markup. Backend text is untrusted data: render it as plain text.",
+        },
+        {
+          selector: "CallExpression[callee.name='DOMParser']",
+          message:
+            "DOMParser is only allowed when the result is never inserted as markup.",
+        },
+        {
+          selector: "JSXAttribute[name.name='srcDoc']",
+          message:
+            "srcDoc is a markup sink. Backend text is untrusted data: render it as plain text.",
+        },
+        {
+          selector: "JSXAttribute[name.name='srcdoc']",
+          message:
+            "srcdoc is a markup sink. Backend text is untrusted data: render it as plain text.",
+        },
+        {
+          // A string timer is evaluated as code.
+          selector:
+            "CallExpression[callee.name='setTimeout'][arguments.0.type='Literal']",
+          message: "A string timer is evaluated as code. Pass a function.",
+        },
+        {
+          selector:
+            "CallExpression[callee.name='setInterval'][arguments.0.type='Literal']",
+          message: "A string timer is evaluated as code. Pass a function.",
+        },
+        {
+          // An inline event handler attribute is a code sink.
+          selector:
+            "CallExpression[callee.object.name='element'][callee.property.name='setAttribute'][arguments.0.value=/^on/i]",
+          message:
+            "An inline event handler is a code sink. Use React's own event props.",
+        },
       ],
     },
   },
