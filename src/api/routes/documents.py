@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 from src.api.scope import UserScope, current_scope
 from src.db import access
 from src.db.session import get_db
-from src.security.paths import PathNotAllowedError, assert_within_allowed_roots
+from src.storage.paths import UserPathNotAllowedError, assert_within_owned_storage
 
 logger = logging.getLogger(__name__)
 
@@ -157,8 +157,12 @@ def download_document(
         raise HTTPException(status_code=404, detail=f"Document {document_id!r} not found")
 
     try:
-        path = assert_within_allowed_roots(stored_path, what="document")
-    except PathNotAllowedError as exc:
+        # WS-15: the containment is against the caller's **own** storage —
+        # their per-user directory, plus the legacy shared directories
+        # their account claimed — and never against the shared roots, which
+        # include the data directory and therefore every user's files.
+        path = assert_within_owned_storage(stored_path, scope.user_id, what="document")
+    except UserPathNotAllowedError as exc:
         logger.warning("Refused a document download for %r: %s", document_id, exc)
         raise HTTPException(status_code=404, detail="The file is not available") from exc
 

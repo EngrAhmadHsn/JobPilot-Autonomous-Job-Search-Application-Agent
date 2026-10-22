@@ -38,6 +38,7 @@ from src.security.paths import is_absolute_path
 from src.storage.paths import (
     KIND_EVIDENCE,
     UserPathNotAllowedError,
+    assert_within_owned_storage,
     assert_within_user_root,
     user_dir,
 )
@@ -115,7 +116,11 @@ def download_tailored_docx(
     try:
         # WS-14 · Phase B: the containment is against the **owner's own**
         # directory, not against a shared root.
-        path = assert_within_user_root(row.docx_path, scope.user_id, what="rendered resume")
+        # WS-15: the caller's own storage — their per-user directory plus
+        # the legacy shared directories their account claimed. The legacy
+        # files are the corpus that pre-dates the per-user layout; without
+        # this the operator's own historical documents would 404.
+        path = assert_within_owned_storage(row.docx_path, scope.user_id, what="rendered resume")
     except UserPathNotAllowedError as exc:
         logger.warning("Refused a DOCX download for %r: %s", tailoring_id, exc)
         raise HTTPException(status_code=404, detail="The rendered file is not available") from exc

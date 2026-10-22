@@ -48,8 +48,10 @@ __all__ = [
     "KIND_TAILORED",
     "USER_KINDS",
     "UserPathNotAllowedError",
+    "assert_within_owned_storage",
     "assert_within_user_root",
     "is_within_user_root",
+    "legacy_roots",
     "move_into_user_dir",
     "safe_user_segment",
     "user_dir",
@@ -148,9 +150,7 @@ def assert_within_user_root(path: str | Path, user_id: str, *, what: str = "file
     # refused outright rather than resolved against the working
     # directory — where it would land somewhere plausible and wrong.
     if is_foreign_absolute_path(path):
-        raise UserPathNotAllowedError(
-            f"The {what} is an absolute path in a foreign convention"
-        )
+        raise UserPathNotAllowedError(f"The {what} is an absolute path in a foreign convention")
 
     try:
         candidate = Path(path).resolve()
@@ -167,6 +167,76 @@ def assert_within_user_root(path: str | Path, user_id: str, *, what: str = "file
             f"The {what} is not inside the owner's own directory"
         ) from exc
     return candidate
+
+
+def legacy_roots() -> list[Path]:
+    """The shared directories that pre-date the per-user storage.
+
+    WS-15: the files written before the per-user layout (``data/resumes``,
+    ``data/tailored``) still exist, and the rows that point at them are
+    claimed by the **first** account to register. They are therefore part
+    of that account's own storage — but they are shared directories, so
+    they have to be listed explicitly.
+
+    The data directory is deliberately **not** in this list: it is the
+    *parent* of the per-user directories, so including it would make every
+    user's files "shared" again — the mistake this module exists to fix.
+    """
+    settings = get_settings()
+    roots: list[Path] = []
+    for candidate in (settings.resume_upload_dir, settings.tailored_dir):
+        if not candidate:
+            continue
+        try:
+            roots.append(Path(candidate).resolve())
+        except OSError:
+            logger.warning("Could not resolve the legacy root %r", candidate)
+    unique: list[Path] = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
+def assert_within_owned_storage(path: str | Path, user_id: str, *, what: str = "file") -> Path:
+    """The resolved *path*, if the caller may read it.
+
+    WS-15: two places are the caller's own — their per-user directory, and
+    the legacy shared directories whose files their account claimed. Any
+    other path, **including another user's directory**, is refused.
+
+    The previous check on the document download was the *shared* roots
+    (``src.security.paths.allowed_roots``), which include the data
+    directory and therefore every user's directory. The path was never
+    request-supplied there, so it was not exploitable — but it was one
+    refactor away from being a cross-tenant file read, and the check
+    should be the right one rather than the one that happens to work.
+
+    Raises:
+        UserPathNotAllowedError: The path belongs to nobody the caller
+            can claim, or it does not exist.
+    """
+    try:
+        return assert_within_user_root(path, user_id, what=what)
+    except UserPathNotAllowedError:
+        pass
+
+    try:
+        candidate = Path(path).resolve()
+    except (OSError, RuntimeError) as exc:
+        raise UserPathNotAllowedError(f"The {what} could not be resolved") from exc
+
+    if not candidate.exists():
+        raise UserPathNotAllowedError(f"The {what} does not exist")
+
+    for root in legacy_roots():
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        return candidate
+
+    raise UserPathNotAllowedError(f"The {what} is not inside the owner's own directory")
 
 
 def move_into_user_dir(path: str | Path, user_id: str, kind: str) -> Path | None:
