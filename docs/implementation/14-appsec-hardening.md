@@ -908,6 +908,18 @@ is **in the repository** and is checked mechanically: every group must
 name a package the project depends on, every group must state a
 reason, and no id may be listed twice.
 
+The audit exempts exactly one package: the project itself. It is
+installed from this checkout, so it is not on PyPI and cannot be
+audited as a dependency of itself — `pip-audit` would look
+`agentic-job-applier` up, not find it, and fail the build on the
+project rather than on a dependency. The exemption is only safe while
+the package being skipped is *this* code, so the script checks that the
+installed distribution is an editable install of this checkout. It also
+enforces the strictness `--strict` could not provide (`--strict` turns
+every skipped package into a fatal error, and the project is one): a
+dependency that could not be audited fails the build unless it is the
+project itself.
+
 ### F — the production posture
 
 The rules are: the CORS origins must be declared and must not be
