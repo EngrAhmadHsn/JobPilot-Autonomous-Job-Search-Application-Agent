@@ -164,6 +164,13 @@
 
   body {
     @apply bg-background text-foreground;
+    /*
+      The page is paper. A whisper of grain keeps the warm canvas from
+      reading as a flat rectangle of colour, and the cards on top of it stay
+      clean because they are opaque.
+    */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+    background-attachment: fixed;
     font-feature-settings: "cv11", "ss01";
     font-variant-ligatures: contextual;
     -webkit-font-smoothing: antialiased;
@@ -187,6 +194,7 @@
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
@@ -287,6 +295,86 @@
   .shine:hover::before,
   .shine:focus-visible::before {
     transform: translateX(430%) skewX(-16deg);
+  }
+
+  /*
+    The header's depth.
+
+    Two very soft washes — the forest and the lime — behind the paper. The
+    console is a warm page, not a dark dashboard, so the depth comes from
+    light rather than from shadow.
+  */
+  .console-header::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        70% 150% at 6% -30%,
+        color-mix(in oklab, var(--primary) 18%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        55% 130% at 94% -40%,
+        color-mix(in oklab, var(--lime) 30%, transparent),
+        transparent 72%
+      );
+  }
+
+  /*
+    The transition between screens.
+
+    The View Transitions API lets the **browser** capture the old screen and
+    the new one and animate between the two snapshots, so the exit runs
+    even though the router has already swapped the tree. React Router 7.18
+    turns it on per link with its `viewTransition` prop, and falls back to
+    an instant swap where the API is missing.
+  */
+  ::view-transition-old(root) {
+    animation: console-leave 170ms var(--ease-inout) both;
+  }
+
+  ::view-transition-new(root) {
+    animation: console-enter 280ms var(--ease-soft) both;
+  }
+
+  @keyframes console-leave {
+    to {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+  }
+
+  @keyframes console-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  /*
+    The staggered entrance.
+
+    A list that arrives all at once reads as a wall; a list that arrives
+    one row after another reads as a sequence. The delay is derived from the
+    row's **index** — the same idea an After Effects expression uses when it
+    staggers by `index` — and the rows rise a little as they come.
+  */
+  .enter-up {
+    animation: enter-up 420ms var(--ease-soft) both;
+    animation-delay: calc(var(--i, 0) * 45ms);
+  }
+
+  @keyframes enter-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 
   /* The one orchestrated entrance: the onboarding, once. */

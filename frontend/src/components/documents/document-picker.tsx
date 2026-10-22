@@ -9,16 +9,19 @@ import { Button } from "@/components/ui/button"
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { formatBytes, formatDateTime } from "@/lib/format"
+import { stagger } from "@/lib/stagger"
 import type { DocumentRecord } from "@/lib/api/types"
 
 /** How a document is described in the list. */
 function DocumentRow({
   document,
+  index = 0,
   selected,
   onSelect,
   onUse,
 }: {
   document: DocumentRecord
+  index?: number
   selected: boolean
   onSelect?: () => void
   onUse?: () => void
@@ -74,7 +77,12 @@ function DocumentRow({
 
   if (!onSelect) {
     return (
-      <li className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
+      <li
+        {...stagger(
+          index,
+          "flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+        )}
+      >
         {content}
       </li>
     )
@@ -154,9 +162,10 @@ export function DocumentList({
 
   return (
     <ul className="space-y-2">
-      {items.map((document) => (
+      {items.map((document, index) => (
         <DocumentRow
           key={document.id}
+          index={index}
           document={document}
           selected={false}
           onUse={onUse ? () => onUse(document) : undefined}

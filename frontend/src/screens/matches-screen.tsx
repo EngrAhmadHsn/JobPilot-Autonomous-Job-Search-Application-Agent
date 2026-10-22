@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
 import { api } from "@/lib/api/endpoints"
+import { stagger } from "@/lib/stagger"
 import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
@@ -50,10 +51,21 @@ function describeSearch(
 }
 
 /** One match in the ranked list. */
-function MatchCard({ pair }: { pair: JobMatchPair }) {
+function MatchCard({
+  pair,
+  index = 0,
+}: {
+  pair: JobMatchPair
+  index?: number
+}) {
   const { job, match } = pair
   return (
-    <Card className="rounded-2xl transition-shadow duration-200 hover:shadow-[var(--shadow-paper)]">
+    <Card
+      {...stagger(
+        index,
+        "rounded-2xl transition-shadow duration-200 hover:shadow-[var(--shadow-paper)]"
+      )}
+    >
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -289,8 +301,8 @@ export function MatchesScreen() {
               />
             ) : (
               <div className="space-y-4">
-                {data.results.map((pair) => (
-                  <MatchCard key={pair.job.id} pair={pair} />
+                {data.results.map((pair, index) => (
+                  <MatchCard key={pair.job.id} pair={pair} index={index} />
                 ))}
               </div>
             )}

@@ -77,7 +77,7 @@ export function AppShell() {
     <div className="min-h-screen bg-background">
       <header
         ref={headerRef}
-        className="sticky top-0 z-40 border-b border-border bg-card"
+        className="console-header sticky top-0 z-40 border-b border-border bg-card"
       >
         <div className="console-container">
           <div className="flex h-16 items-center justify-between gap-4">

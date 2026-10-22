@@ -55,6 +55,14 @@ function NavItem({
   return (
     <NavLink
       to={to}
+      /*
+        The View Transitions API animates between the two screens: the
+        browser captures the old one and the new one and crossfades them,
+        so the exit runs even though the router has already swapped the
+        tree. React Router turns it on per link and falls back to an
+        instant swap where the browser has no such API.
+      */
+      viewTransition
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(

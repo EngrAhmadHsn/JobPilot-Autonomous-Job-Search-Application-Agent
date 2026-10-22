@@ -29,7 +29,11 @@ export function LinkButton({
   children: ReactNode
 }) {
   return (
-    <Link to={to} className={cn(buttonVariants({ variant, size }), className)}>
+    <Link
+      to={to}
+      viewTransition
+      className={cn(buttonVariants({ variant, size }), className)}
+    >
       {children}
     </Link>
   )

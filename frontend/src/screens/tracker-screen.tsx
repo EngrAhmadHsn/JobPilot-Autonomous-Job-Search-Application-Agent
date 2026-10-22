@@ -24,6 +24,7 @@ import {
 
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
+import { stagger } from "@/lib/stagger"
 import { formatDateTime, pluralize } from "@/lib/format"
 import { asString } from "@/lib/safe"
 import {
@@ -36,14 +37,20 @@ import type { ApplicationDetail, ApplicationEvent } from "@/lib/api/types"
 const PAGE_SIZE = 20
 
 /** One event in the application's history. */
-function EventRow({ event }: { event: ApplicationEvent }) {
+function EventRow({
+  event,
+  index = 0,
+}: {
+  event: ApplicationEvent
+  index?: number
+}) {
   const metadata = event.metadata ?? {}
   const entries = Object.entries(metadata).filter(
     ([, value]) => value !== null && value !== undefined
   )
 
   return (
-    <li className="border-l-2 border-border pl-4">
+    <li {...stagger(index, "border-l-2 border-border pl-4")}>
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-sm font-medium">{event.event_type}</span>
         {event.from_status || event.to_status ? (
@@ -179,8 +186,8 @@ export function TrackerScreen() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.map((application) => (
-                      <TableRow key={application.id}>
+                    {items.map((application, index) => (
+                      <TableRow key={application.id} {...stagger(index)}>
                         <TableCell>
                           <Link
                             to={`/tracker/${encodeURIComponent(application.id)}`}
@@ -422,8 +429,8 @@ export function TrackerDetailScreen() {
         </CardHeader>
         <CardContent>
           <ol className="space-y-4">
-            {record.events.map((event) => (
-              <EventRow key={event.id} event={event} />
+            {record.events.map((event, index) => (
+              <EventRow key={event.id} event={event} index={index} />
             ))}
           </ol>
         </CardContent>

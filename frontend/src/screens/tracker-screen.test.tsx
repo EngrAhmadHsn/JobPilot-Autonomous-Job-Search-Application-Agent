@@ -63,6 +63,19 @@ describe("the tracker list", () => {
 })
 
 describe("the tracker detail", () => {
+  it("brings the rows in one after another", async () => {
+    renderScreen(<TrackerScreen />)
+
+    const rows = await screen.findAllByRole("row")
+    // The rows carry the entrance class, and each one carries its own
+    // index so the delay grows down the list.
+    const withEntrance = rows.filter((row) =>
+      row.className.includes("enter-up")
+    )
+    expect(withEntrance.length).toBeGreaterThan(0)
+    expect(withEntrance[0]?.style.getPropertyValue("--i")).toBe("0")
+  })
+
   it("shows the history and the evidence", async () => {
     renderApp({ route: "/tracker/application-1" })
 
