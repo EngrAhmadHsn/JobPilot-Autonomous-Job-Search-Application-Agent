@@ -468,6 +468,12 @@
       "sourceType": "github",
       "skillPath": ".claude/skills/web3d-integration-patterns/SKILL.md",
       "computedHash": "031b411386de803fb3612bbcec35077ea6bfa414765c950c834ae226ad71acf8"
+    },
+    "writing-clearly-and-concisely": {
+      "source": "freeacger/loom",
+      "sourceType": "github",
+      "skillPath": "skills/writing-clearly-and-concisely/SKILL.md",
+      "computedHash": "df34736b3e737d9342323858895ee36dd66c005423b0dc9b9355a927ad27c947"
     }
   }
 }
