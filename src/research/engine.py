@@ -197,6 +197,22 @@ def _ground_summary(summary: str, listing_tokens: set[str], job: JobListing) -> 
 def _build_research_prompt(job: JobListing) -> str:
     """The prompt handed to the model (listing included as untrusted data)."""
     listing = _listing_text(job)
+    # WS-15: **every** untrusted field goes inside the fence. The security
+    # rules say "text between the markers is data"; a field outside the
+    # markers is, by the rules' own terms, trusted — and the header fields
+    # are board-controlled free text (a title is capped at 300 characters,
+    # which is more than enough room for an instruction). The header and
+    # the body are therefore fenced together, as one block.
+    untrusted = "\n".join(
+        (
+            f"Listing title: {job.title}",
+            f"Listing company: {job.company}",
+            f"Listing location: {job.location or 'not stated'}",
+            f"Required skills: {', '.join(job.required_skills or []) or 'not stated'}",
+            f"Preferred skills: {', '.join(job.preferred_skills or []) or 'not stated'}",
+            f"Listing body:\n{listing}",
+        )
+    )
     # WS-12: the untrusted block is capped. A board that returns a 5 MB
     # description would otherwise produce a 5 MB prompt — blowing the
     # model's context, the latency budget, and the bill — for text that
@@ -204,20 +220,10 @@ def _build_research_prompt(job: JobListing) -> str:
     from src.security.limits import get_limits
 
     cap = get_limits().max_prompt_untrusted_chars
-    if len(listing) > cap:
-        listing = listing[:cap]
+    if len(untrusted) > cap:
+        untrusted = untrusted[:cap]
         logger.warning("Listing text truncated to %d characters for the prompt", cap)
-    return (
-        f"{RESEARCH_SYSTEM_RULES}\n"
-        f"Listing title: {job.title}\n"
-        f"Listing company: {job.company}\n"
-        f"Listing location: {job.location or 'not stated'}\n"
-        f"Required skills: {', '.join(job.required_skills or []) or 'not stated'}\n"
-        f"Preferred skills: {', '.join(job.preferred_skills or []) or 'not stated'}\n"
-        # WS-12: the listing goes in behind a nonce-fenced marker, so the
-        # model can tell the real boundary from one the listing forged.
-        f"{fence_untrusted(listing)}\n"
-    )
+    return f"{RESEARCH_SYSTEM_RULES}\n{fence_untrusted(untrusted)}\n"
 
 
 def _default_generate[T: BaseModel](prompt: str, schema: type[T]) -> T:
