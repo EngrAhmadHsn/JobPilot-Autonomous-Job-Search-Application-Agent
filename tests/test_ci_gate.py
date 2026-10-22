@@ -100,6 +100,74 @@ class TestTheWorkflow:
         assert "playwright install" in commands
 
 
+class TestTheBrowserTests:
+    """The browser tests, and the browser they need.
+
+    The gate once ran the **whole** suite in a job that did not install
+    Chromium, and sixteen browser tests died on a runner with no browser
+    binary. These checks are the mechanical version of that lesson.
+    """
+
+    def _commands(self, job: str) -> str:
+        import yaml
+
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = document["jobs"][job]["steps"]
+        return " ".join(str(step.get("run", "")) for step in steps)
+
+    def test_both_jobs_install_chromium(self) -> None:
+        """The gate installs it as insurance, so an unmarked browser test
+        still passes there rather than dying on a missing binary."""
+        for job in ("gate", "browser"):
+            assert "playwright install" in self._commands(job), (
+                f"the {job} job does not install a browser"
+            )
+
+    def test_the_browser_job_selects_by_the_marker(self) -> None:
+        """Not by a hand-written list of files: a list goes stale, and a
+        stale list is a test that quietly stops running."""
+        commands = self._commands("browser")
+        assert "-m browser" in commands
+        assert "tests/test_browser_variants.py" not in commands, (
+            "the browser job names files instead of selecting the marker — "
+            "a new browser test would not run"
+        )
+
+    def test_the_gate_excludes_the_browser_tests(self) -> None:
+        commands = self._commands("gate")
+        assert '-m "not browser"' in commands
+
+    def test_the_marker_is_registered(self) -> None:
+        """An unregistered marker is a warning, not an error — and a
+        warning is not a guard."""
+        import tomllib
+
+        pyproject = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+        markers = pyproject["tool"]["pytest"]["ini_options"]["markers"]
+        assert any(marker.startswith("browser:") for marker in markers)
+
+    def test_the_browser_tests_are_marked(self) -> None:
+        """The files that drive a real browser carry the marker.
+
+        The list is the one the suite itself proved: with the browser
+        binaries pointed at an empty directory, exactly these two files
+        failed. A new browser test that is not marked still passes in the
+        gate job (Chromium is installed there), but it belongs here.
+        """
+        marked = set()
+        for path in (Path(__file__).parent).glob("test_*.py"):
+            if path.name == Path(__file__).name:
+                # This file names the marker in its own assertions.
+                continue
+            if "pytest.mark.browser" in path.read_text(encoding="utf-8"):
+                marked.add(path.name)
+        assert marked == {"test_browser_variants.py", "test_isolation.py"}
+
+
 # -- the migration check -------------------------------------------------------
 
 

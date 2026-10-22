@@ -19,6 +19,12 @@ import pytest
 
 from src.applications.contracts import ApplicationRequest
 from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
+
+#: These tests drive a **real Chromium** through the fake ATS. They are
+#: marked so that CI can run them in their own job, with the browser
+#: binary installed. The marker is a wall-clock optimisation: both CI
+#: jobs install Chromium, so an unmarked browser test would still pass.
+pytestmark = pytest.mark.browser
 from src.config.settings import get_settings
 from tests.fixtures.fake_ats import serve_fake_ats_variants
 

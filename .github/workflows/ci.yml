@@ -16,9 +16,24 @@ name: CI
 #     project that handles resumes and employer applications is not a
 #     theoretical finding.
 #
-# The browser tests need a real Chromium. They are the slow part of the
-# suite, so they are a separate job that runs in parallel with the
-# gate; a pull request is not green until both are.
+# **The browser tests and the Chromium install.** The tests that drive a
+# real browser are marked `browser` (see `pyproject.toml`), and they run
+# in a separate job so that the fast gate — the linter, the isolation
+# matrix, the migration check, the audit — does not wait for a browser.
+#
+# Both jobs install Chromium. The gate job does not *need* it, because it
+# excludes the browser-marked tests, but it installs it anyway: the
+# failure mode this guards against is a browser test that somebody adds
+# without marking it, which would otherwise fail the gate with an
+# unreadable "Executable doesn't exist" error instead of passing. With
+# Chromium installed in both jobs, an unmarked browser test still runs
+# and still passes — the marker is a wall-clock optimisation, never a
+# correctness requirement.
+#
+# The earlier version of this workflow ran the **whole** suite in the
+# gate job, which did not install Chromium, and named three files in the
+# browser job. That is what failed: sixteen browser tests died on a
+# runner with no browser binary.
 
 on:
   push:
@@ -56,11 +71,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Install Chromium
+        # Insurance, not a requirement: the browser-marked tests run in
+        # the other job. This is here so that a browser test somebody
+        # adds without marking it still passes here rather than dying
+        # with "Executable doesn't exist".
+        run: python -m playwright install --with-deps chromium
+
       - name: Lint
         run: ruff check src tests scripts
 
       - name: Test
-        run: pytest tests -q -n auto --dist loadfile
+        # The browser-marked tests run in the browser job. Everything
+        # else — the unit suite and the two-user isolation matrix — runs
+        # here, where it is fast and needs no browser.
+        run: pytest tests -q -m "not browser" -n auto --dist loadfile
 
       - name: The migration check
         run: python scripts/verify_migrations.py
@@ -92,4 +117,7 @@ jobs:
         run: python -m playwright install --with-deps chromium
 
       - name: The browser tests
-        run: pytest tests/test_browser_variants.py tests/test_application_workflow.py tests/test_fake_ats_server.py -q
+        # Every test marked `browser`, selected by the marker rather
+        # than by a hand-written list of files: a list goes stale, and a
+        # stale list is a test that quietly stops running.
+        run: pytest tests -q -m browser

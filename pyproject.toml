@@ -58,6 +58,14 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    # The tests that drive a real Chromium. They are slow, and they need
+    # a browser binary that the runner may not have, so CI runs them in
+    # their own job with the browser installed. The marker is a
+    # wall-clock optimisation, never a correctness requirement: both CI
+    # jobs install Chromium, so an unmarked browser test still passes.
+    "browser: needs a real Chromium (Playwright)",
+]
 filterwarnings = [
     # chromadb 1.5.9 routes custom embedding functions through a config path it
     # itself marks deprecated. Our EF never relies on config-based

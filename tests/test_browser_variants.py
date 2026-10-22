@@ -28,6 +28,12 @@ from src.db.evidence import ApplicationEvidence
 from src.db.session import get_db
 from src.db.users import LEGACY_OWNER_ID
 from src.main import app
+
+#: These tests drive a **real Chromium** through the fake ATS. They are
+#: marked so that CI can run them in their own job, with the browser
+#: binary installed. The marker is a wall-clock optimisation: both CI
+#: jobs install Chromium, so an unmarked browser test would still pass.
+pytestmark = pytest.mark.browser
 from tests.fixtures.fake_ats import serve_fake_ats_variants
 
 
