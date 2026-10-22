@@ -127,6 +127,7 @@ def get_job_refresh_executor() -> Callable[[], JobRefreshReport]:
 @router.post("/refresh", response_model=JobRefreshResponse)
 def refresh_jobs_endpoint(
     executor: Annotated[Callable[[], JobRefreshReport], Depends(get_job_refresh_executor)],
+    scope: Annotated[UserScope, Depends(current_scope)],
 ) -> JobRefreshResponse:
     """Run the decoupled daily refresh: boards → normalize → dedup → persist → embed.
 
@@ -134,6 +135,11 @@ def refresh_jobs_endpoint(
     requests (content-hash cache), and a daily-quota stop (``quota_exhausted``)
     leaves everything persisted for the next run. This can take minutes with
     real boards — scheduled runs should use ``scripts/refresh_jobs.py``.
+
+    WS-15: this route needs a credential. It is the most expensive
+    operation in the system — it walks every board and embeds the corpus —
+    and it was the one state-changing route that anyone who could reach the
+    port could call, in a loop, at the rate limit's pace.
     """
     report = executor()
     logger.info(
@@ -233,8 +239,19 @@ def search_jobs(
 
 
 @router.get("/{job_id}")
-def get_job(job_id: str, db: Annotated[Session, Depends(get_db)]) -> dict:
-    """Return one stored job listing (canonical ``{source}:{id}`` key)."""
+def get_job(
+    job_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> dict:
+    """Return one stored job listing (canonical ``{source}:{id}`` key).
+
+    WS-15: this route needs a credential like every other reading route.
+    The corpus is shared (the listings are public board data, so there is
+    no tenant to filter on), but an open read of the whole corpus is an
+    open enumeration of it, and the route was the only one left that
+    answered without asking who was asking.
+    """
     row = db.get(JobDB, job_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")

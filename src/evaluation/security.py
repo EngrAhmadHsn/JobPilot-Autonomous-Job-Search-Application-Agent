@@ -61,6 +61,13 @@ __all__ = [
 #: The endpoints that must refuse an anonymous caller. Every one of them
 #: reaches a user-scoped resource, so every one of them needs a
 #: credential.
+#:
+#: WS-15: the last two are the ``/api/jobs`` routes. The corpus is shared
+#: board data, so they do not reach a *user-scoped* resource — but the
+#: refresh is the most expensive operation in the system and the job read
+#: enumerates the whole corpus, so both need a credential. A metric that
+#: only covers the easy endpoints is a metric that says "0.0" about the
+#: part of the surface nobody tested.
 PROTECTED_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("GET", "/api/resumes/{profile_id}"),
     ("POST", "/api/resumes"),
@@ -75,6 +82,8 @@ PROTECTED_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("GET", "/api/tailored/{tailoring_id}/download"),
     ("GET", "/api/audit"),
     ("GET", "/api/auth/me"),
+    ("POST", "/api/jobs/refresh"),
+    ("GET", "/api/jobs/{job_id}"),
 )
 
 #: The endpoints that reach a user-scoped resource, and therefore need an
@@ -101,6 +110,10 @@ _PROBE_VALUES = {
     "application_id": "no-such-application",
     "tailoring_id": "no-such-tailoring",
     "filename": "no-such-file.png",
+    # WS-15: the job probe. The route answers 404 for an unknown listing,
+    # but it must answer 401 for an anonymous one — the credential is
+    # checked before the listing is looked up.
+    "job_id": "no-such-job",
 }
 
 
@@ -183,9 +196,7 @@ def authorization_coverage(suite_path: Path = ISOLATION_SUITE) -> float:
     if not suite_path.is_file():
         return 0.0
     exercised = routes_in(suite_path.read_text(encoding="utf-8"))
-    covered = sum(
-        1 for _, path in USER_SCOPED_ENDPOINTS if normalise_route(path) in exercised
-    )
+    covered = sum(1 for _, path in USER_SCOPED_ENDPOINTS if normalise_route(path) in exercised)
     return round(covered / len(USER_SCOPED_ENDPOINTS), 4)
 
 
@@ -363,9 +374,7 @@ def _probe_isolation(client, factory, build_profile_row, CandidateProfile) -> tu
             leaked = profile_id in response.text
             if leaked:
                 violations += 1
-                logger.warning(
-                    "%s %s leaked another account's rows", method, path
-                )
+                logger.warning("%s %s leaked another account's rows", method, path)
             continue
         if response.status_code not in (403, 404):
             violations += 1
