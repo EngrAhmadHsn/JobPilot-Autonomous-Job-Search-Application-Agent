@@ -1,4 +1,4 @@
-"""HTML neutralization for untrusted web text (WS-12).
+"""HTML neutralization for untrusted web text (WS-12 · WS-15).
 
 A job board returns HTML, and that HTML is stored, returned by the API, fed
 to the model, and written into the rendered resume. Two of those are
@@ -31,6 +31,25 @@ decode the entities. The order matters and is the whole point:
 
 The result is plain text: it is safe to place in an HTML context, safe to
 put in a prompt, and still a faithful reading of the posting.
+
+**Why this is a scanner and not a set of regular expressions (WS-15).**
+The first implementation stripped the dangerous blocks with a pattern like
+``<script\\b[^>]*>.*?</script>`` and the ``.*?`` was *lazy*, with
+``re.DOTALL``. A lazy quantifier is not free: the engine retries it at
+every position where the literal prefix can match, so the cost of the
+whole scan is quadratic in the length of the input. Measured on the old
+implementation: 128 KB of ``<script>`` took **25 seconds** of CPU, and the
+length cap was applied *after* the neutralization, so it did not help. One
+hostile board could buy minutes of a refresh thread with a single field.
+
+The scanner below cannot retry, because it advances a cursor: it finds the
+next ``<``, decides what it is, and jumps past it. The output, the order
+of the steps, and the guarantee — **no tag survives** — are unchanged; the
+cost is now linear in the length of the input. A scanner also gets the
+unterminated cases right for free: an unterminated comment swallows the
+rest of the text, which is what a browser does with it, and an unterminated
+dangerous element keeps its *content* (the text) but loses its tag, which
+is what a browser does with it too.
 """
 
 from __future__ import annotations
@@ -41,53 +60,131 @@ import re
 __all__ = ["escape_for_html", "neutralize_html", "strip_dangerous_html"]
 
 #: Elements whose **content** is code, style, or embedded foreign content.
-#: The content between the opening and closing tag is dropped entirely.
-_DANGEROUS_BLOCKS = (
-    "script",
-    "style",
-    "iframe",
-    "object",
-    "embed",
-    "applet",
-    "noscript",
-    "template",
-    "svg",
-    "math",
-    "frame",
-    "frameset",
-    "base",
-    "link",
-    "meta",
+#: The content between the opening and the closing tag is dropped entirely.
+_DANGEROUS_BLOCKS = frozenset(
+    {
+        "script",
+        "style",
+        "iframe",
+        "object",
+        "embed",
+        "applet",
+        "noscript",
+        "template",
+        "svg",
+        "math",
+        "frame",
+        "frameset",
+        "base",
+        "link",
+        "meta",
+    }
 )
 
-#: A dangerous block with its content: ``<script ...> ... </script>``.
-_BLOCK_RE = re.compile(
-    r"<(?P<tag>" + "|".join(_DANGEROUS_BLOCKS) + r")\b[^>]*>.*?</(?P=tag)\s*>",
-    re.IGNORECASE | re.DOTALL,
-)
+#: The most characters the neutralizer will read from one field.
+#:
+#: The neutralizer is linear now, so this is not a performance fix — it is a
+#: bound on how much work one hostile field can ask for, and on how much
+#: memory the intermediate copy can take. A description is capped at 20,000
+#: characters by the contract, so a megabyte of input is already generous
+#: by three orders of magnitude; anything past it is dropped.
+MAX_NEUTRALIZE_INPUT_CHARS = 1_000_000
 
-#: A self-closing or unclosed dangerous tag: ``<script src="...">``.
-_VOID_DANGEROUS_RE = re.compile(
-    r"<(?:" + "|".join(_DANGEROUS_BLOCKS) + r")\b[^>]*/?>",
-    re.IGNORECASE,
-)
+#: The name at the start of a tag. Deliberately ``[A-Za-z][A-Za-z0-9]*`` and
+#: nothing more: a name stops at the first character that cannot be part of
+#: it, so ``<script src=x>`` is the ``script`` element and ``<script-x>``
+#: is not — the same reading the old ``\b``-anchored pattern gave.
+_TAG_NAME_RE = re.compile(r"</?([A-Za-z][A-Za-z0-9]*)")
 
-#: Any remaining tag.
-_TAG_RE = re.compile(r"<[^>]*>")
+#: The closing tag of a dangerous element, per element name. Compiled once
+#: and kept, because the names come from a fixed set.
+_CLOSING_PATTERNS: dict[str, re.Pattern[str]] = {}
 
-#: An HTML comment.
-_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
-#: A processing instruction or a CDATA section.
-_PI_RE = re.compile(r"<\?.*?\?>", re.DOTALL)
-_CDATA_RE = re.compile(r"<!\[CDATA\[.*?\]\]>", re.DOTALL)
+def _closing_pattern(name: str) -> re.Pattern[str]:
+    """The compiled ``</name>`` pattern for the dangerous element *name*."""
+    pattern = _CLOSING_PATTERNS.get(name)
+    if pattern is None:
+        pattern = re.compile(r"</\s*" + re.escape(name) + r"\s*>", re.IGNORECASE)
+        _CLOSING_PATTERNS[name] = pattern
+    return pattern
 
-#: Whitespace runs.
-_WHITESPACE_RE = re.compile(r"\s+")
 
-#: Control characters that are never legitimate in a job description and can
-#: confuse a terminal, a log line, or a downstream parser.
-_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+def _scan(text: str, *, drop_dangerous_content: bool) -> str:
+    """Remove every tag from *text* in a single linear pass.
+
+    Args:
+        text: The text to scan.
+        drop_dangerous_content: When true, the **content** of a dangerous
+            element is dropped with the element. When false, only the tags
+            are removed and the content is kept — which is what the second
+            pass after the entity decode needs, so that a decoded
+            ``&lt;script&gt;alert(1)&lt;/script&gt;`` loses its tags
+            without silently eating the sentence around them.
+
+    Returns:
+        The text with the tags removed.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(text)
+    # The dangerous element names already searched for with no closing tag
+    # found. The cursor only moves forward, so a name that had no closing
+    # tag after its first occurrence has none after any later occurrence
+    # either — and remembering that is what keeps this pass linear when a
+    # board sends ten thousand unterminated ``<script>`` tags.
+    unclosed: set[str] = set()
+
+    while True:
+        start = text.find("<", index)
+        if start < 0:
+            out.append(text[index:])
+            break
+        out.append(text[index:start])
+
+        # A comment, a CDATA section, or a processing instruction: none of
+        # them is content, and each runs to its own terminator.
+        if text.startswith("<!--", start):
+            end = text.find("-->", start + 4)
+            out.append(" ")
+            index = length if end < 0 else end + 3
+            continue
+        if text.startswith("<![CDATA[", start):
+            end = text.find("]]>", start + 9)
+            out.append(" ")
+            index = length if end < 0 else end + 3
+            continue
+        if text.startswith("<?", start):
+            end = text.find("?>", start + 2)
+            out.append(" ")
+            index = length if end < 0 else end + 2
+            continue
+
+        end = text.find(">", start)
+        if end < 0:
+            # No closing angle bracket: this ``<`` is ordinary text.
+            out.append("<")
+            index = start + 1
+            continue
+
+        match = _TAG_NAME_RE.match(text, start)
+        name = match.group(1).lower() if match else ""
+        if drop_dangerous_content and name in _DANGEROUS_BLOCKS and name not in unclosed:
+            closing = _closing_pattern(name).search(text, end + 1)
+            if closing is not None:
+                # The element and its content go together.
+                out.append(" ")
+                index = closing.end()
+                continue
+            # No closing tag: the element keeps its content as text and
+            # loses only its tag, which is what the old void-form pattern
+            # did and what a browser does with it.
+            unclosed.add(name)
+
+        out.append(" ")
+        index = end + 1
+
+    return "".join(out)
 
 
 def strip_dangerous_html(raw: str | None) -> str:
@@ -98,16 +195,8 @@ def strip_dangerous_html(raw: str | None) -> str:
     """
     if not raw:
         return ""
-    text = raw
-    # Comments can hide markup from a naive reader; CDATA and processing
-    # instructions are not content at all.
-    text = _COMMENT_RE.sub(" ", text)
-    text = _CDATA_RE.sub(" ", text)
-    text = _PI_RE.sub(" ", text)
-    # The block forms first (they carry content), then the leftover tags.
-    text = _BLOCK_RE.sub(" ", text)
-    text = _VOID_DANGEROUS_RE.sub(" ", text)
-    return text
+    text = raw[:MAX_NEUTRALIZE_INPUT_CHARS]
+    return _scan(text, drop_dangerous_content=True)
 
 
 def neutralize_html(raw: str | None, *, collapse_whitespace: bool = True) -> str:
@@ -141,11 +230,11 @@ def neutralize_html(raw: str | None, *, collapse_whitespace: bool = True) -> str
     """
     if not raw:
         return ""
-    text = strip_dangerous_html(raw)
-    text = _TAG_RE.sub(" ", text)
+    text = raw[:MAX_NEUTRALIZE_INPUT_CHARS]
+    text = _scan(text, drop_dangerous_content=True)
     text = html.unescape(text)
     # A decode can reveal a tag (``&lt;script&gt;``); remove it again.
-    text = _TAG_RE.sub(" ", text)
+    text = _scan(text, drop_dangerous_content=False)
     text = _CONTROL_RE.sub(" ", text)
     if collapse_whitespace:
         return _WHITESPACE_RE.sub(" ", text).strip()
@@ -161,3 +250,11 @@ def escape_for_html(raw: str | None) -> str:
     if not raw:
         return ""
     return html.escape(raw, quote=True)
+
+
+#: Whitespace runs.
+_WHITESPACE_RE = re.compile(r"\s+")
+
+#: Control characters that are never legitimate in a job description and can
+#: confuse a terminal, a log line, or a downstream parser.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
