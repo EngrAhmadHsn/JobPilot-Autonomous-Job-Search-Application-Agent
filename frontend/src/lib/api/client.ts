@@ -97,6 +97,29 @@ export class AbortedError extends Error {
 }
 
 /**
+ * The server's answer was larger than the console will read.
+ *
+ * WS-15: the API caps the *requests* it accepts, and the boards cap the
+ * responses they receive, but nothing capped the size of the API's own
+ * responses. A compromised or misbehaving server could therefore stream
+ * an unbounded body into the browser and take the tab down with it. The
+ * console reads at most this much, and says so.
+ */
+export class ResponseTooLargeError extends Error {
+  constructor(limitBytes: number) {
+    super(
+      `The server's answer is larger than the ${Math.round(
+        limitBytes / (1024 * 1024)
+      )} MB the console will read.`
+    )
+    this.name = "ResponseTooLargeError"
+  }
+}
+
+/** The largest response body the console will read. */
+export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+/**
  * A form-encoded request.
  *
  * The sign-in endpoint takes `application/x-www-form-urlencoded`
@@ -189,12 +212,26 @@ const CSRF_COOKIE_NAME = "aja_csrf"
  * Returns an empty string when there is no cookie yet (the first request
  * of a session, before the server has issued one), which simply means the
  * header is not sent — the server issues the cookie on that response.
+ *
+ * WS-15: a malformed cookie must not be able to **break** the console.
+ * `decodeURIComponent("%")` throws a `URIError`, and this function runs
+ * on the way into every request — so a cookie left behind by a sibling
+ * host, an extension, or a stale value would turn every query and every
+ * mutation into an unhandled error. The token is a base64url string the
+ * server wrote, so a value that does not decode is not a token and is
+ * treated as absent: the request goes out without the header and the
+ * server refuses it, which is the correct direction.
  */
 export function csrfToken(): string {
   if (typeof document === "undefined" || !document.cookie) return ""
   for (const part of document.cookie.split(";")) {
     const [name, ...rest] = part.trim().split("=")
-    if (name === CSRF_COOKIE_NAME) return decodeURIComponent(rest.join("="))
+    if (name !== CSRF_COOKIE_NAME) continue
+    try {
+      return decodeURIComponent(rest.join("="))
+    } catch {
+      return ""
+    }
   }
   return ""
 }
@@ -377,7 +414,19 @@ export async function request<T>(
     signal?.removeEventListener("abort", onExternalAbort)
   }
 
+  // WS-15: refuse an answer the console will not read, before reading it.
+  const declared = Number.parseInt(
+    response.headers.get("content-length") ?? "",
+    10
+  )
+  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+    throw new ResponseTooLargeError(MAX_RESPONSE_BYTES)
+  }
+
   const rawText = await response.text()
+  if (rawText.length > MAX_RESPONSE_BYTES) {
+    throw new ResponseTooLargeError(MAX_RESPONSE_BYTES)
+  }
   let parsed: unknown = undefined
   if (rawText) {
     try {

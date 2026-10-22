@@ -7,7 +7,9 @@ import {
   AbortedError,
   ApiError,
   NetworkError,
+  ResponseTooLargeError,
   TimeoutError,
+  csrfToken,
   request,
 } from "@/lib/api/client"
 
@@ -152,7 +154,7 @@ describe("the API client", () => {
     expect(await pending).toBeInstanceOf(AbortedError)
   })
 
-  it("sends no cookie and asks for JSON", async () => {
+  it("attaches no credential of its own and asks for JSON", async () => {
     let seenCookie: string | null = null
     let seenAccept: string | null = null
     server.use(
@@ -165,9 +167,46 @@ describe("the API client", () => {
 
     await request("/api/thing")
 
-    // The API has no authentication and must never receive a cookie: the
-    // console holds no credential of any kind.
+    // WS-15: the console holds no credential of any kind. The session is
+    // an `HttpOnly` cookie that the **browser** attaches on its own
+    // (`credentials: "include"`), so the console never sets, reads, or
+    // forwards one. Node's fetch has no cookie jar, which is why the
+    // header is absent here.
     expect(seenCookie).toBeNull()
     expect(seenAccept).toContain("application/json")
+  })
+})
+
+/**
+ * WS-15: the console's own defences against a hostile or broken server.
+ */
+describe("the API client's own defences", () => {
+  it("survives a CSRF cookie it cannot decode", () => {
+    // A cookie that does not decode is not a token. The reader must
+    // return an empty string rather than throw, or every request in the
+    // console would fail with an unhandled error.
+    document.cookie = "aja_csrf=%"
+    expect(csrfToken()).toBe("")
+  })
+
+  it("reads the CSRF token when it is well formed", () => {
+    document.cookie = "aja_csrf=abc123"
+    expect(csrfToken()).toBe("abc123")
+  })
+
+  it("refuses an answer larger than the console will read", async () => {
+    server.use(
+      http.get(
+        `${BASE}/api/huge`,
+        () =>
+          new HttpResponse("x".repeat(9 * 1024 * 1024), {
+            headers: { "content-length": String(9 * 1024 * 1024) },
+          })
+      )
+    )
+
+    await expect(request("/api/huge")).rejects.toBeInstanceOf(
+      ResponseTooLargeError
+    )
   })
 })
