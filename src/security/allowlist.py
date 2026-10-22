@@ -75,6 +75,34 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
+#: The URL schemes this application may put in front of an operator's
+#: browser. WS-15: a listing's application URL is rendered as a link, and a
+#: board that publishes ``javascript:…`` or ``data:text/html,…`` is
+#: publishing an instruction to the browser rather than a page.
+ALLOWED_URL_SCHEMES = _ALLOWED_SCHEMES
+
+
+def has_allowed_scheme(url: str) -> bool:
+    """True when *url* is safe to turn into a link.
+
+    A URL with **no** scheme (``example.com/jobs``) is a relative
+    reference: it opens a page on the current origin and does nothing
+    else, so it is allowed. A URL with a scheme that is not ``http`` or
+    ``https`` (``javascript:``, ``data:``, ``file:``, ``blob:``) does
+    something other than open a page, and is refused.
+    """
+    if not url:
+        return False
+    candidate = url.strip()
+    if ":" not in candidate:
+        return True
+    scheme = candidate.split(":", 1)[0].lower()
+    # A colon that is not a scheme separator (``example.com:8080/x``) is
+    # not a scheme at all; the URL is relative and inert either way.
+    if not scheme or not all(char.isalnum() or char in "+-." for char in scheme):
+        return True
+    return scheme in _ALLOWED_SCHEMES
+
 
 class DisallowedDomainError(PermissionError):
     """Raised when a URL's host may not be navigated to or fetched."""

@@ -108,6 +108,36 @@ class JobListing(BaseModel):
             text = text[: limits.max_company_chars]
         return text
 
+    @field_validator("application_url", "company_url", mode="before")
+    @classmethod
+    def _check_url_scheme(cls, value: object) -> object:
+        """Keep only the URLs a browser may follow.
+
+        WS-15: the application URL is the one field in a listing that the
+        console turns into a **link**. A board that published
+        ``javascript:…`` or ``data:text/html,…`` would be publishing an
+        instruction to the operator's browser, and a hostile board that
+        publishes ``https://attacker.example/phish`` is the ordinary
+        phishing case that a scheme check cannot stop — but the scheme is
+        the half that is cheap to close, and it is closed at the contract,
+        so no adapter can forget it.
+
+        A URL that is not ``http`` or ``https`` is **dropped**, not
+        rewritten: a listing without an application link is a listing the
+        operator cannot apply to from the console, which is a smaller
+        problem than a link that runs code.
+        """
+        if not isinstance(value, str):
+            return value
+        from src.security.allowlist import has_allowed_scheme
+
+        candidate = value.strip()
+        if not candidate:
+            return None
+        if not has_allowed_scheme(candidate):
+            return None
+        return candidate
+
 
 class JobSource(Protocol):
     """Abstract interface for job retrieval sources."""
