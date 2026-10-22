@@ -635,6 +635,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | Polish | 58 tests (the suite grew with the identity work) | clean | clean | the six reported defects fixed and re-checked in a real browser at 420 px and 1180 px: no nav scrollbar, a tooltip on the profile handle, an honest search summary, a disclosure with room to breathe, no broken words in the listing, and a shine on the button | done |
 | Documents | 62 tests + 7 backend tests | clean | clean | the document library, the picker (with its upload button) and the "Your documents" list, all checked against the live API in a real browser; the sticky panel's top measured at 129 px against a 113 px header, so it is no longer cut | done |
 | Profiles | 66 tests | clean | clean | a document can be **chosen** from the library and is read as the current profile, and a profile the account cannot read is reported in words instead of a raw 404; checked live: the stale handle showed the explanation, and choosing the account's own résumé loaded its parsed summary | done |
+| Navigation | 79 tests + 4 e2e | clean | clean | the narrow screen's navigation is a **modal drawer** (the Material 3 pattern for a phone): the same groups, the current page marked, the drawer closing on a choice, and the horizontal bar not in the DOM at that width. Checked in a real browser at 375 px and in the end-to-end run | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).
@@ -692,6 +693,12 @@ the whole suite green (the count moves as other workstreams land).
   is therefore reported in words ("that profile is not available to this
   account") with the way out — choose one of your documents — rather than as
   a raw server message.
+- **The navigation has two shapes, never both.** On a wide screen it is a
+  horizontal bar; on a narrow one it is a modal drawer (the Material 3
+  answer for a phone: a navigation icon in the top bar, a panel that slides
+  in, the current destination marked, the drawer closing when the operator
+  picks one). Only one of them is ever in the DOM, so a screen reader never
+  meets the same destination twice.
 - **The header's height is measured, not assumed.** The header is sticky,
   and the navigation wraps on a narrow screen, so its height is not a
   constant. The shell publishes it as `--header-height` (a
