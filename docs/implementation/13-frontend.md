@@ -636,6 +636,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | Documents | 62 tests + 7 backend tests | clean | clean | the document library, the picker (with its upload button) and the "Your documents" list, all checked against the live API in a real browser; the sticky panel's top measured at 129 px against a 113 px header, so it is no longer cut | done |
 | Profiles | 66 tests | clean | clean | a document can be **chosen** from the library and is read as the current profile, and a profile the account cannot read is reported in words instead of a raw 404; checked live: the stale handle showed the explanation, and choosing the account's own résumé loaded its parsed summary | done |
 | Navigation | 79 tests + 4 e2e | clean | clean | the narrow screen's navigation is a **modal drawer** (the Material 3 pattern for a phone): the same groups, the current page marked, the drawer closing on a choice, and the horizontal bar not in the DOM at that width. Checked in a real browser at 375 px and in the end-to-end run | done |
+| Motion | 83 tests + 4 e2e | clean | clean | the view transitions, the staggered entrances and the paper depth, inspected in a real browser: the tracked applications were caught mid-entrance (four rows arrived, the fifth half-risen, the rest still to come), and the navigation between screens crossfades | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).
@@ -693,6 +694,26 @@ the whole suite green (the count moves as other workstreams land).
   is therefore reported in words ("that profile is not available to this
   account") with the way out — choose one of your documents — rather than as
   a raw server message.
+- **Motion answers an action, and it is optional.** Three motions, and
+  nothing else: a **view transition** between screens (the View Transitions
+  API — the browser captures the old screen and the new one and crossfades
+  them, so the exit runs even though the router has already swapped the
+  tree; React Router 7.18 turns it on per link and falls back to an instant
+  swap where the browser has no such API), a **staggered entrance** for
+  the lists (the delay is the item's **index** times 45 ms — the same idea
+  an After Effects expression uses when it staggers by `index` — so a table
+  of applications arrives in order instead of all at once), and the existing
+  hover and press states. `prefers-reduced-motion` drops all of it, delay
+  and duration alike.
+- **The depth is light, not shadow.** The canvas carries a whisper of grain
+  (an SVG turbulence at 5 %, on the body, so the paper cards on top stay
+  clean) and the header carries two very soft washes — forest and lime —
+  behind the paper. The console is a warm page, not a dark dashboard.
+- **No animation library.** The techniques the motion skills teach (GSAP's
+  from-to tweens, the AE index stagger, the View Transitions route change)
+  are implemented natively, so the console gains the motion without a
+  dependency, a licence question, or a scroll-driven model it has no use
+  for.
 - **The navigation has two shapes, never both.** On a wide screen it is a
   horizontal bar; on a narrow one it is a modal drawer (the Material 3
   answer for a phone: a navigation icon in the top bar, a panel that slides
