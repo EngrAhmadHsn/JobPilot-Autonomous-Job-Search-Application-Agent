@@ -1,6 +1,7 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -59,23 +60,30 @@ export function AccountMenu() {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="font-normal">
-          <span className="block text-sm font-medium text-foreground">
-            Operator console
-          </span>
-          <span className="mt-0.5 block text-xs text-muted-foreground">
-            {profileId ? (
-              <>
-                Working with profile{" "}
-                <code className="font-mono text-[11px] text-foreground">
-                  {profileId}
-                </code>
-              </>
-            ) : (
-              "No profile selected yet"
-            )}
-          </span>
-        </DropdownMenuLabel>
+        {/*
+          The label is a *group* label in Base UI, and a group label needs
+          a group: without this wrapper the menu throws the moment it
+          opens.
+        */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="font-normal">
+            <span className="block text-sm font-medium text-foreground">
+              Operator console
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {profileId ? (
+                <>
+                  Working with profile{" "}
+                  <code className="font-mono text-[11px] text-foreground">
+                    {profileId}
+                  </code>
+                </>
+              ) : (
+                "No profile selected yet"
+              )}
+            </span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
 
@@ -94,12 +102,14 @@ export function AccountMenu() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem
-          className="justify-start gap-2"
-          onSelect={() => signOut.mutate()}
-        >
-          <span>Sign out</span>
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            className="justify-start gap-2"
+            onSelect={() => signOut.mutate()}
+          >
+            <span>Sign out</span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

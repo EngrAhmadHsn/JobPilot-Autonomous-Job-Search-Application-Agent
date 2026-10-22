@@ -5,7 +5,6 @@ import { dirname, join } from "node:path"
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESUME = join(HERE, "fixtures", "resume.txt")
 
-
 /**
  * The end-to-end smoke path.
  *
@@ -191,4 +190,23 @@ test("the console is reachable by keyboard", async ({ page }) => {
   expect(visited.some((name) => name.includes("Choose a file"))).toBe(true)
   // And the focus is visible when it lands.
   expect(sawVisibleFocus).toBe(true)
+})
+
+/**
+ * The account menu opens.
+ *
+ * A menu's parts are rendered only when it opens, so a menu that throws
+ * when it opens passes every test that never opens it. The console's own
+ * error boundary is what the operator saw, so the test opens it.
+ */
+test("the account menu opens", async ({ page }) => {
+  await page.goto("/resume")
+  await signIn(page)
+
+  await page
+    .getByRole("button", { name: "Account and display settings" })
+    .click()
+
+  await expect(page.getByText("Sign out")).toBeVisible()
+  await expect(page.getByText("Operator console")).toBeVisible()
 })
