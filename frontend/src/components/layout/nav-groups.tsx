@@ -1,6 +1,8 @@
 import { cn } from "cn"
 import { NavLink } from "react-router-dom"
 
+import { stagger } from "@/lib/stagger"
+
 /**
  * The navigation, grouped by what the operator is doing.
  *
@@ -35,6 +37,28 @@ export const NAV_GROUPS = [
 
 export const ADMIN_NAV = [{ to: "/operations", label: "Operations" }] as const
 
+/**
+ * The groups with each destination's index in the whole list.
+ *
+ * The index is the item's place in the sequence, and the sequence is what
+ * the drawer's arrival is built on — the destinations rise one after
+ * another, in the order they are read. It is computed once, at module
+ * level, because the groups never change.
+ */
+const INDEXED_GROUPS = NAV_GROUPS.map((group, groupIndex) => {
+  const first = NAV_GROUPS.slice(0, groupIndex).reduce(
+    (total, earlier) => total + earlier.items.length,
+    0
+  )
+  return {
+    label: group.label,
+    items: group.items.map((item, index) => ({
+      ...item,
+      index: first + index,
+    })),
+  }
+})
+
 type NavVariant = "horizontal" | "vertical"
 
 function NavItem({
@@ -43,12 +67,14 @@ function NavItem({
   variant,
   onNavigate,
   className,
+  index,
 }: {
   to: string
   label: string
   variant: NavVariant
   onNavigate?: () => void
   className?: string
+  index?: number
 }) {
   const vertical = variant === "vertical"
 
@@ -68,6 +94,7 @@ function NavItem({
         cn(
           "relative inline-flex items-center rounded-lg transition-colors duration-150",
           vertical ? "h-11 w-full px-3 text-[15px]" : "h-9 px-3 text-sm",
+          vertical ? stagger(index ?? 0).className : undefined,
           isActive
             ? "bg-accent font-medium text-primary"
             : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -103,9 +130,14 @@ export function NavGroups({
   const vertical = variant === "vertical"
 
   if (vertical) {
+    /*
+      The drawer arrives as a sequence: the destinations rise one after
+      another, so the operator's eye follows the panel in rather than
+      meeting a list that is simply there.
+    */
     return (
       <nav aria-label="Screens" className={cn("space-y-5", className)}>
-        {NAV_GROUPS.map((group) => (
+        {INDEXED_GROUPS.map((group) => (
           <div key={group.label} className="space-y-1">
             <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
               {group.label}
@@ -117,6 +149,7 @@ export function NavGroups({
                 label={item.label}
                 variant={variant}
                 onNavigate={onNavigate}
+                index={item.index}
               />
             ))}
           </div>

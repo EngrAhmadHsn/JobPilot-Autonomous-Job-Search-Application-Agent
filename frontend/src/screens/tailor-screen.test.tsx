@@ -11,6 +11,23 @@ import { tailorResponse } from "@/test/factories"
 const BASE = "http://api.test"
 const ROUTE = `/tailor/${encodeURIComponent("greenhouse:1")}`
 
+describe("the tailor index", () => {
+  it("has a heading even when there is no profile to tailor", async () => {
+    renderApp({ route: "/tailor" })
+
+    // A screen that shows only an empty state, with no heading, reads as a
+    // broken screen. The heading says what the screen is for; the empty
+    // state says what to do next.
+    expect(
+      await screen.findByRole("heading", {
+        name: /Tailor the résumé for a job/i,
+        level: 1,
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText("No profile selected")).toBeInTheDocument()
+  })
+})
+
 describe("the tailor screen", () => {
   it("tails the resume and shows the reports", async () => {
     setCurrentProfileId("profile-1")

@@ -415,21 +415,40 @@ export function TailorIndexScreen() {
     }),
   })
 
+  /*
+    The heading comes first, always. A screen that only shows an empty
+    state with no heading reads as a broken screen; the heading says what
+    the screen is for, and the empty state says what to do next.
+  */
+  const heading = (
+    <PageHeader
+      title="Tailor the résumé for a job"
+      description="The agent rewrites your résumé from your profile facts for one job at a time, checks every claim against your document, scores it for the ATS, and reads the listing for grounded insights."
+    />
+  )
+
   if (!profileId) {
     return (
-      <EmptyState
-        title="No profile selected"
-        description="A tailored resume is built from a candidate profile. Upload a resume first."
-        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
-      />
+      <div className="space-y-10">
+        {heading}
+        <EmptyState
+          title="No profile selected"
+          description="A tailored résumé is built from a candidate profile. Upload a résumé first, then pick the job to tailor for."
+          action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
+        />
+      </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-10">
+      {heading}
+
+      <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Pick a job to tailor for</CardTitle>
+          <CardTitle className="font-heading text-base font-semibold tracking-tight">
+            Pick a job to tailor for
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
