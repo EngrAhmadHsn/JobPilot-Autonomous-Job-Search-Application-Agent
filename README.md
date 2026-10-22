@@ -130,21 +130,30 @@ the job sources are key-less public APIs.
 
 ### Try the API
 
+Every route except `/` and `/api/health` needs a credential (WS-14), so the examples below
+create an account first and keep the session cookie.
+
 ```bash
+# 0. create an account (the first one claims the pre-existing corpus) and
+#    keep the session cookie
+curl -s -c cookies.txt -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "a-long-enough-password"}'
+
 # 1. upload a resume -> a profile id
-curl -F "file=@resume.docx" http://localhost:8000/api/resumes
+curl -s -b cookies.txt -F "file=@resume.docx" http://localhost:8000/api/resumes
 
 # 2. refresh the corpus (the first run downloads ~300 MiB of embedding weights
 #    and embeds every listing on CPU — this takes a while and is resumable)
-curl -X POST http://localhost:8000/api/jobs/refresh
+curl -s -b cookies.txt -X POST http://localhost:8000/api/jobs/refresh
 
 # 3. search the stored corpus for that profile
-curl -X POST http://localhost:8000/api/jobs/search \
+curl -s -b cookies.txt -X POST http://localhost:8000/api/jobs/search \
   -H "Content-Type: application/json" \
   -d '{"profile_id": "<profile id>", "top_n": 10}'
 
 # 4. tailor the resume for one of the results
-curl -X POST http://localhost:8000/api/tailor \
+curl -s -b cookies.txt -X POST http://localhost:8000/api/tailor \
   -H "Content-Type: application/json" \
   -d '{"profile_id": "<profile id>", "job_id": "greenhouse:stripe:8172510"}'
 ```
@@ -348,6 +357,41 @@ Every file the platform writes for a person lives in **that person's own directo
 own directory", not "inside a directory the application owns" — the second question includes
 the other users' directories once there is more than one user.
 
+### The console is a browser surface
+
+The operator console (`/frontend`) is the surface that holds the "Approve and submit" button
+and that renders attacker-influenced job-board text, so it carries a **Content-Security-Policy**
+of its own (WS-15): the built bundle runs under `script-src 'self'`, `object-src 'none'`,
+`base-uri 'none'` and `frame-ancestors 'none'`, and it is served with `nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a restrictive
+`Permissions-Policy`. The dev server is the one exception — the React Fast Refresh runtime
+is an inline script — and the production build is not.
+
+The console holds **no credential**: the session is an `HttpOnly` cookie the browser attaches
+on its own, and the only token JavaScript can read is the CSRF token, which grants nothing
+without that cookie beside it. Untrusted text is rendered as text — there is no
+`dangerouslySetInnerHTML` in the tree, and the ESLint rules forbid the sinks that would
+create one. A listing's `application_url` becomes a link only when its scheme is `http(s)`;
+the backend enforces the same rule at the contract, so a hostile board cannot publish a
+`javascript:` URL into the console.
+
+### The flood is bounded, and the corpus moves
+
+Every limit that bounds what an untrusted caller can make the process do lives in
+`src/security/limits.py` and is documented in `.env.example`. A request is bounded by the
+rate limit, the body cap and the **in-flight cap** (how many requests the process may be
+holding at once — the bound on a connection flood, which is not a rate); the expensive
+routes are bounded by the concurrency gate; and the corpus is bounded by the admission
+control.
+
+The embedding work is denominated in **cache misses** — the embeddings that actually cost
+something — and is bounded twice: per refresh, and per day (WS-15). The per-refresh budget is
+shared fairly between the boards, so one hostile board cannot spend it all, and the
+already-cached listings cost a lookup rather than an embedding. The corpus cap is a bound
+and not a one-way door: a full corpus **evicts** the listings that have not been seen on a
+board for the longest, so a flood cannot end the application's life by filling the corpus
+once.
+
 ### The audit trail is attributable and unforgeable
 
 The actor of an audit row is a **principal** — a kind (`user`, `agent`, `system`) and an id —
@@ -373,8 +417,12 @@ must **declare** the policy — a default is not a decision.
 
 ### Web content is data, never instructions
 
-Board HTML is neutralized at the contract, the listing's text reaches the model inside a
-nonce-fenced untrusted block, and every project bullet is stripped of injection patterns.
+Board HTML is neutralized at the contract by a **linear** scanner (WS-15 — the first
+implementation matched the dangerous blocks with a lazy regex, which was quadratic in the
+input and let one hostile field buy minutes of a refresh thread), every untrusted field
+reaches the model inside a nonce-fenced untrusted block (the header fields and the extracted
+requirements included, not only the description), and every project bullet is stripped of
+injection patterns.
 Navigation is checked against an exact-match domain allowlist before *and* after every hop,
 including on every page of a multi-step form. A CAPTCHA or an MFA prompt stops the flow with
 `blocked_human_review`; the system never tries to solve one. Every run gets a fresh browser
@@ -397,7 +445,8 @@ check it, what to do when it breaks — is in [`docs/RUNBOOK.md`](docs/RUNBOOK.m
 
 ```text
 src/
-  api/           routes, middleware (rate limit, body cap, concurrency gate), upload validation
+  api/           routes, middleware (rate limit, body cap, concurrency gate,
+                 in-flight cap), upload validation
   applications/  the adapter contract, the Playwright fake-ATS adapter, form walking, evidence
   config/        the settings object and the fail-fast configuration checks
   core/          logging with PII masking, text helpers
