@@ -25,8 +25,11 @@ env\\Scripts\\python.exe -m uvicorn src.main:app --port 8000
 ```
 
 Set `VITE_API_BASE_URL` to point the console at another API (leave it empty
-for the proxy). There is no secret here: the API has no authentication, the
-console sends no credential, and nothing in this package may ever hold a key.
+for the proxy). There is no secret here: the console holds no credential of
+any kind, and nothing in this package may ever hold a key. The session lives
+in an `HttpOnly` cookie the browser attaches on its own, and the only token
+the console can read is the CSRF token, which grants nothing without that
+cookie beside it.
 
 ## The scripts
 
@@ -75,7 +78,9 @@ it off).
 - **No silent failures.** 400, 404, 409, 413, 422, 429 (with its
   `Retry-After`), 503, a dead network and a client-side timeout each have
   their own message.
-- **No secret.** The only configuration is the API base URL.
+- **No secret.** The only configuration is the API base URL. The session is
+  an `HttpOnly` cookie; the console never holds a token, and it sends the
+  CSRF token as a header on every unsafe request (WS-15).
 
 ## Layout
 
