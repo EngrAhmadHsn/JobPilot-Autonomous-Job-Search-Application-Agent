@@ -141,6 +141,7 @@ LIMITS_VAR_TO_ATTR = {
     "BODY_LIMIT_BYTES": "body_limit_bytes",
     "MAX_CONCURRENT_HEAVY": "max_concurrent_heavy",
     "HEAVY_QUEUE_TIMEOUT_SECONDS": "heavy_queue_timeout_seconds",
+    "MAX_INFLIGHT_REQUESTS": "max_inflight_requests",
     "MAX_LISTINGS_PER_SOURCE": "max_listings_per_source",
     "MAX_NEW_LISTINGS_PER_REFRESH": "max_new_listings_per_refresh",
     "MAX_CORPUS_LISTINGS": "max_corpus_listings",

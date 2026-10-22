@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.middleware import (
     BodySizeLimitMiddleware,
     ConcurrencyLimitMiddleware,
+    InFlightLimitMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -100,6 +101,11 @@ app.add_middleware(
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ConcurrencyLimitMiddleware)
+# WS-15: the pile-up cap. It sits inside the rate limit (a refused
+# request costs a header parse, not a body read) and outside the
+# concurrency gate (which is about the *expensive* routes; this one is
+# about every route at once).
+app.add_middleware(InFlightLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # WS-14 · A1: the double-submit CSRF check. It sits **inside** the
 # security headers, so a refused request still carries them, and outside

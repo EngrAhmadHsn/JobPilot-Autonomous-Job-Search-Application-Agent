@@ -1,6 +1,6 @@
 """API middleware: abuse limits, body caps, and response hardening (WS-12).
 
-Four controls, one module, because they are four facets of the same
+Five controls, one module, because they are five facets of the same
 question — *what may an untrusted caller make this process do?*
 
 1. **Rate limiting** (:class:`RateLimitMiddleware`) — a per-client request
@@ -16,7 +16,12 @@ question — *what may an untrusted caller make this process do?*
    more than a few at once. A rate limit bounds how *often* the refresh runs;
    this bounds how many run *at the same time*, which is what actually
    exhausts the CPU and the memory.
-4. **Security headers** (:class:`SecurityHeadersMiddleware`) — the response
+4. **In-flight cap** (:class:`InFlightLimitMiddleware`) — how many requests
+   may be in the process at once, whatever they are. The rate limit bounds a
+   client's *rate*; a connection flood is not a rate, it is a pile-up, and it
+   is what a slow-loris looks like from the server's side: a few dozen
+   connections that dribble a body and hold a worker each. WS-15.
+5. **Security headers** (:class:`SecurityHeadersMiddleware`) — the response
    headers that stop a browser treating this API's output as something it
    is not. ``X-Content-Type-Options: nosniff`` is the load-bearing one: a
    JSON response carrying attacker-controlled job descriptions must never be
@@ -28,8 +33,10 @@ the middleware itself produces, so a 429 is as well-formed as a 200.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
+import weakref
 from typing import ClassVar
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -45,6 +52,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BodySizeLimitMiddleware",
     "ConcurrencyLimitMiddleware",
+    "InFlightLimitMiddleware",
     "RateLimitMiddleware",
     "SecurityHeadersMiddleware",
     "get_rate_limiter",
@@ -62,10 +70,18 @@ HEAVY_PATH_PREFIXES: tuple[str, ...] = (
     "/api/tailor",
 )
 
+#: Path **suffixes** that are expensive whatever precedes them. WS-15: the
+#: approval drives a real browser against the employer's site, which is at
+#: least as heavy as a corpus search, and it was the one expensive route the
+#: heavy list had missed.
+HEAVY_PATH_SUFFIXES: tuple[str, ...] = ("/approve",)
+
 
 def heavy_path_matcher(path: str) -> bool:
     """True when *path* is one of the expensive endpoints."""
-    return any(path.startswith(prefix) for prefix in HEAVY_PATH_PREFIXES)
+    if any(path.startswith(prefix) for prefix in HEAVY_PATH_PREFIXES):
+        return True
+    return any(path.endswith(suffix) for suffix in HEAVY_PATH_SUFFIXES)
 
 
 # -- rate limiting ------------------------------------------------------------
@@ -279,6 +295,87 @@ class ConcurrencyLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         finally:
             self._semaphore.release()
+
+
+# -- in-flight cap ------------------------------------------------------------
+
+
+class InFlightLimitMiddleware(BaseHTTPMiddleware):
+    """Bound how many requests the process is handling at the same time.
+
+    WS-15: the rate limit bounds a client's *rate*, and the body cap bounds
+    a request's *size*, but neither bounds the number of requests the
+    process is holding. A connection flood is not a rate — it is a pile-up:
+    a few dozen connections that dribble a body a byte at a time, each
+    holding a worker and each staying below the body cap, until the server
+    has nothing left for the operator's own requests.
+
+    So there is a third bound: at most ``max_inflight_requests`` requests
+    may be in the process at once. A request that arrives when the cap is
+    reached waits, briefly, for a slot — a burst is absorbed rather than
+    refused — and is then refused with 503 and a ``Retry-After``.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_inflight: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        super().__init__(app)
+        self._max_inflight = max_inflight
+        self._timeout = timeout_seconds
+        # One semaphore per event loop. `asyncio.Semaphore` binds itself to
+        # the first loop it ever *waits* on, and raises "bound to a
+        # different event loop" when it is used from another one — which is
+        # exactly what a test suite that builds a fresh client per test
+        # does. The semaphore is therefore looked up per running loop, and
+        # the table is weak so a finished loop is not kept alive by it.
+        self._semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+    def _semaphore(self) -> asyncio.Semaphore:
+        """The semaphore for the loop this request is running on."""
+        loop = asyncio.get_running_loop()
+        semaphore = self._semaphores.get(loop)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_inflight)
+            self._semaphores[loop] = semaphore
+        return semaphore
+
+    @property
+    def max_inflight(self) -> int:
+        """The effective cap on the requests in flight at once."""
+        if self._max_inflight is not None:
+            return self._max_inflight
+        return get_limits().max_inflight_requests
+
+    @property
+    def timeout_seconds(self) -> float:
+        """How long a request waits for a slot before it is refused."""
+        if self._timeout is not None:
+            return self._timeout
+        return get_limits().heavy_queue_timeout_seconds
+
+    async def dispatch(self, request: Request, call_next):
+        semaphore = self._semaphore()
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=self.timeout_seconds)
+        except TimeoutError:
+            logger.warning(
+                "Refused %s %s: %d requests already in flight",
+                request.method,
+                request.url.path,
+                self.max_inflight,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Server busy. Please retry shortly."},
+                headers={"Retry-After": "5"},
+            )
+        try:
+            return await call_next(request)
+        finally:
+            semaphore.release()
 
 
 # -- response headers --------------------------------------------------------

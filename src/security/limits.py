@@ -15,6 +15,8 @@ The categories, and what each one defends against:
 
 ============================  ==============================================
 ``rate_limit_*``             API abuse / DDoS — requests per client window.
+``max_inflight_requests``    The pile-up: how many requests the process
+                             may be holding at once.
 ``body_limit_bytes``         Oversized request bodies (memory exhaustion).
 ``max_concurrent_heavy``     Request pile-up on the expensive endpoints.
 ``max_listings_per_source``  One hostile board flooding the corpus.
@@ -53,6 +55,7 @@ class SecurityLimits:
     body_limit_bytes: int
     max_concurrent_heavy: int
     heavy_queue_timeout_seconds: float
+    max_inflight_requests: int
 
     # -- corpus admission --------------------------------------------------
     max_listings_per_source: int
@@ -126,7 +129,15 @@ def _build() -> SecurityLimits:
         # Two at a time: the refresh and the search both walk the corpus, and
         # a third concurrent one only queues work behind them.
         max_concurrent_heavy=_int_env("MAX_CONCURRENT_HEAVY", 2, minimum=1),
+        # How long a request waits for a slot before it is refused. This is
+        # the grace period that absorbs a burst instead of turning it into
+        # a wave of errors.
         heavy_queue_timeout_seconds=_float_env("HEAVY_QUEUE_TIMEOUT_SECONDS", 5.0, minimum=0.0),
+        # How many requests may be in the process at once, whatever they
+        # are. The rate limit bounds a client's rate; this bounds the
+        # pile-up — the connection flood, and the slow-loris that holds a
+        # worker per connection.
+        max_inflight_requests=_int_env("MAX_INFLIGHT_REQUESTS", 64, minimum=1),
         # Per source per refresh. A board that suddenly returns 50,000
         # listings is either broken or hostile; either way it may not
         # dictate the size of the corpus.
@@ -135,10 +146,15 @@ def _build() -> SecurityLimits:
         # The corpus cap bounds every full-corpus read (the SQL scan in the
         # search and the vector scan in the store).
         max_corpus_listings=_int_env("MAX_CORPUS_LISTINGS", 50_000, minimum=1),
-        # Embedding work per refresh. This is the knob that stops a flood of
-        # unique fake listings from spending the provider's whole daily quota
-        # on texts nobody will ever search for.
+        # Embedding work per refresh, counted in **cache misses** — the
+        # embeddings that actually cost something. This is the knob that
+        # stops a flood of unique fake listings from spending the
+        # provider's whole daily quota on texts nobody will ever search for.
         max_embed_per_refresh=_int_env("MAX_EMBED_PER_REFRESH", 2_000, minimum=1),
+        # Embedding work per **day**, in documents. The per-refresh limit
+        # bounds one run; this bounds the flood that spreads itself over
+        # many runs, which is the shape an attacker actually uses. The
+        # counter is persistent, so a restart does not reset it.
         # The embedding cache is a permanent SQLite table; without a bound it
         # grows until the disk is full.
         max_cache_entries=_int_env("MAX_CACHE_ENTRIES", 50_000, minimum=1),
