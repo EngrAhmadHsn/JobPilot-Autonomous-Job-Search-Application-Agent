@@ -432,7 +432,7 @@ export function ApprovalsScreen() {
 
           <FormSection
             title="Candidate information"
-            description="The details the form will be filled with. They come from your saved profile unless you change them."
+            description="These are the details the form will be filled with. They come from your saved profile unless you change them."
           >
             <Field
               id="candidate_name"

@@ -44,7 +44,7 @@ function FactualityReport({
       </CardHeader>
       <CardContent className="space-y-3">
         {factuality.passed ? (
-          <Banner tone="success" title="Every claim is supported by the resume">
+          <Banner tone="success" title="Every claim is supported by the résumé">
             <p>
               The validator found nothing to strip: every skill, role and
               project in the tailored resume is stated by the document.
@@ -294,7 +294,7 @@ export function TailorJobScreen() {
     return (
       <EmptyState
         title="No profile selected"
-        description="A tailored resume is built from a candidate profile. Upload a resume first."
+        description="A tailored résumé is built from your profile. Upload a résumé first."
         action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
       />
     )
@@ -379,7 +379,7 @@ export function TailorJobScreen() {
       ) : (
         <EmptyState
           title="No tailoring yet"
-          description="Run the tailoring to get a tailored resume, its factuality report, the ATS analysis and the grounded insights."
+          description="Run the tailoring to get a tailored résumé, its factuality report, the ATS analysis and the grounded insights."
         />
       )}
     </div>
@@ -423,7 +423,7 @@ export function TailorIndexScreen() {
   const heading = (
     <PageHeader
       title="Tailor the résumé for a job"
-      description="The agent rewrites your résumé from your profile facts for one job at a time, checks every claim against your document, scores it for the ATS, and reads the listing for grounded insights."
+      description="The agent rewrites your résumé from your profile facts for one job at a time: every claim is checked against your document, the résumé is scored for the ATS, and the listing is read for grounded insights."
     />
   )
 

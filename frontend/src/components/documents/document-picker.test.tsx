@@ -61,7 +61,7 @@ describe("the document picker", () => {
     renderScreen(<DocumentPicker value="" onChange={onChange} />)
 
     const file = new File(["hello"], "resume.txt", { type: "text/plain" })
-    await user.upload(screen.getByLabelText("Upload a resume"), file)
+    await user.upload(screen.getByLabelText("Upload a résumé"), file)
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalled()

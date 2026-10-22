@@ -51,7 +51,7 @@ export function SignInScreen() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {mode === "sign-in"
-              ? "The console works against your own account: your resumes, your applications, your history."
+              ? "The console works against your own account: your résumés, your applications, your history."
               : "The first account to register may claim the data that predates the identity work."}
           </p>
         </div>

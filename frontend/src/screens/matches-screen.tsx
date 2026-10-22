@@ -196,7 +196,7 @@ export function MatchesScreen() {
     return (
       <EmptyState
         title="No profile selected"
-        description="A search matches a candidate profile against the stored job corpus. Upload a resume first."
+        description="A search scores the stored job corpus against your profile. Upload a résumé first."
         action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
       />
     )

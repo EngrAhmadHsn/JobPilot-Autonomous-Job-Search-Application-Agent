@@ -89,7 +89,7 @@ function DropZone({
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
         {file
-          ? `${formatBytes(file.size)} · ready to analyse`
+          ? `${formatBytes(file.size)} · ready to analyze`
           : "or choose a file from your machine"}
       </p>
 
@@ -289,7 +289,7 @@ export function ResumeScreen() {
                 if (file) upload.mutate(file)
               }}
             >
-              {upload.isPending ? "Analysing…" : "Upload and analyse résumé"}
+              {upload.isPending ? "Analyzing…" : "Upload and analyze résumé"}
             </Button>
           </div>
         </Section>
@@ -341,7 +341,7 @@ export function ResumeScreen() {
             }}
           >
             <Upload className="size-4" aria-hidden="true" />
-            {upload.isPending ? "Analysing…" : "Upload and analyse résumé"}
+            {upload.isPending ? "Analyzing…" : "Upload and analyze résumé"}
           </Button>
         </div>
       )}

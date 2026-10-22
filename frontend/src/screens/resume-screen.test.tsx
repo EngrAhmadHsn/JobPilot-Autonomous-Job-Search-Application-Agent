@@ -24,7 +24,7 @@ describe("the resume screen", () => {
       makeFile("resume.txt")
     )
     await user.click(
-      screen.getByRole("button", { name: /Upload and analyse résumé/ })
+      screen.getByRole("button", { name: /Upload and analyze résumé/ })
     )
 
     expect((await screen.findAllByText("profile-1")).length).toBeGreaterThan(0)
@@ -45,7 +45,7 @@ describe("the resume screen", () => {
 
     expect(screen.getByText("This file will be refused")).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /Upload and analyse résumé/ })
+      screen.getByRole("button", { name: /Upload and analyze résumé/ })
     ).toBeDisabled()
   })
 
@@ -78,7 +78,7 @@ describe("the resume screen", () => {
       makeFile("resume.txt")
     )
     await user.click(
-      screen.getByRole("button", { name: /Upload and analyse résumé/ })
+      screen.getByRole("button", { name: /Upload and analyze résumé/ })
     )
 
     expect(

@@ -32,7 +32,7 @@ test("the operator can go from a resume to a tracked application", async ({
   await page.goto("/resume")
   await signIn(page)
   await page.getByLabel("Résumé file").setInputFiles(RESUME)
-  await page.getByRole("button", { name: /Upload and analyse résumé/ }).click()
+  await page.getByRole("button", { name: /Upload and analyze résumé/ }).click()
 
   await expect(page.getByText("Your profile is ready").first()).toBeVisible()
   const profileId = await page
