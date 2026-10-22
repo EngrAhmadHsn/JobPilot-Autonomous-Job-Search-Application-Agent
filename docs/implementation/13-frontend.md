@@ -288,6 +288,8 @@ hand-copied.
 | GET | `/api/tailored/{tailoring_id}/download` | — | the DOCX file | Tailor | 404 (no tailoring, or no file) |
 | GET | `/api/applications/{application_id}/evidence` | — | `{evidence[{confirmation_text, status, screenshot_path, trace_path, job_url, recorded_at}]}` | Tracker | 404 |
 | GET | `/api/applications/{application_id}/evidence/{filename}` | — | the artifact file | Tracker, Approvals | 400 (not a file name), 404 |
+| GET | `/api/documents` | — | `{documents[{id, kind, title, filename, path, size_bytes, created_at, profile_id, job_id}], count}` | Resume, Approvals | 401 |
+| GET | `/api/documents/{document_id}/download` | — | the document file | Resume, Approvals | 404 |
 
 The last three rows are the endpoints this workstream added (BA-1, BA-2,
 BA-7). They are read-only `GET`s; no existing route changed.
@@ -532,6 +534,7 @@ behaviour, and the console degrades gracefully when they are absent.
 | **BA-4** | There is no endpoint that lists the stored profiles, and none that browses the jobs table | `src/api/routes/` | **no change in this workstream.** The console persists the current `profile_id` client-side, and the Tailor screen's job list is built from the profile's **match history** — the jobs the profile was actually scored against | no change (documented) |
 | **BA-5** | The dev CORS origins did not include the Vite default (`http://localhost:5173`) | `.env`, `src/config/settings.py` | **config only, no code change.** The console also ships a Vite dev proxy, so the same-origin mode needs no CORS at all | **done** — the origin is in `.env`, `.env.example` and the settings default |
 | **BA-6** | The rate limiter keys on the transport peer, so every browser on one machine shares one bucket | `src/security/rate_limit.py`, `src/api/middleware.py` | **no change.** The transport peer is deliberately not a forwarded header. In dev the console uses the same-origin Vite proxy, so the peer is the proxy; the operator sees the 429 with its `Retry-After`, and the console honours it | no change (documented) |
+| **BA-8** | The operator had no way to attach a document to an application: the prepare form asked for a **server-side path**, which no human can type, and the console had no list of the documents the account already has | `src/api/routes/applications.py`, `src/db/profiles.py`, `src/db/tailored.py` | two read-only routes: `GET /api/documents` (the account's uploaded résumés and tailored résumés) and `GET /api/documents/{id}/download`. The list is the union of the caller's profiles and tailorings, read through the scoped accessors — no new table, no migration, and no way to see another account's files | **implemented** — `src/api/routes/documents.py`, 7 tests |
 | **BA-7** | The Tracker cannot show the confirmation text of a **past** submission: the tracking API answers with the application's history, not with its evidence, and the evidence rows are not exposed | `src/db/evidence.py`, `src/api/routes/tracking.py` | one additive route: `GET /api/applications/{application_id}/evidence` → the evidence records (confirmation text, status, artifact paths) | **implemented** — `src/api/routes/artifacts.py` |
 
 ### The three implemented routes, in detail
@@ -630,6 +633,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | H | 1 e2e passed | clean | clean | the whole path, end to end, in a real Chromium against the real backend and the real fake ATS | done |
 | Design | the same 54 tests, re-run, plus a **keyboard-navigation e2e** in a real Chromium | clean | clean | every redesigned screen inspected in a real browser, at 1180 px and at 375 px, in both themes; the contrast of every text pair measured (the lowest is 5.4:1) | done |
 | Polish | 58 tests (the suite grew with the identity work) | clean | clean | the six reported defects fixed and re-checked in a real browser at 420 px and 1180 px: no nav scrollbar, a tooltip on the profile handle, an honest search summary, a disclosure with room to breathe, no broken words in the listing, and a shine on the button | done |
+| Documents | 62 tests + 7 backend tests | clean | clean | the document library, the picker (with its upload button) and the "Your documents" list, all checked against the live API in a real browser; the sticky panel's top measured at 129 px against a 113 px header, so it is no longer cut | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).
@@ -681,3 +685,8 @@ the whole suite green (the count moves as other workstreams land).
   `system`.
 - **The console holds no secret.** The only configuration is
   `VITE_API_BASE_URL`. The client sends no credential and no cookie.
+- **The header's height is measured, not assumed.** The header is sticky,
+  and the navigation wraps on a narrow screen, so its height is not a
+  constant. The shell publishes it as `--header-height` (a
+  `ResizeObserver`, not a state update) and the sticky panels read it — a
+  hard-coded offset cut the top off the "Before you prepare" panel.
