@@ -17,6 +17,7 @@ from src.api.middleware import (
 from src.api.routes.applications import router as applications_router
 from src.api.routes.artifacts import router as artifacts_router
 from src.api.routes.audit import router as audit_router
+from src.api.routes.documents import router as documents_router
 from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
@@ -113,6 +114,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 # WS-14 · Phase C: the caller's own audit trail.
 app.include_router(audit_router)
+app.include_router(documents_router)
 app.include_router(applications_router)
 app.include_router(resumes_router)
 app.include_router(jobs_router)

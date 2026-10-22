@@ -251,6 +251,8 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |
+| `GET /api/documents` | The account's document library (uploaded and tailored résumés) | WS-13 |
+| `GET /api/documents/{document_id}/download` | Download one of the account's documents | WS-13 |
 | `POST /api/applications/prepare` | Check the target, select the adapter, create an approval request | WS-06 |
 | `POST /api/applications/{approval_id}/approve` | Record a human approval and execute | WS-06 |
 | `POST /api/applications/{approval_id}/reject` | Record a human rejection | WS-06 |
@@ -277,6 +279,8 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/auth/sessions/revoke-others` | End every session except the current one | WS-14 |
 | `DELETE /api/auth/sessions/{token}` | End one session of the caller | WS-14 |
 | `GET /api/audit` | Read the caller's own audit trail | WS-14 |
+| `GET /api/documents` | List the caller's own documents (résumés and tailored résumés) | WS-13 |
+| `GET /api/documents/{document_id}/download` | Download one of the caller's own documents | WS-13 |
 
 The table is checked against the running application by `tests/test_docs_accuracy.py`, so a
 route added without a line here fails the suite.
