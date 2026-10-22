@@ -39,6 +39,18 @@ export default defineConfig({
       },
     },
   },
+  // The preview server (the built app) proxies the API exactly like the dev
+  // server does, so the end-to-end run can test the **production bundle**
+  // rather than a dev server that reloads under you.
+  preview: {
+    port: 4173,
+    proxy: {
+      "/api": {
+        target: API_TARGET,
+        changeOrigin: false,
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,

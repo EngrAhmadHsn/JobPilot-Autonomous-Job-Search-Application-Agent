@@ -11,6 +11,7 @@ import { DocumentList } from "@/components/documents/document-picker"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Button } from "@/components/ui/button"
 
+import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { formatBytes } from "@/lib/format"
 import { setCurrentProfileId, useCurrentProfileId } from "@/lib/profile"
@@ -158,11 +159,22 @@ export function ResumeScreen() {
     },
   })
 
+  /*
+    The server is the authority about the profile. A handle the console kept
+    from an earlier session may name a profile this account cannot read —
+    another account's, or one that has been removed. The server says 404,
+    and the console says so in words the operator can act on, rather than
+    leaving a broken profile behind a raw error.
+  */
   const storedProfile = useQuery({
     queryKey: ["profile", profileId],
     queryFn: ({ signal }) => api.getResume(profileId as string, signal),
     enabled: Boolean(profileId),
+    retry: false,
   })
+  const profileMissing =
+    storedProfile.error instanceof ApiError &&
+    storedProfile.error.status === 404
 
   const handleFile = (candidate: File | null) => {
     setFile(candidate)
@@ -352,14 +364,18 @@ export function ResumeScreen() {
         </Section>
       ) : null}
 
-      {profileId ? (
-        <Section
-          title="Your documents"
-          description="The résumé you uploaded, and every tailored résumé the agent has written for you. Open one to see what will be attached to an application."
-        >
-          <DocumentList />
-        </Section>
-      ) : null}
+      <Section
+        title="Your documents"
+        description="The résumé you uploaded, and every tailored résumé the agent has written for you. Use one to work with it — the agent reads that document as your profile — or open it to see the file."
+      >
+        <DocumentList
+          onUse={(document) => {
+            if (document.profile_id) {
+              setCurrentProfileId(document.profile_id)
+            }
+          }}
+        />
+      </Section>
 
       {profileId ? (
         <Section
@@ -378,7 +394,18 @@ export function ResumeScreen() {
             </div>
           ) : null}
 
-          {storedProfile.isError ? (
+          {profileMissing ? (
+            <Banner
+              tone="warning"
+              title="That profile is not available to this account"
+            >
+              <p>
+                The console was working with a profile this account cannot read
+                — it belongs to another account, or it has been removed. Choose
+                one of your documents above, or upload a new résumé.
+              </p>
+            </Banner>
+          ) : storedProfile.isError ? (
             <ErrorNotice
               error={storedProfile.error}
               onRetry={() => storedProfile.refetch()}

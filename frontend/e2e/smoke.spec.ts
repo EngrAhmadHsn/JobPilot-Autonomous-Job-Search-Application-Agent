@@ -116,11 +116,20 @@ async function signIn(page: import("@playwright/test").Page) {
   const email = process.env.E2E_ACCOUNT ?? `operator-${stamp}@example.com`
   const password = process.env.E2E_PASSWORD ?? "a-long-enough-password"
 
-  // The API may serve the console to a caller with no session (the legacy
-  // scope), in which case there is no sign-in screen to fill in and the
-  // run continues straight into the console.
-  if ((await page.getByLabel("Email").count()) === 0) return
+  // The console decides in a moment whether it shows itself or the
+  // sign-in screen, so the helper **waits** for one of the two rather
+  // than guessing from a count taken too early. The account button is the
+  // signal that the console is authenticated: the navigation itself is
+  // rendered for a moment before the identity check answers, so it is not
+  // a readiness signal on its own.
+  const consoleReady = await page
+    .getByRole("button", { name: "Account and display settings" })
+    .waitFor({ timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (consoleReady) return
 
+  await page.getByLabel("Email").waitFor({ state: "visible", timeout: 15_000 })
   await page.getByLabel("Email").fill(email)
   await page.getByLabel("Password").fill(password)
   await page.getByRole("button", { name: "Sign in" }).click()
@@ -129,7 +138,7 @@ async function signIn(page: import("@playwright/test").Page) {
   // account does not exist yet. In the second case it creates it and
   // signs in again.
   const signedIn = await page
-    .getByRole("link", { name: "Matches" })
+    .getByRole("button", { name: "Account and display settings" })
     .waitFor({ timeout: 10_000 })
     .then(() => true)
     .catch(() => false)
@@ -139,7 +148,9 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.getByLabel("Email").fill(email)
   await page.getByLabel("Password").fill(password)
   await page.getByRole("button", { name: "Create the account" }).click()
-  await page.getByRole("link", { name: "Matches" }).waitFor({ timeout: 20_000 })
+  await page
+    .getByRole("button", { name: "Account and display settings" })
+    .waitFor({ timeout: 30_000 })
 }
 
 /**

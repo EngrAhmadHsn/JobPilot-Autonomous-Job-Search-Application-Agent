@@ -634,6 +634,7 @@ local fake ATS. The backend's suite was run with the backend's changes.
 | Design | the same 54 tests, re-run, plus a **keyboard-navigation e2e** in a real Chromium | clean | clean | every redesigned screen inspected in a real browser, at 1180 px and at 375 px, in both themes; the contrast of every text pair measured (the lowest is 5.4:1) | done |
 | Polish | 58 tests (the suite grew with the identity work) | clean | clean | the six reported defects fixed and re-checked in a real browser at 420 px and 1180 px: no nav scrollbar, a tooltip on the profile handle, an honest search summary, a disclosure with room to breathe, no broken words in the listing, and a shine on the button | done |
 | Documents | 62 tests + 7 backend tests | clean | clean | the document library, the picker (with its upload button) and the "Your documents" list, all checked against the live API in a real browser; the sticky panel's top measured at 129 px against a 113 px header, so it is no longer cut | done |
+| Profiles | 66 tests | clean | clean | a document can be **chosen** from the library and is read as the current profile, and a profile the account cannot read is reported in words instead of a raw 404; checked live: the stale handle showed the explanation, and choosing the account's own résumé loaded its parsed summary | done |
 
 **The backend's own suite**: 10 new tests for the three artifact routes, and
 the whole suite green (the count moves as other workstreams land).
@@ -685,6 +686,12 @@ the whole suite green (the count moves as other workstreams land).
   `system`.
 - **The console holds no secret.** The only configuration is
   `VITE_API_BASE_URL`. The client sends no credential and no cookie.
+- **The server is the authority about the profile.** The console keeps the
+  current profile's id in the browser, and that handle can go stale: it may
+  name a profile another account owns, or one that has been removed. A 404
+  is therefore reported in words ("that profile is not available to this
+  account") with the way out — choose one of your documents — rather than as
+  a raw server message.
 - **The header's height is measured, not assumed.** The header is sticky,
   and the navigation wraps on a narrow screen, so its height is not a
   constant. The shell publishes it as `--header-height` (a

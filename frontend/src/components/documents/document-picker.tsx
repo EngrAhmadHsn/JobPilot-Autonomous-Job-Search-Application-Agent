@@ -16,10 +16,12 @@ function DocumentRow({
   document,
   selected,
   onSelect,
+  onUse,
 }: {
   document: DocumentRecord
   selected: boolean
   onSelect?: () => void
+  onUse?: () => void
 }) {
   const content = (
     <>
@@ -46,15 +48,27 @@ function DocumentRow({
             : ""}
         </span>
       </span>
-      <a
-        href={apiUrl(
-          `/api/documents/${encodeURIComponent(document.id)}/download`
-        )}
-        className="shrink-0 text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
-        onClick={(event) => event.stopPropagation()}
-      >
-        Open
-      </a>
+      <span className="flex shrink-0 items-center gap-4">
+        {onUse ? (
+          <button
+            type="button"
+            onClick={onUse}
+            aria-label={`Use ${document.title}`}
+            className="text-xs font-medium text-primary underline underline-offset-4 transition-colors hover:text-foreground"
+          >
+            Use
+          </button>
+        ) : null}
+        <a
+          href={apiUrl(
+            `/api/documents/${encodeURIComponent(document.id)}/download`
+          )}
+          className="text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+          onClick={(event) => event.stopPropagation()}
+        >
+          Open
+        </a>
+      </span>
     </>
   )
 
@@ -104,7 +118,12 @@ function DocumentRow({
  * What the operator already has: the résumé they uploaded and the tailored
  * résumés the agent produced. Each one can be opened.
  */
-export function DocumentList() {
+export function DocumentList({
+  onUse,
+}: {
+  /** Called with the document the operator chose to work with. */
+  onUse?: (document: DocumentRecord) => void
+} = {}) {
   const documents = useQuery({
     queryKey: ["documents"],
     queryFn: ({ signal }) => api.documents(signal),
@@ -136,7 +155,12 @@ export function DocumentList() {
   return (
     <ul className="space-y-2">
       {items.map((document) => (
-        <DocumentRow key={document.id} document={document} selected={false} />
+        <DocumentRow
+          key={document.id}
+          document={document}
+          selected={false}
+          onUse={onUse ? () => onUse(document) : undefined}
+        />
       ))}
     </ul>
   )

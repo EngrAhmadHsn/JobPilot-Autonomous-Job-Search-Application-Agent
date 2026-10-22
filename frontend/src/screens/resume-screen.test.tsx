@@ -86,6 +86,38 @@ describe("the resume screen", () => {
     ).toBeInTheDocument()
   })
 
+  it("works with a document chosen from the list", async () => {
+    const user = userEvent.setup()
+    renderScreen(<ResumeScreen />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "Use Résumé — Ada Lovelace" })
+    )
+
+    expect(getCurrentProfileId()).toBe("profile-1")
+  })
+
+  it("says plainly when the saved profile is not available to this account", async () => {
+    server.use(
+      http.get(`${BASE}/api/resumes/:profileId`, () =>
+        HttpResponse.json(
+          { detail: "Profile 'gone' not found" },
+          { status: 404 }
+        )
+      )
+    )
+    setCurrentProfileId("gone")
+    renderScreen(<ResumeScreen />)
+
+    expect(
+      await screen.findByText(/not available to this account/)
+    ).toBeInTheDocument()
+    // The raw server message is not what the operator needs; the way out is.
+    expect(
+      screen.getByText(/Choose one of your documents above/)
+    ).toBeInTheDocument()
+  })
+
   it("shows the parsed profile of the current profile", async () => {
     setCurrentProfileId("profile-1")
     renderScreen(<ResumeScreen />)

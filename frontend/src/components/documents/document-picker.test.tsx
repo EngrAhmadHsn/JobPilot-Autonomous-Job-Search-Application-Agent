@@ -19,6 +19,31 @@ describe("the document list", () => {
   })
 })
 
+describe("the document list", () => {
+  it("offers to work with a document when the caller can", async () => {
+    const onUse = vi.fn()
+    const user = userEvent.setup()
+    renderScreen(<DocumentList onUse={onUse} />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "Use Résumé — Ada Lovelace" })
+    )
+
+    expect(onUse).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "profile-profile-1" })
+    )
+  })
+
+  it("has no use action when nobody can use it", async () => {
+    renderScreen(<DocumentList />)
+
+    await screen.findByText("Résumé — Ada Lovelace")
+    expect(
+      screen.queryByRole("button", { name: /^Use/ })
+    ).not.toBeInTheDocument()
+  })
+})
+
 describe("the document picker", () => {
   it("lists the documents and hands the chosen one's path back", async () => {
     const onChange = vi.fn()

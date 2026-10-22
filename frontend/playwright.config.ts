@@ -12,7 +12,15 @@ import { defineConfig, devices } from "@playwright/test"
  * The console is served by the Vite dev server, which proxies `/api` to the
  * backend — the same transport the developer uses.
  */
-const CONSOLE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173"
+/*
+  The end-to-end run drives the **built** console, served by `vite preview`.
+
+  A dev server reloads whenever a file changes — including when another
+  session is editing the same repository — and a reload mid-test empties
+  the form the test had just filled in. The production bundle has no such
+  behaviour, and testing it is the more honest thing to test anyway.
+*/
+const CONSOLE_URL = process.env.E2E_BASE_URL ?? "http://localhost:4173"
 
 export default defineConfig({
   testDir: "./e2e",
@@ -36,9 +44,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
+    command: "npm run build && npm run preview",
     url: CONSOLE_URL,
-    reuseExistingServer: true,
-    timeout: 120_000,
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
   },
 })
