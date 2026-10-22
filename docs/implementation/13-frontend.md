@@ -705,6 +705,17 @@ the whole suite green (the count moves as other workstreams land).
   of applications arrives in order instead of all at once), and the existing
   hover and press states. `prefers-reduced-motion` drops all of it, delay
   and duration alike.
+- **The drawer moves as one thing.** The panel slides the **whole way**
+  in from the edge (not a 2.5 rem nudge) on a soft-out curve, and the
+  scrim behind it warms to an ink tint with a 3 px blur on the **same**
+  timing — so the page behind visibly recedes as the panel arrives,
+  instead of the two moving at different speeds. The destinations inside
+  then rise one after another, so the drawer is read as a sequence.
+- **A screen always has its heading.** The tailor index used to render
+  only an empty state when there was no profile, which read as a broken
+  screen. The heading now comes first and the empty state is the panel
+  under it: the heading says what the screen is for, the empty state
+  says what to do next.
 - **The depth is light, not shadow.** The canvas carries a whisper of grain
   (an SVG turbulence at 5 %, on the body, so the paper cards on top stay
   clean) and the header carries two very soft washes — forest and lime —
