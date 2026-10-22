@@ -15,6 +15,7 @@ import { api } from "@/lib/api/endpoints"
 import { formatDateTime, formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import { asNumber, asRecord, asStringArray } from "@/lib/safe"
+import { isSafeLinkUrl } from "@/lib/safe-url"
 import type { JobMatchResult } from "@/lib/api/types"
 
 /**
@@ -185,15 +186,24 @@ export function JobDetailScreen() {
               },
               {
                 label: "Apply at",
+                // WS-15: the application URL is board-supplied, and this is
+                // the one place the console turns untrusted text into
+                // something the browser acts on. Only http(s) becomes a
+                // link; anything else is shown as text, so a board cannot
+                // publish a `javascript:` URL into the operator's console.
                 value: listing.application_url ? (
-                  <a
-                    href={listing.application_url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="break-all underline underline-offset-4"
-                  >
-                    {listing.application_url}
-                  </a>
+                  isSafeLinkUrl(listing.application_url) ? (
+                    <a
+                      href={listing.application_url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="break-all underline underline-offset-4"
+                    >
+                      {listing.application_url}
+                    </a>
+                  ) : (
+                    <span className="break-all">{listing.application_url}</span>
+                  )
                 ) : (
                   "—"
                 ),
