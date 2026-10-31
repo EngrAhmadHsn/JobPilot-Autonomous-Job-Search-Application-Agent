@@ -233,3 +233,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PlantUML is a build tool for the diagrams; the jar is not committed.
+tools/plantuml*.jar
+
+# Word lock files for a document that is open.
+~$*.docx
