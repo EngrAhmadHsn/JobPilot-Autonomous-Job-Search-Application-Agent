@@ -1,0 +1,59 @@
+@startuml class-tailoring
+' The classes the tailoring pipeline produces.
+'
+' The factuality report is not a note on the tailored resume. It is the record
+' of everything the validator took out of it, and it is what the console shows
+' next to the resume.
+
+!include _style.puml
+left to right direction
+
+package "Tailoring" {
+  class TailoredResume {
+    +summary
+    +highlighted_skills
+    +experience
+    +projects
+    +cover_letter
+  }
+
+  class TailoredExperience {
+    +company
+    +title
+    +bullets
+  }
+
+  class TailoredProject {
+    +name
+    +bullets
+  }
+
+  class FactualityReport {
+    +passed
+    +removed_skills
+    +removed_experience
+    +removed_projects
+    +violations
+  }
+
+  class JobInsights {
+    +responsibilities
+    +tech_stack
+    +seniority_signals
+    +culture_flags
+    +summary
+  }
+
+  class TailoringResult {
+    +tailored
+    +factuality
+  }
+}
+
+TailoredResume *-- TailoredExperience
+TailoredResume *-- TailoredProject
+TailoringResult *-- TailoredResume
+TailoringResult *-- FactualityReport
+JobInsights ..> TailoredResume
+
+@enduml

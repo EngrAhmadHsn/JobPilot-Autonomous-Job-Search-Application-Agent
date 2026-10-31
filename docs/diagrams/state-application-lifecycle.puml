@@ -1,0 +1,50 @@
+@startuml state-application-lifecycle
+' The lifecycle of a tracked application.
+'
+' The transitions are the ALLOWED_TRANSITIONS matrix in
+' src/applications/tracking.py, which the API, the graph and the tests all
+' read. A transition to the same status is not a transition, and the four
+' outcome statuses may only be set by a human actor.
+
+!include _style.puml
+
+[*] --> DISCOVERED
+DISCOVERED --> MATCHED
+DISCOVERED --> REJECTED
+MATCHED --> SHORTLISTED
+MATCHED --> DISCOVERED
+SHORTLISTED --> PREPARED
+SHORTLISTED --> MATCHED
+PREPARED --> AWAITING_APPROVAL
+PREPARED --> SHORTLISTED
+AWAITING_APPROVAL --> SUBMITTED
+AWAITING_APPROVAL --> REJECTED
+AWAITING_APPROVAL --> PREPARED
+SUBMITTED --> VERIFIED
+SUBMITTED --> AWAITING_APPROVAL : verification failed
+VERIFIED --> INTERVIEW
+VERIFIED --> OFFER
+VERIFIED --> REJECTED
+VERIFIED --> WITHDRAWN
+INTERVIEW --> OFFER
+INTERVIEW --> REJECTED
+INTERVIEW --> WITHDRAWN
+OFFER --> REJECTED
+OFFER --> WITHDRAWN
+REJECTED --> [*]
+WITHDRAWN --> [*]
+
+note right of INTERVIEW
+  INTERVIEW, OFFER, REJECTED
+  and WITHDRAWN are human
+  outcomes. No agent may
+  set them.
+end note
+
+note bottom of REJECTED
+  A failed verification returns
+  SUBMITTED to AWAITING APPROVAL,
+  with the reason recorded.
+end note
+
+@enduml

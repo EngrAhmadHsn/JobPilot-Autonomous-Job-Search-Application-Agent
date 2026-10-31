@@ -1,0 +1,27 @@
+@startuml storage-layout
+' The layout of the data directory.
+'
+' Every file that belongs to an account lives under that account's own
+' directory. The containment check asks whether the resolved path is inside
+' the caller's directory, so a name that walks out of it is refused after
+' resolution rather than before it.
+
+!include _style.puml
+left to right direction
+
+folder "data/" as Data {
+  node "chroma/\njob_listings vectors\nmodel identity and dimension" as N0
+  node "fastembed/\nmodel weights" as N1
+  node "embedding_cache.sqlite\ncorpus vectors\ndaily work counter" as N2
+  node "outbound/\npassword reset tokens\nverification tokens" as N3
+  node "users/{account id}/\nresumes/ uploaded files\ntailored/ rendered DOCX" as N4
+  node "evidence/{account id}/\nscreenshots\naction traces" as N5
+}
+
+note bottom of Data
+  The containment check is made on the resolved path.
+  A file outside the caller's own directory is refused,
+  not opened.
+end note
+
+@enduml

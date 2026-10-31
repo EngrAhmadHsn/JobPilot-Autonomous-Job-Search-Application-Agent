@@ -1,0 +1,31 @@
+@startuml sequence-job-refresh
+' The job refresh, as a sequence.
+'
+' The contract of the refresh is that it never raises. A board that fails, a
+' store that fails or a quota that runs out lowers the report and lets the run
+' finish; the report names the cause.
+
+!include _style.puml
+
+actor "Scheduler" as Sched
+participant "REST API" as API
+participant "Job executor" as Exec
+participant "Board adapters" as Boards
+database "Database" as DB
+participant "Vector store" as Vectors
+
+Sched -> API : POST /api/jobs/refresh
+API -> Exec : refresh_jobs()
+Exec -> Boards : search_all_detailed()
+Boards --> Exec : listings, source_errors
+note right of Exec : a failed board is a name in the report
+Exec -> Exec : filter, deduplicate, screen, admit
+Exec -> DB : save_jobs(listings)
+DB --> Exec : persisted
+Exec -> Vectors : upsert_jobs(misses only)
+note right of Vectors : only the texts the cache does not hold
+Vectors --> Exec : embedded
+Exec --> API : JobRefreshReport
+API --> Sched : counts, source errors, flags
+
+@enduml

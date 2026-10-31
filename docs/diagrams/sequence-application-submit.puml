@@ -1,0 +1,39 @@
+@startuml sequence-application-submit
+' Preparing, approving and submitting an application, as a sequence.
+'
+' The decision is the gate. The approval record holds the exact payload that
+' was reviewed, and that stored payload is what is submitted, so what a person
+' approved is what the employer receives.
+
+!include _style.puml
+
+actor "Candidate" as Person
+participant "REST API" as API
+participant "Application graph" as Graph
+database "Approval store" as Approvals
+participant "Application adapter" as Adapter
+participant "Evidence" as Evidence
+
+Person -> API : POST /api/applications/prepare
+API -> Approvals : write the approval request
+Approvals --> API : approval_id
+API --> Person : the payload to review
+
+note over Person, API : nothing is submitted until a person decides
+
+Person -> API : POST .../approve
+API -> Graph : execute_approved()
+Graph -> Graph : the approval node reads the decision
+alt approved
+  Graph -> Adapter : submit(stored payload)
+  Adapter -> Evidence : screenshot, trace, confirmation text
+  Evidence --> Graph : evidence
+  Graph -> Approvals : move to SUBMITTED
+  Graph --> API : status and evidence
+else rejected
+  Graph -> Approvals : move to REJECTED
+  Graph --> API : status
+end
+API --> Person : the result
+
+@enduml

@@ -1,0 +1,47 @@
+@startuml architecture-components
+' The components of the system and the way they are connected.
+'
+' A component is a unit that a caller talks to. The lines are the calls the
+' components make on one another, and the three stores at the bottom are the
+' state the whole system shares.
+
+!include _style.puml
+left to right direction
+
+component "Operator console" as Console
+component "REST API" as API
+component "Job pipeline" as Jobs
+component "Matching engine" as Match
+component "Tailoring" as Tailor
+component "Application workflow" as Workflow
+component "Identity" as Auth
+component "Evaluation" as Eval
+
+database "Relational database" as DB
+database "Vector store" as Vectors
+folder "Per-user files" as Files
+
+Console ..> API : REST over HTTP
+API --> Jobs
+API --> Match
+API --> Tailor
+API --> Workflow
+API --> Auth
+API --> Eval
+
+Jobs ..> DB
+Match ..> Vectors
+Match ..> DB
+Tailor ..> DB
+Workflow ..> Files
+Workflow ..> DB
+Auth ..> DB
+Eval ..> DB
+
+note bottom of API
+  Every request passes through the
+  middleware stack and resolves its
+  scope from the authenticated principal.
+end note
+
+@enduml

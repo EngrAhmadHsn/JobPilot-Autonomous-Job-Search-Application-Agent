@@ -1,0 +1,104 @@
+@startuml erd-workflow
+' The entity-relationship diagram of the shared corpus and the application
+' lifecycle.
+'
+' The jobs table is the one table with no owner. It holds the public listings
+' that every account may read, so it is shared rather than owned. The other
+' four tables follow one application from the request that prepared it to the
+' evidence that proves it was sent.
+
+!include _style.puml
+left to right direction
+
+entity jobs {
+  * id : varchar <<PK>>
+  --
+  * source : varchar
+  * source_job_id : varchar
+  * title : varchar
+  * company : varchar
+  * description : text
+  * location : varchar
+  * remote_policy : varchar
+  * employment_type : varchar
+  * salary : varchar
+  * seniority : varchar
+  * required_skills : json
+  * preferred_skills : json
+  * application_url : varchar
+  * posted_at : datetime
+  * last_seen_at : datetime
+}
+
+entity approval_requests {
+  * id : varchar <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * workflow_id : varchar
+  * adapter_name : varchar
+  * job_url : varchar
+  * payload : json
+  * status : varchar
+  * approver : varchar
+  * decision_reason : varchar
+  * created_at : datetime
+  * decided_at : datetime
+  * result : json
+}
+
+entity applications {
+  * id : varchar <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * profile_id : varchar <<FK>>
+  * job_id : varchar <<FK>>
+  * workflow_id : varchar
+  * approval_id : varchar <<FK>>
+  * adapter_name : varchar
+  * job_url : varchar
+  * status : varchar
+  * tailored_resume_id : varchar <<FK>>
+  * submitted_at : datetime
+  * verified_at : datetime
+  * created_at : datetime
+  * updated_at : datetime
+}
+
+entity application_events {
+  * id : integer <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * application_id : varchar <<FK>>
+  * event_type : varchar
+  * actor : varchar
+  * from_status : varchar
+  * to_status : varchar
+  * recorded_at : datetime
+}
+
+entity application_evidence {
+  * id : integer <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * workflow_id : varchar
+  * adapter_name : varchar
+  * job_url : varchar
+  * application_id : varchar <<FK>>
+  * confirmation_text : varchar
+  * screenshot_path : varchar
+  * trace_path : varchar
+  * status : varchar
+  * recorded_at : datetime
+}
+
+jobs ||--o{ applications : applied to
+approval_requests ||--o{ applications : authorises
+applications ||--o{ application_events : history
+applications ||--o{ application_evidence : proved by
+
+note bottom of jobs
+  The shared corpus. It carries no owner_id:
+  every account may read every listing.
+end note
+
+@enduml

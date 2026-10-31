@@ -1,0 +1,90 @@
+@startuml class-domain
+' The domain classes: the candidate, the job and the match.
+'
+' The attributes are the fields of the Pydantic models in src/resume/profile.py
+' and src/matching/contracts.py. The types are left off where a name would
+' make the box too wide to read on the page.
+
+!include _style.puml
+left to right direction
+
+package "Candidate" {
+  class CandidateProfile {
+    +personal_information
+    +summary
+    +skills
+    +skill_categories
+    +education
+    +experience
+    +projects
+    +certifications
+    +achievements
+    +work_preferences
+  }
+
+  class PersonalInformation {
+    +name
+    +title
+    +email
+    +phone
+    +location
+    +website
+  }
+
+  class ExperienceEntry {
+    +title
+    +company
+    +dates
+    +bullets
+    +years
+  }
+
+  class WorkPreferences {
+    +remote_preference
+    +preferred_locations
+    +min_salary
+    +work_authorization
+    +employment_types
+  }
+}
+
+package "Job" {
+  class JobListing {
+    +id
+    +source
+    +title
+    +company
+    +description
+    +location
+    +remote_policy
+    +employment_type
+    +salary
+    +seniority
+    +required_skills
+    +preferred_skills
+    +application_url
+  }
+}
+
+package "Matching" {
+  class JobMatchResult {
+    +overall_score
+    +semantic_score
+    +skill_score
+    +experience_score
+    +seniority_score
+    +location_score
+    +preference_score
+    +matched_requirements
+    +missing_requirements
+    +explanation
+  }
+}
+
+CandidateProfile *-- PersonalInformation
+CandidateProfile *-- ExperienceEntry
+CandidateProfile *-- WorkPreferences
+JobMatchResult ..> JobListing
+JobMatchResult ..> CandidateProfile
+
+@enduml

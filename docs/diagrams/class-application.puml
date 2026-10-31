@@ -1,0 +1,101 @@
+@startuml class-application
+' The classes of the application workflow and of identity.
+'
+' The approval record is not drawn here because it is a table rather than a
+' value that travels through the code. It is in the entity-relationship
+' diagram instead.
+
+!include _style.puml
+left to right direction
+
+package "Application" {
+  class ApplicationRequest {
+    +job_title
+    +company_name
+    +job_url
+    +candidate_name
+    +email
+    +phone
+    +resume_path
+    +cover_letter
+    +custom_fields
+  }
+
+  class PreparedApplication {
+    +request
+    +prepared_fields
+    +resume_path
+    +cover_letter
+    +requires_manual_review
+    +workflow_id
+    +owner_id
+  }
+
+  class SubmissionEvidence {
+    +url
+    +confirmation_text
+    +screenshot_path
+    +trace_path
+    +status
+  }
+
+  class ApplicationResult {
+    +success
+    +status
+    +message
+    +evidence
+    +metadata
+  }
+
+  class Application {
+    +id
+    +owner_id
+    +job_id
+    +workflow_id
+    +approval_id
+    +status
+    +submitted_at
+    +verified_at
+  }
+
+  class ApplicationEvent {
+    +application_id
+    +event_type
+    +actor
+    +from_status
+    +to_status
+    +recorded_at
+  }
+}
+
+package "Identity" {
+  class User {
+    +id
+    +email
+    +hashed_password
+    +full_name
+    +is_active
+    +is_superuser
+    +is_verified
+  }
+
+  class Session {
+    +token
+    +user_id
+    +created_at
+  }
+
+  class UserScope {
+    +user_id
+    +is_superuser
+    +owns(owner_id)
+  }
+}
+
+PreparedApplication *-- ApplicationRequest
+ApplicationResult *-- SubmissionEvidence
+Application --> ApplicationEvent
+UserScope ..> User
+Session ..> User
+
+@enduml

@@ -1,0 +1,87 @@
+@startuml object-snapshot
+' A snapshot of the objects that exist at one moment, part way through a run.
+'
+' One signed-in account, the profile parsed from its resume, a listing from
+' the corpus with the match scored against that profile, a tailoring that was
+' written and then checked, and the approval request waiting for a person.
+'
+' The object diagram shows the values these objects carry, not their types.
+
+!include _style.puml
+left to right direction
+
+object "Ahmad Hassan" as User {
+  id = "d0bc8f85f018"
+  email = "ahmad.hassan@example.com"
+  is_active = true
+  is_verified = false
+}
+
+object "Session" as Session {
+  token = "7Kd2..."
+  user_id = "d0bc8f85f018"
+  created_at = 2026-10-22 09:55
+}
+
+object "UserScope" as Scope {
+  user_id = "d0bc8f85f018"
+  is_superuser = false
+}
+
+object "CandidateProfile" as Profile {
+  name = "Ahmad Hassan"
+  skills = 19
+  experience = 2
+  summary = "Software engineer with six years..."
+}
+
+object "JobListing" as Job {
+  id = "greenhouse:stripe:8194604"
+  title = "Frontend Engineer, Data Product"
+  company = "Stripe"
+  required_skills = 3
+}
+
+object "JobMatchResult" as Match {
+  overall_score = 85.2
+  skill_score = 66.7
+  semantic_score = 100.0
+  explanation = "Match score: 85/100, Skills: 67%..."
+}
+
+object "TailoredResume" as Tailored {
+  summary = "Software engineer with six years..."
+  highlighted_skills = 11
+  cover_letter = "..."
+}
+
+object "FactualityReport" as Factuality {
+  passed = true
+  removed_skills = 0
+  violations = 0
+}
+
+object "ApprovalRequest" as Approval {
+  workflow_id = "a41f9c02"
+  status = "pending"
+  approver = null
+}
+
+object "Application" as Application {
+  id = "b7d21e44"
+  status = "awaiting_approval"
+  adapter_name = "fake-ats"
+  submitted_at = null
+}
+
+Scope --> User
+Session --> User
+Scope --> Profile
+Profile --> Match
+Job --> Match
+Profile --> Tailored
+Factuality --> Tailored
+Approval --> Tailored
+Approval --> Application
+
+@enduml

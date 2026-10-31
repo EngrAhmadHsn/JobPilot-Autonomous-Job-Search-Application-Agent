@@ -1,0 +1,18 @@
+@startuml activity-tailoring
+' The tailoring pipeline, as an activity. The model writes the text and
+' the validator decides what may stay. A violation is not an error: the run
+' succeeds with the violation report attached, and the console shows both.
+!include _style.puml
+
+start
+:take the profile and the listing, and extract the job\nrequirements from the listing's own fields;
+:research the listing, and keep only the facts the\nlisting itself supports;
+:build the prompt, with the requirements and the insights\ninside a fence that keeps them apart from the instructions;
+:ask the model for the tailored content, and repair the\nJSON once, locally, if the answer is malformed;
+:check the skills, the employers, the projects, the titles\nand the years against the profile, and remove what it does not support;
+:check the sentences for injected instructions, drop them\nand log the attempt;
+:render the tailored resume to DOCX, and score it: the\nkeywords, the sections, the title alignment, the format safety;
+:store the tailoring and the two reports, and return the\ncontent with both of them;
+stop
+
+@enduml

@@ -1,0 +1,24 @@
+@startuml activity-refresh
+' The job refresh, as an activity. The detail of each step is in the
+' component design; this is the shape of the run and its two gates.
+!include _style.puml
+
+start
+:ask every board for its listings, and name the ones\nthat fail, so the report can say which;
+:drop the listings that have no id, no title or no\ncompany, the duplicates, and the machine-generated ones;
+if (is the corpus at its cap?) then (yes)
+:evict the listings not seen for the longest,\nand delete their vectors;
+else (no)
+endif
+:admit the listings within the per-source, the\nper-refresh and the corpus limits;
+:store the listings, upserted by the canonical id;
+:find the texts the embedding cache does not already hold;
+if (is the daily work budget spent?) then (yes)
+:stop with a partial result, and set quota_exhausted;\nthe next run resumes from the cache;
+else (no)
+:share the remaining budget between the sources,\nthen embed the misses and nothing else;
+endif
+:return the report: the counts, the source errors, the\nplanned and used embeddings, and the two flags;
+stop
+
+@enduml

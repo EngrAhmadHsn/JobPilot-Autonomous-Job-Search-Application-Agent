@@ -1,0 +1,97 @@
+@startuml erd-account-data
+' The entity-relationship diagram of the records an account owns.
+'
+' Six of the eleven tables hold the account's own data. Each carries owner_id,
+' which is the account that owns the row; it is indexed and not null, because
+' a row with no owner cannot be read safely. The read is always filtered by it,
+' and the filter lives in the accessor rather than in the route.
+
+!include _style.puml
+left to right direction
+
+entity users {
+  * id : varchar <<PK>>
+  --
+  * email : varchar <<UK>>
+  * hashed_password : varchar
+  * full_name : varchar
+  * is_active : boolean
+  * is_superuser : boolean
+  * is_verified : boolean
+  * created_at : datetime
+}
+
+entity access_tokens {
+  * token : varchar <<PK>>
+  --
+  * user_id : varchar <<FK>>
+  * created_at : datetime
+}
+
+entity candidate_profiles {
+  * id : varchar <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * name : varchar
+  * email : varchar
+  * phone : varchar
+  * location : varchar
+  * title : varchar
+  * profile_json : json
+  * file_path : varchar
+  * created_at : datetime
+}
+
+entity job_matches {
+  * id : integer <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * profile_id : varchar <<FK>>
+  * job_id : varchar <<FK>>
+  * scores : json
+  * explanation : varchar
+  * created_at : datetime
+}
+
+entity tailored_resumes {
+  * id : varchar <<PK>>
+  --
+  * owner_id : varchar <<FK>>
+  * profile_id : varchar <<FK>>
+  * job_id : varchar <<FK>>
+  * tailored : json
+  * factuality : json
+  * ats_report : json
+  * insights : json
+  * docx_path : varchar
+  * created_at : datetime
+}
+
+entity audit_events {
+  * id : integer <<PK>>
+  --
+  * owner_id : varchar
+  * recorded_at : datetime
+  * actor : varchar
+  * actor_kind : varchar
+  * actor_id : varchar
+  * action : varchar
+  * resource : varchar
+  * outcome : varchar
+  * metadata : json
+}
+
+users ||--o{ access_tokens : holds
+users ||--o{ candidate_profiles : owns
+users ||--o{ job_matches : owns
+users ||--o{ tailored_resumes : owns
+users ||--o{ audit_events : owns
+candidate_profiles ||--o{ job_matches : scored in
+candidate_profiles ||--o{ tailored_resumes : tailored into
+
+note bottom of audit_events
+  Append-only. A deleted account's rows are
+  anonymized, never deleted.
+end note
+
+@enduml

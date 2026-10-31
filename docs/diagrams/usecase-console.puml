@@ -1,0 +1,45 @@
+@startuml usecase-console
+' Who uses the system, and for what.
+'
+' The console is the whole human interface. The scheduler and the maintainer
+' do not use it: the scheduler runs the refresh and the maintainer works on
+' the code.
+
+!include _style.puml
+left to right direction
+
+actor "Candidate" as Person
+actor "Scheduler" as Sched
+actor "Maintainer" as Dev
+
+rectangle "The console" {
+  usecase "Upload a resume" as UC1
+  usecase "Read the parsed profile" as UC2
+  usecase "Search the stored corpus" as UC3
+  usecase "Read a job and its score" as UC4
+  usecase "Tailor a resume for a job" as UC5
+  usecase "Prepare an application" as UC6
+  usecase "Approve or reject" as UC7
+  usecase "Track the applications" as UC8
+  usecase "Run the refresh" as UC9
+}
+
+Person --> UC1
+Person --> UC2
+Person --> UC3
+Person --> UC4
+Person --> UC5
+Person --> UC6
+Person --> UC7
+Person --> UC8
+
+Sched --> UC9 : runs the refresh
+Dev --> UC9 : runs it by hand
+
+note bottom of UC7
+  The console never submits on its own.
+  A person approves, and the approval
+  is recorded with an identity and a time.
+end note
+
+@enduml

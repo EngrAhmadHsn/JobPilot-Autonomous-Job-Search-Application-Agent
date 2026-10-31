@@ -96,6 +96,31 @@ from the runtime application. The runtime browser layer is the Playwright **Pyth
    graph execute, and success is claimed only if the confirmation page says so *and* the
    evidence files exist.
 
+## The diagrams
+
+The Software Design Document is illustrated with PlantUML. The sources are in
+`docs/diagrams/`, the rendered images are in `docs/diagrams/png/`, and both are
+committed, so the document can be read without PlantUML being installed.
+
+```bash
+# render every diagram; the jar is a build tool and is not in the repository
+set PLANTUML_JAR=<path to plantuml.jar>
+python scripts/render_diagrams.py
+
+# render one, or report the size each diagram prints at
+python scripts/render_diagrams.py erd-account-data
+```
+
+The script refuses a diagram whose text would print below seven points on the
+page, so a diagram that cannot be read is a build failure rather than a page
+nobody can read. The plan is in
+`docs/implementation/16-sdd-plantuml-diagrams.md`.
+
+The diagram set is fifteen: the layers and the components, three class
+diagrams, an object diagram, two entity-relationship diagrams, the data
+directory, two sequence diagrams, two activity diagrams, the application state
+machine, and a use case diagram.
+
 ## Quick start
 
 Windows (PowerShell) and POSIX (bash) differ only in the first two lines.

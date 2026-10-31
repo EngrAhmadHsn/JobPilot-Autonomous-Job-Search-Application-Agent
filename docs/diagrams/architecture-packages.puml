@@ -1,0 +1,37 @@
+@startuml architecture-packages
+' The layers of the backend, as the packages they live in.
+'
+!include _style.puml
+left to right direction
+
+package "Presentation" {
+  node "frontend: screens, components,\nAPI client\nscripts: command-line tools\nscheduler: cron entry point" as P
+}
+
+package "Interface" {
+  node "src/api: routes, middleware,\nupload validation, scope\nsrc/auth: user manager,\nsessions, CSRF\nsrc/graph: job workflow,\napplication workflow, nodes\nsrc/evaluation: metrics,\nrunner, security probes" as I
+}
+
+package "Domain" {
+  node "src/jobs: board adapters,\nHTTP client, dedup,\nspam screen\nsrc/matching: six scorers,\nweights\nsrc/resume: parser, tailoring,\nATS, renderer\nsrc/llm: providers, cache,\nresilience\nsrc/research: grounded insights" as D
+}
+
+package "Infrastructure" {
+  node "src/security: allowlist,\npermissions, fences,\nlimits, audit\nsrc/db: models, scoped\naccessors\nsrc/storage: per-user layout\nsrc/rag: Chroma vector store\nsrc/core: logging, text helpers" as F
+}
+
+P -[hidden]right-> I
+D -[hidden]right-> F
+P -[hidden]down-> D
+
+P --> I : depends on
+D --> F : depends on
+
+note bottom of I
+  The dependency rule runs from the layer beside a module to the one
+  below it: a domain module may call another domain module and the
+  infrastructure, but it does not import from the interface layer and it
+  does not know that HTTP exists.
+end note
+
+@enduml
