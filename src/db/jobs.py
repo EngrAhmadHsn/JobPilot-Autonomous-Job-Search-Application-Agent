@@ -79,6 +79,51 @@ def listing_from_row(row: JobDB) -> JobListing:
     )
 
 
+def merge_jobs(
+    session,
+    listings: Iterable[JobListing],
+    *,
+    seen_at: datetime | None = None,
+) -> int:
+    """Merge listings into ``session`` without committing (WS-18).
+
+    The outbox needs job rows and their embedding work items in **one**
+    transaction, so the merge is split out of :func:`save_jobs` and takes the
+    caller's session. A failure in either half rolls both back, and the
+    caller sees one consistent state: either the listing and its work exist,
+    or neither does.
+    """
+    moment = seen_at or datetime.now(UTC)
+    persisted = 0
+    for listing in listings:
+        row = JobDB(
+            id=listing.id,
+            source=listing.source,
+            source_job_id=listing.source_job_id,
+            title=listing.title,
+            company=listing.company,
+            description=listing.description,
+            location=listing.location,
+            remote_policy=listing.remote_policy,
+            employment_type=listing.employment_type,
+            salary=listing.salary,
+            currency=listing.currency,
+            seniority=listing.seniority,
+            required_skills=listing.required_skills,
+            preferred_skills=listing.preferred_skills,
+            experience_requirements=listing.experience_requirements,
+            education_requirements=listing.education_requirements,
+            application_url=listing.application_url,
+            company_url=listing.company_url,
+            posted_at=listing.posted_at,
+            extra_metadata=dict(listing.metadata),
+            last_seen_at=moment,
+        )
+        session.merge(row)
+        persisted += 1
+    return persisted
+
+
 def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | None = None) -> int:
     """Upsert normalized listings into the ``jobs`` table by primary key.
 
@@ -99,37 +144,10 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
     from src.db.session import SessionLocal
 
     factory = session_factory or SessionLocal
-    persisted = 0
     # WS-15: one sighting time for the whole batch, so the eviction order
     # does not depend on the order the boards happened to answer in.
-    seen_at = datetime.now(UTC)
     with factory() as session:
-        for listing in listings:
-            row = JobDB(
-                id=listing.id,
-                source=listing.source,
-                source_job_id=listing.source_job_id,
-                title=listing.title,
-                company=listing.company,
-                description=listing.description,
-                location=listing.location,
-                remote_policy=listing.remote_policy,
-                employment_type=listing.employment_type,
-                salary=listing.salary,
-                currency=listing.currency,
-                seniority=listing.seniority,
-                required_skills=listing.required_skills,
-                preferred_skills=listing.preferred_skills,
-                experience_requirements=listing.experience_requirements,
-                education_requirements=listing.education_requirements,
-                application_url=listing.application_url,
-                company_url=listing.company_url,
-                posted_at=listing.posted_at,
-                extra_metadata=dict(listing.metadata),
-                last_seen_at=seen_at,
-            )
-            session.merge(row)
-            persisted += 1
+        persisted = merge_jobs(session, listings, seen_at=datetime.now(UTC))
         session.commit()
     return persisted
 

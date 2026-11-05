@@ -22,7 +22,9 @@ Design points:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from collections.abc import Iterable
 
 import chromadb
 from chromadb import Documents, EmbeddingFunction, Embeddings
@@ -170,14 +172,27 @@ class ChromaVectorStore:
         return build_document_text(job.title, " ".join(body_parts))
 
     @staticmethod
-    def job_metadata(job: JobListing) -> dict:
-        """Listing metadata persisted alongside the vector (chroma rejects None)."""
+    def content_hash(document: str) -> str:
+        """The identity of one embedded document (WS-18)."""
+        return hashlib.sha256(document.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def job_metadata(job: JobListing, *, content_hash: str = "") -> dict:
+        """Listing metadata persisted alongside the vector (chroma rejects None).
+
+        WS-18: ``content_hash`` is stored with the vector so a later refresh
+        can ask "is *this version* of the document embedded?" without
+        re-reading and re-hashing every document, and so the verifier can
+        prove that the vector it finds belongs to the work item it is about
+        to complete.
+        """
         return {
             "company": job.company or "",
             "location": job.location or "",
             "remote_policy": job.remote_policy or "",
             "seniority": job.seniority or "",
             "source": job.source or "",
+            "content_hash": content_hash,
         }
 
     def upsert_jobs(self, listings: list[JobListing]) -> int:
@@ -199,7 +214,10 @@ class ChromaVectorStore:
                 ids=[job.id for job in chunk],
                 embeddings=vectors,
                 documents=documents,
-                metadatas=[self.job_metadata(job) for job in chunk],
+                metadatas=[
+                    self.job_metadata(job, content_hash=self.content_hash(document))
+                    for job, document in zip(chunk, documents, strict=True)
+                ],
             )
             written += len(chunk)
             if len(listings) > EMBED_BATCH_SIZE:
@@ -256,6 +274,69 @@ class ChromaVectorStore:
         """Ids of every listing that has a vector in the collection."""
         result = self._collection.get(include=[])
         return set(result.get("ids") or [])
+
+    def embedded_hashes(self, job_ids: Iterable[str]) -> dict[str, str]:
+        """The content hash of the vector stored for each id that has one (WS-18).
+
+        The hash comes from the vector's metadata when it was written by this
+        version of the store, and is recomputed from the stored document when
+        it was not (vectors that pre-date WS-18). The fallback is what makes
+        the check honest for an existing corpus instead of treating every old
+        vector as missing.
+
+        The read is paged, so a reconciliation over a 50,000-listing corpus
+        does not hold 50,000 documents in memory at once.
+        """
+        ids = list(dict.fromkeys(str(job_id) for job_id in job_ids))
+        found: dict[str, str] = {}
+        for start in range(0, len(ids), SCAN_PAGE_SIZE):
+            page = ids[start : start + SCAN_PAGE_SIZE]
+            result = self._collection.get(ids=page, include=["documents", "metadatas"])
+            page_ids = result.get("ids") or []
+            documents = result.get("documents")
+            if documents is None:
+                documents = []
+            metadatas = result.get("metadatas")
+            if metadatas is None:
+                metadatas = []
+            for job_id, document, metadata in zip(page_ids, documents, metadatas, strict=False):
+                stored = (metadata or {}).get("content_hash") or ""
+                if not stored and document is not None:
+                    stored = self.content_hash(document)
+                if stored:
+                    found[job_id] = stored
+        return found
+
+    def cached_flags(self, texts: list[str]) -> list[bool]:
+        """Which of *texts* already have a vector in the embedding cache (WS-18).
+
+        Observability only: the provider consults the same cache again on the
+        write path, and a hit costs a lookup rather than an embedding. The
+        count is what makes "the refresh was cheap because the cache was warm"
+        a statement the metrics can support.
+        """
+        is_cached = getattr(self._embedding_fn, "is_cached", None)
+        if is_cached is None or not texts:
+            return [False] * len(texts)
+        try:
+            return [bool(flag) for flag in is_cached(texts)]
+        except Exception:  # noqa: BLE001 - a metric must not fail the write
+            return [False] * len(texts)
+
+    def verify_listings(self, listings: list[JobListing], hashes: dict[str, str]) -> set[str]:
+        """The ids of *listings* whose stored vector matches *hashes*.
+
+        This is the verifier the work item completion depends on: a 2xx from
+        the upsert is not proof that the vector is there and is the right
+        one, and "mark complete because the write returned" is exactly how a
+        crash window becomes silent data loss.
+        """
+        stored = self.embedded_hashes(job.id for job in listings)
+        return {
+            job.id
+            for job in listings
+            if hashes.get(job.id) is not None and stored.get(job.id) == hashes[job.id]
+        }
 
     def similarities_for_all(self, query_text: str) -> dict[str, float]:
         """Similarity 0-100 for **every** stored listing.
