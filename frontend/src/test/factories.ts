@@ -6,9 +6,12 @@
  * the console against the real contract, not against a convenient fiction.
  */
 import type {
+  AdminOverview,
   ApplicationDetail,
   ApplicationList,
   ApprovalDecisionResponse,
+  AuditEvent,
+  AuditPage,
   CandidateProfile,
   JobListing,
   JobMatchPair,
@@ -370,5 +373,96 @@ export function identityResponse() {
     is_active: true,
     is_superuser: false,
     is_verified: true,
+  }
+}
+
+/** One audit row, shaped exactly like `GET /api/audit` sends. */
+export function auditEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
+  return {
+    id: 1,
+    recorded_at: "2026-10-21T10:00:00Z",
+    action: "job.search",
+    actor: "agent",
+    actor_kind: "agent",
+    actor_id: "greenhouse",
+    resource: "profile-1",
+    outcome: "success",
+    workflow_id: null,
+    metadata: {},
+    ...overrides,
+  }
+}
+
+/**
+ * A page of audit rows with a little of everything: agent steps, a human
+ * decision, a workflow, and one blocked action (so the "needs attention"
+ * path is exercised without a test having to build its own).
+ */
+export function auditResponse(): AuditPage {
+  const events: AuditEvent[] = [
+    auditEvent({
+      id: 5,
+      action: "application.verify",
+      actor: "agent",
+      actor_kind: "agent",
+      outcome: "success",
+      workflow_id: "workflow-1",
+      recorded_at: "2026-10-21T10:06:00Z",
+    }),
+    auditEvent({
+      id: 4,
+      action: "application.submit",
+      actor: "agent",
+      actor_kind: "agent",
+      outcome: "success",
+      workflow_id: "workflow-1",
+      recorded_at: "2026-10-21T10:05:00Z",
+    }),
+    auditEvent({
+      id: 3,
+      action: "application.approve",
+      actor: "human:operator",
+      actor_kind: "user",
+      outcome: "success",
+      workflow_id: "workflow-1",
+      recorded_at: "2026-10-21T10:02:00Z",
+    }),
+    auditEvent({
+      id: 2,
+      action: "application.blocked_challenge",
+      actor: "agent",
+      actor_kind: "agent",
+      outcome: "blocked",
+      workflow_id: "workflow-2",
+      recorded_at: "2026-10-21T09:40:00Z",
+    }),
+    auditEvent({
+      id: 1,
+      action: "resume.upload",
+      actor: "human:operator",
+      actor_kind: "user",
+      outcome: "success",
+      recorded_at: "2026-10-21T09:00:00Z",
+    }),
+  ]
+  return { events, count: events.length }
+}
+
+/** The platform overview, shaped like `GET /api/admin/overview`. */
+export function adminOverviewResponse(): AdminOverview {
+  return {
+    accounts: { total: 3, active: 3, superusers: 1 },
+    applications: {
+      total: 4,
+      by_status: { verified: 2, awaiting_approval: 1, rejected: 1 },
+    },
+    workflows: { total: 3 },
+    audit: {
+      total: 12,
+      by_outcome: { success: 10, blocked: 1, error: 1 },
+      by_actor_kind: { agent: 8, user: 4 },
+    },
+    corpus: { jobs: 5854 },
+    generated_at: "2026-10-21T10:10:00Z",
   }
 }

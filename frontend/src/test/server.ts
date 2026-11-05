@@ -6,6 +6,7 @@ import {
   applicationEvidence,
   applicationList,
   approvalDecision,
+  auditResponse,
   healthResponse,
   identityResponse,
   jobDetail,
@@ -158,5 +159,19 @@ export const server = setupServer(
 
   http.post(`${BASE}/api/jobs/refresh`, () =>
     HttpResponse.json(refreshResponse())
+  ),
+
+  // The account's own audit trail (WS-17 observability).
+  http.get(`${BASE}/api/audit`, () => HttpResponse.json(auditResponse())),
+
+  // The platform overview (WS-17 administration). Refused by default: the
+  // mocked principal is not a superuser, so the server's answer is a 403 —
+  // exactly as it would be. A test that wants the allowed state overrides
+  // `/api/auth/me` with a superuser.
+  http.get(`${BASE}/api/admin/overview`, () =>
+    HttpResponse.json(
+      { detail: "Administration is available to platform administrators only." },
+      { status: 403 }
+    )
   )
 )
