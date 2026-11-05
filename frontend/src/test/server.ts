@@ -13,8 +13,10 @@ import {
   jobSearchResponse,
   matchesHistory,
   profileResponse,
-  refreshResponse,
   resumeUploadResponse,
+  runAccepted,
+  runDetail,
+  runsResponse,
   tailorResponse,
   tailoredResponse,
 } from "./factories"
@@ -157,8 +159,28 @@ export const server = setupServer(
     })
   ),
 
+  // WS-18: the refresh is accepted as durable work; the screen polls the run.
   http.post(`${BASE}/api/jobs/refresh`, () =>
-    HttpResponse.json(refreshResponse())
+    HttpResponse.json(runAccepted())
+  ),
+  http.get(`${BASE}/api/runs`, () => HttpResponse.json(runsResponse())),
+  http.get(`${BASE}/api/runs/:runId`, ({ params }) =>
+    HttpResponse.json({
+      run: runDetail({ id: String(params.runId) }),
+    })
+  ),
+
+  // The background-execution surface is administrator-only, like the
+  // overview: the default mocked principal is not a superuser, so the
+  // server's answer is a 403.
+  http.get(`${BASE}/api/admin/embedding-runs`, () =>
+    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
+  ),
+  http.post(`${BASE}/api/admin/embedding-runs/:runId/resume`, () =>
+    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
+  ),
+  http.post(`${BASE}/api/admin/embeddings/reconcile`, () =>
+    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
   ),
 
   // The account's own audit trail (WS-17 observability).

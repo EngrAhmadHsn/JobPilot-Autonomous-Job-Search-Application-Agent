@@ -82,12 +82,6 @@ export type JobMatchPair = DeepRequired<components["schemas"]["JobMatchPair"]>
 export type JobMatchResult = DeepRequired<
   components["schemas"]["JobMatchResult"]
 >
-export type JobRefreshResponse = DeepRequired<
-  components["schemas"]["JobRefreshResponse"]
->
-export type JobRefreshStats = DeepRequired<
-  components["schemas"]["JobRefreshStats"]
->
 export type JobSearchRequest = components["schemas"]["JobSearchRequest"]
 export type JobSearchResponse = DeepRequired<
   components["schemas"]["JobSearchResponse"]
@@ -215,5 +209,171 @@ export interface AdminOverview {
     by_actor_kind: Record<string, number>
   }
   corpus: { jobs: number }
+  generated_at: string
+}
+
+/**
+ * Durable background execution (WS-18).
+ *
+ * These shapes are written here because the routes declare `dict` bodies
+ * (the run payload is assembled by `src.runs.service.run_to_dict`), so there
+ * is no generated schema to alias. They mirror that function exactly.
+ */
+export interface RunAccepted {
+  run_id: string
+  status: string
+  job_type: string
+  correlation_id: string
+  created_at: string
+  existing: boolean
+}
+
+export interface RunLease {
+  owner: string | null
+  expires_at: string | null
+}
+
+export interface RunSummary {
+  id: string
+  job_type: string
+  status: string
+  priority: number
+  owner_id: string | null
+  correlation_id: string
+  parent_run_id: string | null
+  embedding_model: string | null
+  embedding_dimension: number | null
+  created_at: string | null
+  started_at: string | null
+  completed_at: string | null
+  heartbeat_at: string | null
+  lease: RunLease
+  attempt_count: number
+  total_items: number
+  completed_items: number
+  failed_items: number
+  skipped_items: number
+  remaining_items: number
+  progress_percent: number
+  last_error: string | null
+  last_error_kind: string | null
+  metadata: Record<string, unknown>
+  resumable: boolean
+  cancellable: boolean
+}
+
+export interface RunEvent {
+  id: number
+  event: string
+  at: string | null
+  actor: string
+  actor_kind: string
+  message: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface FailedWorkItem {
+  id: string
+  job_id: string
+  attempt_count: number
+  last_error: string | null
+  last_error_kind: string | null
+}
+
+export interface RunDetail extends RunSummary {
+  items: {
+    queued: number
+    running: number
+    retry_wait: number
+    completed: number
+    failed: number
+    cancelled: number
+  }
+  events: RunEvent[]
+  failed_work_items?: FailedWorkItem[]
+  checkpoint: {
+    last_event: RunEvent | null
+    heartbeat_at: string | null
+  }
+}
+
+export interface RunsListResponse {
+  runs: RunSummary[]
+  count: number
+}
+
+export interface RunDetailResponse {
+  run: RunDetail
+}
+
+export interface RunActionResponse {
+  run_id: string
+  status: string
+  job_type: string
+  queued: boolean
+}
+
+export interface WorkerHealthEntry {
+  worker_id: string
+  status: string
+  hostname: string
+  pid: number | null
+  heartbeat_age_seconds: number
+  healthy: boolean
+  starts: number
+  processed_items: number
+  failed_items: number
+  work_per_minute: number
+  current_run_id: string | null
+}
+
+export interface WorkerHealth {
+  healthy: number
+  total: number
+  stale_after_seconds: number
+  workers: WorkerHealthEntry[]
+}
+
+export interface WorkerHealthResponse {
+  workers: WorkerHealth
+  queue: QueueStats
+}
+
+export interface QueueStats {
+  items: {
+    queued: number
+    running: number
+    retry_wait: number
+    completed: number
+    failed: number
+    cancelled: number
+    stale_leases: number
+    reclaimed_leases: number
+    oldest_pending_age_seconds: number
+  }
+  runs: Record<string, number>
+}
+
+export interface AdminJobMetrics {
+  queue: QueueStats
+  workers: WorkerHealth
+  breakers: {
+    name: string
+    state: string
+    failure_count: number
+    retry_after_seconds: number | null
+  }[]
+  embedding: {
+    corpus: number
+    budget: {
+      documents_today: number
+      documents_limit: number
+      requests_today: number
+      requests_limit: number
+      cache_entries: number
+      cache_limit: number
+    }
+    runs: { active: number; recoverable: number }
+  }
   generated_at: string
 }

@@ -15,9 +15,11 @@ import type {
   CandidateProfile,
   JobListing,
   JobMatchPair,
-  JobRefreshResponse,
   JobSearchResponse,
   ResumeUploadResponse,
+  RunAccepted,
+  RunDetail,
+  RunSummary,
   StoredTailoring,
   TailorResponse,
 } from "@/lib/api/types"
@@ -334,30 +336,6 @@ export function applicationEvidence() {
   }
 }
 
-export function refreshResponse(
-  overrides: Partial<JobRefreshResponse> = {}
-): JobRefreshResponse {
-  return {
-    stats: {
-      found: 40,
-      dropped: 3,
-      deduped: 37,
-      persisted: 37,
-      embedded: 35,
-      screened_out: 1,
-      admission_capped: 0,
-    },
-    source_errors: {},
-    embedding_requests_planned: 35,
-    embedding_requests_used: 35,
-    // WS-15: the documents that had to be embedded (the cache misses).
-    embedding_documents_planned: 35,
-    quota_exhausted: false,
-    degraded_embedding: false,
-    ...overrides,
-  }
-}
-
 /**
  * The authenticated principal (WS-14).
  *
@@ -465,4 +443,110 @@ export function adminOverviewResponse(): AdminOverview {
     corpus: { jobs: 5854 },
     generated_at: "2026-10-21T10:10:00Z",
   }
+}
+
+
+/** A refresh the API accepted as durable work (WS-18). */
+export function runAccepted(
+  overrides: Partial<RunAccepted> = {}
+): RunAccepted {
+  return {
+    run_id: "run-1",
+    status: "QUEUED",
+    job_type: "refresh",
+    correlation_id: "corr-1",
+    created_at: "2026-11-05T10:00:00Z",
+    existing: false,
+    ...overrides,
+  }
+}
+
+/** One run, as `src.runs.service.run_to_dict` serialises it. */
+export function runSummary(overrides: Partial<RunSummary> = {}): RunSummary {
+  return {
+    id: "run-1",
+    job_type: "refresh",
+    status: "COMPLETED",
+    priority: 30,
+    owner_id: "user-1",
+    correlation_id: "corr-1",
+    parent_run_id: null,
+    embedding_model: null,
+    embedding_dimension: null,
+    created_at: "2026-11-05T10:00:00Z",
+    started_at: "2026-11-05T10:00:01Z",
+    completed_at: "2026-11-05T10:02:00Z",
+    heartbeat_at: "2026-11-05T10:02:00Z",
+    lease: { owner: null, expires_at: null },
+    attempt_count: 1,
+    total_items: 37,
+    completed_items: 37,
+    failed_items: 0,
+    skipped_items: 0,
+    remaining_items: 0,
+    progress_percent: 100,
+    last_error: null,
+    last_error_kind: null,
+    metadata: {
+      refresh: {
+        found: 40,
+        deduped: 37,
+        persisted: 37,
+        screened_out: 0,
+        admission_capped: 0,
+        source_errors: {},
+        embedding_run_id: "run-embed-1",
+        degraded: false,
+      },
+    },
+    resumable: false,
+    cancellable: false,
+    ...overrides,
+  }
+}
+
+/** One run with its checkpoint, item summary and events. */
+export function runDetail(overrides: Partial<RunDetail> = {}): RunDetail {
+  const base = runSummary(overrides)
+  return {
+    ...base,
+    items: {
+      queued: 0,
+      running: 0,
+      retry_wait: 0,
+      completed: base.completed_items,
+      failed: base.failed_items,
+      cancelled: base.skipped_items,
+    },
+    events: [
+      {
+        id: 1,
+        event: "run.created",
+        at: "2026-11-05T10:00:00Z",
+        actor: "system",
+        actor_kind: "system",
+        message: "refresh run accepted with 1 item(s)",
+        metadata: {},
+      },
+      {
+        id: 2,
+        event: "run.completed",
+        at: "2026-11-05T10:02:00Z",
+        actor: "system",
+        actor_kind: "system",
+        message: "refresh run completed",
+        metadata: {},
+      },
+    ],
+    failed_work_items: [],
+    checkpoint: {
+      last_event: null,
+      heartbeat_at: base.heartbeat_at,
+    },
+    ...overrides,
+  }
+}
+
+export function runsResponse(runs: RunSummary[] = [runSummary()]) {
+  return { runs, count: runs.length }
 }

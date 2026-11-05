@@ -1,15 +1,33 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { useState } from "react"
 
 import { Banner } from "@/components/common/banner"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { StatTile } from "@/components/common/stat-tile"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import type { AdminOverview } from "@/lib/api/types"
+import type { AdminOverview, RunSummary } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
 import { describeStatus } from "@/lib/status"
 
@@ -83,7 +101,10 @@ export function AdminScreen() {
           description="Reading accounts, applications, the audit trail and the corpus."
         />
       ) : (
-        <AdminOverviewBody data={overview.data} />
+        <div className="space-y-10">
+          <AdminOverviewBody data={overview.data} />
+          <BackgroundRuns />
+        </div>
       )}
     </div>
   )
@@ -233,4 +254,188 @@ function barColor(tone: "plain" | "actor" | "outcome", key: string): string {
     return "var(--color-terracotta)"
   }
   return "var(--color-primary)"
+}
+
+/**
+ * The platform's background executions (WS-18).
+ *
+ * This is the recovery surface: an interrupted run is visible here with its
+ * checkpoint, its remaining work, its embedding model and its last error, and
+ * an administrator resumes it explicitly. The screen holds no authority —
+ * the server checks `is_superuser` and validates the run's state, the model
+ * and the dimension. A confirmation is shown before the resume because the
+ * action changes durable state.
+ */
+function BackgroundRuns() {
+  const [confirming, setConfirming] = useState<RunSummary | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const runs = useQuery({
+    queryKey: ["admin", "embedding-runs"],
+    queryFn: ({ signal }) => api.adminEmbeddingRuns(signal),
+    refetchInterval: 5_000,
+  })
+
+  const resume = useMutation({
+    mutationFn: (runId: string) => api.resumeEmbeddingRun(runId),
+    onSuccess: (result) => {
+      setConfirming(null)
+      setNotice(
+        `Run ${result.run_id} is ${result.status}. The worker resumes only the outstanding work.`
+      )
+      runs.refetch()
+    },
+  })
+
+  const reconcile = useMutation({
+    mutationFn: () => api.reconcileEmbeddings(),
+    onSuccess: (result) => {
+      setNotice(
+        `Reconciliation ${result.queued ? "queued" : "already active"} as run ${result.run_id}.`
+      )
+      runs.refetch()
+    },
+  })
+
+  return (
+    <Section
+      title="Background runs"
+      description="Durable executions of the embedding worker. A run's state survives the browser, the API process and a worker restart."
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={reconcile.isPending}
+            onClick={() => reconcile.mutate()}
+          >
+            {reconcile.isPending
+              ? "Queueing reconciliation..."
+              : "Reconcile the vector index"}
+          </Button>
+        </div>
+
+        {notice ? (
+          <Banner tone="success" title="Accepted">
+            <p>{notice}</p>
+          </Banner>
+        ) : null}
+        {resume.isError ? <ErrorNotice error={resume.error} /> : null}
+        {reconcile.isError ? <ErrorNotice error={reconcile.error} /> : null}
+
+        {runs.isError ? (
+          <ErrorNotice error={runs.error} onRetry={() => runs.refetch()} />
+        ) : runs.isPending ? (
+          <ProgressState
+            title="Reading the background runs"
+            description="Loading the platform's embedding executions."
+          />
+        ) : (runs.data?.runs.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No embedding runs yet"
+            description="A refresh that finds new or changed listings creates one. Interrupted runs appear here with a Resume action."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Run</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Progress</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Heartbeat</TableHead>
+                <TableHead>Last error</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {runs.data!.runs.map((run) => (
+                <TableRow key={run.id}>
+                  <TableCell className="font-mono text-xs">
+                    {run.id.slice(0, 12)}
+                  </TableCell>
+                  <TableCell>{run.job_type}</TableCell>
+                  <TableCell>{run.status}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {run.progress_percent}% ({run.completed_items}/
+                    {run.total_items})
+                  </TableCell>
+                  <TableCell>{formatDateTime(run.created_at)}</TableCell>
+                  <TableCell>{formatDateTime(run.heartbeat_at)}</TableCell>
+                  <TableCell className="max-w-56 truncate text-xs text-muted-foreground">
+                    {run.last_error ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    {run.resumable ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirming(run)}
+                      >
+                        Resume
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        <Dialog
+          open={confirming !== null}
+          onOpenChange={(open) => {
+            if (!open) setConfirming(null)
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Resume this embedding run?</DialogTitle>
+              <DialogDescription>
+                Only the outstanding work is queued; completed vectors are
+                kept, the daily embedding budget still applies, and the
+                action is audited against your account.
+              </DialogDescription>
+            </DialogHeader>
+            {confirming ? (
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                <dt className="text-muted-foreground">Run</dt>
+                <dd className="font-mono text-xs">{confirming.id}</dd>
+                <dt className="text-muted-foreground">Status</dt>
+                <dd>{confirming.status}</dd>
+                <dt className="text-muted-foreground">Progress</dt>
+                <dd>
+                  {confirming.completed_items} of {confirming.total_items}{" "}
+                  completed, {confirming.remaining_items} remaining
+                </dd>
+                <dt className="text-muted-foreground">Embedding model</dt>
+                <dd>
+                  {confirming.embedding_model ?? "—"} (
+                  {confirming.embedding_dimension ?? "—"}-dimensional)
+                </dd>
+                <dt className="text-muted-foreground">Last error</dt>
+                <dd className="text-xs">{confirming.last_error ?? "—"}</dd>
+              </dl>
+            ) : null}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirming(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={resume.isPending}
+                onClick={() => {
+                  if (confirming) resume.mutate(confirming.id)
+                }}
+              >
+                {resume.isPending ? "Resuming..." : "Resume outstanding work"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Section>
+  )
 }

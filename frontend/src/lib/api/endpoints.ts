@@ -24,18 +24,23 @@ import type {
   ApprovalDecisionResponse,
   ApprovalStatus,
   Health,
+  AdminJobMetrics,
   Identity,
   JobDetail,
-  JobRefreshResponse,
   JobSearchRequest,
   JobSearchResponse,
   MatchesHistory,
   ResumeProfileResponse,
   ResumeUploadResponse,
+  RunAccepted,
+  RunActionResponse,
+  RunDetailResponse,
+  RunsListResponse,
   StatusUpdateRequest,
   StoredTailoring,
   TailorRequest,
   TailorResponse,
+  WorkerHealthResponse,
 } from "./types"
 
 export interface ListApplicationsParams {
@@ -258,12 +263,84 @@ export const api = {
       timeoutMs: 20_000,
     }),
 
-  /** Run the decoupled corpus refresh (boards → normalize → persist → embed). */
+  /**
+   * Queue a corpus refresh (WS-18).
+   *
+   * The API accepts the work durably and answers `202` with a run id; it
+   * does **not** wait for the boards. The screen polls `getRun` for the
+   * real state, which survives a reload and a browser close.
+   */
   refreshJobs: (signal?: AbortSignal) =>
-    request<JobRefreshResponse>("/api/jobs/refresh", {
+    request<RunAccepted>("/api/jobs/refresh", {
       method: "POST",
       signal,
-      timeoutMs: 900_000,
+      timeoutMs: 30_000,
+    }),
+
+  /** The caller's own durable execution history. */
+  listRuns: (signal?: AbortSignal) =>
+    request<RunsListResponse>("/api/runs", { signal, timeoutMs: 20_000 }),
+
+  /** One run's persistent state, checkpoints and item summary. */
+  getRun: (runId: string, signal?: AbortSignal) =>
+    request<RunDetailResponse>(`/api/runs/${encodeURIComponent(runId)}`, {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Platform embedding runs — **superuser only**. */
+  adminEmbeddingRuns: (signal?: AbortSignal) =>
+    request<RunsListResponse>("/api/admin/embedding-runs", {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** One embedding run's detail — **superuser only**. */
+  adminEmbeddingRun: (runId: string, signal?: AbortSignal) =>
+    request<RunDetailResponse>(
+      `/api/admin/embedding-runs/${encodeURIComponent(runId)}`,
+      { signal, timeoutMs: 20_000 }
+    ),
+
+  /**
+   * Resume the outstanding work of an interrupted embedding run.
+   *
+   * The server derives the administrator from the session, validates the
+   * model and dimension, refuses a concurrent resume, and audits the act.
+   */
+  resumeEmbeddingRun: (runId: string, signal?: AbortSignal) =>
+    request<RunActionResponse>(
+      `/api/admin/embedding-runs/${encodeURIComponent(runId)}/resume`,
+      { method: "POST", signal, timeoutMs: 30_000 }
+    ),
+
+  /** Stop a run safely, keeping its history. */
+  cancelEmbeddingRun: (runId: string, signal?: AbortSignal) =>
+    request<RunActionResponse>(
+      `/api/admin/embedding-runs/${encodeURIComponent(runId)}/cancel`,
+      { method: "POST", signal, timeoutMs: 30_000 }
+    ),
+
+  /** Queue a SQL/Chroma reconciliation — **superuser only**. */
+  reconcileEmbeddings: (signal?: AbortSignal) =>
+    request<RunActionResponse>("/api/admin/embeddings/reconcile", {
+      method: "POST",
+      signal,
+      timeoutMs: 30_000,
+    }),
+
+  /** Queue, worker, breaker and embedding-budget metrics — **superuser only**. */
+  adminJobMetrics: (signal?: AbortSignal) =>
+    request<AdminJobMetrics>("/api/admin/jobs/metrics", {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Worker liveness and the queue's shape — **superuser only**. */
+  adminWorkerHealth: (signal?: AbortSignal) =>
+    request<WorkerHealthResponse>("/api/admin/health/workers", {
+      signal,
+      timeoutMs: 20_000,
     }),
 
   /**
