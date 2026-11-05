@@ -12,7 +12,9 @@
  */
 import { request, requestForm } from "./client"
 import type {
+  AdminOverview,
   ApplicationDetail,
+  AuditPage,
   DocumentRecord,
   ApplicationEvidenceRecord,
   ApplicationList,
@@ -262,5 +264,26 @@ export const api = {
       method: "POST",
       signal,
       timeoutMs: 900_000,
+    }),
+
+  /**
+   * The account's own audit trail, newest first.
+   *
+   * This is the observability backbone: every agent and human action the
+   * system recorded against this account, in the server's own vocabulary.
+   */
+  audit: (signal?: AbortSignal) =>
+    request<AuditPage>("/api/audit", { signal, timeoutMs: 20_000 }),
+
+  /**
+   * The platform overview — **superuser only**.
+   *
+   * The server refuses a non-superuser (403). The console does not decide
+   * this: it asks, and reports the answer.
+   */
+  adminOverview: (signal?: AbortSignal) =>
+    request<AdminOverview>("/api/admin/overview", {
+      signal,
+      timeoutMs: 20_000,
     }),
 }

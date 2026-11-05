@@ -171,3 +171,49 @@ export interface DocumentRecord {
   profile_id: string | null
   job_id: string | null
 }
+
+/**
+ * One audit row (WS-14 · Phase C).
+ *
+ * `GET /api/audit` declares no response model, so this shape is written
+ * here, next to the generated ones, with the reason. It mirrors the dict
+ * the route assembles from `AuditEventDB`.
+ */
+export interface AuditEvent {
+  id: number
+  recorded_at: string | null
+  action: string
+  actor: string
+  /** `user` | `agent` | `system`. */
+  actor_kind: string
+  actor_id: string | null
+  resource: string
+  /** `success` | `blocked` | `denied` | `error`. */
+  outcome: string
+  workflow_id: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface AuditPage {
+  events: AuditEvent[]
+  count: number
+}
+
+/**
+ * The platform overview (WS-14 · the administrator surface).
+ *
+ * Written here for the same reason as `AuditEvent`: the route is new and
+ * deliberately carries no generated response model yet.
+ */
+export interface AdminOverview {
+  accounts: { total: number; active: number; superusers: number }
+  applications: { total: number; by_status: Record<string, number> }
+  workflows: { total: number }
+  audit: {
+    total: number
+    by_outcome: Record<string, number>
+    by_actor_kind: Record<string, number>
+  }
+  corpus: { jobs: number }
+  generated_at: string
+}
