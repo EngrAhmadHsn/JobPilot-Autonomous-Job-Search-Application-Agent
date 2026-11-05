@@ -42,6 +42,7 @@ from src.db import (  # noqa: F401
     jobs,
     matches,
     profiles,
+    runs,
     tailored,
     users,
 )
