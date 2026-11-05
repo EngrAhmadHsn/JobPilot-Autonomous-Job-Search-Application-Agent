@@ -14,6 +14,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useTheme } from "@/components/theme-provider"
 import { api } from "@/lib/api/endpoints"
+import {
+  setMotionPreference,
+  useMotionPreference,
+  type MotionPreference,
+} from "@/lib/motion"
 import { useCurrentProfileId } from "@/lib/profile"
 
 /**
@@ -27,6 +32,7 @@ import { useCurrentProfileId } from "@/lib/profile"
  */
 export function AccountMenu() {
   const { theme, setTheme } = useTheme()
+  const motion = useMotionPreference()
   const profileId = useCurrentProfileId()
   const queryClient = useQueryClient()
   const { data: identity } = useQuery({
@@ -97,6 +103,26 @@ export function AccountMenu() {
           <DropdownMenuRadioItem value="dark">Charcoal</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="system">
             Match the system
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Motion</DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuRadioGroup
+          value={motion}
+          onValueChange={(value) =>
+            setMotionPreference(value as MotionPreference)
+          }
+        >
+          <DropdownMenuRadioItem value="system">
+            Follow the system
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="full">Full motion</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="reduced">
+            Reduced motion
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
 
