@@ -1,13 +1,21 @@
 # The operator console
 
-A single-operator console for the **Agentic Job Applier**: upload a resume,
-browse the ranked matches, tailor a resume for a job, prepare an application,
-**approve or reject it**, and track every application's history.
+Two surfaces in one package for the **Agentic Job Applier**:
+
+- a **public landing page** at `/` — explains the product and lets a visitor
+  drive an interactive demonstration of the agent's working loop (sample data;
+  it never calls the API) — plus `/sign-in`;
+- the **operator console** at `/app` — upload a résumé, browse the ranked
+  matches, tailor a résumé for a job, prepare an application, **approve or
+  reject it**, track every application's history, and watch the agent's own
+  activity (Overview, Activity, and an Administration screen for a superuser).
 
 It is a separate package beside the backend, not part of the runtime. The
 backend is the source of truth; the console is a thin, honest projection of
 what the API returned. The design and the API contract are in
-[`docs/implementation/13-frontend.md`](../docs/implementation/13-frontend.md).
+[`docs/implementation/13-frontend.md`](../docs/implementation/13-frontend.md);
+the landing page, observability and administration are in
+[`docs/implementation/17-frontend-experience.md`](../docs/implementation/17-frontend-experience.md).
 
 ## Running it
 
@@ -55,13 +63,17 @@ one action (`#173D32`), a lime highlighter for the marks the **agent** makes
 **human** makes (`#F1D6C8` — the current profile, a recorded outcome).
 
 That last rule is the one that carries the meaning: if a mark is lime, the
-agent did it; if it is clay, a person did.
+agent did it; if it is clay, a person did. It is kept across the landing page
+too, where the same lime and clay are the light the pointer stirs on a warm,
+near-black forest canvas (`--night`, `#0E1A16`) — the same desk, after dark.
 
 The tokens live in `src/index.css`, and the shadcn components inherit them,
 so the whole kit changed with one file. The display face is Bricolage
 Grotesque, the body face is Geist, the content column is 1120 px, and the
 motion is 150–200 ms that answers an action (`prefers-reduced-motion` turns
-it off).
+it off). The one continuous effect — the landing page's pointer-reactive
+light field — runs only while the pointer is over it, and never on touch or
+under reduced motion.
 
 ## The rules this package keeps
 
@@ -87,10 +99,11 @@ it off).
 ```text
 src/
   api/          the fetch wrapper, the typed endpoints, the generated schema
-  components/   the shared components (the error surface, the status badge, …)
-  hooks/        the elapsed-time hook
-  lib/          the status vocabulary, the profile store, the safe accessors
-  screens/      the six screens
+  components/   the shared components (the error surface, the status badge, ...)
+  hooks/        the elapsed-time, motion and reveal hooks
+  lib/          the status + observability vocabulary, the profile store, the safe accessors
+  screens/      the public landing page and the console screens
   test/         the MSW server, the payload factories, the render helpers
+scripts/        the reference inspection and browser verification passes
 e2e/            the Playwright smoke path
 ```
