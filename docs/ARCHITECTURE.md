@@ -25,7 +25,9 @@ The Autonomous AI Job Application Agent is a production-oriented system that:
 
 ## 2. System Architecture
 
-The system is a **modular monolith** (plan §47): one Python package, one process, one database.
+The system is a **modular monolith** (plan §47): one Python package, one database, and two
+processes with different lifetimes — the **API** (request serving) and the **worker**
+(durable background execution, WS-18).
 The separation that matters is not between services but between **development-time components**
 (Cursor, ZCode, MCP servers, hooks, skills) and **runtime components** (the application that
 actually runs).
@@ -35,9 +37,9 @@ actually runs).
 | Component | State | Where it lives | Verified by |
 |---|---|---|---|
 | FastAPI service | **Implemented** | `src/main.py`, `src/api/routes/` | `tests/test_health.py`, `tests/test_resumes_api.py` |
-| REST API (17 routes) | **Implemented** | `src/api/routes/` | `tests/test_docs_accuracy.py` (the route table is checked against the app) |
+| REST API (the full route table) | **Implemented** | `src/api/routes/` | `tests/test_docs_accuracy.py` (the route table is checked against the app) |
 | API middleware: rate limit, body cap, concurrency gate, response headers | **Implemented** | `src/api/middleware.py`, `src/security/limits.py` | `tests/test_ws12_hardening.py` |
-| Database schema and migrations | **Implemented** | `src/db/`, `migrations/versions/` (5 revisions) | `tests/test_migrations.py` |
+| Database schema and migrations | **Implemented** | `src/db/`, `migrations/versions/` (10 revisions) | `tests/test_migrations.py` |
 | LangGraph job workflow | **Implemented** | `src/graph/job_workflow.py` | `tests/test_job_workflow.py` |
 | LangGraph application workflow | **Implemented** | `src/graph/application_workflow.py` | `tests/test_application_workflow.py` |
 | Job source adapters (Greenhouse, Lever, Ashby, Remotive) | **Implemented** | `src/jobs/*_adapter.py` | `tests/test_jobs.py` |
@@ -49,6 +51,8 @@ actually runs).
 | ATS analysis and DOCX rendering | **Implemented** | `src/resume/ats.py`, `src/resume/render.py` | `tests/test_ats.py`, `tests/test_render.py` |
 | Grounded research engine | **Implemented** | `src/research/engine.py` | `tests/test_research.py` |
 | LLM client with timeout, retries, pacing and usage accounting | **Implemented** | `src/llm/client.py`, `src/llm/resilience.py` | `tests/test_llm_client.py`, `tests/test_llm_resilience.py` |
+| Durable background execution: queue, leases, worker, recovery | **Implemented** | `src/runs/`, `src/db/runs.py`, `scripts/run_worker.py` | `tests/test_durable_queue.py`, `tests/test_worker_recovery.py`, `tests/test_runs_api.py` |
+| Circuit breakers and one retry policy | **Implemented** | `src/llm/resilience.py`, `src/runs/circuit.py`, `src/jobs/http_client.py` | `tests/test_circuit_breakers.py`, `tests/test_llm_resilience.py` |
 | Browser automation runtime (Playwright Python client) | **Implemented** | `src/applications/fake_ats_adapter.py`, `src/applications/form.py` | `tests/test_browser_variants.py`, `tests/test_isolation.py` |
 | Security layer: allowlist, policy, permissions, audit, injection, limits, paths | **Implemented** | `src/security/` | `tests/test_allowlist.py`, `tests/test_policy.py`, `tests/test_permissions.py`, `tests/test_audit.py`, `tests/test_injection.py`, `tests/test_page_guards.py`, `tests/test_ws12_hardening.py` |
 | Application tracking and lifecycle | **Implemented** | `src/applications/tracking.py`, `src/db/applications.py` | `tests/test_tracking.py`, `tests/test_tracking_api.py` |
@@ -98,6 +102,27 @@ The daily refresh is the same pipeline with the board adapters in front of it
 (`src/graph/job_workflow.py`: search → normalize → deduplicate → persist → match → rank). A
 search never fetches a board.
 
+**Flow 2b — the durable refresh (WS-18)**
+
+```text
+POST /api/jobs/refresh
+  → src/api/routes/jobs.py           202: a durable run id, no long work
+  → src/runs/service.py              enqueue (deduplicated against an active run)
+  → src/runs/queue.py                job_runs + job_work_items, one transaction
+        ... the request ends here; the browser may close ...
+scripts/run_worker.py (a separate, supervised process)
+  → src/runs/queue.py                atomic claim (FOR UPDATE SKIP LOCKED / conditional UPDATE)
+  → src/graph/job_executor.py        fetch → normalize → screen → admit
+  → src/runs/embedding.py            persist + enqueue the embedding work (transactional outbox)
+  → src/rag/chroma_store.py          upsert, then verify the vector against the content hash
+  → src/runs/queue.py                complete the item under its lease token; checkpoint the run
+```
+
+A crash at any point leaves a row that says exactly which work remains. The
+lease reaper marks an interrupted run `RECOVERABLE`; an administrator resumes
+the unfinished work through `POST /api/admin/embedding-runs/{id}/resume`.
+SQL is the source of truth, and the Chroma index is rebuildable from it.
+
 **Flow 3 — application (prepare → approve → submit → verify)**
 
 ```text
@@ -128,6 +153,11 @@ POST /api/applications/{id}/approve
 - **Browser automation** (`src/applications/`) — the Playwright Python client and the form walker
 - **Security layer** (`src/security/`) — allowlist, policy, permissions, audit, limits, guards
 - **Database** (`src/db/`) — SQLAlchemy models, Alembic migrations, SQLite (dev) or PostgreSQL
+- **Durable queue and worker** (`src/runs/`) — the run/work-item tables, the lease-protected
+  claim, the checkpointed embedding handler, the reconciliation and the supervised loop. The
+  worker is the **only writer** to Chroma; the API reads it.
+- **Circuit breakers** (`src/llm/resilience.py`) — per job-board host and per LLM/embedding
+  provider, with optional shared state in `circuit_breakers`
 
 ## 4. Agent Architecture
 
@@ -184,7 +214,7 @@ The approval node **fails closed**: with no recorded decision, the run does not 
 
 ## 7. Data Architecture
 
-The primary store is SQLite in development and PostgreSQL in deployment. Nine tables, each
+The primary store is SQLite in development and PostgreSQL in deployment. Fourteen tables, each
 created by its own migration so a rollback is per feature:
 
 | Table | Model | Created by | Holds |
@@ -198,9 +228,23 @@ created by its own migration so a rollback is per feature:
 | `audit_events` | `src/db/audit.py` | `d4e5f6a7b8c9` (WS-06) | the append-only trail |
 | `applications` | `src/db/applications.py` | `e5f6a7b8c9d0` (WS-07) | the tracked application |
 | `application_events` | `src/db/applications.py` | `e5f6a7b8c9d0` (WS-07) | every status change, with its actor |
+| `users` | `src/db/users.py` | `f6a7b8c9d0e1` (WS-14) | the principal that owns data and acts |
+| `access_tokens` | `src/auth/tokens.py` | `a1b2c3d4e5f6` (WS-14) | server-side sessions |
+| `job_runs` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | one durable execution: status, lease, counters, checkpoint |
+| `job_work_items` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | individually claimable work, with its own lease token and retry schedule |
+| `job_run_events` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | the append-only lifecycle history |
+| `worker_heartbeats` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | worker liveness and restart count |
+| `circuit_breakers` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | optional shared breaker state |
 
 The vector store (Chroma, under `data/chroma`) holds the embeddings and the **model identity**
-that produced them, so two embedding spaces can never be mixed.
+that produced them, so two embedding spaces can never be mixed. It also stores each vector's
+`content_hash`, which is what lets a refresh ask "is *this version* embedded?" and lets the
+worker **verify** a write before marking its work item complete.
+
+**SQL is authoritative; Chroma is a projection.** A listing exists because `jobs` says so. A
+vector is a derived index that can be deleted and rebuilt from `jobs`; the reconciler does
+exactly that when the two disagree. There is no distributed transaction between them: the
+work is at-least-once with idempotent effects (stable ids, stable content hashes).
 
 ## 8. Security Boundaries
 

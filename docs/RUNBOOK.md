@@ -207,6 +207,69 @@ lifecycle and the browser metrics, against the thresholds in
 
 ---
 
+### 4.4 The worker
+
+Background work runs in a **separate process**. The API accepts a run and
+answers `202`; the worker executes it. Starting the API does not start the
+worker, and stopping the API does not stop accepted work.
+
+```bash
+python scripts/run_worker.py            # run until SIGINT/SIGTERM
+python scripts/run_worker.py --once     # drain currently due work, then exit
+```
+
+Queue a refresh from a schedule without doing the work in the scheduler:
+
+```bash
+python scripts/refresh_jobs.py --enqueue
+```
+
+A refresh that is already queued or running is joined, not duplicated.
+
+**Supervise it.** On Linux a systemd unit is enough:
+
+```ini
+[Unit]
+Description=JobPilot background worker
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/jobpilot
+ExecStart=/srv/jobpilot/env/bin/python scripts/run_worker.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Run **one** worker unless the vector store is deployed in a mode that
+supports concurrent writers. The queue is safe with several workers (the
+claim is atomic, and the lease token fences stale commits), but Chroma is
+kept single-writer on purpose.
+
+**How leases and checkpoints work.** The worker claims a bounded batch (100
+items by default), commits the lease in the database, and processes the
+batch. It heartbeats every 30 s. The lease is 15 minutes — longer than one
+batch on the local embedder — so a merely slow worker is not declared dead. A
+crash leaves the batch in `RUNNING`; after the lease expires the reaper
+requeues those items and marks the run `RECOVERABLE`. Completed items are
+never requeued: the checkpoint is the item's own status, not a counter the
+worker hopes is right.
+
+**If the worker is dead, the API still answers.** That is intentional, and it
+is why worker liveness is its own check:
+
+```bash
+curl -s localhost:8000/api/health/ready            # database + a worker summary
+curl -s localhost:8000/api/admin/health/workers    # per-worker heartbeat age
+```
+
+`GET /api/admin/jobs/metrics` adds the queue's shape (pending, running, stale
+leases, retry backlog, oldest pending item) and today's embedding spend.
+
 ## 5. When something goes wrong
 
 ### 5.1 The API refuses to start
@@ -263,6 +326,90 @@ carries `Retry-After` and `X-RateLimit-Remaining`.
 
 ---
 
+### 5.5 A background run is interrupted
+
+Find it:
+
+```bash
+curl -s localhost:8000/api/admin/embedding-runs?status=RECOVERABLE
+curl -s localhost:8000/api/admin/embedding-runs/<run_id>
+```
+
+The detail shows the status, the counters, the last checkpoint, the embedding
+model and dimension, the last error and the failed items. Then, deliberately:
+
+```bash
+curl -X POST localhost:8000/api/admin/embedding-runs/<run_id>/resume
+```
+
+The server checks that you are an administrator, that the run is resumable,
+and that its embedding model and dimension still match the configured
+provider. It requeues **only** outstanding work and writes an audit row. A
+second resume answers `409`, and so does a model change — a different model
+is a different embedding space, so re-embed the corpus instead.
+
+Statuses and what they mean:
+
+| Status | Meaning | What to do |
+|---|---|---|
+| `QUEUED` / `RUNNING` | accepted / being executed | wait; poll the run |
+| `RETRY_WAIT` | transient failure; a retry is scheduled | usually nothing; the worker retries |
+| `PAUSED` | the daily embedding budget is spent | resume after the UTC reset |
+| `RECOVERABLE` | the worker stopped with work outstanding | inspect, then resume |
+| `PARTIAL` | some items failed permanently, the rest completed | inspect the failed items |
+| `FAILED` | nothing completed and items failed permanently | fix the cause, then resume |
+| `COMPLETED` / `CANCELLED` | terminal | nothing |
+
+### 5.6 SQL and the vector index disagree
+
+The corpus in SQL is authoritative; Chroma is a rebuildable projection. If a
+search reports `degraded`, or the metrics show missing vectors after an
+outage, queue a reconciliation:
+
+```bash
+curl -X POST localhost:8000/api/admin/embeddings/reconcile
+```
+
+The worker then:
+
+- finds SQL listings with no vector, or a vector built from older content,
+  and queues them as new embedding work;
+- finds vectors whose source row no longer exists and **deletes** them (a
+  vector without a row can never be shown or applied to);
+- treats an item marked complete whose vector is missing as missing work, so
+  it is re-embedded;
+- records the counts on the reconcile run.
+
+Reconciliation is idempotent: a second run against a consistent corpus queues
+nothing.
+
+### 5.7 The embedding provider is down, or the daily quota is spent
+
+A provider outage opens its circuit breaker after repeated retryable failures;
+calls then fail fast instead of each spending the retry budget. The work stays
+queued. The breaker's state is in `GET /api/admin/jobs/metrics` under
+`breakers`, and after `CIRCUIT_RECOVERY_SECONDS` one probe is allowed; a
+success closes it.
+
+A spent daily budget is different: it is **not** an outage, it does not open a
+breaker, and it does not fail the run. The run becomes `PAUSED` with
+`last_error_kind: quota`, every outstanding item stays queued, and the
+administrator resumes after the UTC reset. The resume does **not** reset the
+embedding cache or bypass the budget — the same quota is enforced again.
+
+Do not delete `data/chroma` or `data/embedding_cache.sqlite` to "unstick" a
+run. The cache is what makes a retry cheap and the store is what a search
+reads; the reconciler is the supported repair.
+
+### 5.8 The queue is full
+
+`POST /api/jobs/refresh` answers `503` with a `Retry-After` when
+`MAX_PENDING_RUNS` or `MAX_PENDING_WORK_ITEMS` is reached. Check what is
+running with `GET /api/admin/jobs/metrics`; a worker that is not running is
+the usual cause. Do not raise the caps to make the error go away — they exist
+so accepted work cannot exhaust the disk or the provider budget. Start the
+worker, let the queue drain, and retry.
+
 ## 6. The checks to run before a release
 
 ```bash
@@ -270,6 +417,7 @@ ruff check src tests scripts          # the linter
 pytest tests -q                       # the whole suite
 python scripts/verify_migrations.py   # the migration chain
 python scripts/audit_dependencies.py  # the dependency audit
+python scripts/run_worker.py --once   # a worker smoke run on a real database
 ```
 
 All four run in CI on every push. The isolation matrix is part of the

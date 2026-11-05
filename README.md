@@ -16,8 +16,9 @@ runtime — see `docs/implementation/` for the workstream that defines it.
 
 ## Status
 
-Milestones M1–M4 are done and live-verified. The offline suite is green (1,037 tests, ~110 s)
-and needs no network, API key or database server. The workstream-by-workstream record is in
+Milestones M1–M4 are done and live-verified. The offline suite is green (1,376 collected;
+1 skipped; ~6 minutes) and needs no network, API key or database server. The
+workstream-by-workstream record is in
 [`docs/implementation/`](docs/implementation/00-OVERVIEW.md).
 
 | Area | State |
@@ -35,12 +36,15 @@ and needs no network, API key or database server. The workstream-by-workstream r
 | Application tracking and lifecycle | Done (WS-07) |
 | Evaluation harness with a measured baseline | Done (WS-09) — [`docs/evaluations/`](docs/evaluations/) |
 | LLM client hardening: timeout, retries, pacing, usage accounting | Done (WS-10) |
+| Durable background execution: queue, worker, crash recovery, admin resume | Done (WS-18) |
+| Circuit breakers, one retry policy, liveness/readiness, queue metrics | Done (WS-18) |
 | **Live pilot on a real job board** | **Not started** — the M5 milestone |
 
 ## What you can do today
 
 - Upload a resume (`POST /api/resumes`) and get a stored, validated profile.
-- Refresh the job corpus (`POST /api/jobs/refresh` or `scripts/refresh_jobs.py`).
+- Refresh the job corpus (`POST /api/jobs/refresh`, which queues it, or `scripts/refresh_jobs.py`).
+  A separate worker runs the queued work: `python scripts/run_worker.py`.
 - Search the stored corpus (`POST /api/jobs/search`) and read the score breakdown, the
   matched skills and the missing skills for every result.
 - Tailor a resume for one job (`POST /api/tailor`) and get back the tailored content, the
@@ -278,7 +282,7 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/health` | Service status | WS-04 |
 | `POST /api/resumes` | Upload a resume, get a validated profile | WS-04 |
 | `GET /api/resumes/{profile_id}` | Read a stored profile | WS-04 |
-| `POST /api/jobs/refresh` | Fetch boards → normalize → dedup → persist → embed | WS-02, WS-04 |
+| `POST /api/jobs/refresh` | Accept a durable corpus refresh (`202` + a run id; a worker executes it) | WS-02, WS-04, WS-18 |
 | `POST /api/jobs/search` | Rank the stored corpus for a profile | WS-04 |
 | `GET /api/jobs/{job_id}` | Read one stored listing | WS-04 |
 | `GET /api/profiles/{profile_id}/matches` | Read the match history | WS-04 |
@@ -314,6 +318,17 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `DELETE /api/auth/sessions/{token}` | End one session of the caller | WS-14 |
 | `GET /api/audit` | Read the caller's own audit trail | WS-14 |
 | `GET /api/admin/overview` | Platform-wide aggregates (superuser only) | WS-17 |
+| `GET /api/health/live` | Liveness: the API process is alive | WS-18 |
+| `GET /api/health/ready` | Readiness: the database answers (worker heartbeats reported) | WS-18 |
+| `GET /api/runs` | The caller's durable execution history | WS-18 |
+| `GET /api/runs/{run_id}` | One run's state, checkpoints and item summary | WS-18 |
+| `GET /api/admin/embedding-runs` | Platform embedding runs (superuser only) | WS-18 |
+| `GET /api/admin/embedding-runs/{run_id}` | One embedding run's detail (superuser only) | WS-18 |
+| `POST /api/admin/embedding-runs/{run_id}/resume` | Resume outstanding work (superuser only) | WS-18 |
+| `POST /api/admin/embedding-runs/{run_id}/cancel` | Cancel a run safely (superuser only) | WS-18 |
+| `POST /api/admin/embeddings/reconcile` | Queue a SQL/Chroma reconciliation (superuser only) | WS-18 |
+| `GET /api/admin/jobs/metrics` | Queue, worker, breaker and budget metrics (superuser only) | WS-18 |
+| `GET /api/admin/health/workers` | Worker liveness and queue shape (superuser only) | WS-18 |
 
 The table is checked against the running application by `tests/test_docs_accuracy.py`, so a
 route added without a line here fails the suite.
@@ -346,10 +361,37 @@ code ever disagree. The settings you are most likely to change:
 | `ALLOWED_DOMAINS` | The hosts the browser may navigate to | the public ATS hosts |
 | `APP_ENV`, `CORS_ORIGINS` | Production start fails when the origins are unset or `*` | `development` |
 | `PLAYWRIGHT_HEADLESS` | Run the browser without a window; `false` lets you watch it | `true` |
+| `WORKER_LEASE_SECONDS`, `WORKER_HEARTBEAT_SECONDS`, `WORKER_BATCH_SIZE` | How long a claim is valid, the heartbeat interval, and the checkpoint batch | 900, 30, 100 |
+| `WORKER_MAX_ATTEMPTS`, `WORKER_RETRY_BASE_SECONDS`, `RETRY_MAX_DELAY_SECONDS` | Per-item attempt ceiling and the capped backoff | 3, 30, 60 |
+| `RUN_STALE_SECONDS`, `WORKER_STALE_SECONDS` | When a silent run is recoverable and a worker is unhealthy | 1800, 60 |
+| `MAX_PENDING_RUNS`, `MAX_PENDING_WORK_ITEMS` | The bounded background queue | 25, 20000 |
+| `CIRCUIT_FAILURE_THRESHOLD`, `CIRCUIT_RECOVERY_SECONDS`, `CIRCUIT_SHARED_STATE` | Provider breakers: failures to open, cooldown, shared state | 5, 60, `true` |
 
 Changing the embedding model or its dimension requires deleting `CHROMA_DIR` and re-running
 the refresh: the model identity is stored with the vectors, and the store raises
-`VectorStoreMismatch` rather than mixing two embedding spaces.
+`VectorStoreMismatch` rather than mixing two embedding spaces. A paused or interrupted run
+in the old space refuses an administrator's resume for the same reason.
+
+## Durable background work
+
+Long-running work does not depend on an HTTP request. The API writes a durable run
+(`job_runs` + `job_work_items`), answers `202` with its id, and a **separate worker**
+executes it:
+
+```bash
+python scripts/run_worker.py            # supervised process (systemd / container / service)
+python scripts/refresh_jobs.py --enqueue   # a schedule that only queues the work
+```
+
+Progress comes from the database, so closing the browser, reloading the console or
+restarting the API loses nothing. Work items are claimed atomically and carry a lease; a
+crashed worker's unfinished items are requeued by the lease reaper, the run becomes
+`RECOVERABLE`, and an administrator resumes **only the outstanding work** through the
+administration screen or `POST /api/admin/embedding-runs/{id}/resume`. Completed vectors are
+never rebuilt, the daily embedding budget still applies, and SQL remains the source of truth
+while Chroma is a rebuildable projection (`POST /api/admin/embeddings/reconcile`).
+
+See [docs/RUNBOOK.md](docs/RUNBOOK.md) §4.4 and §5.5–5.8.
 
 ## Security posture
 

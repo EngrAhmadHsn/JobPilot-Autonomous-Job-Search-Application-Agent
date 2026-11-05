@@ -50,6 +50,12 @@ EXPECTED_TABLES = {
     "applications",
     "application_events",
     "application_evidence",
+    # WS-18: durable background execution.
+    "job_runs",
+    "job_work_items",
+    "job_run_events",
+    "worker_heartbeats",
+    "circuit_breakers",
 }
 
 #: The columns the WS-14 work added. They are named explicitly because
@@ -68,6 +74,41 @@ EXPECTED_COLUMNS = {
     # WS-15: the corpus's eviction clock. Without it the corpus cap is a
     # one-way door — a full corpus admits nothing, ever again.
     "jobs": {"last_seen_at"},
+    # WS-18: the queue's identity, lease, counters and content-version
+    # uniqueness. A migration that forgot the lease token would make a
+    # stale worker's result indistinguishable from a live one.
+    "job_runs": {
+        "id",
+        "job_type",
+        "status",
+        "priority",
+        "owner_id",
+        "correlation_id",
+        "lease_owner",
+        "lease_expires_at",
+        "total_items",
+        "completed_items",
+        "failed_items",
+        "last_error",
+        "metadata",
+    },
+    "job_work_items": {
+        "id",
+        "run_id",
+        "job_id",
+        "work_type",
+        "content_hash",
+        "embedding_model",
+        "embedding_dimension",
+        "status",
+        "attempt_count",
+        "next_attempt_at",
+        "lease_owner",
+        "lease_token",
+        "lease_expires_at",
+        "last_error_kind",
+    },
+    "worker_heartbeats": {"worker_id", "status", "last_heartbeat_at", "starts"},
 }
 
 

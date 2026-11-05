@@ -84,6 +84,28 @@ the ones that are not._
 - the traversal controls of WS-12: path containment for request-supplied files, the zip-bomb
   guard, and the type-safe board-payload accessor
 
+**The durable execution controls (WS-18).**
+
+- accepted background work is written to `job_runs` **before** execution starts; no critical
+  state lives in React, `localStorage` or an HTTP connection
+- every work item is claimed atomically and carries a **lease token**; a worker whose lease was
+  reclaimed cannot commit (`src/runs/queue.py`, `tests/test_durable_queue.py`)
+- recovery, cancellation and reconciliation are `require_superuser` routes whose identity is
+  the authenticated principal, never a request field (`src/api/routes/admin.py`)
+- a resume is a **validated state transition**: only a paused/recoverable/retrying/failed run
+  may move, a concurrent resume loses the conditional update, and a model or dimension change
+  is refused until the corpus is re-embedded
+- every administrative action is audited with the administrator's own principal
+  (`run.enqueue`, `run.resume`, `run.cancel`, `run.reconcile`)
+- the queue is **bounded** (`MAX_PENDING_RUNS`, `MAX_PENDING_WORK_ITEMS`) and an active
+  refresh is never duplicated, so repeated clicks cannot multiply work or bypass the limits
+- the embedding budget still applies on resume: `PAUSED` is a quota stop, not an exemption
+- run events are control-character-stripped and metadata-sanitized, so a diagnostic cannot
+  forge a row or carry PII (`src/runs/queue.py::record_event`)
+- circuit breakers per job-board host and per LLM/embedding provider, with permanent errors
+  excluded from the failure count so a configuration mistake cannot look like an outage
+  (`src/llm/resilience.py`, `tests/test_circuit_breakers.py`)
+
 **The browser session (WS-08).**
 
 - browser session isolation: every run gets an explicit, fresh browser **and** context, so no
@@ -597,6 +619,44 @@ per-instance rate limiter; the data model does not change.
 - **Per-tenant encryption keys** are not implemented. A deployment that
   needs them needs a key-management design, which is a larger piece of
   work than this one.
+
+### 6.17 Durable execution and administrator recovery
+
+- Threat: an interrupted background process is reported as successful, resumed
+  by the wrong principal, or resumed into an incompatible embedding space.
+- Attack scenario: a worker dies mid-corpus; anyone who can reach the API
+  restarts it; or a run planned for one embedding model is resumed after the
+  provider changed, mixing two vector spaces.
+- Impact: a corpus that claims to be indexed when it is not, duplicated or
+  corrupted vectors, and an unattributable recovery that bypasses the daily
+  budget.
+- Mitigation:
+  - SQL is the source of truth; a run is `COMPLETED` only when its own work
+    items are terminal and its counters say so — never because a request
+    asked for that status
+  - the state machine refuses `FAILED`/`CANCELLED` → `COMPLETED`, and every
+    transition passes `assert_transition()`
+  - the lease token fences commits: a stale worker's result is discarded
+    (`LeaseLost`), never written
+  - resume requires `is_superuser`, the CSRF token on a cookie transport, the
+    normal rate limit, a resumable run, a matching model and dimension, and
+    an audit row; completed work is never requeued
+  - a concurrent resume loses the conditional update (409), so a double-click
+    cannot enqueue the work twice
+  - quotas, queue capacity and the per-refresh embedding budget are enforced
+    on the recovery path exactly as on the first attempt
+  - SQL and Chroma are reconciled by a compensating operation, never by a
+    distributed transaction; orphan vectors are deleted, missing vectors are
+    queued, and the counts are recorded on the run
+- Implementation location:
+  - `src/runs/state.py`, `src/runs/queue.py`, `src/runs/service.py`
+  - `src/api/routes/admin.py`, `src/api/routes/jobs.py`
+  - `src/runs/circuit.py`, `src/llm/resilience.py`
+- Verification/test:
+  - `tests/test_durable_queue.py`, `tests/test_worker_recovery.py`,
+    `tests/test_runs_api.py`, `tests/test_circuit_breakers.py`,
+    `tests/test_health_workers.py`
+- Status: implemented (2026-11-05).
 
 ## 7. Browser automation security policy
 

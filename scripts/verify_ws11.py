@@ -40,6 +40,11 @@ if str(REPO_ROOT) not in sys.path:
 _WORKDIR = Path(tempfile.mkdtemp(prefix="ws11-verify-"))
 DATABASE_PATH = _WORKDIR / "verify.db"
 EVIDENCE_DIR = _WORKDIR / "evidence"
+# WS-14 stores every user's files under DATA_DIR/users/<id>/..., so the
+# verification must point DATA_DIR at its own tree. Without this the run
+# writes evidence into the developer's repository.
+DATA_DIR = _WORKDIR / "data"
+os.environ["DATA_DIR"] = str(DATA_DIR)
 os.environ["DATABASE_URL"] = f"sqlite:///{DATABASE_PATH.as_posix()}"
 os.environ["EVIDENCE_DIR"] = str(EVIDENCE_DIR)
 os.environ["ALEMBIC_DATABASE_URL"] = f"sqlite:///{DATABASE_PATH.as_posix()}"
@@ -264,6 +269,12 @@ def _check_live_flow() -> None:
         "applications",
         "application_events",
         "application_evidence",
+        # WS-18: durable background execution.
+        "job_runs",
+        "job_work_items",
+        "job_run_events",
+        "worker_heartbeats",
+        "circuit_breakers",
     }
     check(
         "the migration creates every table the ORM expects",
@@ -277,6 +288,40 @@ def _check_live_flow() -> None:
         server, thread, api = _serve_api()
         try:
             with httpx.Client(base_url=api, timeout=60) as client:
+                # WS-14 made every data route require a principal. The
+                # verification creates its own account and uses the bearer
+                # transport, which is what the quickstart documents for a
+                # script.
+                account = {
+                    "email": f"ws11-verify-{int(time.time())}@example.com",
+                    "password": "ws11-verification-password",
+                }
+                response = client.post("/api/auth/register", json=account)
+                check(
+                    "the verification account registers",
+                    response.status_code in (200, 201),
+                    f"status={response.status_code}",
+                )
+                response = client.post(
+                    "/api/auth/token/login",
+                    data={
+                        "username": account["email"],
+                        "password": account["password"],
+                    },
+                )
+                token = (
+                    response.json().get("access_token")
+                    if response.status_code == 200
+                    else None
+                )
+                check(
+                    "the verification account signs in (bearer transport)",
+                    bool(token),
+                    f"status={response.status_code}",
+                )
+                if token:
+                    client.headers["Authorization"] = f"Bearer {token}"
+
                 response = client.get("/")
                 check(
                     "GET / answers",
@@ -361,10 +406,19 @@ def _check_live_flow() -> None:
                     )
 
                     evidence = body.get("evidence") or {}
-                    artifacts = (
-                        sorted(p.name for p in EVIDENCE_DIR.glob("*"))
-                        if EVIDENCE_DIR.exists()
-                        else []
+                    # WS-14 stores each account's evidence under its own
+                    # directory, so the check walks the tree rather than
+                    # assuming a flat one.
+                    artifact_roots = [
+                        root
+                        for root in (EVIDENCE_DIR, DATA_DIR / "users")
+                        if root.exists()
+                    ]
+                    artifacts = sorted(
+                        p.name
+                        for root in artifact_roots
+                        for p in root.rglob("*")
+                        if p.is_file()
                     )
                     check(
                         "the evidence artifacts are on disk",
