@@ -15,6 +15,7 @@ from src.api.middleware import (
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
 )
+from src.api.routes.admin import router as admin_router
 from src.api.routes.applications import router as applications_router
 from src.api.routes.artifacts import router as artifacts_router
 from src.api.routes.audit import router as audit_router
@@ -120,6 +121,8 @@ app.include_router(health_router)
 app.include_router(auth_router)
 # WS-14 · Phase C: the caller's own audit trail.
 app.include_router(audit_router)
+# WS-17: the platform overview — superuser only, refused in the dependency.
+app.include_router(admin_router)
 app.include_router(documents_router)
 app.include_router(applications_router)
 app.include_router(resumes_router)

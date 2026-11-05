@@ -47,21 +47,27 @@ from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
 from src.db.evidence import ApplicationEvidenceDB
+from src.db.jobs import JobDB
 from src.db.matches import JobMatchDB
 from src.db.profiles import CandidateProfileDB
 from src.db.tailored import TailoredResumeDB
-from src.db.users import LEGACY_OWNER_ID
+from src.db.users import LEGACY_OWNER_ID, UserDB
 
 __all__ = [
     "LEGACY_SCOPE",
     "UserScope",
     "claim_legacy_rows",
     "count_applications",
+    "count_distinct_owned",
+    "count_jobs",
+    "count_owned",
+    "count_users",
     "get_application",
     "get_application_by_approval",
     "get_approval",
     "get_profile",
     "get_tailored",
+    "group_owned",
     "list_applications",
     "list_audit_events",
     "list_profiles",
@@ -340,3 +346,63 @@ def list_audit_events(
         select(AuditEventDB).order_by(AuditEventDB.id.desc()).limit(max(1, min(limit, 1000)))
     )
     return list(db.execute(_owned(statement, AuditEventDB, scope)).scalars())
+
+
+# -- aggregates (the platform view) -------------------------------------------
+
+
+def count_owned(db: Session, scope: UserScope, model: type) -> int:
+    """Count the rows of an owner-scoped table this scope may read.
+
+    The scope does the filtering, exactly as it does for a row-fetching
+    accessor: an ordinary scope counts its own rows, and a superuser scope
+    counts every row. The count never bypasses the owner filter, so a route
+    cannot use it to learn about another tenant's data.
+    """
+    statement = select(func.count()).select_from(model)
+    return int(db.execute(_owned(statement, model, scope)).scalar_one())
+
+
+def count_distinct_owned(db: Session, scope: UserScope, model: type, column) -> int:
+    """Count the distinct values of *column* this scope may read."""
+    statement = select(func.count(func.distinct(column))).select_from(model)
+    return int(db.execute(_owned(statement, model, scope)).scalar_one())
+
+
+def group_owned(db: Session, scope: UserScope, model: type, column) -> dict[str, int]:
+    """Count rows of an owner-scoped table grouped by *column*."""
+    statement = select(column, func.count()).select_from(model).group_by(column)
+    rows = db.execute(_owned(statement, model, scope)).all()
+    return {str(key): int(count) for key, count in rows if key is not None}
+
+
+def count_jobs(db: Session) -> int:
+    """Count the shared job corpus.
+
+    ``jobs`` is the one table that is deliberately **not** owner-scoped: it
+    holds public board data, shared by every account. It is counted here so
+    the route does not query a table directly (the pattern the isolation
+    matrix forbids), and it takes no scope because there is nothing to
+    scope it by.
+    """
+    return int(db.execute(select(func.count()).select_from(JobDB)).scalar_one())
+
+
+def count_users(
+    db: Session,
+    *,
+    active: bool | None = None,
+    superuser: bool | None = None,
+) -> int:
+    """Count platform accounts, optionally filtered by a flag.
+
+    Accounts are the platform's own rows, not a tenant's data: they are the
+    same for every caller, which is exactly why only a superuser route
+    should ask for this count.
+    """
+    statement = select(func.count()).select_from(UserDB)
+    if active is not None:
+        statement = statement.where(UserDB.is_active.is_(active))
+    if superuser is not None:
+        statement = statement.where(UserDB.is_superuser.is_(superuser))
+    return int(db.execute(statement).scalar_one())
