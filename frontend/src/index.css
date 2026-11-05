@@ -37,6 +37,21 @@
   --color-paper: #fffdf8;
   --color-ink: #23211c;
 
+  /*
+    The night desk.
+
+    The public landing page is the same desk after dark: a warm,
+    near-black forest charcoal, not a neutral #000. The lamp light on it
+    is the identity's own lime and terracotta — the agent's mark and the
+    human's — so the immersive surface is the product's metaphor, not an
+    unrelated dark theme.
+  */
+  --color-night: #0e1a16;
+  --color-night-soft: #13221c;
+  --color-night-raised: #182b23;
+  --color-night-line: #244036;
+  --color-night-muted: #9db3a7;
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -188,21 +203,73 @@
     border-radius: 4px;
   }
 
-  /* Motion answers an action; it never performs. And it is optional. */
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-delay: 0ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
+  /*
+    Motion answers an action; it never performs. And it is optional.
 
-    /* A shine is motion. Without motion there is none. */
-    .shine::before {
-      display: none;
+    **Reduced motion means less movement, not less feedback.** A blanket
+    `transition-duration: 0.01ms` on `*` is the lazy version, and it is
+    wrong: it deletes the harmless parts (an opacity fade, a colour change)
+    along with the harmful ones, so the whole interface *pops* — which is its
+    own kind of unpleasant, and unhelpful. What provokes discomfort is
+    **travel** (translate, scale, parallax, an endless loop), so that is what
+    this removes.
+
+    These rules key on `<html data-motion="reduced">`, which
+    `src/lib/motion.ts` sets **before the first render** from the visitor's
+    choice folded with the OS preference. Keying on the attribute rather than
+    on the media query alone is what lets the in-app "Full" choice override a
+    machine that reports reduce for unrelated reasons (an OEM image, a
+    battery tweak, Windows' "Animation effects" off) — while "System", the
+    default, still follows the OS.
+  */
+  html[data-motion="reduced"] *,
+  html[data-motion="reduced"] *::before,
+  html[data-motion="reduced"] *::after {
+    /* Keyframed motion — an entrance or a loop — is travel. Remove it. */
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    /* Transitions keep only the properties that move nothing. */
+    transition-property:
+      opacity, color, background-color, border-color, outline-color,
+      text-decoration-color, box-shadow, fill, stroke !important;
+    transition-duration: 240ms !important;
+  }
+
+  /*
+    The entrances keep their fade **and their stagger**. A sequence of fades
+    is not movement, so `animation-delay` is deliberately left to the base
+    rule — otherwise every item would arrive at once, which is exactly the
+    "everything just appears" behaviour this is meant to avoid.
+  */
+  html[data-motion="reduced"] :is(.enter-up, .reveal-once) {
+    animation-name: reduced-fade !important;
+    animation-duration: 320ms !important;
+  }
+
+  html[data-motion="reduced"] [data-reveal] {
+    transition-duration: 360ms !important;
+    transition-delay: calc(var(--i, 0) * 90ms) !important;
+  }
+
+  /* A shine is motion. Without motion there is none. */
+  html[data-motion="reduced"] .shine::before {
+    display: none;
+  }
+
+  /* The screen transition is a rise. Reduced, it is an instant swap. */
+  html[data-motion="reduced"]::view-transition-old(root),
+  html[data-motion="reduced"]::view-transition-new(root) {
+    animation-duration: 0.01ms !important;
+  }
+
+  /* The reduced-motion entrance: a fade, and no travel. */
+  @keyframes reduced-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
     }
   }
 }
@@ -363,7 +430,8 @@
   */
   .enter-up {
     animation: enter-up 420ms var(--ease-soft) both;
-    animation-delay: calc(var(--i, 0) * 45ms);
+    /* 80 ms reads as a sequence; 45 ms overlapped so heavily it read as one. */
+    animation-delay: calc(var(--i, 0) * 80ms);
   }
 
   @keyframes enter-up {
@@ -391,5 +459,54 @@
       opacity: 1;
       transform: none;
     }
+  }
+
+  /*
+    The scroll reveal.
+
+    The hidden state is applied by JavaScript (`data-reveal="pending"` on
+    mount) and never by CSS alone, so a visitor whose browser never runs
+    the observer — or who has scripting off — sees the content, not a
+    blank page. The reveal fires **once**; it is not a per-frame effect.
+    The delay is the item's index, the same staggering idea as `.enter-up`.
+  */
+  [data-reveal] {
+    transition:
+      opacity 640ms var(--ease-soft) calc(var(--i, 0) * 90ms),
+      transform 640ms var(--ease-soft) calc(var(--i, 0) * 90ms);
+  }
+
+  [data-reveal="pending"] {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  [data-reveal="in"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /*
+    The night surface.
+
+    The landing page is a warm dark canvas with a faint grain — the same
+    "paper" treatment as the console, inverted, so the two surfaces feel
+    like the same product on the same desk.
+  */
+  .night-surface {
+    color: var(--color-ivory);
+    background-color: var(--color-night);
+    background-image:
+      radial-gradient(
+        120% 90% at 50% -10%,
+        color-mix(in oklab, var(--color-forest) 55%, transparent),
+        transparent 62%
+      ),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  /* A hairline that reads on the night canvas. */
+  .night-line {
+    border-color: var(--color-night-line);
   }
 }
