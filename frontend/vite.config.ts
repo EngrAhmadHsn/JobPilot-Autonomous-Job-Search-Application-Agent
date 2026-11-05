@@ -49,7 +49,7 @@ const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8000"
  */
 function contentSecurityPolicy(
   apiBaseUrl: string,
-  { development }: { development: boolean }
+  { development, meta = false }: { development: boolean; meta?: boolean }
 ): string {
   const connect = new Set(["'self'"])
   if (apiBaseUrl) {
@@ -71,7 +71,7 @@ function contentSecurityPolicy(
   const scriptSrc = development
     ? "'self' 'unsafe-inline' 'unsafe-eval'"
     : "'self'"
-  return [
+  const directives = [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
@@ -82,7 +82,26 @@ function contentSecurityPolicy(
     "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-  ].join("; ")
+  ]
+  /*
+    A `<meta>`-delivered policy cannot carry every directive. `frame-ancestors`
+    — with `report-uri` and `sandbox` — is defined only for a policy delivered
+    in a **header**; in a `<meta>` tag the browser ignores that one directive
+    and logs an error on every load (which is what this console was doing).
+    So the meta policy omits it instead of asking for something it cannot
+    have, and the framing defence rides on the header — the dev and preview
+    servers set one, and `X-Frame-Options: DENY` above covers a host that
+    sets headers at all. A host that sets none gets the rest of the policy
+    from the document, but framing protection is a header's job and cannot be
+    faked in the markup.
+  */
+  const META_IGNORED = ["frame-ancestors"]
+  const emitted = meta
+    ? directives.filter(
+        (directive) => !META_IGNORED.some((name) => directive.startsWith(name))
+      )
+    : directives
+  return emitted.join("; ")
 }
 
 /** The headers that go with the policy, whatever the transport. */
@@ -98,8 +117,9 @@ const SECURITY_HEADERS = {
  * Injects the policy into the built `index.html`.
  *
  * A static host that sets no headers still gets the policy, because the
- * policy is in the document. A host that *does* set the header gets the
- * same policy twice, which is harmless — the browser applies the
+ * policy is in the document — minus the directives a `<meta>` policy cannot
+ * carry (see `contentSecurityPolicy`). A host that *does* set the header gets
+ * the full policy as well, which is harmless — the browser applies the
  * intersection.
  */
 function contentSecurityPolicyPlugin(policy: string) {
@@ -127,8 +147,14 @@ function contentSecurityPolicyPlugin(policy: string) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const apiBaseUrl = env.VITE_API_BASE_URL ?? ""
+  // The **header** policy is the full one; the **meta** policy is the same
+  // minus the directives a `<meta>` tag cannot carry.
   const productionPolicy = contentSecurityPolicy(apiBaseUrl, {
     development: false,
+  })
+  const productionMetaPolicy = contentSecurityPolicy(apiBaseUrl, {
+    development: false,
+    meta: true,
   })
   const developmentPolicy = contentSecurityPolicy(apiBaseUrl, {
     development: true,
@@ -138,7 +164,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      contentSecurityPolicyPlugin(productionPolicy),
+      contentSecurityPolicyPlugin(productionMetaPolicy),
     ],
     resolve: {
       alias: {
