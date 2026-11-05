@@ -246,6 +246,6 @@ DEV_CREDENTIALS.local.md
 
 # Scan dumps and scratch scripts. These are working notes from agent
 # sessions, not part of the product; they are regenerated at will.
-zcode_skills_scan.txt
-zcode_remaining_scan.txt
+*_scan.txt
 tmp_*.py
+temp_*
