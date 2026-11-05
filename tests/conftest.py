@@ -57,10 +57,41 @@ from src.db import (  # noqa: F401  (imported for the model registration)
     jobs,
     matches,
     profiles,
+    runs,
     tailored,
 )
 from src.db.base import Base
 from src.jobs.http_client import HostRateLimiter, get_default_limiter, reset_default_limiter
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit_breakers(_suite_database):
+    """Give every test a CLOSED circuit (WS-18).
+
+    A circuit breaker is *state that survives a request on purpose*: it is
+    what stops a closed provider from being poked by every caller. That same
+    persistence makes it a test-isolation hazard — a test that deliberately
+    fails a host five times opens its circuit, and the next test that uses
+    the same host gets a fast refusal instead of the behaviour it is
+    asserting. The process-wide breakers are dropped and the shared table is
+    cleared around every test; the tests that are *about* the breaker build
+    their own instance and drive it explicitly.
+    """
+    from sqlalchemy import text
+
+    from src.llm.resilience import reset_breakers
+
+    def _clear() -> None:
+        reset_breakers()
+        try:
+            with _suite_database.begin() as connection:
+                connection.execute(text("DELETE FROM circuit_breakers"))
+        except Exception:  # noqa: BLE001, S110 - the table may not exist yet
+            pass
+
+    _clear()
+    yield
+    _clear()
 
 
 @pytest.fixture(autouse=True)

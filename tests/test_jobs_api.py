@@ -213,71 +213,58 @@ def test_matches_history_empty_for_fresh_profile(api: TestClient, profile_id: st
 # ------------------------------------------------------------- FU-1 --------
 
 
-class RecordingRefreshExecutor:
-    """Refresh executor double returning a fixture refresh report."""
+def test_refresh_endpoint_accepts_a_durable_run(api: TestClient) -> None:
+    """WS-18: the refresh is accepted as background work, not executed inline.
 
-    def __init__(self, report) -> None:
-        self._report = report
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-        return self._report
-
-
-def _fixture_refresh_report():
-    from src.graph.job_executor import JobRefreshReport, JobRefreshStats
-
-    return JobRefreshReport(
-        stats=JobRefreshStats(
-            found=12, dropped=1, deduped=10, persisted=10, embedded=9
-        ),
-        source_errors={"broken": "RuntimeError: down"},
-        embedding_requests_planned=1,
-        embedding_requests_used=1,
-        quota_exhausted=False,
-        degraded_embedding=False,
-    )
-
-
-def test_refresh_endpoint_returns_summary(api: TestClient) -> None:
-    from src.api.routes import jobs as jobs_route
-
-    executor = RecordingRefreshExecutor(_fixture_refresh_report())
-    app.dependency_overrides[jobs_route.get_job_refresh_executor] = lambda: executor
-
+    The response is 202 with a persistent run id; the API never waits for the
+    boards or the embeddings. A second click joins the same active run
+    instead of starting a competing full-corpus refresh.
+    """
     response = api.post("/api/jobs/refresh")
 
-    app.dependency_overrides.pop(jobs_route.get_job_refresh_executor, None)
+    assert response.status_code == 202
+    body = response.json()
+    assert body["run_id"]
+    assert body["status"] == "QUEUED"
+    assert body["job_type"] == "refresh"
+    assert body["correlation_id"]
+    assert body["existing"] is False
+
+    again = api.post("/api/jobs/refresh")
+    assert again.status_code == 202
+    assert again.json()["run_id"] == body["run_id"]
+    assert again.json()["existing"] is True
+
+
+def test_the_accepted_run_is_readable_by_its_requester(api: TestClient) -> None:
+    accepted = api.post("/api/jobs/refresh").json()
+
+    response = api.get(f"/api/runs/{accepted['run_id']}")
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["id"] == accepted["run_id"]
+    assert run["status"] == "QUEUED"
+    assert run["total_items"] == 1
+    assert run["items"]["queued"] == 1
+    assert run["progress_percent"] == 0.0
+    # The run's creation is a recorded lifecycle event, not just a row.
+    assert any(event["event"] == "run.created" for event in run["events"])
+
+
+def test_the_run_history_lists_the_callers_runs(api: TestClient) -> None:
+    accepted = api.post("/api/jobs/refresh").json()
+
+    response = api.get("/api/runs")
+
     assert response.status_code == 200
     body = response.json()
-    assert body["stats"]["persisted"] == 10
-    assert body["stats"]["embedded"] == 9
-    assert body["source_errors"] == {"broken": "RuntimeError: down"}
-    assert body["embedding_requests_planned"] == 1
-    assert body["quota_exhausted"] is False
-    assert executor.calls == 1
+    assert body["count"] >= 1
+    assert accepted["run_id"] in {run["id"] for run in body["runs"]}
 
 
-def test_refresh_endpoint_quota_stop_passes_through(api: TestClient) -> None:
-    from src.api.routes import jobs as jobs_route
-    from src.graph.job_executor import JobRefreshReport, JobRefreshStats
-
-    report = JobRefreshReport(
-        stats=JobRefreshStats(found=5, dropped=0, deduped=5, persisted=5, embedded=0),
-        embedding_requests_planned=3,
-        embedding_requests_used=2,
-        quota_exhausted=True,
-    )
-    app.dependency_overrides[jobs_route.get_job_refresh_executor] = (
-        lambda: RecordingRefreshExecutor(report)
-    )
-
-    response = api.post("/api/jobs/refresh")
-
-    app.dependency_overrides.pop(jobs_route.get_job_refresh_executor, None)
-    assert response.status_code == 200  # a quota stop is a valid outcome
-    assert response.json()["quota_exhausted"] is True
+def test_an_unreadable_run_is_a_404_not_an_existence_oracle(api: TestClient) -> None:
+    assert api.get("/api/runs/no-such-run").status_code == 404
 
 
 def test_search_defaults_to_store_only_executor(api: TestClient, tmp_path: Path, profile_id: str) -> None:

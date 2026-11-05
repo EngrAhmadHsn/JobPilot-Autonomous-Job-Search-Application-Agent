@@ -507,3 +507,124 @@ def test_production_startup_fails_fast_without_an_identity_secret() -> None:
     )
     assert result.returncode != 0
     assert "AUTH_SECRET" in result.stderr
+
+
+# -- WS-18: durable execution -------------------------------------------------
+
+WS18_TABLES = {
+    "job_runs",
+    "job_work_items",
+    "job_run_events",
+    "worker_heartbeats",
+    "circuit_breakers",
+}
+
+JOB_RUN_COLUMNS = {
+    "id",
+    "job_type",
+    "status",
+    "priority",
+    "owner_id",
+    "correlation_id",
+    "parent_run_id",
+    "embedding_model",
+    "embedding_dimension",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "heartbeat_at",
+    "lease_owner",
+    "lease_expires_at",
+    "attempt_count",
+    "total_items",
+    "completed_items",
+    "failed_items",
+    "skipped_items",
+    "last_error",
+    "last_error_kind",
+    "metadata",
+}
+
+JOB_WORK_ITEM_COLUMNS = {
+    "id",
+    "run_id",
+    "job_id",
+    "work_type",
+    "content_hash",
+    "embedding_model",
+    "embedding_dimension",
+    "status",
+    "attempt_count",
+    "next_attempt_at",
+    "lease_owner",
+    "lease_token",
+    "lease_expires_at",
+    "created_at",
+    "completed_at",
+    "last_error",
+    "last_error_kind",
+    "metadata",
+}
+
+
+def test_ws18_durable_execution_tables(migration_env: tuple[Config, str]) -> None:
+    """The queue's schema, constraints and indexes exist on both dialects."""
+    cfg, url = migration_env
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        assert WS18_TABLES <= set(inspector.get_table_names())
+
+        run_columns = {col["name"] for col in inspector.get_columns("job_runs")}
+        assert run_columns == JOB_RUN_COLUMNS
+        item_columns = {col["name"] for col in inspector.get_columns("job_work_items")}
+        assert item_columns == JOB_WORK_ITEM_COLUMNS
+
+        run_indexes = {ix["name"] for ix in inspector.get_indexes("job_runs")}
+        assert {
+            "ix_job_runs_job_type",
+            "ix_job_runs_status",
+            "ix_job_runs_owner_id",
+            "ix_job_runs_correlation_id",
+            "ix_job_runs_status_priority",
+            "ix_job_runs_type_status",
+        } <= run_indexes
+        item_indexes = {ix["name"] for ix in inspector.get_indexes("job_work_items")}
+        assert {
+            "ix_job_work_items_run_id",
+            "ix_job_work_items_status",
+            "ix_job_work_items_next_attempt_at",
+            "ix_job_work_items_lease_token",
+            "ix_job_work_items_claim",
+            "ix_job_work_items_run_status",
+        } <= item_indexes
+
+        # The identity constraint is what makes a retry reuse a row instead
+        # of creating a second piece of work for the same content version.
+        uniques = {
+            constraint["name"] for constraint in inspector.get_unique_constraints("job_work_items")
+        }
+        assert "uq_job_work_items_identity" in uniques
+
+        event_indexes = {ix["name"] for ix in inspector.get_indexes("job_run_events")}
+        assert "ix_job_run_events_run_id" in event_indexes
+    finally:
+        engine.dispose()
+
+    command.downgrade(cfg, "base")
+    assert not WS18_TABLES & _table_names(url)
+
+
+def test_ws18_tables_render_on_postgres(
+    migration_env: tuple[Config, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cfg, _url = migration_env
+    ddl = _offline_ddl(
+        monkeypatch,
+        "postgresql://alembic_offline:unused@localhost:5432/render_only",
+    )
+    for table in WS18_TABLES:
+        assert f"CREATE TABLE {table}" in ddl
+    assert re.search(r"\bmetadata\s+JSON", ddl)

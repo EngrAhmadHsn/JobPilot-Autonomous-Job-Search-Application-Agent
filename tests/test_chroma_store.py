@@ -141,6 +141,11 @@ def test_metadata_persisted(tmp_path):
         "remote_policy": "remote",
         "seniority": "",
         "source": "greenhouse",
+        # WS-18: the content version the vector was built from, so a later
+        # refresh can tell "already embedded" from "embedded from stale text".
+        "content_hash": ChromaVectorStore.content_hash(
+            ChromaVectorStore.document_text(PYTHON_JOB)
+        ),
     }
 
 

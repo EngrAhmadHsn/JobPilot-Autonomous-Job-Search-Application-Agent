@@ -132,6 +132,21 @@ SETTINGS_VAR_TO_ATTR = {
     "RETENTION_EVIDENCE_DAYS": "retention_evidence_days",
     "RETENTION_SESSION_DAYS": "retention_session_days",
     "RETENTION_DELETION_GRACE_DAYS": "retention_deletion_grace_days",
+    # WS-18: durable execution.
+    "WORKER_ID": "worker_id",
+    "WORKER_POLL_INTERVAL_SECONDS": "worker_poll_interval_seconds",
+    "WORKER_LEASE_SECONDS": "worker_lease_seconds",
+    "WORKER_HEARTBEAT_SECONDS": "worker_heartbeat_seconds",
+    "WORKER_BATCH_SIZE": "worker_batch_size",
+    "WORKER_MAX_ATTEMPTS": "worker_max_attempts",
+    "WORKER_RETRY_BASE_SECONDS": "worker_retry_base_seconds",
+    "WORKER_RETRY_MAX_SECONDS": "worker_retry_max_seconds",
+    "RUN_STALE_SECONDS": "run_stale_seconds",
+    "WORKER_STALE_SECONDS": "worker_stale_seconds",
+    "RETRY_MAX_DELAY_SECONDS": "retry_max_delay_seconds",
+    "CIRCUIT_FAILURE_THRESHOLD": "circuit_failure_threshold",
+    "CIRCUIT_RECOVERY_SECONDS": "circuit_recovery_seconds",
+    "CIRCUIT_SHARED_STATE": "circuit_shared_state",
 }
 
 # The same, for the WS-12 runtime limits.
@@ -158,6 +173,9 @@ LIMITS_VAR_TO_ATTR = {
     "MAX_TITLE_CHARS": "max_title_chars",
     "MAX_COMPANY_CHARS": "max_company_chars",
     "MAX_PROMPT_UNTRUSTED_CHARS": "max_prompt_untrusted_chars",
+    # WS-18: the bounded background queue.
+    "MAX_PENDING_RUNS": "max_pending_runs",
+    "MAX_PENDING_WORK_ITEMS": "max_pending_work_items",
 }
 
 # Documented variables that deliberately do NOT state a default, and why.

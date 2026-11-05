@@ -65,12 +65,20 @@ USER_SCOPED_MODELS: tuple[str, ...] = (
     "ApplicationEvidenceDB",
     "ApprovalRequestDB",
     "AuditEventDB",
+    # WS-18: a durable run belongs to the principal that requested it.
+    "JobRunDB",
 )
 
 #: Every model a route is allowed to name. A route that names a model
 #: which is not in this list is reaching the database by an indirect
 #: name, which is the shape of an evasion.
-KNOWN_MODELS: frozenset[str] = frozenset(USER_SCOPED_MODELS) | {"JobDB"}
+KNOWN_MODELS: frozenset[str] = frozenset(USER_SCOPED_MODELS) | {
+    "JobDB",
+    # A run's items and events belong to the run; the run accessor is the
+    # authorization boundary, so a route may not name them directly either.
+    "JobWorkItemDB",
+    "JobRunEventDB",
+}
 
 #: The session methods that read a table.
 _QUERY_METHODS = frozenset({"get", "query", "scalar", "scalars", "execute", "select_from"})
@@ -492,6 +500,45 @@ class TestTheWritersRecordTheOwner:
             db.add(record)
             db.commit()
             assert record.owner_id == "alice"
+
+
+class TestDurableRunsAreOwnerScoped:
+    """WS-18: a run belongs to the principal that requested it."""
+
+    def test_another_user_cannot_read_a_run(self, api: TestClient) -> None:
+        from src.runs import queue
+
+        _register(api, ALICE)
+        _register(api, BOB)
+        alice_token = _token(api, ALICE)
+        bob_token = _token(api, BOB)
+
+        with next(api.app.dependency_overrides[get_db]()) as db:  # type: ignore[misc]
+            accepted = queue.enqueue_run(
+                db,
+                job_type="refresh",
+                correlation_id="corr-isolation",
+                owner_id=_user_id(api, alice_token),
+                items=[],
+            )
+            db.commit()
+
+        # The owner reads it; the other account gets the same 404 as for a
+        # run that never existed.
+        assert (
+            api.get(f"/api/runs/{accepted.run_id}", headers=_as(alice_token)).status_code
+            == 200
+        )
+        assert (
+            api.get(f"/api/runs/{accepted.run_id}", headers=_as(bob_token)).status_code
+            == 404
+        )
+
+        # The listing is scoped too: Alice sees the run, Bob does not.
+        alice_runs = api.get("/api/runs", headers=_as(alice_token)).json()
+        bob_runs = api.get("/api/runs", headers=_as(bob_token)).json()
+        assert accepted.run_id in {run["id"] for run in alice_runs["runs"]}
+        assert bob_runs["runs"] == []
 
 
 # -- the check that stops the control decaying --------------------------------

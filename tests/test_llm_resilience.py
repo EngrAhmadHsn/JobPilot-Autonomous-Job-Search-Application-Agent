@@ -95,17 +95,32 @@ class TestSlidingWindowLimiter:
 
 
 class TestBackoff:
-    def test_the_schedule_is_one_then_four_seconds(self) -> None:
-        """The documented schedule: 1 s, then 4 s, plus jitter."""
+    def test_the_schedule_is_one_then_two_seconds(self) -> None:
+        """WS-18 unified the schedule: 1x, 2x, 4x, plus jitter.
+
+        The LLM client used to multiply by four while the job-board client
+        multiplied by two. One conventional curve now applies to both.
+        """
         assert backoff_delay(1, 1.0, jitter=lambda _lo, _hi: 0.0) == pytest.approx(1.0)
-        assert backoff_delay(2, 1.0, jitter=lambda _lo, _hi: 0.0) == pytest.approx(4.0)
+        assert backoff_delay(2, 1.0, jitter=lambda _lo, _hi: 0.0) == pytest.approx(2.0)
 
     def test_the_jitter_adds_at_most_half_the_base(self) -> None:
         delay = backoff_delay(1, 2.0, jitter=lambda lo, hi: hi)
         assert delay == pytest.approx(2.0 + 1.0)
 
-    def test_the_third_retry_is_sixteen_seconds(self) -> None:
-        assert backoff_delay(3, 1.0, jitter=lambda _lo, _hi: 0.0) == pytest.approx(16.0)
+    def test_the_third_retry_is_four_seconds(self) -> None:
+        assert backoff_delay(3, 1.0, jitter=lambda _lo, _hi: 0.0) == pytest.approx(4.0)
+
+    def test_the_delay_is_capped(self) -> None:
+        # A provider asking for an hour must not park a worker for an hour.
+        assert backoff_delay(10, 1.0, jitter=lambda _lo, _hi: 0.0, max_delay=60.0) == 60.0
+
+    def test_retry_after_accepts_seconds_and_dates(self) -> None:
+        from src.llm.resilience import retry_after_seconds
+
+        assert retry_after_seconds("17") == 17.0
+        assert retry_after_seconds("not-a-date") is None
+        assert retry_after_seconds(None) is None
 
     def test_attempt_numbering_starts_at_one(self) -> None:
         with pytest.raises(ValueError):

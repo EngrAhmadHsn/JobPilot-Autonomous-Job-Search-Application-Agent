@@ -167,7 +167,7 @@ class TestRetry:
         assert client.generate_text("hello") == "finally"
         assert fake.call_count == 3
         # 1 s, then 4 s — and the suite never waited for them.
-        assert clock.sleeps == [1.0, 4.0]
+        assert clock.sleeps == [1.0, 2.0]
 
     def test_the_backoff_is_jittered(self) -> None:
         clock = FakeClock()
