@@ -116,6 +116,9 @@ def main() -> int:
         cwd=REPO,
         capture_output=True,
         text=True,
+        # The return code is inspected below and reported with PlantUML's
+        # own output, so a failure is not raised as a raw CalledProcessError.
+        check=False,
     )
 
     if result.returncode != 0:
@@ -147,7 +150,9 @@ def main() -> int:
     if unreadable:
         sys.stderr.write(
             "These diagrams print too small to read in the document; "
-            "split them or make them wider:" + chr(10) + "  "
+            "split them or make them wider:"
+            + chr(10)
+            + "  "
             + (chr(10) + "  ").join(unreadable)
             + chr(10)
         )

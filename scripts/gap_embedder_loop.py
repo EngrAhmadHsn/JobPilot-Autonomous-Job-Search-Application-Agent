@@ -68,6 +68,9 @@ def embed_chunk(limit: int) -> int:
         capture_output=True,
         text=True,
         timeout=3600,
+        # The return code is inspected below, deliberately: a non-zero exit
+        # is reported with the child's own output rather than raised raw.
+        check=False,
     )
     out = (result.stdout or "") + (result.stderr or "")
     out = out.strip()
