@@ -23,6 +23,7 @@ from src.api.routes.documents import router as documents_router
 from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
+from src.api.routes.jobs import runs_router
 from src.api.routes.resumes import router as resumes_router
 from src.api.routes.tailoring import router as tailoring_router
 from src.api.routes.tracking import router as tracking_router
@@ -127,6 +128,8 @@ app.include_router(documents_router)
 app.include_router(applications_router)
 app.include_router(resumes_router)
 app.include_router(jobs_router)
+# WS-18: the caller's own durable execution history.
+app.include_router(runs_router)
 app.include_router(profiles_matches_router)
 app.include_router(tailoring_router)
 app.include_router(tracking_router)

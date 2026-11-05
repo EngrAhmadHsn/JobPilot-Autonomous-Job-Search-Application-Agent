@@ -31,6 +31,9 @@ The categories, and what each one defends against:
                              on a flood that spreads itself over many
                              refreshes.
 ``max_cache_entries``        The on-disk embedding cache staying bounded.
+``max_pending_runs``         Accepted background executions that have not
+                             finished (WS-18).
+``max_pending_work_items``   Individual queued/running work items (WS-18).
 ``max_upload_*``             Zip-bomb and file-count guards on uploads.
 ``max_response_bytes``       A hostile job board returning a huge body.
 ``max_custom_*``             Unbounded per-request form data.
@@ -72,6 +75,10 @@ class SecurityLimits:
     max_embed_per_refresh: int
     max_embed_work_per_day: int
     max_cache_entries: int
+
+    # -- durable background queue (WS-18) ----------------------------------
+    max_pending_runs: int
+    max_pending_work_items: int
 
     # -- uploads -----------------------------------------------------------
     max_upload_uncompressed_bytes: int
@@ -173,6 +180,12 @@ def _build() -> SecurityLimits:
         # The embedding cache is a permanent SQLite table; without a bound it
         # grows until the disk is full.
         max_cache_entries=_int_env("MAX_CACHE_ENTRIES", 50_000, minimum=1),
+        # WS-18: accepted-but-not-yet-executed work is a promise, and an
+        # unbounded promise is a disk-exhaustion path. The run cap bounds the
+        # number of distinct executions; the item cap bounds one embedding
+        # pass over a large corpus.
+        max_pending_runs=_int_env("MAX_PENDING_RUNS", 25, minimum=1),
+        max_pending_work_items=_int_env("MAX_PENDING_WORK_ITEMS", 20_000, minimum=1),
         # A 5 MB DOCX may expand to this much uncompressed. Beyond it the
         # upload is a zip bomb.
         max_upload_uncompressed_bytes=_int_env(

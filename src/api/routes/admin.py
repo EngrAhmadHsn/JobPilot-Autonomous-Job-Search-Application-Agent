@@ -27,14 +27,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
+from src.config.settings import get_settings
 from src.db import access
 from src.db.applications import ApplicationDB
 from src.db.audit import AuditEventDB
 from src.db.session import get_db
+from src.runs import queue as run_queue
+from src.runs import service as run_service
+from src.runs.embedding import JOB_TYPE_EMBEDDING
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -89,4 +94,232 @@ def read_overview(
         },
         "corpus": {"jobs": access.count_jobs(db)},
         "generated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+# -- WS-18: background execution ---------------------------------------------
+
+
+class AdminRunsResponse(BaseModel):
+    """Platform-level embedding executions."""
+
+    runs: list[dict]
+    count: int
+
+
+class AdminRunDetailResponse(BaseModel):
+    """One execution, with its checkpoints and item summary."""
+
+    run: dict
+
+
+class ResumeRunRequest(BaseModel):
+    """The resume body.
+
+    Deliberately empty: the administrator's identity comes from the session,
+    and the model/dimension are validated against the server's own
+    configuration. A request field that could name another principal, a
+    different embedding space, or a larger budget would be a bypass.
+    """
+
+
+class RunActionResponse(BaseModel):
+    """The answer to a recovery or cancellation request."""
+
+    run_id: str
+    status: str
+    job_type: str
+    queued: bool = True
+
+
+def _current_embedding_identity() -> tuple[str, int]:
+    """The configured provider's identity, for the resume check.
+
+    Constructing the provider does not load model weights (both providers
+    are lazy); it only reads the identity the vectors would be written with.
+    """
+    settings = get_settings()
+    try:
+        from src.llm.embeddings import build_embedding_fn
+
+        embedding = build_embedding_fn(settings)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "The configured embedding provider could not be constructed, so a "
+                f"recovery cannot be validated: {type(exc).__name__}: {exc}"
+            ),
+        ) from exc
+    return (
+        str(getattr(embedding, "model", settings.embedding_model)),
+        int(getattr(embedding, "dimensionality", settings.embedding_dimensionality)),
+    )
+
+
+@router.get("/embedding-runs", response_model=AdminRunsResponse)
+def list_embedding_runs(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+    run_status: str | None = Query(None, alias="status"),
+    limit: int = 50,
+) -> AdminRunsResponse:
+    """The platform's embedding executions, newest first.
+
+    This is the screen an administrator opens after an interruption: it shows
+    recoverable runs, paused runs, permanent failures and healthy history.
+    """
+    statuses = [run_status] if run_status else None
+    runs = access.list_runs(
+        db,
+        scope,
+        job_type=JOB_TYPE_EMBEDDING,
+        statuses=statuses,
+        limit=limit,
+    )
+    return AdminRunsResponse(runs=[run_service.run_to_dict(run) for run in runs], count=len(runs))
+
+
+@router.get("/embedding-runs/{run_id}", response_model=AdminRunDetailResponse)
+def read_embedding_run(
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> AdminRunDetailResponse:
+    """One embedding run: progress, checkpoint, quota reason and failures."""
+    run = access.get_run(db, scope, run_id)
+    if run is None or run.job_type != JOB_TYPE_EMBEDDING:
+        raise HTTPException(status_code=404, detail=f"Embedding run {run_id!r} not found")
+    return AdminRunDetailResponse(run=run_service.run_detail(db, run))
+
+
+@router.post(
+    "/embedding-runs/{run_id}/resume",
+    response_model=RunActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def resume_embedding_run(
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+    _body: ResumeRunRequest | None = None,
+) -> RunActionResponse:
+    """Resume the **outstanding** work of an interrupted embedding run.
+
+    The administrator's identity is the authenticated principal (never a
+    request field), the run must be in a resumable state, the embedding model
+    and dimension must match the current provider, completed work is never
+    requeued, and a concurrent resume loses the conditional update. The
+    action is audited and returns the same durable run id.
+    """
+    model, dimension = _current_embedding_identity()
+    try:
+        resumed = run_service.resume_embedding_run(
+            db,
+            scope,
+            run_id,
+            expected_model=model,
+            expected_dimension=dimension,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except run_queue.RunAlreadyResumed as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except run_queue.IllegalTransition as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return RunActionResponse(
+        run_id=resumed.id,
+        status=resumed.status,
+        job_type=resumed.job_type,
+        queued=resumed.status == "QUEUED",
+    )
+
+
+@router.post("/embedding-runs/{run_id}/cancel", response_model=RunActionResponse)
+def cancel_embedding_run(
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> RunActionResponse:
+    """Stop a run without deleting its history (safe cancellation)."""
+    run = access.get_run(db, scope, run_id)
+    if run is None or run.job_type != JOB_TYPE_EMBEDDING:
+        raise HTTPException(status_code=404, detail=f"Embedding run {run_id!r} not found")
+    try:
+        cancelled = run_service.cancel_run(db, scope, run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except run_queue.IllegalTransition as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return RunActionResponse(
+        run_id=cancelled.id,
+        status=cancelled.status,
+        job_type=cancelled.job_type,
+        queued=False,
+    )
+
+
+@router.post(
+    "/embeddings/reconcile",
+    response_model=RunActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def reconcile_embeddings(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> RunActionResponse:
+    """Enqueue a reconciliation of the SQL corpus against the vector index.
+
+    The worker detects missing/stale vectors, orphan vectors, interrupted
+    items and inconsistent completion flags, repairs what it can safely
+    repair, and records the counts on the run. It never rebuilds completed
+    work unnecessarily.
+    """
+    try:
+        run, created = run_service.enqueue_reconcile(db, scope)
+    except run_queue.QueueFull as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    return RunActionResponse(
+        run_id=run.id,
+        status=run.status,
+        job_type=run.job_type,
+        queued=created,
+    )
+
+
+@router.get("/jobs/metrics")
+def read_job_metrics(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> dict:
+    """Queue, worker, breaker and embedding-budget metrics.
+
+    The numbers the brief asks an operator to be able to see: pending and
+    running work, stale leases, retry backlog, the oldest pending item's age,
+    worker heartbeat age, breaker states, and today's embedding spend.
+    """
+    return run_service.queue_metrics(db)
+
+
+@router.get("/health/workers")
+def read_worker_health(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> dict:
+    """Whether the background worker is alive — which the API cannot infer.
+
+    A process that answers HTTP requests says nothing about whether any
+    worker is draining the queue. This endpoint reads the heartbeats and the
+    queue's shape, and is deliberately separate from the API's own
+    readiness.
+    """
+    return {
+        "workers": run_queue.worker_health(db),
+        "queue": run_queue.queue_stats(db),
     }

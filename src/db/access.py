@@ -50,6 +50,7 @@ from src.db.evidence import ApplicationEvidenceDB
 from src.db.jobs import JobDB
 from src.db.matches import JobMatchDB
 from src.db.profiles import CandidateProfileDB
+from src.db.runs import JobRunDB, JobRunEventDB, JobWorkItemDB
 from src.db.tailored import TailoredResumeDB
 from src.db.users import LEGACY_OWNER_ID, UserDB
 
@@ -66,12 +67,16 @@ __all__ = [
     "get_application_by_approval",
     "get_approval",
     "get_profile",
+    "get_run",
     "get_tailored",
     "group_owned",
     "list_applications",
     "list_audit_events",
     "list_profiles",
+    "list_run_events",
+    "list_runs",
     "list_tailored",
+    "list_work_items",
 ]
 
 
@@ -128,6 +133,7 @@ _OWNED_MODELS: tuple[type, ...] = (
     ApplicationEvidenceDB,
     ApprovalRequestDB,
     AuditEventDB,
+    JobRunDB,
 )
 
 
@@ -346,6 +352,71 @@ def list_audit_events(
         select(AuditEventDB).order_by(AuditEventDB.id.desc()).limit(max(1, min(limit, 1000)))
     )
     return list(db.execute(_owned(statement, AuditEventDB, scope)).scalars())
+
+
+# -- durable execution (WS-18) ------------------------------------------------
+
+
+def get_run(db: Session, scope: UserScope, run_id: str) -> JobRunDB | None:
+    """The run *run_id* if this scope may see it, else ``None``.
+
+    A run with no owner is a platform run (a scheduled refresh): a
+    superuser may read it, an ordinary account may not. A foreign run and a
+    missing run are both ``None``, so a route answers the same 404 for both.
+    """
+    if not run_id:
+        return None
+    statement = select(JobRunDB).where(JobRunDB.id == run_id)
+    return db.execute(_owned(statement, JobRunDB, scope)).scalar_one_or_none()
+
+
+def list_runs(
+    db: Session,
+    scope: UserScope,
+    *,
+    job_type: str | None = None,
+    statuses: list[str] | tuple[str, ...] | None = None,
+    limit: int = 50,
+) -> list[JobRunDB]:
+    """The runs this scope may read, newest first and paged."""
+    statement = select(JobRunDB).order_by(JobRunDB.created_at.desc())
+    if job_type:
+        statement = statement.where(JobRunDB.job_type == job_type)
+    if statuses:
+        statement = statement.where(JobRunDB.status.in_(tuple(statuses)))
+    statement = statement.limit(max(1, min(limit, 200)))
+    return list(db.execute(_owned(statement, JobRunDB, scope)).scalars())
+
+
+def list_work_items(db: Session, scope: UserScope, run_id: str) -> list[JobWorkItemDB]:
+    """The work items of a run this scope may read.
+
+    The items carry no owner of their own: they belong to a run, and the
+    run's owner is the authorization boundary. The run is checked first, so
+    a foreign run yields ``[]`` rather than another tenant's work.
+    """
+    if get_run(db, scope, run_id) is None:
+        return []
+    return list(
+        db.execute(
+            select(JobWorkItemDB)
+            .where(JobWorkItemDB.run_id == run_id)
+            .order_by(JobWorkItemDB.created_at.asc(), JobWorkItemDB.id.asc())
+        ).scalars()
+    )
+
+
+def list_run_events(db: Session, scope: UserScope, run_id: str) -> list[JobRunEventDB]:
+    """The lifecycle events of a run this scope may read."""
+    if get_run(db, scope, run_id) is None:
+        return []
+    return list(
+        db.execute(
+            select(JobRunEventDB)
+            .where(JobRunEventDB.run_id == run_id)
+            .order_by(JobRunEventDB.id.desc())
+        ).scalars()
+    )
 
 
 # -- aggregates (the platform view) -------------------------------------------

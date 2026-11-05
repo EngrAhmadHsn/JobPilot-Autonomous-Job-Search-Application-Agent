@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -35,14 +36,13 @@ from src.db.matches import build_match_rows, match_row_to_dict
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.graph.job_executor import (
-    JobRefreshReport,
-    JobRefreshStats,
     JobSearchReport,
     JobSearchStats,
-    refresh_jobs,
     search_stored_jobs,
 )
 from src.graph.job_state import JobMatchPair
+from src.runs import queue as run_queue
+from src.runs import service as run_service
 from src.security.audit import (
     ACTION_JOB_SEARCH,
     ACTION_MATCH_COMPUTE,
@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 profiles_router = APIRouter(prefix="/api/profiles", tags=["profiles"])
+runs_router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 class JobSearchRequest(BaseModel):
@@ -80,18 +81,35 @@ class JobSearchResponse(BaseModel):
     degraded: bool = False
 
 
-class JobRefreshResponse(BaseModel):
-    """Summary of one decoupled refresh run (FU-1)."""
+class RunAcceptedResponse(BaseModel):
+    """A durable run the API has accepted (WS-18).
 
-    stats: JobRefreshStats
-    source_errors: dict[str, str] = Field(default_factory=dict)
-    embedding_requests_planned: int
-    embedding_requests_used: int
-    # WS-15: the documents that had to be embedded (the cache misses). On
-    # the local provider this is the whole cost of the refresh.
-    embedding_documents_planned: int
-    quota_exhausted: bool
-    degraded_embedding: bool
+    This is the refresh contract now: ``202 Accepted`` and a persistent id.
+    The caller polls ``GET /api/runs/{run_id}`` (or the administration
+    endpoints) for the actual state. ``existing`` is true when an active
+    refresh was already queued and this request joined it instead of
+    starting a second one.
+    """
+
+    run_id: str
+    status: str
+    job_type: str
+    correlation_id: str
+    created_at: datetime
+    existing: bool = False
+
+
+class RunsListResponse(BaseModel):
+    """The caller's own execution history."""
+
+    runs: list[dict]
+    count: int
+
+
+class RunDetailResponse(BaseModel):
+    """One run, with its checkpoints and item summary."""
+
+    run: dict
 
 
 class MatchesHistoryResponse(BaseModel):
@@ -119,47 +137,87 @@ def get_job_search_executor(
     return execute
 
 
-def get_job_refresh_executor() -> Callable[[], JobRefreshReport]:
-    """Dependency seam for the refresh executor (tests override this)."""
-    return refresh_jobs
-
-
-@router.post("/refresh", response_model=JobRefreshResponse)
+@router.post(
+    "/refresh",
+    response_model=RunAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def refresh_jobs_endpoint(
-    executor: Annotated[Callable[[], JobRefreshReport], Depends(get_job_refresh_executor)],
+    db: Annotated[Session, Depends(get_db)],
     scope: Annotated[UserScope, Depends(current_scope)],
-) -> JobRefreshResponse:
-    """Run the decoupled daily refresh: boards → normalize → dedup → persist → embed.
+) -> RunAcceptedResponse:
+    """Accept a corpus refresh as **durable background work** (WS-18).
 
-    Idempotent and resumable: only new or changed listings cost embedding
-    requests (content-hash cache), and a daily-quota stop (``quota_exhausted``)
-    leaves everything persisted for the next run. This can take minutes with
-    real boards — scheduled runs should use ``scripts/refresh_jobs.py``.
+    The request no longer performs the refresh. It writes a ``job_runs`` row
+    and responds ``202`` with that row's id, so closing the browser, losing
+    the connection, or restarting the API cannot lose the accepted work. The
+    separate worker executes it; ``GET /api/runs/{run_id}`` reports progress
+    from persistent state.
+
+    A refresh that is already queued or running is returned instead of
+    duplicated: two clicks are one refresh.
 
     WS-15: this route needs a credential. It is the most expensive
-    operation in the system — it walks every board and embeds the corpus —
-    and it was the one state-changing route that anyone who could reach the
-    port could call, in a loop, at the rate limit's pace.
+    operation in the system, and the queue (not the request) now bounds it.
     """
-    report = executor()
+    try:
+        run, created = run_service.enqueue_refresh(db, scope)
+    except run_queue.QueueFull as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     logger.info(
-        "Job refresh requested over API",
+        "Job refresh enqueued",
         extra={
-            "persisted": report.stats.persisted,
-            "embedded": report.stats.embedded,
-            "quota_exhausted": report.quota_exhausted,
-            "failed_sources": sorted(report.source_errors),
+            "run_id": run.id,
+            "correlation_id": run.correlation_id,
+            "newly_created": created,
+            "actor": scope.user_id,
         },
     )
-    return JobRefreshResponse(
-        stats=report.stats,
-        source_errors=report.source_errors,
-        embedding_requests_planned=report.embedding_requests_planned,
-        embedding_requests_used=report.embedding_requests_used,
-        embedding_documents_planned=report.embedding_documents_planned,
-        quota_exhausted=report.quota_exhausted,
-        degraded_embedding=report.degraded_embedding,
+    return RunAcceptedResponse(
+        run_id=run.id,
+        status=run.status,
+        job_type=run.job_type,
+        correlation_id=run.correlation_id,
+        created_at=run.created_at,
+        existing=not created,
     )
+
+
+@runs_router.get("", response_model=RunsListResponse)
+def list_runs(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+    limit: int = 25,
+) -> RunsListResponse:
+    """The caller's own execution history (newest first).
+
+    An ordinary account sees the runs it requested; an administrator sees
+    every run, including the platform's. A platform run has no owner, so it
+    is never returned to an ordinary caller.
+    """
+    runs = run_service.list_runs_for_scope(db, scope, limit=limit)
+    return RunsListResponse(runs=[run_service.run_to_dict(run) for run in runs], count=len(runs))
+
+
+@runs_router.get("/{run_id}", response_model=RunDetailResponse)
+def get_run(
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> RunDetailResponse:
+    """One run's persistent state, checkpoints and item summary.
+
+    A foreign run and a missing one answer the same 404, so the route is not
+    an existence oracle.
+    """
+    run = run_service.get_run_for_scope(db, scope, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+    return RunDetailResponse(run=run_service.run_detail(db, run))
 
 
 @router.post("/search", response_model=JobSearchResponse)

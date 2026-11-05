@@ -119,15 +119,75 @@ class Settings:
         self.chroma_dir = os.getenv("CHROMA_DIR", "./data/chroma")
         self.match_weights = self._parse_match_weights(os.getenv("MATCH_WEIGHTS"))
 
+        # -- Durable execution (WS-18) -------------------------------------
+        #
+        # The worker is a separate, supervised process. The timings here
+        # decide how quickly abandoned work is recovered and how long a
+        # worker may be silent before its leases are considered dead. They
+        # are deliberately conservative: a lease that expires while the
+        # worker is merely slow costs duplicate (idempotent) work, never
+        # lost work.
+        #
+        # ``worker_id`` is empty by default: the worker generates a
+        # hostname/pid/random id on start. Pin it only when the supervisor
+        # needs a stable name.
+        self.worker_id = os.getenv("WORKER_ID", "").strip()
+        self.worker_poll_interval_seconds = float(os.getenv("WORKER_POLL_INTERVAL_SECONDS", "2.0"))
+        # The lease must outlive one batch: the local embedder takes ~4 s per
+        # document and a batch is 100, so 15 minutes is the honest bound. A
+        # shorter lease would hand a healthy worker's batch to another worker
+        # mid-embed.
+        self.worker_lease_seconds = float(os.getenv("WORKER_LEASE_SECONDS", "900"))
+        self.worker_heartbeat_seconds = float(os.getenv("WORKER_HEARTBEAT_SECONDS", "30"))
+        self.worker_batch_size = int(os.getenv("WORKER_BATCH_SIZE", "100"))
+        self.worker_max_attempts = int(os.getenv("WORKER_MAX_ATTEMPTS", "3"))
+        self.worker_retry_base_seconds = float(os.getenv("WORKER_RETRY_BASE_SECONDS", "30"))
+        self.worker_retry_max_seconds = float(os.getenv("WORKER_RETRY_MAX_SECONDS", "900"))
+        # How long a running run may go without a heartbeat before the reaper
+        # calls it interrupted. It must be comfortably longer than the lease,
+        # or a healthy worker's own run would be declared dead.
+        self.run_stale_seconds = float(os.getenv("RUN_STALE_SECONDS", "1800"))
+        # How old a worker's last heartbeat may be before the health endpoint
+        # stops calling it healthy.
+        self.worker_stale_seconds = float(os.getenv("WORKER_STALE_SECONDS", "60"))
+        # Retries: one schedule for every provider call. A cap keeps a
+        # provider that asks for an hour of backoff from parking a worker.
+        self.retry_max_delay_seconds = float(os.getenv("RETRY_MAX_DELAY_SECONDS", "60"))
+        self.circuit_failure_threshold = int(os.getenv("CIRCUIT_FAILURE_THRESHOLD", "5"))
+        self.circuit_recovery_seconds = float(os.getenv("CIRCUIT_RECOVERY_SECONDS", "60"))
+        # Shared breaker state matters when more than one worker process
+        # talks to the same provider limits. It is stored in the database
+        # (``circuit_breakers``) and read with a short per-process cache.
+        self.circuit_shared_state = (
+            os.getenv("CIRCUIT_SHARED_STATE", "true").strip().lower() == "true"
+        )
+        for name, value in (
+            ("WORKER_POLL_INTERVAL_SECONDS", self.worker_poll_interval_seconds),
+            ("WORKER_LEASE_SECONDS", self.worker_lease_seconds),
+            ("WORKER_HEARTBEAT_SECONDS", self.worker_heartbeat_seconds),
+            ("WORKER_RETRY_BASE_SECONDS", self.worker_retry_base_seconds),
+            ("WORKER_RETRY_MAX_SECONDS", self.worker_retry_max_seconds),
+            ("RUN_STALE_SECONDS", self.run_stale_seconds),
+            ("WORKER_STALE_SECONDS", self.worker_stale_seconds),
+            ("RETRY_MAX_DELAY_SECONDS", self.retry_max_delay_seconds),
+            ("CIRCUIT_RECOVERY_SECONDS", self.circuit_recovery_seconds),
+        ):
+            if value <= 0:
+                raise RuntimeError(f"{name} must be positive, got {value!r}. Refusing to start.")
+        if self.worker_batch_size < 1:
+            raise RuntimeError("WORKER_BATCH_SIZE must be at least 1. Refusing to start.")
+        if self.worker_max_attempts < 1:
+            raise RuntimeError("WORKER_MAX_ATTEMPTS must be at least 1. Refusing to start.")
+        if self.circuit_failure_threshold < 1:
+            raise RuntimeError("CIRCUIT_FAILURE_THRESHOLD must be at least 1. Refusing to start.")
+
         # Submission policy (WS-06). An unknown value is a configuration
         # error, not a silent fallback: the policy decides whether an
         # application may be executed at all, so a typo must fail loudly.
         from src.security.policy import SubmissionPolicy
 
         self._raw_submission_policy = os.getenv("SUBMISSION_POLICY")
-        self.submission_policy = (
-            self._raw_submission_policy or "REQUIRE_APPROVAL"
-        ).strip().upper()
+        self.submission_policy = (self._raw_submission_policy or "REQUIRE_APPROVAL").strip().upper()
         valid_policies = {policy.value for policy in SubmissionPolicy}
         if self.submission_policy not in valid_policies:
             raise RuntimeError(
@@ -210,9 +270,7 @@ class Settings:
         self.retention_session_days = int(os.getenv("RETENTION_SESSION_DAYS", "30"))
         # The grace period between a deletion request and the
         # irreversible purge.
-        self.retention_deletion_grace_days = int(
-            os.getenv("RETENTION_DELETION_GRACE_DAYS", "30")
-        )
+        self.retention_deletion_grace_days = int(os.getenv("RETENTION_DELETION_GRACE_DAYS", "30"))
 
         # Whether the first registered account may claim the rows that
         # pre-date the identity work (the ``legacy`` owner). On by default:
@@ -317,16 +375,13 @@ class Settings:
         # running with it on is a deployment that shows its internals
         # to whoever asks.
         if self.app_debug:
-            raise RuntimeError(
-                "APP_ENV=production forbids APP_DEBUG=true. Refusing to start."
-            )
+            raise RuntimeError("APP_ENV=production forbids APP_DEBUG=true. Refusing to start.")
         # An API provider needs its key. The local embedding provider
         # needs none, so the check follows the configuration rather
         # than being unconditional.
         if self.embedding_provider == "gemini" and not self.llm_api_key:
             raise RuntimeError(
-                "EMBEDDING_PROVIDER=gemini requires LLM_API_KEY in production. "
-                "Refusing to start."
+                "EMBEDDING_PROVIDER=gemini requires LLM_API_KEY in production. Refusing to start."
             )
 
 

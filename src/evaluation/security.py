@@ -84,6 +84,18 @@ PROTECTED_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("GET", "/api/auth/me"),
     ("POST", "/api/jobs/refresh"),
     ("GET", "/api/jobs/{job_id}"),
+    # WS-18: the durable execution surface. The run endpoints are
+    # owner-scoped, and every recovery action is an administrator action
+    # that must refuse an anonymous caller before anything else.
+    ("GET", "/api/runs"),
+    ("GET", "/api/runs/{run_id}"),
+    ("GET", "/api/admin/embedding-runs"),
+    ("GET", "/api/admin/embedding-runs/{run_id}"),
+    ("POST", "/api/admin/embedding-runs/{run_id}/resume"),
+    ("POST", "/api/admin/embedding-runs/{run_id}/cancel"),
+    ("POST", "/api/admin/embeddings/reconcile"),
+    ("GET", "/api/admin/jobs/metrics"),
+    ("GET", "/api/admin/health/workers"),
 )
 
 #: The endpoints that reach a user-scoped resource, and therefore need an
@@ -99,6 +111,9 @@ USER_SCOPED_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("GET", "/api/tailored/{tailoring_id}"),
     ("GET", "/api/tailored/{tailoring_id}/download"),
     ("GET", "/api/audit"),
+    # WS-18: a durable run belongs to the principal that requested it.
+    ("GET", "/api/runs"),
+    ("GET", "/api/runs/{run_id}"),
 )
 
 #: The isolation suite that the coverage metric is measured against.
@@ -114,6 +129,8 @@ _PROBE_VALUES = {
     # but it must answer 401 for an anonymous one — the credential is
     # checked before the listing is looked up.
     "job_id": "no-such-job",
+    # WS-18: a run id the probe does not own (and that does not exist).
+    "run_id": "no-such-run",
 }
 
 
@@ -134,29 +151,40 @@ _ROUTE_IN_SOURCE = re.compile(r'"(/api/[-A-Za-z0-9/_{}.]*)"')
 ROUTE_LITERALS = frozenset(
     {
         "api",
+        "admin",
         "applications",
         "approvals",
+        "cancel",
         "approve",
         "audit",
         "download",
+        "embedding-runs",
+        "embeddings",
         "evidence",
         "health",
         "jobs",
+        "live",
         "login",
         "logout",
         "matches",
+        "metrics",
         "me",
         "prepare",
         "profiles",
+        "ready",
+        "reconcile",
         "refresh",
         "register",
         "reject",
+        "resume",
         "resumes",
+        "runs",
         "search",
         "sessions",
         "status",
         "tailor",
         "tailored",
+        "workers",
     }
 )
 
@@ -357,7 +385,7 @@ def _probe_isolation(client, factory, build_profile_row, CandidateProfile) -> tu
     # cross-user accesses: a listing that shows Bob his own (empty) list
     # is the correct answer. The check there is that Alice's resources
     # do not appear in it.
-    listing_endpoints = {"/api/applications", "/api/audit"}
+    listing_endpoints = {"/api/applications", "/api/audit", "/api/runs"}
 
     violations = 0
     probed = 0

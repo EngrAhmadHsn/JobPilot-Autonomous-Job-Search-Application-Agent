@@ -57,6 +57,12 @@ ACTION_AUTH = "auth"
 # WS-14 · Phase D: the retention purge and the account deletion. One row
 # per purge, holding the counts of what was removed — never what it was.
 ACTION_RETENTION = "retention"
+# WS-18: durable execution. Enqueueing work, and the administrator's
+# recovery/cancellation actions, are attributable events like any other.
+ACTION_RUN_ENQUEUE = "run.enqueue"
+ACTION_RUN_RESUME = "run.resume"
+ACTION_RUN_CANCEL = "run.cancel"
+ACTION_RUN_RECONCILE = "run.reconcile"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"
@@ -77,9 +83,7 @@ ACTOR_KIND_AGENT = "agent"
 ACTOR_KIND_SYSTEM = "system"
 
 #: Every kind an actor may have.
-ACTOR_KINDS: frozenset[str] = frozenset(
-    {ACTOR_KIND_USER, ACTOR_KIND_AGENT, ACTOR_KIND_SYSTEM}
-)
+ACTOR_KINDS: frozenset[str] = frozenset({ACTOR_KIND_USER, ACTOR_KIND_AGENT, ACTOR_KIND_SYSTEM})
 
 
 @dataclass(frozen=True)
