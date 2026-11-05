@@ -24,6 +24,7 @@ working for the rest of the repository.
 from __future__ import annotations
 
 __all__ = [
+    "LLMCircuitOpen",
     "LLMConfigError",
     "LLMDailyQuotaExhausted",
     "LLMError",
@@ -63,6 +64,16 @@ class LLMUnavailable(LLMError):
 
 class LLMTimeout(LLMUnavailable):
     """The call exceeded its timeout — retryable, and worth distinguishing."""
+
+
+class LLMCircuitOpen(LLMUnavailable):
+    """The provider's circuit is open: fail fast, do not retry (WS-18).
+
+    A subclass of :class:`LLMUnavailable` so callers that already degrade on
+    an unavailable provider keep working, but the client's retry predicate
+    treats it as non-retryable — retrying a circuit that just opened is the
+    stampede the breaker exists to prevent.
+    """
 
 
 class LLMInvalidOutput(LLMError):

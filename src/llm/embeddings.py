@@ -68,6 +68,7 @@ from src.llm.client import (
     LLMDailyQuotaExhausted,
     LLMError,
     LLMRateLimited,
+    LLMUnavailable,
     classify_provider_error,
 )
 
@@ -783,9 +784,13 @@ class GeminiEmbedding:
     MAX_TEXT_CHARS = MAX_TEXT_CHARS
     # Live-verified cap (2026-10-11): BatchEmbedContentsRequest rejects >100.
     API_BATCH_SIZE = 100
-    # Per-minute 429 handling: bounded retries (65s respects RPM 5 with
+    # Per-minute 429 handling: one bounded retry (65s respects RPM 5 with
     # margin), then raise — a search must degrade, not stall for hours.
-    RATE_LIMIT_RETRIES = 2
+    # WS-18: the count is one rather than two on purpose. Durable work is
+    # retried by the queue as well, and a provider retry multiplied by a
+    # queue retry is the retry storm the brief forbids. One provider retry
+    # × three queue attempts is the whole budget.
+    RATE_LIMIT_RETRIES = 1
     RATE_LIMIT_WAIT_SECONDS = 65.0
 
     def __init__(
@@ -989,14 +994,27 @@ class GeminiEmbedding:
             # tenant's searches cannot starve the others (threat T7).
             self._assert_tenant_allowance()
             self._throttle()
+        from src.llm.resilience import get_breaker
+
+        breaker = get_breaker("embedding:gemini")
+        if real_path and not breaker.allow_request():
+            raise LLMUnavailable(
+                "The Gemini embedding circuit is open after repeated failures; "
+                "the work stays queued and resumes when the provider recovers."
+            )
         attempts = 0
         while True:
             try:
                 vectors = self._embed_api(texts)
+                breaker.record_success()
                 break
             except LLMDailyQuotaExhausted:
-                raise  # the provider itself says the day is spent: stop now
+                # A spent budget is not a provider outage: do not open the
+                # circuit, and do not retry in seconds.
+                breaker.record_failure(retryable=False)
+                raise
             except LLMRateLimited:
+                breaker.record_failure(retryable=True)
                 if not real_path or attempts >= self.RATE_LIMIT_RETRIES:
                     raise
                 attempts += 1
@@ -1008,6 +1026,12 @@ class GeminiEmbedding:
                 )
                 time.sleep(self.RATE_LIMIT_WAIT_SECONDS)
                 self._throttle()
+            except LLMUnavailable:
+                breaker.record_failure(retryable=True)
+                raise
+            except LLMError:
+                breaker.record_failure(retryable=False)
+                raise
         if real_path:
             used = self._cache.record_api_request()
             logger.info(

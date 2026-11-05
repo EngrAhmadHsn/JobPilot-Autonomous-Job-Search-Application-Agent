@@ -30,7 +30,6 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-import random
 import socket
 import time
 from urllib.parse import urlparse
@@ -38,6 +37,12 @@ from urllib.parse import urlparse
 import httpx
 
 from src.config.settings import get_settings
+from src.llm.resilience import (
+    CircuitBreaker,
+    backoff_delay,
+    get_breaker,
+    retry_after_seconds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +60,20 @@ class SourceError(RuntimeError):
 
 class SSRFBlockedError(SourceError):
     """A URL was refused by the SSRF guard before any request was made."""
+
+
+class CircuitOpenError(SourceError):
+    """The provider's circuit is open; the request was not attempted (WS-18).
+
+    It is a :class:`SourceError` so every caller that already degrades on a
+    failed source keeps working — one open board is a failed board, not a
+    failed refresh.
+    """
+
+    def __init__(self, host: str, *, retry_after: float | None = None) -> None:
+        super().__init__(f"Circuit open for {host!r}; the board is being skipped.")
+        self.host = host
+        self.retry_after = retry_after
 
 
 # Indirection seam: tests monkeypatch this to stub DNS resolution instead of
@@ -163,11 +182,6 @@ def reset_default_limiter() -> None:
     _default_limiter = None
 
 
-def _backoff_delay(attempt: int, base: float) -> float:
-    """Exponential backoff with full jitter: base * 2^(attempt-1) + jitter."""
-    return base * (2 ** (attempt - 1)) + random.uniform(0, base / 2)
-
-
 def _assert_response_size(response: httpx.Response, url: str) -> None:
     """Refuse a response whose body is larger than the cap.
 
@@ -201,6 +215,7 @@ async def guarded_get(
     limiter: HostRateLimiter | None = None,
     max_retries: int = 2,
     backoff_base: float = 0.5,
+    breaker: CircuitBreaker | None = None,
 ) -> httpx.Response:
     """SSRF-checked, rate-limited, retrying GET. Returns a 2xx response.
 
@@ -208,39 +223,66 @@ async def guarded_get(
     returns a huge body must not be able to exhaust the process's memory
     before a single listing is parsed.
 
+    WS-18 adds two controls:
+
+    - **A circuit breaker per host.** A board that has failed repeatedly is
+      skipped rather than retried on every refresh. Each board has its own
+      breaker, so one open circuit never disables the other boards.
+    - **One backoff schedule and ``Retry-After``.** The delay comes from
+      :func:`src.llm.resilience.backoff_delay` (the same curve the LLM client
+      uses), and a provider's ``Retry-After`` is honoured up to
+      ``RETRY_MAX_DELAY_SECONDS``.
+
     Raises:
         SSRFBlockedError: URL failed the SSRF guard (before any request).
+        CircuitOpenError: the host's circuit is open (before any request).
         SourceError: non-retryable HTTP status, redirects, a response over
             the size cap, or retries exhausted for transport errors / 429 / 5xx.
     """
     assert_url_allowed(url)
     active_limiter = limiter or get_default_limiter()
     host = urlparse(url).hostname or ""
+    circuit = breaker if breaker is not None else get_breaker(f"jobboard:{host}")
+    if not circuit.allow_request():
+        raise CircuitOpenError(host, retry_after=circuit.retry_after())
+    max_delay = get_settings().retry_max_delay_seconds
     attempt = 0
     while True:
         await active_limiter.acquire(host)
         try:
             response = await client.get(url)
         except httpx.TransportError as exc:
+            circuit.record_failure(retryable=True)
             if attempt >= max_retries:
                 raise SourceError(f"GET {url} failed after {attempt + 1} attempts: {exc}") from exc
             attempt += 1
-            delay = _backoff_delay(attempt, backoff_base)
+            delay = backoff_delay(attempt, backoff_base, max_delay=max_delay)
             logger.warning(
                 "Transport error on %s (attempt %d), retrying in %.2fs", url, attempt, delay
             )
             await asyncio.sleep(delay)
             continue
         if 200 <= response.status_code < 300:
-            _assert_response_size(response, url)
+            try:
+                _assert_response_size(response, url)
+            except SourceError:
+                # A board that keeps returning an unusable body is a failing
+                # board; let the breaker learn that.
+                circuit.record_failure(retryable=True)
+                raise
+            circuit.record_success()
             return response
         if response.status_code == 429 or response.status_code >= _RETRYABLE_STATUS_START:
+            circuit.record_failure(retryable=True)
             if attempt >= max_retries:
                 raise SourceError(
                     f"GET {url} returned {response.status_code} after {attempt + 1} attempts"
                 )
             attempt += 1
-            delay = _backoff_delay(attempt, backoff_base)
+            retry_after = retry_after_seconds(response.headers.get("retry-after"))
+            delay = backoff_delay(attempt, backoff_base, max_delay=max_delay)
+            if retry_after is not None:
+                delay = min(max(delay, retry_after), max_delay)
             logger.warning(
                 "HTTP %d on %s (attempt %d), retrying in %.2fs",
                 response.status_code,
@@ -251,4 +293,7 @@ async def guarded_get(
             await asyncio.sleep(delay)
             continue
         # Other 4xx, and 3xx (the client never follows redirects): fail now.
+        # A permanent answer does not open the circuit — the board is
+        # reachable and is telling us the request is wrong.
+        circuit.record_failure(retryable=False)
         raise SourceError(f"GET {url} returned non-retryable HTTP {response.status_code}")

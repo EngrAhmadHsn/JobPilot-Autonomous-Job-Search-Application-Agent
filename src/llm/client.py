@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from src.config.settings import get_settings
 from src.llm.errors import (
+    LLMCircuitOpen,
     LLMConfigError,
     LLMDailyQuotaExhausted,
     LLMError,
@@ -50,7 +51,12 @@ from src.llm.providers import (
     ProviderResponse,
     build_provider,
 )
-from src.llm.resilience import SlidingWindowLimiter, backoff_delay, get_limiter
+from src.llm.resilience import (
+    SlidingWindowLimiter,
+    backoff_delay,
+    get_breaker,
+    get_limiter,
+)
 from src.llm.usage import (
     KIND_STRUCTURED,
     KIND_TEXT,
@@ -61,6 +67,7 @@ from src.llm.usage import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "LLMCircuitOpen",
     "LLMClient",
     "LLMConfigError",
     "LLMDailyQuotaExhausted",
@@ -75,8 +82,9 @@ __all__ = [
     "strict_json_schema",
 ]
 
-# The first retry waits this long, the second four times as long; the jitter
-# is added on top (see src.llm.resilience.backoff_delay).
+# The first retry waits this long, the second twice as long; the jitter is
+# added on top (see src.llm.resilience.backoff_delay). WS-18 unified this
+# with the job-board client's schedule: one curve, not two.
 _BACKOFF_BASE = 1.0
 
 # The limiter's window: the provider's budget is per minute.
@@ -236,22 +244,41 @@ class LLMClient:
         *daily* budget does not reset in seconds: retrying it would hammer
         the provider until the backoff gave up.
         """
+        if isinstance(exc, LLMCircuitOpen):
+            return False
         if isinstance(exc, LLMDailyQuotaExhausted):
             return False
         return isinstance(exc, (LLMRateLimited, LLMUnavailable))
 
     def _call(self, provider: Provider, request: ProviderRequest) -> tuple[ProviderResponse, int]:
-        """One logical call, with the retry loop around the provider call."""
+        """One logical call, with the retry loop around the provider call.
+
+        WS-18: the loop is wrapped in a **circuit breaker** per provider
+        name. Once repeated retryable failures open it, callers fail fast
+        instead of each spending the full retry budget against a provider
+        that is already down. A permanent failure (a bad key, an invalid
+        request) never opens the breaker — that is a configuration error,
+        not an outage.
+        """
+        breaker = get_breaker(f"llm:{self._provider_name()}")
+        if not breaker.allow_request():
+            raise LLMCircuitOpen(
+                f"The {self._provider_name()} circuit is open after repeated failures; "
+                "not calling the provider."
+            )
         attempt = 0
+        max_delay = get_settings().retry_max_delay_seconds
         while True:
             self._limiter.acquire()
             try:
                 response = provider.complete(request)
             except LLMError as exc:
-                if not self._is_retryable(exc) or attempt >= self._max_retries:
+                retryable = self._is_retryable(exc)
+                breaker.record_failure(retryable=retryable)
+                if not retryable or attempt >= self._max_retries:
                     raise
                 attempt += 1
-                delay = backoff_delay(attempt, _BACKOFF_BASE, self._jitter)
+                delay = backoff_delay(attempt, _BACKOFF_BASE, self._jitter, max_delay=max_delay)
                 logger.warning(
                     "LLM call failed (%s); retrying in %.2fs (attempt %d/%d)",
                     type(exc).__name__,
@@ -261,6 +288,7 @@ class LLMClient:
                 )
                 self._sleep(delay)
                 continue
+            breaker.record_success()
             return response, attempt + 1
 
     def _record_success(
