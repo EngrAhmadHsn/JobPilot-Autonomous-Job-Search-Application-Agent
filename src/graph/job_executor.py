@@ -21,6 +21,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -93,6 +94,10 @@ class JobRefreshReport(BaseModel):
     embedding_documents_planned: int = 0
     quota_exhausted: bool = False
     degraded_embedding: bool = False  # vector store failed; rows persisted only
+    #: WS-18: the durable embedding run this refresh created, when it had
+    #: work to queue. The same id appears in ``GET /api/runs`` and in the
+    #: administration screen, so a report can be followed to its recovery.
+    run_id: str | None = None
 
 
 def run_job_search(
@@ -229,33 +234,14 @@ def _share_by_source(listings: list[JobListing], limit: int) -> list[JobListing]
     instead gives every source an equal share of the budget until its own
     listings run out, so a flood on one board is bounded at roughly
     ``1 / number_of_sources`` of the work.
-    """
-    if limit <= 0 or not listings:
-        return []
-    buckets: dict[str, list[JobListing]] = {}
-    order: list[str] = []
-    for listing in listings:
-        source = listing.source or "unknown"
-        if source not in buckets:
-            buckets[source] = []
-            order.append(source)
-        buckets[source].append(listing)
 
-    chosen: list[JobListing] = []
-    depth = 0
-    while len(chosen) < limit:
-        added = False
-        for source in order:
-            bucket = buckets[source]
-            if depth < len(bucket):
-                chosen.append(bucket[depth])
-                added = True
-                if len(chosen) >= limit:
-                    break
-        if not added:
-            break
-        depth += 1
-    return chosen
+    WS-18: the implementation moved to :mod:`src.jobs.selection` so the
+    durable embedding planner shares it. This name is kept because the
+    WS-15 tests exercise the rule through it.
+    """
+    from src.jobs.selection import share_by_source
+
+    return share_by_source(listings, limit)
 
 
 def _select_for_embedding(
@@ -357,36 +343,71 @@ def _evict_stale_listings(
     return removed
 
 
-def refresh_jobs(
+@dataclass
+class RefreshStageResult:
+    """What the fetch/persist stage produced (WS-18).
+
+    The stage is split from the embedding execution so the worker's refresh
+    handler and the synchronous CLI can share one implementation: the fetch
+    and the outbox are the same; only who drains the resulting work differs.
+    """
+
+    stats: JobRefreshStats
+    source_errors: dict[str, str]
+    plan: object  # src.runs.embedding.EmbeddingPlan (lazy import)
+    run_id: str | None
+    store: object | None
+    embedding: object | None
+    degraded: bool
+    correlation_id: str
+
+
+def _plan_without_store(listings: list[JobListing], *, budget: int):
+    """Plan every admitted listing when the vector store is unavailable.
+
+    The alternative — persisting rows and hoping a later refresh notices —
+    is the disconnected state the transactional outbox exists to prevent.
+    The document hash is computed without a store connection, so the work
+    items are created now and the vectors follow when Chroma recovers.
+    """
+    from src.jobs.selection import share_by_source
+    from src.rag.chroma_store import ChromaVectorStore
+    from src.runs.embedding import EmbeddingPlan
+
+    hashes = {
+        job.id: ChromaVectorStore.content_hash(ChromaVectorStore.document_text(job))
+        for job in listings
+    }
+    selected = share_by_source(listings, budget) if budget > 0 else []
+    selected_ids = {job.id for job in selected}
+    return EmbeddingPlan(
+        outstanding=[(job, hashes[job.id]) for job in listings if job.id in selected_ids],
+        already_embedded=0,
+        capped=max(0, len(listings) - len(selected)),
+    )
+
+
+def fetch_and_persist(
     *,
     sources: dict[str, JobSource] | None = None,
     store_factory: StoreFactory | None = None,
     session_factory: sessionmaker | None = None,
     embedding_fn: object | None = None,
-) -> JobRefreshReport:
-    """Daily refresh: fetch boards → normalize → dedup → persist → embed (FU-1).
+    owner_id: str | None = None,
+    parent_run_id: str | None = None,
+    raise_on_persist_error: bool = False,
+) -> RefreshStageResult:
+    """Fetch the boards, admit the listings, persist them **and** their work.
 
-    Runs with an empty query for every registered source (fetch everything),
-    so no profile is needed and the run is idempotent: ``save_jobs`` merges by
-    canonical id and the Chroma upsert is id-stable, while the content-hash
-    embedding cache means only new or changed texts cost API requests. Daily
-    quota exhaustion (FU-4) stops the run cleanly with ``quota_exhausted`` —
-    rows stay persisted and the next run resumes from the cache.
-
-    Args:
-        sources: Source-name -> adapter override (tests inject fixtures);
-            defaults to the production registry.
-        store_factory: Vector-store override; ``None`` builds the real store
-            around ``embedding_fn`` (or a default ``GeminiEmbedding``).
-        session_factory: Sessionmaker override for persistence.
-        embedding_fn: Embedding override (tests inject fakes); also used for
-            the budget planning/used accounting in the report.
-
-    Returns:
-        JobRefreshReport — never raises for source, persistence, vector-store,
-        or quota failures.
+    WS-18: this is stage one of the refresh. The job rows and the embedding
+    work items are written in one transaction (:func:`persist_refresh_batch`),
+    so a crash cannot leave a listing that needs a vector with no record of
+    that obligation. The returned run id is the durable handle the worker (or
+    the synchronous caller) drains.
     """
-    workflow_id = uuid.uuid4().hex[:8]
+    from src.runs.embedding import persist_refresh_batch, plan_outstanding
+
+    workflow_id = uuid.uuid4().hex
     from src.jobs.registry import SOURCES, search_all_detailed
     from src.jobs.search_planner import SourceQuery
 
@@ -450,26 +471,15 @@ def refresh_jobs(
             admission.corpus_capped,
         )
 
-    persisted = 0
+    embedding = embedding_fn
+    if embedding is None:
+        from src.llm.embeddings import build_embedding_fn
+
+        embedding = build_embedding_fn()
+
+    store = None
+    degraded = False
     if unique:
-        from src.db.jobs import save_jobs
-
-        try:
-            persisted = save_jobs(unique, session_factory=session_factory)
-        except Exception:
-            logger.exception("Persisting %d listings failed; continuing unpersisted", len(unique))
-
-    embedded, planned, used, quota_exhausted, degraded = 0, 0, 0, False, False
-    documents_planned = 0
-    if unique:
-        embedding = embedding_fn
-        if embedding is None:
-            from src.llm.embeddings import build_embedding_fn
-
-            embedding = build_embedding_fn()
-        budget_remaining = getattr(embedding, "remaining_daily_budget", None)
-        budget_before = budget_remaining() if budget_remaining else None
-        store = None
         try:
             if store_factory is not None:
                 store = store_factory()
@@ -488,86 +498,182 @@ def refresh_jobs(
                         "the search ignores them (they have no row)",
                         len(evicted_ids),
                     )
-            # WS-12: the embedding work per refresh is bounded. A flood of
-            # unique listings would otherwise spend the provider's whole
-            # daily quota — and fill the embedding cache — on texts nobody
-            # will ever search for, starving the legitimate ones.
-            embed_budget = limits.max_embed_per_refresh
-            to_embed, misses_planned, work_exhausted = _select_for_embedding(
-                unique, embedding, store, budget=embed_budget
-            )
-            documents_planned = misses_planned
-            if work_exhausted:
-                quota_exhausted = True
-                logger.warning(
-                    "The daily embedding work budget is spent; %d listings stay "
-                    "persisted and are embedded after the daily reset",
-                    len(unique) - len(to_embed),
-                )
-            if len(to_embed) < len(unique):
-                logger.warning(
-                    "Embedding budget capped at %d listings for this refresh; "
-                    "%d listings stay persisted and are embedded by a later run",
-                    embed_budget,
-                    len(unique) - len(to_embed),
-                )
-            estimate = getattr(embedding, "estimate_api_requests", None)
-            if estimate is not None:
-                planned = estimate([store.document_text(job) for job in to_embed])
-            embedded = store.upsert_jobs(to_embed)
-        except Exception as exc:
-            from src.llm.client import LLMDailyQuotaExhausted
+        except Exception:
+            # WS-18 bulkhead: a vector-store outage degrades indexing, not
+            # the corpus. The rows are persisted and the work is queued for
+            # the worker to retry when the store returns.
+            degraded = True
+            store = None
+            logger.exception("Vector store unavailable; the refresh persists and queues indexing")
 
-            if isinstance(exc, LLMDailyQuotaExhausted):
-                # FU-4 clean stop: rows persist, the chunked upsert (FU-1)
-                # keeps every completed batch in the store, and the next run
-                # resumes at zero extra cost from the cache.
-                quota_exhausted = True
-                if store is not None:
-                    try:
-                        embedded = store.count()  # partial progress is real progress
-                    except Exception:  # noqa: BLE001 - count is best-effort only
-                        embedded = 0
-                logger.warning(
-                    "Refresh stopped on daily embedding quota after %d embedded; "
-                    "resumable tomorrow",
-                    embedded,
-                )
-            else:
-                degraded = True
-                logger.exception("Vector store refresh failed; rows persisted only")
-        finally:
-            if budget_before is not None and budget_remaining is not None:
-                used = budget_before - budget_remaining()
+    if unique and store is not None:
+        plan = plan_outstanding(unique, store=store, budget=limits.max_embed_per_refresh)
+    elif unique:
+        plan = _plan_without_store(unique, budget=limits.max_embed_per_refresh)
+    else:
+        from src.runs.embedding import EmbeddingPlan
+
+        plan = EmbeddingPlan(outstanding=[], already_embedded=0, capped=0)
+
+    if plan.capped:
+        logger.warning(
+            "Embedding budget capped at %d listings for this refresh; "
+            "%d listings stay persisted and are embedded by a later run",
+            limits.max_embed_per_refresh,
+            plan.capped,
+        )
+
+    persisted = 0
+    run_id: str | None = None
+    if unique:
+        try:
+            persisted, run_id = persist_refresh_batch(
+                unique,
+                plan,
+                store=store,
+                embedding=embedding,
+                owner_id=owner_id,
+                parent_run_id=parent_run_id,
+                correlation_id=workflow_id,
+                session_factory=session_factory,
+                metadata={"failed_sources": sorted(source_errors)},
+            )
+        except Exception:
+            logger.exception(
+                "Persisting %d listings and their embedding work failed; "
+                "the refresh will retry as a whole",
+                len(unique),
+            )
+            if raise_on_persist_error:
+                raise
+
     stats = JobRefreshStats(
         found=len(listings),
         dropped=dropped,
         deduped=len(unique),
         persisted=persisted,
-        embedded=embedded,
+        embedded=0,
         screened_out=len(spam_verdict.dropped),
         admission_capped=admission.total_dropped,
     )
-    report = JobRefreshReport(
+    return RefreshStageResult(
         stats=stats,
         source_errors=source_errors,
+        plan=plan,
+        run_id=run_id,
+        store=store,
+        embedding=embedding,
+        degraded=degraded,
+        correlation_id=workflow_id,
+    )
+
+
+def refresh_jobs(
+    *,
+    sources: dict[str, JobSource] | None = None,
+    store_factory: StoreFactory | None = None,
+    session_factory: sessionmaker | None = None,
+    embedding_fn: object | None = None,
+) -> JobRefreshReport:
+    """Daily refresh: fetch boards → normalize → dedup → persist → embed (FU-1).
+
+    Runs with an empty query for every registered source (fetch everything),
+    so no profile is needed and the run is idempotent: ``save_jobs`` merges by
+    canonical id, the Chroma upsert is id-stable, and the content hash makes
+    an unchanged listing free. Daily quota exhaustion (FU-4) stops the run
+    cleanly with ``quota_exhausted`` — rows stay persisted, the work items
+    stay queued, and an administrator (or the next run) resumes.
+
+    WS-18: this synchronous entry point uses the **same** outbox and handler
+    as the worker. It is the CLI/test path; the API enqueues a durable run
+    instead of calling this function inside a request.
+
+    Args:
+        sources: Source-name -> adapter override (tests inject fixtures);
+            defaults to the production registry.
+        store_factory: Vector-store override; ``None`` builds the real store
+            around ``embedding_fn``.
+        session_factory: Sessionmaker override for persistence.
+        embedding_fn: Embedding override (tests inject fakes); also used for
+            the budget planning/used accounting in the report.
+
+    Returns:
+        JobRefreshReport — never raises for source, vector-store, or quota
+        failures. A persistence failure is reported as a zero persisted count
+        (and the work is retried by the caller).
+    """
+    from src.runs.embedding import EmbeddingBatchResult, process_run_inline
+
+    stage = fetch_and_persist(
+        sources=sources,
+        store_factory=store_factory,
+        session_factory=session_factory,
+        embedding_fn=embedding_fn,
+    )
+    embedding = stage.embedding
+    budget_remaining = getattr(embedding, "remaining_daily_budget", None)
+    budget_before = budget_remaining() if budget_remaining else None
+
+    planned = 0
+    estimate = getattr(embedding, "estimate_api_requests", None)
+    if estimate is not None and stage.store is not None and stage.plan.outstanding:
+        try:
+            planned = estimate(
+                [stage.store.document_text(job) for job, _hash in stage.plan.outstanding]
+            )
+        except Exception:  # noqa: BLE001 - planning is best-effort
+            planned = 0
+
+    batch = EmbeddingBatchResult()
+    degraded = stage.degraded
+    if stage.run_id and stage.store is not None:
+        try:
+            batch = process_run_inline(
+                stage.run_id,
+                worker_id=f"inline-{uuid.uuid4().hex[:8]}",
+                store=stage.store,
+                session_factory=session_factory,
+            )
+        except Exception:
+            degraded = True
+            logger.exception(
+                "Inline embedding run %s failed; its outstanding work stays durable",
+                stage.run_id,
+            )
+    elif stage.run_id is not None:
+        # The store was unavailable: the work is queued, not lost.
+        degraded = True
+
+    if batch.error and not batch.completed and not batch.quota_exhausted:
+        degraded = True
+
+    used = 0
+    if budget_before is not None and budget_remaining is not None:
+        used = budget_before - budget_remaining()
+
+    stats = stage.stats.model_copy(update={"embedded": batch.completed})
+    report = JobRefreshReport(
+        stats=stats,
+        source_errors=stage.source_errors,
         embedding_requests_planned=planned,
-        embedding_documents_planned=documents_planned,
+        embedding_documents_planned=len(stage.plan.outstanding),
         embedding_requests_used=used,
-        quota_exhausted=quota_exhausted,
+        quota_exhausted=batch.quota_exhausted,
         degraded_embedding=degraded,
+        run_id=stage.run_id,
     )
     logger.info(
         "Job refresh complete",
         extra={
-            "workflow_id": workflow_id,
+            "workflow_id": stage.correlation_id,
+            "run_id": stage.run_id,
             "found": stats.found,
             "deduped": stats.deduped,
             "persisted": stats.persisted,
             "embedded": stats.embedded,
             "embedding_requests_planned": planned,
-            "failed_sources": sorted(source_errors),
-            "quota_exhausted": quota_exhausted,
+            "failed_sources": sorted(stage.source_errors),
+            "quota_exhausted": batch.quota_exhausted,
         },
     )
     return report
