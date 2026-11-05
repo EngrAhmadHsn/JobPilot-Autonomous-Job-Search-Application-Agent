@@ -382,7 +382,7 @@ export function ResumeScreen() {
           title="What the agent read"
           description="Everything below came out of your document. Nothing was inferred."
           action={
-            <Button render={<Link to="/matches" />}>
+            <Button render={<Link to="/app/matches" />}>
               Explore matching jobs
             </Button>
           }

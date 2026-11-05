@@ -190,7 +190,7 @@ export function TrackerScreen() {
                       <TableRow key={application.id} {...stagger(index)}>
                         <TableCell>
                           <Link
-                            to={`/tracker/${encodeURIComponent(application.id)}`}
+                            to={`/app/tracker/${encodeURIComponent(application.id)}`}
                             className="font-medium underline-offset-4 hover:underline"
                           >
                             {application.job_title}
@@ -313,7 +313,7 @@ export function TrackerDetailScreen() {
           </span>
         }
         actions={
-          <LinkButton variant="outline" to="/tracker">
+          <LinkButton variant="outline" to="/app/tracker">
             Back to the list
           </LinkButton>
         }

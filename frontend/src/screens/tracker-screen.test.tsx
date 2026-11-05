@@ -77,7 +77,7 @@ describe("the tracker detail", () => {
   })
 
   it("shows the history and the evidence", async () => {
-    renderApp({ route: "/tracker/application-1" })
+    renderApp({ route: "/app/tracker/application-1" })
 
     expect(await screen.findByText("History (2)")).toBeInTheDocument()
     expect(screen.getByText("application_created")).toBeInTheDocument()
@@ -100,7 +100,7 @@ describe("the tracker detail", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/tracker/application-1" })
+    renderApp({ route: "/app/tracker/application-1" })
 
     await user.selectOptions(
       await screen.findByLabelText("Outcome"),
@@ -129,7 +129,7 @@ describe("the tracker detail", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/tracker/application-1" })
+    renderApp({ route: "/app/tracker/application-1" })
 
     await user.click(
       await screen.findByRole("button", { name: "Record the outcome" })
@@ -152,7 +152,7 @@ describe("the tracker detail", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/tracker/application-1" })
+    renderApp({ route: "/app/tracker/application-1" })
 
     await user.click(
       await screen.findByRole("button", { name: "Record the outcome" })

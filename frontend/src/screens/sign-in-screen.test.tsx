@@ -22,7 +22,7 @@ describe("the sign-in screen", () => {
         HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
       )
     )
-    renderApp({ route: "/resume" })
+    renderApp({ route: "/app/resume" })
 
     expect(
       await screen.findByRole("heading", { name: "Sign in" })
@@ -52,7 +52,7 @@ describe("the sign-in screen", () => {
     )
 
     const user = userEvent.setup()
-    renderApp({ route: "/resume" })
+    renderApp({ route: "/app/resume" })
 
     await user.type(
       await screen.findByLabelText("Email"),
@@ -73,7 +73,7 @@ describe("the sign-in screen", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/resume" })
+    renderApp({ route: "/app/resume" })
 
     await user.click(
       await screen.findByRole("button", { name: /No account yet\?/ })
@@ -98,7 +98,7 @@ describe("the sign-in screen", () => {
     )
 
     const user = userEvent.setup()
-    renderApp({ route: "/resume" })
+    renderApp({ route: "/app/resume" })
 
     await user.type(
       await screen.findByLabelText("Email"),

@@ -295,7 +295,7 @@ export function TailorJobScreen() {
       <EmptyState
         title="No profile selected"
         description="A tailored résumé is built from your profile. Upload a résumé first."
-        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
+        action={<LinkButton to="/app/resume">Go to the Resume screen</LinkButton>}
       />
     )
   }
@@ -434,7 +434,7 @@ export function TailorIndexScreen() {
         <EmptyState
           title="No profile selected"
           description="A tailored résumé is built from a candidate profile. Upload a résumé first, then pick the job to tailor for."
-          action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
+          action={<LinkButton to="/app/resume">Go to the Resume screen</LinkButton>}
         />
       </div>
     )
@@ -472,7 +472,7 @@ export function TailorIndexScreen() {
               title="No matches yet"
               description="Run a search on the Matches screen first — the match history is what this list is built from."
               action={
-                <LinkButton to="/matches">Go to the Matches screen</LinkButton>
+                <LinkButton to="/app/matches">Go to the Matches screen</LinkButton>
               }
             />
           ) : null}
@@ -490,7 +490,7 @@ export function TailorIndexScreen() {
                 >
                   <div className="min-w-0">
                     <Link
-                      to={`/tailor/${encodeURIComponent(jobId)}`}
+                      to={`/app/tailor/${encodeURIComponent(jobId)}`}
                       className="font-medium underline-offset-4 hover:underline"
                     >
                       {job ? job.job.title : jobId}

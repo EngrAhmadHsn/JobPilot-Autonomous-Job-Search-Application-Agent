@@ -6,36 +6,53 @@ import { stagger } from "@/lib/stagger"
 /**
  * The navigation, grouped by what the operator is doing.
  *
- * The groups are the workflow: **discover** (find work), **prepare** (build
- * an application), **track** (follow what happened). Operations is a
- * separate, quieter cluster — it maintains the corpus rather than being
- * part of an application, and it should not read as an equal step in the
- * operator's own workflow.
+ * The groups are the workflow: **overview** (where you are), **discover**
+ * (find work), **prepare** (build an application), **track** (follow what
+ * happened, and watch the agent). Operations and Administration are a
+ * separate, quieter cluster — they maintain the platform rather than being
+ * part of the operator's own workflow, so they should not read as equal
+ * steps in it.
  *
- * It has two shapes: a horizontal bar on a wide screen, and the items of a
- * drawer on a narrow one. The grouping and the wording are the same in
- * both; only the arrangement changes.
+ * Every destination is under `/app`, because the console now lives behind
+ * a public landing page. It has two shapes: a horizontal bar on a wide
+ * screen, and the items of a drawer on a narrow one. The grouping and the
+ * wording are the same in both; only the arrangement changes.
  */
 export const NAV_GROUPS = [
   {
+    /*
+      The first group has no heading: its one item is "Overview", and a
+      heading that repeats the item beneath it is noise. An empty label
+      renders no heading at all, in either shape.
+    */
+    label: "",
+    items: [{ to: "/app", label: "Overview", end: true }],
+  },
+  {
     label: "Discover",
     items: [
-      { to: "/resume", label: "Resume" },
-      { to: "/matches", label: "Matches" },
-      { to: "/tailor", label: "Tailor" },
+      { to: "/app/resume", label: "Resume" },
+      { to: "/app/matches", label: "Matches" },
+      { to: "/app/tailor", label: "Tailor" },
     ],
   },
   {
     label: "Prepare",
-    items: [{ to: "/approvals", label: "Approvals" }],
+    items: [{ to: "/app/approvals", label: "Approvals" }],
   },
   {
     label: "Track",
-    items: [{ to: "/tracker", label: "Tracker" }],
+    items: [
+      { to: "/app/tracker", label: "Tracker" },
+      { to: "/app/activity", label: "Activity" },
+    ],
   },
 ] as const
 
-export const ADMIN_NAV = [{ to: "/operations", label: "Operations" }] as const
+export const ADMIN_NAV = [
+  { to: "/app/operations", label: "Operations" },
+  { to: "/app/admin", label: "Administration", superuserOnly: true },
+] as const
 
 /**
  * The groups with each destination's index in the whole list.
@@ -68,6 +85,7 @@ function NavItem({
   onNavigate,
   className,
   index,
+  end,
 }: {
   to: string
   label: string
@@ -75,12 +93,14 @@ function NavItem({
   onNavigate?: () => void
   className?: string
   index?: number
+  end?: boolean
 }) {
   const vertical = variant === "vertical"
 
   return (
     <NavLink
       to={to}
+      end={end}
       /*
         The View Transitions API animates between the two screens: the
         browser captures the old one and the new one and crossfades them,
@@ -138,10 +158,12 @@ export function NavGroups({
     return (
       <nav aria-label="Screens" className={cn("space-y-5", className)}>
         {INDEXED_GROUPS.map((group) => (
-          <div key={group.label} className="space-y-1">
-            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
-              {group.label}
-            </p>
+          <div key={group.label || "primary"} className="space-y-1">
+            {group.label ? (
+              <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
+                {group.label}
+              </p>
+            ) : null}
             {group.items.map((item) => (
               <NavItem
                 key={item.to}
@@ -150,6 +172,7 @@ export function NavGroups({
                 variant={variant}
                 onNavigate={onNavigate}
                 index={item.index}
+                end={"end" in item ? item.end : undefined}
               />
             ))}
           </div>
@@ -164,13 +187,15 @@ export function NavGroups({
       className={cn("flex flex-wrap items-center gap-x-1 gap-y-1", className)}
     >
       {NAV_GROUPS.map((group, index) => (
-        <div key={group.label} className="flex flex-wrap items-center gap-1">
+        <div key={group.label || "primary"} className="flex flex-wrap items-center gap-1">
           {index > 0 ? (
             <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
           ) : null}
-          <span className="text-xs font-medium text-muted-foreground/80">
-            {group.label}
-          </span>
+          {group.label ? (
+            <span className="text-xs font-medium text-muted-foreground/80">
+              {group.label}
+            </span>
+          ) : null}
           {group.items.map((item) => (
             <NavItem
               key={item.to}
@@ -178,6 +203,7 @@ export function NavGroups({
               label={item.label}
               variant={variant}
               onNavigate={onNavigate}
+              end={"end" in item ? item.end : undefined}
             />
           ))}
         </div>
@@ -186,17 +212,28 @@ export function NavGroups({
   )
 }
 
-/** The maintenance cluster, kept out of the operator's workflow. */
+/**
+ * The maintenance cluster, kept out of the operator's workflow.
+ *
+ * The **Administration** destination is shown only to a superuser. That is
+ * a courtesy, not a control: hiding a link stops a curious click, and the
+ * route behind it refuses a non-superuser on the **server** regardless of
+ * what this renders. A frontend flag that *was* the control would be a
+ * frontend flag that could be edited in a console.
+ */
 export function AdminNav({
   variant = "horizontal",
   onNavigate,
   className,
+  showAdmin = false,
 }: {
   variant?: NavVariant
   onNavigate?: () => void
   className?: string
+  showAdmin?: boolean
 }) {
   const vertical = variant === "vertical"
+  const items = ADMIN_NAV.filter((item) => !("superuserOnly" in item) || showAdmin)
 
   return (
     <nav
@@ -206,7 +243,7 @@ export function AdminNav({
         className
       )}
     >
-      {ADMIN_NAV.map((item) => (
+      {items.map((item) => (
         <NavItem
           key={item.to}
           to={item.to}

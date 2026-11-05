@@ -9,11 +9,11 @@ import { renderApp } from "@/test/render"
 import { tailorResponse } from "@/test/factories"
 
 const BASE = "http://api.test"
-const ROUTE = `/tailor/${encodeURIComponent("greenhouse:1")}`
+const ROUTE = `/app/tailor/${encodeURIComponent("greenhouse:1")}`
 
 describe("the tailor index", () => {
   it("has a heading even when there is no profile to tailor", async () => {
-    renderApp({ route: "/tailor" })
+    renderApp({ route: "/app/tailor" })
 
     // A screen that shows only an empty state, with no heading, reads as a
     // broken screen. The heading says what the screen is for; the empty

@@ -25,11 +25,11 @@ test("the operator can go from a resume to a tracked application", async ({
   // The API has an identity (WS-14), so the console asks the server who
   // it is and shows the sign-in screen when the answer is no. The
   // account is created on the first run and reused after that.
-  await page.goto("/resume")
+  await page.goto("/app/resume")
   await signIn(page)
 
   // 1. Sign in, then upload a resume ---------------------------------------
-  await page.goto("/resume")
+  await page.goto("/app/resume")
   await signIn(page)
   await page.getByLabel("Résumé file").setInputFiles(RESUME)
   await page.getByRole("button", { name: /Upload and analyze résumé/ }).click()
@@ -172,10 +172,10 @@ async function signIn(page: import("@playwright/test").Page) {
  * a focus ring that is not drawn is not a focus ring.
  */
 test("the console is reachable by keyboard", async ({ page }) => {
-  await page.goto("/resume")
+  await page.goto("/app/resume")
   await signIn(page)
   await signIn(page)
-  await page.goto("/resume")
+  await page.goto("/app/resume")
 
   const visited: string[] = []
   let sawVisibleFocus = false
@@ -221,7 +221,7 @@ test("the console is reachable by keyboard", async ({ page }) => {
  * error boundary is what the operator saw, so the test opens it.
  */
 test("the account menu opens", async ({ page }) => {
-  await page.goto("/resume")
+  await page.goto("/app/resume")
   await signIn(page)
 
   await page
@@ -244,7 +244,7 @@ test("the account menu opens", async ({ page }) => {
  */
 test("the navigation is a drawer on a narrow screen", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 780 })
-  await page.goto("/matches")
+  await page.goto("/app/matches")
   await signIn(page)
 
   // The horizontal bar is not in the DOM at this width: a screen reader
@@ -260,7 +260,7 @@ test("the navigation is a drawer on a narrow screen", async ({ page }) => {
 
   await drawer.getByRole("link", { name: "Tracker" }).click()
 
-  await expect(page).toHaveURL(/\/tracker$/)
+  await expect(page).toHaveURL(/\/app\/tracker$/)
   // The drawer closes on the choice, the way a drawer should.
   await expect(page.getByRole("dialog")).toHaveCount(0)
 })

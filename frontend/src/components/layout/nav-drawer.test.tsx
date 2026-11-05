@@ -36,7 +36,7 @@ describe("the navigation drawer", () => {
 
   it("marks the current page", async () => {
     const user = userEvent.setup()
-    renderScreen(<NavDrawer />, { route: "/matches" })
+    renderScreen(<NavDrawer />, { route: "/app/matches" })
 
     await user.click(
       screen.getByRole("button", { name: "Open the navigation menu" })

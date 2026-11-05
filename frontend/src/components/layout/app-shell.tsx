@@ -73,6 +73,8 @@ export function AppShell() {
     return <SignInScreen />
   }
 
+  const isSuperuser = Boolean(identity.data?.is_superuser)
+
   return (
     <div className="min-h-screen bg-background">
       <header
@@ -88,14 +90,14 @@ export function AppShell() {
                 bar are never both in the DOM, so a screen reader never
                 meets the same destination twice.
               */}
-              <NavDrawer />
+              <NavDrawer showAdmin={isSuperuser} />
               <BrandMark />
               <div className="leading-tight">
                 <Link
-                  to="/resume"
+                  to="/app"
                   className="font-heading text-[15px] font-semibold tracking-tight text-foreground"
                 >
-                  CareerPilot
+                  JobPilot
                 </Link>
                 <p className="hidden text-[11px] text-muted-foreground sm:block">
                   The agentic job applier
@@ -120,7 +122,7 @@ export function AppShell() {
             <div className="min-w-0 flex-1">
               <NavGroups />
             </div>
-            <AdminNav />
+            <AdminNav showAdmin={isSuperuser} />
           </div>
         </div>
       </header>

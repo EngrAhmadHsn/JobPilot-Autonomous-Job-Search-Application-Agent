@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { Link, useNavigate } from "react-router-dom"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import { api } from "@/lib/api/endpoints"
  */
 export function SignInScreen() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [mode, setMode] = useState<"sign-in" | "create">("sign-in")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -28,6 +30,10 @@ export function SignInScreen() {
     mutationFn: () => api.signIn(email, password),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["identity"] })
+      // The console is the destination once a session exists. This is a
+      // convenience, not a gate: `/app/*` asks the server who the caller
+      // is on its own.
+      navigate("/app")
     },
   })
 
@@ -112,6 +118,12 @@ export function SignInScreen() {
             ? "No account yet? Create one"
             : "Already have an account? Sign in"}
         </button>
+
+        <p className="text-center text-xs text-muted-foreground">
+          <Link to="/" className="underline underline-offset-4 hover:text-foreground">
+            ← Back to the site
+          </Link>
+        </p>
       </div>
     </div>
   )

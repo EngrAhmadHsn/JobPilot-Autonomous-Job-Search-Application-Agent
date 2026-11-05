@@ -88,7 +88,7 @@ export function JobDetailScreen() {
         actions={
           <div className="flex items-center gap-2">
             {match ? <OverallScore value={match.overall_score} /> : null}
-            <LinkButton to={`/tailor/${encodeURIComponent(listing.id)}`}>
+            <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
               Tailor for this job
             </LinkButton>
           </div>

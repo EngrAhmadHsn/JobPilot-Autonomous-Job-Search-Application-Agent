@@ -71,7 +71,7 @@ function MatchCard({
           <div className="min-w-0">
             <CardTitle className="font-heading text-base">
               <Link
-                to={`/matches/${encodeURIComponent(job.id)}`}
+                to={`/app/matches/${encodeURIComponent(job.id)}`}
                 className="underline-offset-4 hover:underline"
               >
                 {job.title}
@@ -122,7 +122,7 @@ function MatchCard({
         <LinkButton
           variant="outline"
           size="sm"
-          to={`/matches/${encodeURIComponent(job.id)}`}
+          to={`/app/matches/${encodeURIComponent(job.id)}`}
         >
           Open the job
         </LinkButton>
@@ -197,7 +197,7 @@ export function MatchesScreen() {
       <EmptyState
         title="No profile selected"
         description="A search scores the stored job corpus against your profile. Upload a résumé first."
-        action={<LinkButton to="/resume">Go to the Resume screen</LinkButton>}
+        action={<LinkButton to="/app/resume">Go to the Resume screen</LinkButton>}
       />
     )
   }

@@ -24,7 +24,7 @@ async function fillPrepareForm(user: ReturnType<typeof userEvent.setup>) {
 describe("the approvals screen", () => {
   it("prepares an application and shows what would be submitted", async () => {
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(
@@ -43,7 +43,7 @@ describe("the approvals screen", () => {
 
   it("refuses to prepare an application with a missing field", async () => {
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await user.type(screen.getByLabelText("Job title"), "AI Engineer")
     await user.click(
@@ -60,7 +60,7 @@ describe("the approvals screen", () => {
     // WS-14: the approver is the authenticated principal. Asking the
     // operator for a name would collect a value the server ignores.
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(
@@ -86,7 +86,7 @@ describe("the approvals screen", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(
@@ -120,7 +120,7 @@ describe("the approvals screen", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(
@@ -155,7 +155,7 @@ describe("the approvals screen", () => {
       })
     )
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(
@@ -181,7 +181,7 @@ describe("the approvals screen", () => {
       )
     )
     const user = userEvent.setup()
-    renderApp({ route: "/approvals" })
+    renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
     await user.click(

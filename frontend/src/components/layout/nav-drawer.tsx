@@ -24,7 +24,7 @@ import { BrandMark } from "./brand-mark"
  * same "you are here" marker, in a panel that slides in from the left and
  * closes when the operator picks a destination.
  */
-export function NavDrawer() {
+export function NavDrawer({ showAdmin = false }: { showAdmin?: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -42,7 +42,7 @@ export function NavDrawer() {
             <BrandMark />
             <div className="leading-tight">
               <SheetTitle className="font-heading text-[15px] font-semibold tracking-tight">
-                CareerPilot
+                JobPilot
               </SheetTitle>
               <SheetDescription className="text-[11px] text-muted-foreground">
                 The agentic job applier
@@ -58,7 +58,11 @@ export function NavDrawer() {
             <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
               Administration
             </p>
-            <AdminNav variant="vertical" onNavigate={() => setOpen(false)} />
+            <AdminNav
+              variant="vertical"
+              showAdmin={showAdmin}
+              onNavigate={() => setOpen(false)}
+            />
           </div>
         </div>
       </SheetContent>

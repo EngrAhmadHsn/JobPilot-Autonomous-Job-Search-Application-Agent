@@ -104,7 +104,7 @@ describe("the matches screen", () => {
 describe("the job detail screen", () => {
   it("shows the listing and the match the profile scored", async () => {
     withProfile()
-    renderApp({ route: `/matches/${encodeURIComponent("greenhouse:1")}` })
+    renderApp({ route: `/app/matches/${encodeURIComponent("greenhouse:1")}` })
 
     await waitFor(() => {
       expect(screen.getByText("The listing")).toBeInTheDocument()
@@ -149,7 +149,7 @@ describe("the job detail screen", () => {
     )
 
     const { container } = renderApp({
-      route: `/matches/${encodeURIComponent("greenhouse:1")}`,
+      route: `/app/matches/${encodeURIComponent("greenhouse:1")}`,
     })
 
     await waitFor(() => {
