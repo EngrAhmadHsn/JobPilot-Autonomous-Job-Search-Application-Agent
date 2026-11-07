@@ -4,10 +4,12 @@ import { formatScore } from "@/lib/format"
 import type { JobMatchResult } from "@/lib/api/types"
 
 /**
- * The seven component scores, in the order the matching engine produces them.
+ * The component scores, in the order the matching engine produces them.
  *
  * The overall score alone would be a number the operator cannot argue with;
- * the components are what makes the ranking explainable.
+ * the components are what makes the ranking explainable. WS-21 appends the
+ * occupational-role component: whether the listing is the *kind of work* the
+ * candidate's target roles describe.
  */
 const COMPONENTS: { key: keyof JobMatchResult; name: string; label: string }[] =
   [
@@ -18,6 +20,7 @@ const COMPONENTS: { key: keyof JobMatchResult; name: string; label: string }[] =
     { key: "seniority_score", name: "seniority", label: "Seniority" },
     { key: "location_score", name: "location", label: "Location" },
     { key: "preference_score", name: "preference", label: "Preferences" },
+    { key: "role_score", name: "role", label: "Role" },
   ]
 
 /** The states that mean the component rests on a real measurement. */
@@ -147,6 +150,12 @@ export function ScoreGrid({ match }: { match: JobMatchResult }) {
           )
         })}
       </div>
+      {match.role_capped ? (
+        <p className="text-[11px] text-destructive">
+          The listing's role is unrelated to the candidate's target roles, so
+          the overall score is capped.
+        </p>
+      ) : null}
       <EvidenceCoverage value={Number(match.evidence_coverage ?? 0)} />
     </div>
   )

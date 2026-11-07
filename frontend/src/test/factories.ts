@@ -93,6 +93,7 @@ export function candidateProfile(
         remote_preference: null,
         employment_types: [],
         willing_to_relocate: null,
+        target_roles: [],
       },
       answers: {
         work_authorization: {
@@ -168,6 +169,13 @@ export function matchPair(overrides: Partial<JobMatchPair> = {}): JobMatchPair {
       seniority_score: 80,
       location_score: 100,
       preference_score: 70,
+      // WS-21: the occupational-role comparison.
+      role_score: 90,
+      role_family: "data_science_ml",
+      role_family_confidence: 0.9,
+      role_targets: ["AI Engineer"],
+      role_target_source: "user",
+      role_capped: false,
       evidence_coverage: 100,
       component_states: {
         semantic: "MATCHED",
@@ -177,6 +185,7 @@ export function matchPair(overrides: Partial<JobMatchPair> = {}): JobMatchPair {
         seniority: "MATCHED",
         location: "MATCHED",
         preference: "MATCHED",
+        role: "MATCHED",
       },
       notes: [],
       missing_requirements: ["Kubernetes"],

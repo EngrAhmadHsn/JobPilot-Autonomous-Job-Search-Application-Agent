@@ -2189,6 +2189,30 @@ export interface components {
             overall_score: number;
             /** Preference Score */
             preference_score: number;
+            /**
+             * Role Capped
+             * @default false
+             */
+            role_capped: boolean;
+            /** Role Family */
+            role_family?: string | null;
+            /**
+             * Role Family Confidence
+             * @default 0
+             */
+            role_family_confidence: number;
+            /**
+             * Role Score
+             * @default 0
+             */
+            role_score: number;
+            /**
+             * Role Target Source
+             * @default none
+             */
+            role_target_source: string;
+            /** Role Targets */
+            role_targets?: string[];
             /** Semantic Score */
             semantic_score: number;
             /** Seniority Score */
@@ -2207,6 +2231,8 @@ export interface components {
             preferred_locations?: string[];
             /** Remote Preference */
             remote_preference?: string | null;
+            /** Target Roles */
+            target_roles?: string[];
             /** Willing To Relocate */
             willing_to_relocate?: boolean | null;
         };

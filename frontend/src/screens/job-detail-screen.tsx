@@ -39,6 +39,17 @@ function matchFromHistory(
     seniority_score: asNumber(scores.seniority_score),
     location_score: asNumber(scores.location_score),
     preference_score: asNumber(scores.preference_score),
+    // WS-21: older persisted rows predate the role fields; the accessors
+    // default them safely (no role evidence — never a fabricated match).
+    role_score: asNumber(scores.role_score),
+    role_family: typeof scores.role_family === "string" ? scores.role_family : null,
+    role_family_confidence: asNumber(scores.role_family_confidence),
+    role_targets: asStringArray(scores.role_targets),
+    role_target_source:
+      typeof scores.role_target_source === "string"
+        ? scores.role_target_source
+        : "none",
+    role_capped: scores.role_capped === true,
     evidence_coverage: asNumber(scores.evidence_coverage),
     component_states: asRecord(scores.component_states) as Record<string, string>,
     notes: asStringArray(scores.notes),

@@ -31,4 +31,24 @@ describe("ScoreGrid", () => {
     render(<ScoreGrid match={pair.match} />)
     expect(screen.getByText("Keywords")).toBeDefined()
   })
+
+  it("shows the occupational role beside the other components (WS-21)", () => {
+    const pair = matchPair()
+    render(<ScoreGrid match={pair.match} />)
+    expect(screen.getByText("Role")).toBeDefined()
+  })
+
+  it("says when a role mismatch capped the score", () => {
+    const pair = matchPair()
+    pair.match.role_capped = true
+    pair.match.role_score = 5
+    pair.match.component_states = {
+      ...pair.match.component_states,
+      role: "PARTIAL_MATCH",
+    }
+    render(<ScoreGrid match={pair.match} />)
+    expect(
+      screen.getByText(/unrelated to the candidate's target roles/i)
+    ).toBeDefined()
+  })
 })
