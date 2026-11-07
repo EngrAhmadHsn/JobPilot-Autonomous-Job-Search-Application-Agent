@@ -24,7 +24,7 @@ describe("the tailor index", () => {
         level: 1,
       })
     ).toBeInTheDocument()
-    expect(screen.getByText("No profile selected")).toBeInTheDocument()
+    expect(screen.getByText("Tailoring needs a résumé first")).toBeInTheDocument()
   })
 })
 
@@ -133,7 +133,7 @@ describe("the tailor screen", () => {
     renderApp({ route: ROUTE })
 
     await waitFor(() => {
-      expect(screen.getByText("No profile selected")).toBeInTheDocument()
+      expect(screen.getByText("Tailoring needs a résumé first")).toBeInTheDocument()
     })
   })
 })

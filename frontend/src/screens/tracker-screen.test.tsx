@@ -15,7 +15,7 @@ describe("the tracker list", () => {
 
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
     expect(
-      screen.getByText("1 application · showing 1 from 1")
+      screen.getByText(/1 application · showing 1–1/)
     ).toBeInTheDocument()
     expect(screen.getAllByText("Verified").length).toBeGreaterThan(0)
   })
@@ -37,6 +37,23 @@ describe("the tracker list", () => {
 
     await waitFor(() => {
       expect(seenStatuses).toBe("awaiting_approval")
+    })
+  })
+
+  it("asks the server for ten applications a page", async () => {
+    // The list is the server's: the console must not ask for a page it then
+    // has to trim, and ten keeps the page readable on a laptop.
+    let seenLimit: string | null = null
+    server.use(
+      http.get(`${BASE}/api/applications`, ({ request }) => {
+        seenLimit = new URL(request.url).searchParams.get("limit")
+        return HttpResponse.json({ items: [], total: 0, limit: 10, offset: 0 })
+      })
+    )
+    renderScreen(<TrackerScreen />)
+
+    await waitFor(() => {
+      expect(seenLimit).toBe("10")
     })
   })
 

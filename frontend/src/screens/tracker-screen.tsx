@@ -34,7 +34,7 @@ import {
 } from "@/lib/status"
 import type { ApplicationDetail, ApplicationEvent } from "@/lib/api/types"
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
 
 /** One event in the application's history. */
 function EventRow({
@@ -165,8 +165,8 @@ export function TrackerScreen() {
           {applications.data ? (
             <>
               <p className="text-sm text-muted-foreground">
-                {pluralize(total, "application")} · showing {items.length} from{" "}
-                {offset + 1}
+                {pluralize(total, "application")} · showing {offset + 1}–
+                {Math.min(offset + PAGE_SIZE, total)}
               </p>
 
               {items.length === 0 ? (

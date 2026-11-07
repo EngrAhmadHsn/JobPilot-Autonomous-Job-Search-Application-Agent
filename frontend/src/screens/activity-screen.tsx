@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 
 import { Banner } from "@/components/common/banner"
+import { Pagination } from "@/components/common/pagination"
 import { EmptyState } from "@/components/common/progress-state"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
@@ -18,6 +19,9 @@ import {
 } from "@/lib/observability"
 
 type Filter = "all" | "attention"
+
+/** How many trail rows one page shows. */
+const TRAIL_PAGE_SIZE = 10
 
 /**
  * Agent activity — the observability screen.
@@ -36,6 +40,7 @@ type Filter = "all" | "attention"
  */
 export function ActivityScreen() {
   const [filter, setFilter] = useState<Filter>("all")
+  const [trailPage, setTrailPage] = useState(0)
 
   const audit = useQuery({
     queryKey: ["audit", "activity"],
@@ -56,6 +61,12 @@ export function ActivityScreen() {
   const visible = useMemo(
     () => (filter === "attention" ? events.filter(needsAttention) : events),
     [events, filter]
+  )
+  const trailPages = Math.max(1, Math.ceil(visible.length / TRAIL_PAGE_SIZE))
+  const trailPageSafe = Math.min(trailPage, trailPages - 1)
+  const pageRows = visible.slice(
+    trailPageSafe * TRAIL_PAGE_SIZE,
+    (trailPageSafe + 1) * TRAIL_PAGE_SIZE
   )
 
   const lastRead = audit.dataUpdatedAt
@@ -134,7 +145,12 @@ export function ActivityScreen() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setFilter(value)}
+                onClick={() => {
+                  setFilter(value)
+                  // A filter that keeps the page index would land on an empty
+                  // page: "needs attention" is a smaller list.
+                  setTrailPage(0)
+                }}
                 aria-pressed={filter === value}
                 className={
                   filter === value
@@ -160,11 +176,20 @@ export function ActivityScreen() {
             }
           />
         ) : (
-          <Card>
-            <CardContent>
-              <EventList events={visible} />
-            </CardContent>
-          </Card>
+          <div className="space-y-3">
+            <Card>
+              <CardContent>
+                <EventList events={pageRows} />
+              </CardContent>
+            </Card>
+            <Pagination
+              page={trailPageSafe}
+              pageSize={TRAIL_PAGE_SIZE}
+              total={visible.length}
+              onPageChange={setTrailPage}
+              label="recorded actions"
+            />
+          </div>
         )}
       </Section>
     </div>

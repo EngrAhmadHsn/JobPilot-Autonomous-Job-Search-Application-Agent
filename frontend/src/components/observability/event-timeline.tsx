@@ -181,8 +181,15 @@ export function RunTimeline({ run }: { run: AgentRun }) {
           {run.hasFailure ? "Needs attention" : "Completed cleanly"}
         </span>
       </div>
+      {/*
+        The steps are closed by default. An execution is a long list, and the
+        screen lists several of them; opening the one you care about keeps the
+        page readable.
+      */}
       <div className="mt-3">
-        <EventList events={run.events} />
+        <Disclosure summary="The steps" hint={`${run.events.length} recorded`}>
+          <EventList events={run.events} />
+        </Disclosure>
       </div>
     </div>
   )
