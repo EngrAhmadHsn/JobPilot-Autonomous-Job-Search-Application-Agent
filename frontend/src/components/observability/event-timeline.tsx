@@ -2,13 +2,13 @@ import { cn } from "cn"
 import type { CSSProperties } from "react"
 
 import { Disclosure } from "@/components/common/disclosure"
+import { RelativeTime } from "@/components/common/relative-time"
 import type { AuditEvent } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
 import {
   describeAction,
   describeOutcome,
   eventTone,
-  formatRelativeTime,
   needsAttention,
   type AgentRun,
   type EventTone,
@@ -61,7 +61,13 @@ export function EventList({ events }: { events: AuditEvent[] }) {
   )
 }
 
-export function EventRow({ event, index }: { event: AuditEvent; index: number }) {
+export function EventRow({
+  event,
+  index,
+}: {
+  event: AuditEvent
+  index: number
+}) {
   const tone = eventTone(event)
   const action = describeAction(event.action)
   const attention = needsAttention(event)
@@ -95,7 +101,7 @@ export function EventRow({ event, index }: { event: AuditEvent; index: number })
           dateTime={event.recorded_at ?? undefined}
           title={formatDateTime(event.recorded_at)}
         >
-          {formatRelativeTime(event.recorded_at)}
+          <RelativeTime value={event.recorded_at} />
         </time>
       </div>
 
@@ -103,7 +109,10 @@ export function EventRow({ event, index }: { event: AuditEvent; index: number })
         <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
           <Detail label="Action" value={event.action} mono />
           <Detail label="Outcome" value={event.outcome} />
-          <Detail label="Actor" value={`${event.actor} (${actorWord(event)})`} />
+          <Detail
+            label="Actor"
+            value={`${event.actor} (${actorWord(event)})`}
+          />
           <Detail label="Resource" value={event.resource} mono />
           {event.workflow_id ? (
             <Detail label="Workflow" value={event.workflow_id} mono />
@@ -167,7 +176,7 @@ export function RunTimeline({ run }: { run: AgentRun }) {
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {run.events.length} step{run.events.length === 1 ? "" : "s"} ·{" "}
-            started {formatRelativeTime(run.startedAt)}
+            started <RelativeTime value={run.startedAt} />
           </p>
         </div>
         <span

@@ -5,7 +5,11 @@ import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PageHeader, Section } from "@/components/common/page-header"
-import { RunProgress, isRunTerminal, runStatusCopy } from "@/components/observability/run-progress"
+import {
+  RunProgress,
+  isRunTerminal,
+  runStatusCopy,
+} from "@/components/observability/run-progress"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -20,6 +24,7 @@ import {
 import { api } from "@/lib/api/endpoints"
 import type { RunAccepted, RunDetail, RunSummary } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
+import { runPollInterval, runsListPollInterval } from "@/lib/polling"
 
 /**
  * The Operations screen.
@@ -46,7 +51,8 @@ export function OperationsScreen() {
   const history = useQuery({
     queryKey: ["runs", "history"],
     queryFn: ({ signal }) => api.listRuns(signal),
-    refetchInterval: 10_000,
+    // Patient while everything has settled, prompt while something is moving.
+    refetchInterval: (query) => runsListPollInterval(query.state.data?.runs),
   })
 
   /*
@@ -60,7 +66,10 @@ export function OperationsScreen() {
   */
   const runs = history.data?.runs ?? []
   const trackedId =
-    pickedId ?? runs.find((run) => !isRunTerminal(run.status))?.id ?? runs[0]?.id ?? null
+    pickedId ??
+    runs.find((run) => !isRunTerminal(run.status))?.id ??
+    runs[0]?.id ??
+    null
 
   const refresh = useMutation({
     mutationFn: () => api.refreshJobs(),
@@ -74,10 +83,8 @@ export function OperationsScreen() {
     queryKey: ["run", trackedId],
     queryFn: ({ signal }) => api.getRun(trackedId as string, signal),
     enabled: Boolean(trackedId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.run.status
-      return status && isRunTerminal(status) ? false : 2_000
-    },
+    // A terminal run is polled never; an active one at the budgeted cadence.
+    refetchInterval: (query) => runPollInterval(query.state.data?.run),
   })
 
   const detail: RunDetail | undefined = tracked.data?.run
@@ -88,16 +95,15 @@ export function OperationsScreen() {
     screen can show both without a second endpoint.
   */
   const childId =
-    (detail?.metadata?.refresh as { embedding_run_id?: string | null } | undefined)
-      ?.embedding_run_id ?? null
+    (
+      detail?.metadata?.refresh as
+        { embedding_run_id?: string | null } | undefined
+    )?.embedding_run_id ?? null
   const child = useQuery({
     queryKey: ["run", childId],
     queryFn: ({ signal }) => api.getRun(childId as string, signal),
     enabled: Boolean(childId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.run.status
-      return status && isRunTerminal(status) ? false : 2_000
-    },
+    refetchInterval: (query) => runPollInterval(query.state.data?.run),
   })
 
   return (
@@ -189,7 +195,10 @@ export function OperationsScreen() {
         description="Everything this account has run, newest first. Reopen the page and the state is still here."
       >
         {history.isError ? (
-          <ErrorNotice error={history.error} onRetry={() => history.refetch()} />
+          <ErrorNotice
+            error={history.error}
+            onRetry={() => history.refetch()}
+          />
         ) : history.isPending ? (
           <ProgressState
             title="Reading the run history"

@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
 
 import { EmptyState } from "@/components/common/progress-state"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { RelativeTime } from "@/components/common/relative-time"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { StatTile } from "@/components/common/stat-tile"
 import { EventList } from "@/components/observability/event-timeline"
@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkButton } from "@/components/ui/link-button"
 
 import { api } from "@/lib/api/endpoints"
-import { formatRelativeTime, summarizeEvents } from "@/lib/observability"
+import { summarizeEvents } from "@/lib/observability"
+import { OVERVIEW_POLL_MS } from "@/lib/polling"
 import { useCurrentProfileId } from "@/lib/profile"
 
 /**
@@ -30,26 +31,19 @@ export function OverviewScreen() {
   const applications = useQuery({
     queryKey: ["applications", "overview"],
     queryFn: ({ signal }) => api.listApplications({ limit: 200 }, signal),
-    refetchInterval: 30_000,
+    refetchInterval: OVERVIEW_POLL_MS,
   })
 
   const audit = useQuery({
     queryKey: ["audit", "overview"],
     queryFn: ({ signal }) => api.audit(signal),
-    refetchInterval: 30_000,
+    refetchInterval: OVERVIEW_POLL_MS,
   })
 
   const documents = useQuery({
     queryKey: ["documents"],
     queryFn: ({ signal }) => api.documents(signal),
   })
-
-  // A ticking clock so "data read N ago" actually ages between refetches.
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   const items = applications.data?.items ?? []
   const events = audit.data?.events ?? []
@@ -72,7 +66,12 @@ export function OverviewScreen() {
 
   // The things a human has to deal with, in the order they cost the most
   // to ignore. Each one links to the screen that resolves it.
-  const nextActions: { title: string; body: string; to: string; label: string }[] = []
+  const nextActions: {
+    title: string
+    body: string
+    to: string
+    label: string
+  }[] = []
   if (!profileId) {
     // The console works against a chosen profile. If the account already
     // has documents, the honest ask is "choose one", not "upload one".
@@ -119,8 +118,10 @@ export function OverviewScreen() {
         actions={
           <span className="text-xs text-muted-foreground">
             Data read{" "}
-            {formatRelativeTime(lastRead ? new Date(lastRead).toISOString() : null, now)} ·
-            refreshes every 30s
+            <RelativeTime
+              value={lastRead ? new Date(lastRead).toISOString() : null}
+            />{" "}
+            · refreshes every 30s
           </span>
         }
       />
@@ -277,7 +278,9 @@ function ActorCount({
         : "text-destructive"
   return (
     <div>
-      <p className={`font-heading text-xl font-semibold ${toneClass}`}>{value}</p>
+      <p className={`font-heading text-xl font-semibold ${toneClass}`}>
+        {value}
+      </p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )

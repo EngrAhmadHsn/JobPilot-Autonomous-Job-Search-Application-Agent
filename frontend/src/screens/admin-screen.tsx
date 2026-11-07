@@ -32,8 +32,17 @@ import {
 
 import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import type { AdminOverview, RunSummary, WorkerHealthResponse } from "@/lib/api/types"
+import type {
+  AdminOverview,
+  RunSummary,
+  WorkerHealthResponse,
+} from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
+import {
+  adminRunsPollInterval,
+  runPollInterval,
+  WORKER_HEALTH_POLL_MS,
+} from "@/lib/polling"
 import { describeStatus } from "@/lib/status"
 
 /**
@@ -238,7 +247,7 @@ function Distribution({
                 }}
               />
             </span>
-            <span className="w-10 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+            <span className="w-10 shrink-0 text-right text-sm text-muted-foreground tabular-nums">
               {value}
             </span>
           </div>
@@ -308,19 +317,20 @@ function BackgroundRuns() {
     queryKey: ["admin", "runs", typeFilter],
     queryFn: ({ signal }) =>
       api.adminRuns(typeFilter ? { job_type: typeFilter } : {}, signal),
-    refetchInterval: 5_000,
+    refetchInterval: (query) => adminRunsPollInterval(query.state.data?.runs),
   })
 
   const workers = useQuery({
     queryKey: ["admin", "workers"],
     queryFn: ({ signal }) => api.adminWorkerHealth(signal),
-    refetchInterval: 10_000,
+    refetchInterval: WORKER_HEALTH_POLL_MS,
   })
 
   const detail = useQuery({
     queryKey: ["admin", "run", expandedId],
     queryFn: ({ signal }) => api.adminRun(expandedId as string, signal),
     enabled: Boolean(expandedId),
+    refetchInterval: (query) => runPollInterval(query.state.data?.run),
   })
 
   const resume = useMutation({
@@ -412,7 +422,11 @@ function BackgroundRuns() {
         ) : null}
 
         {runs.isError ? (
-          <ErrorNotice error={runs.error} onRetry={() => runs.refetch()} verbose />
+          <ErrorNotice
+            error={runs.error}
+            onRetry={() => runs.refetch()}
+            verbose
+          />
         ) : runs.isPending ? (
           <ProgressState
             title="Reading the background runs"
@@ -518,9 +532,9 @@ function BackgroundRuns() {
             <DialogHeader>
               <DialogTitle>Resume this embedding run?</DialogTitle>
               <DialogDescription>
-                Only the outstanding work is queued; completed vectors are
-                kept, the daily embedding budget still applies, and the
-                action is audited against your account.
+                Only the outstanding work is queued; completed vectors are kept,
+                the daily embedding budget still applies, and the action is
+                audited against your account.
               </DialogDescription>
             </DialogHeader>
             {confirming ? (
@@ -589,7 +603,9 @@ function WorkerControl({
   const start = useMutation({
     mutationFn: () => api.startWorker(),
     onSuccess: (result) => {
-      setNotice(`Starting ${result.worker_id}. It will pick up queued work shortly.`)
+      setNotice(
+        `Starting ${result.worker_id}. It will pick up queued work shortly.`
+      )
       onChanged()
     },
   })
@@ -641,9 +657,10 @@ function WorkerControl({
         {control && !control.enabled ? (
           <p className="text-xs text-muted-foreground">
             This deployment manages its workers outside the app. Start one with{" "}
-            <span className="font-mono">env\Scripts\python.exe
-            scripts
-un_worker.py</span>.
+            <span className="font-mono">
+              {"env\\Scripts\\python.exe scripts\\run_worker.py"}
+            </span>
+            .
           </p>
         ) : control ? (
           <p className="text-xs text-muted-foreground">
@@ -669,7 +686,9 @@ un_worker.py</span>.
                     {worker.pid ? ` · pid ${worker.pid}` : ""} · heartbeat{" "}
                     {Math.round(worker.heartbeat_age_seconds)}s ago ·{" "}
                     {worker.processed_items} done
-                    {worker.failed_items > 0 ? `, ${worker.failed_items} failed` : ""}
+                    {worker.failed_items > 0
+                      ? `, ${worker.failed_items} failed`
+                      : ""}
                   </p>
                 </div>
                 <Button

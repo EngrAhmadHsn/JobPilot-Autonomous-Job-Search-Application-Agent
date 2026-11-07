@@ -1,22 +1,22 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { Banner } from "@/components/common/banner"
 import { Pagination } from "@/components/common/pagination"
 import { EmptyState } from "@/components/common/progress-state"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { RelativeTime } from "@/components/common/relative-time"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { StatTile } from "@/components/common/stat-tile"
-import { EventList, RunTimeline } from "@/components/observability/event-timeline"
+import {
+  EventList,
+  RunTimeline,
+} from "@/components/observability/event-timeline"
 import { Card, CardContent } from "@/components/ui/card"
 
 import { api } from "@/lib/api/endpoints"
-import {
-  formatRelativeTime,
-  groupRuns,
-  needsAttention,
-  summarizeEvents,
-} from "@/lib/observability"
+import { groupRuns, needsAttention, summarizeEvents } from "@/lib/observability"
+import { ACTIVITY_POLL_MS } from "@/lib/polling"
 
 type Filter = "all" | "attention"
 
@@ -45,15 +45,8 @@ export function ActivityScreen() {
   const audit = useQuery({
     queryKey: ["audit", "activity"],
     queryFn: ({ signal }) => api.audit(signal),
-    refetchInterval: 30_000,
+    refetchInterval: ACTIVITY_POLL_MS,
   })
-
-  // A ticking clock so "data read N ago" actually ages between refetches.
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   const events = useMemo(() => audit.data?.events ?? [], [audit.data])
   const summary = summarizeEvents(events)
@@ -79,8 +72,10 @@ export function ActivityScreen() {
         actions={
           <span className="text-xs text-muted-foreground">
             Data read{" "}
-            {formatRelativeTime(lastRead ? new Date(lastRead).toISOString() : null, now)} ·
-            refreshes every 30s
+            <RelativeTime
+              value={lastRead ? new Date(lastRead).toISOString() : null}
+            />{" "}
+            · refreshes every 30s
           </span>
         }
       />
@@ -94,12 +89,28 @@ export function ActivityScreen() {
         </p>
       </Banner>
 
-      {audit.isError ? <ErrorNotice error={audit.error} onRetry={() => audit.refetch()} /> : null}
+      {audit.isError ? (
+        <ErrorNotice error={audit.error} onRetry={() => audit.refetch()} />
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Recorded actions" value={summary.total} hint="In the trail the API returned" />
-        <StatTile label="By the agent" value={summary.agent} tone="agent" hint="Automated steps" />
-        <StatTile label="By people" value={summary.human} tone="human" hint="Approvals and outcomes" />
+        <StatTile
+          label="Recorded actions"
+          value={summary.total}
+          hint="In the trail the API returned"
+        />
+        <StatTile
+          label="By the agent"
+          value={summary.agent}
+          tone="agent"
+          hint="Automated steps"
+        />
+        <StatTile
+          label="By people"
+          value={summary.human}
+          tone="human"
+          hint="Approvals and outcomes"
+        />
         <StatTile
           label="Needs attention"
           value={summary.attention}
@@ -168,7 +179,11 @@ export function ActivityScreen() {
           <p className="text-sm text-muted-foreground">Reading the trail...</p>
         ) : visible.length === 0 ? (
           <EmptyState
-            title={filter === "attention" ? "Nothing needs attention" : "No recorded activity yet"}
+            title={
+              filter === "attention"
+                ? "Nothing needs attention"
+                : "No recorded activity yet"
+            }
             description={
               filter === "attention"
                 ? "No refusal, block or failure is in the trail the API returned."

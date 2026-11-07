@@ -3,8 +3,8 @@ import type { ReactNode } from "react"
 import { Banner } from "@/components/common/banner"
 import { Disclosure } from "@/components/common/disclosure"
 import { FieldList } from "@/components/common/field-list"
+import { RelativeTime } from "@/components/common/relative-time"
 import { formatDateTime } from "@/lib/format"
-import { formatRelativeTime } from "@/lib/observability"
 import type { RunEvent, RunSummary } from "@/lib/api/types"
 
 /**
@@ -57,7 +57,12 @@ const STATUS: Record<string, { label: string; help: string; tone: string }> = {
 }
 
 /** The statuses after which nothing more happens without a person acting. */
-export const TERMINAL_RUN_STATUSES = ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"]
+export const TERMINAL_RUN_STATUSES = [
+  "COMPLETED",
+  "PARTIAL",
+  "FAILED",
+  "CANCELLED",
+]
 
 export function isRunTerminal(status: string): boolean {
   return TERMINAL_RUN_STATUSES.includes(status)
@@ -77,7 +82,8 @@ export function runStatusCopy(status: string) {
 export function runTypeLabel(jobType: string, plural = false): string {
   if (jobType === "refresh") return plural ? "refreshes" : "corpus refresh"
   if (jobType === "embedding") return plural ? "embeddings" : "embedding pass"
-  if (jobType === "reconcile") return plural ? "reconciliations" : "reconciliation"
+  if (jobType === "reconcile")
+    return plural ? "reconciliations" : "reconciliation"
   return jobType
 }
 
@@ -116,10 +122,23 @@ export function RunProgress({
           </span>
         </p>
         <p className="text-xs text-muted-foreground">
-          {run.started_at
-            ? `started ${formatRelativeTime(run.started_at)}`
-            : `queued ${formatRelativeTime(run.created_at)}`}
-          {run.completed_at ? ` · finished ${formatRelativeTime(run.completed_at)}` : ""}
+          {run.started_at ? (
+            <>
+              started <RelativeTime value={run.started_at} />
+            </>
+          ) : (
+            <>
+              queued <RelativeTime value={run.created_at} />
+            </>
+          )}
+          {run.completed_at ? (
+            <>
+              {" "}
+              · finished <RelativeTime value={run.completed_at} />
+            </>
+          ) : (
+            ""
+          )}
         </p>
       </div>
 
@@ -198,14 +217,19 @@ export function RunProgress({
       {children}
 
       {verbose && events.length > 0 ? (
-        <Disclosure summary="Lifecycle events" hint={`${events.length} recorded`}>
+        <Disclosure
+          summary="Lifecycle events"
+          hint={`${events.length} recorded`}
+        >
           <ol className="space-y-2 text-xs">
             {events.map((event) => (
               <li key={event.id} className="flex flex-wrap gap-x-2">
                 <span className="font-mono text-muted-foreground">
                   {formatDateTime(event.at)}
                 </span>
-                <span className="font-medium text-foreground">{event.event}</span>
+                <span className="font-medium text-foreground">
+                  {event.event}
+                </span>
                 <span className="text-muted-foreground">
                   {event.actor}
                   {event.message ? ` — ${event.message}` : ""}
@@ -217,7 +241,10 @@ export function RunProgress({
       ) : null}
 
       {!verbose && events.length > 0 ? (
-        <Disclosure summary="What the worker recorded" hint={`${events.length} events`}>
+        <Disclosure
+          summary="What the worker recorded"
+          hint={`${events.length} events`}
+        >
           <EventSummary events={events} />
         </Disclosure>
       ) : null}
@@ -243,7 +270,10 @@ function RefreshReport({ metadata }: { metadata: Record<string, unknown> }) {
           { label: "Unique after dedup", value: asCount(refresh.deduped) },
           { label: "Persisted", value: asCount(refresh.persisted) },
           { label: "Screened out", value: asCount(refresh.screened_out) },
-          { label: "Capped by admission", value: asCount(refresh.admission_capped) },
+          {
+            label: "Capped by admission",
+            value: asCount(refresh.admission_capped),
+          },
         ]}
       />
       {Object.keys(errors).length > 0 ? (
@@ -266,9 +296,7 @@ function EventSummary({ events }: { events: RunEvent[] }) {
     <ol className="space-y-2 text-xs">
       {events.map((event) => (
         <li key={event.id} className="flex flex-wrap gap-x-2">
-          <span className="text-muted-foreground">
-            {formatRelativeTime(event.at)}
-          </span>
+          <RelativeTime value={event.at} className="text-muted-foreground" />
           <span className="text-foreground">
             {event.message ?? event.event}
           </span>
