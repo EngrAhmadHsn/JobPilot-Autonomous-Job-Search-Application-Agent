@@ -16,7 +16,7 @@ describe("the landing page", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: /your job search, on autopilot/i,
+        name: /your job search runs itself/i,
       })
     ).toBeInTheDocument()
   })
@@ -45,7 +45,7 @@ describe("the landing page", () => {
     await screen.findByRole("heading", { name: /your job search/i })
     // The honest framing: approval-gated, controlled targets.
     expect(
-      screen.getAllByText(/approval (required|before)/i).length
+      screen.getAllByText(/you approve every application/i).length
     ).toBeGreaterThan(0)
   })
 
@@ -60,9 +60,7 @@ describe("the landing page", () => {
     expect(
       await screen.findByText(/matching that explains itself/i)
     ).toBeInTheDocument()
-    expect(
-      await screen.findByText(/tenant isolation by construction/i)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/your data stays yours/i)).toBeInTheDocument()
   })
 
   it("opens on the headline, without the AI-badge pill", async () => {

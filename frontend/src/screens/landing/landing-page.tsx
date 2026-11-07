@@ -49,18 +49,18 @@ export function LandingPage() {
             className="enter-up max-w-[19ch] font-heading text-4xl leading-[1.05] font-semibold tracking-tight text-balance text-ivory sm:text-6xl"
             style={{ "--i": 0 } as CSSProperties}
           >
-            Your job search, on autopilot.
-            <span className="block text-lime">Your decisions, in your hands.</span>
+            Your job search runs itself.
+            <span className="block text-lime">You still make the calls.</span>
           </h1>
 
           <p
             className="enter-up mt-6 max-w-[58ch] text-lg leading-relaxed text-night-muted"
             style={{ "--i": 1 } as CSSProperties}
           >
-            JobPilot finds roles that fit, explains why each one does, tailors
-            your résumé without inventing a word, and prepares each application
-            for your review. It never submits anything until you approve it —
-            and it records the evidence when it does.
+            JobPilot reads your résumé, finds the roles that fit, and says why
+            each one does. For the roles worth your time it writes the tailored
+            résumé and fills in the application — then it waits. Nothing reaches
+            an employer until you approve it.
           </p>
 
           <div
@@ -77,7 +77,7 @@ export function LandingPage() {
               href="#demo"
               className="inline-flex h-11 items-center rounded-xl border border-night-line px-5 text-sm font-semibold text-ivory transition-colors duration-150 hover:bg-ivory/8"
             >
-              See it work
+              See how it works
             </a>
           </div>
 
@@ -85,8 +85,8 @@ export function LandingPage() {
             className="enter-up mt-5 text-xs text-night-muted"
             style={{ "--i": 3 } as CSSProperties}
           >
-            Approval required before every submission · an audit record for
-            every action · no credential ever leaves the server
+            You approve every application · every action is on your record ·
+            evidence backs every result
           </p>
         </div>
       </section>
@@ -95,13 +95,12 @@ export function LandingPage() {
       <section id="demo" className="mx-auto max-w-6xl scroll-mt-20 px-6 pb-20">
         <div className="mb-6 max-w-[62ch]">
           <h2 className="font-heading text-3xl font-semibold tracking-tight text-ivory sm:text-4xl">
-            Walk the loop yourself
+            See it work
           </h2>
           <p className="mt-3 text-night-muted">
-            Pick any stage of the agent&apos;s working loop and see what it
-            does there, what it reports, and what comes out. It is a real
-            interface running on sample data — nothing here touches your
-            account or a live job board.
+            Pick a stage of the process and look at what the agent produces.
+            Sample data, a real interface — nothing here touches your account
+            or a live job board.
           </p>
         </div>
         <AgentDemo />
@@ -112,13 +111,13 @@ export function LandingPage() {
         <div ref={loopRef} className="mx-auto max-w-6xl px-6 py-20">
           <div className="max-w-[62ch]">
             <h2 className="font-heading text-3xl font-semibold tracking-tight text-ivory sm:text-4xl">
-              An agent, not a filter
+              It works the whole process
             </h2>
             <p className="mt-3 text-night-muted">
-              A filter returns a list. An agent runs a loop: it perceives, it
-              reasons, it plans, it acts, it observes what happened, it
-              evaluates the result, and it adapts — or stops and asks you.
-              That loop is the product.
+              A search returns a list and stops. JobPilot keeps going: it reads
+              your résumé, searches, matches, tailors the résumé, prepares the
+              application — and stops at the one step that is yours, the
+              decision to send it.
             </p>
           </div>
 
@@ -155,11 +154,11 @@ export function LandingPage() {
         <div ref={productRef} className="mx-auto max-w-6xl px-6 py-20">
           <div className="max-w-[62ch]">
             <h2 className="font-heading text-3xl font-semibold tracking-tight text-ivory sm:text-4xl">
-              What it actually does
+              What each screen does
             </h2>
             <p className="mt-3 text-night-muted">
-              Only what the code supports. Each of these is a screen in the
-              console, backed by a real endpoint.
+              Every claim below is a screen you can open. Nothing here is a
+              plan for later.
             </p>
           </div>
 
@@ -192,9 +191,9 @@ export function LandingPage() {
                 You stay in control
               </h2>
               <p className="mt-3 max-w-[52ch] text-night-muted">
-                A system that acts on your behalf has to be legible and
-                interruptible. Two colours carry that promise everywhere in
-                the product:
+                Nothing important happens without you, and you can see
+                everything that did. Two colours carry that promise everywhere
+                in the product:
               </p>
               <div className="mt-6 space-y-3">
                 <div className="flex items-center gap-3">
@@ -258,7 +257,7 @@ export function LandingPage() {
               href="#demo"
               className="inline-flex h-11 items-center rounded-xl border border-night-line px-6 text-sm font-semibold text-ivory transition-colors duration-150 hover:bg-ivory/8"
             >
-              Revisit the demo
+              See the demo again
             </a>
           </div>
         </div>
@@ -311,7 +310,7 @@ function SiteHeader() {
             href="#product"
             className="text-sm text-night-muted transition-colors hover:text-ivory"
           >
-            Product
+            What it does
           </a>
           <a
             href="#trust"
@@ -346,8 +345,8 @@ function SiteFooter() {
     <footer className="border-t border-night-line">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-xs text-night-muted">
         <p>
-          JobPilot · the agentic job applier. A demonstration product; the
-          agent submits only to controlled targets, and only after approval.
+          JobPilot. A demonstration product: the agent submits only to
+          controlled test sites, and only after you approve.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <span>Motion</span>
@@ -364,84 +363,84 @@ function SiteFooter() {
 const LOOP: { phase: string; body: string }[] = [
   {
     phase: "Perceive",
-    body: "Reads your résumé into a structured profile and searches configured job boards for listings.",
+    body: "It reads your résumé and searches the boards you configured.",
   },
   {
     phase: "Reason",
-    body: "Scores each listing against the profile with a hybrid of lexical and semantic signals, and explains the score.",
+    body: "It scores every listing against your experience and shows the reasons behind the score.",
   },
   {
     phase: "Plan",
-    body: "Decides which roles are worth an application, and what each one needs from your résumé.",
+    body: "It picks the roles worth an application, and what each one needs from your résumé.",
   },
   {
     phase: "Act",
-    body: "Tailors the résumé under a factuality check, and fills the application's fields from the profile.",
+    body: "It tailors your résumé to the job and fills in the application fields from your profile.",
   },
   {
     phase: "Observe",
-    body: "After an approved submission, reads the confirmation page and records the evidence.",
+    body: "After you approve, it reads the page the employer showed back.",
   },
   {
     phase: "Evaluate",
-    body: "Compares what it intended with what the page showed — verified, or honestly unverified.",
+    body: "It compares that page with what it sent, and reports what it found — verified, or honestly unverified.",
   },
   {
     phase: "Adapt",
-    body: "Retries the recoverable, and escalates the rest to you instead of guessing.",
+    body: "It retries what is safe to retry and leaves the rest to you.",
   },
   {
     phase: "Escalate",
-    body: "When a decision is yours — approve, answer a question, resolve a block — the agent stops and waits.",
+    body: "It stops and asks whenever the decision is yours: approve, answer a question, resolve a block.",
   },
 ]
 
 const CAPABILITIES: { title: string; body: string }[] = [
   {
     title: "Résumé → structured profile",
-    body: "Upload a DOCX, TXT or MD file and get a typed candidate profile — skills, roles, dates, education. Extraction only; the parser adds nothing the document does not say.",
+    body: "Upload a DOCX, TXT or MD file and get a typed profile: skills, roles, dates, education. It reports what the document says, and nothing it does not.",
   },
   {
-    title: "Discovery across real boards",
-    body: "Greenhouse, Lever and Remotive, normalized into one listing shape, de-duplicated and screened before anything is scored.",
+    title: "Jobs from real boards",
+    body: "Greenhouse, Lever, Ashby and Remotive, turned into one shape and de-duplicated before anything is scored.",
   },
   {
     title: "Matching that explains itself",
-    body: "A hybrid score per listing, with the reasons it ranked: which requirements you meet, and which are genuinely missing.",
+    body: "Every listing gets a score with its reasons: which requirements you meet, and which you are missing.",
   },
   {
-    title: "Tailoring under a factuality check",
-    body: "Résumé lines are rewritten toward the role and then validated against the original. A claim with no support is dropped, not written.",
+    title: "Résumés tailored to the job",
+    body: "Your résumé is rewritten toward the role, then checked against the original. A claim with no support is dropped, not written.",
   },
   {
     title: "Applications prepared, not fired",
-    body: "Each application is assembled with matching fields and a provenance for every value — and then it waits for you.",
+    body: "Each application is assembled with matching fields and the source of every value — then it waits for you.",
   },
   {
     title: "Evidence, or it did not happen",
-    body: "Approved submissions record the confirmation text, the URL and a screenshot. No confirmation means 'unverified', never 'success'.",
+    body: "An approved submission records the confirmation text, the URL and a screenshot. Without that, the result is unverified, never “submitted”.",
   },
 ]
 
 const TRUST: { title: string; body: string }[] = [
   {
     title: "Approval before every submission",
-    body: "Nothing is submitted until a person approves the prepared application. The agent's role is to make the decision easy, not to make it.",
+    body: "Nothing goes out until a person approves it. The agent prepares the application; you decide whether it is sent.",
   },
   {
-    title: "Explainable decisions",
-    body: "Every match carries its reasons; every state change carries an actor and a timestamp in the application's history.",
+    title: "Decisions you can follow",
+    body: "Every match carries its reasons, and every change to an application carries who made it and when.",
   },
   {
-    title: "A real audit trail",
-    body: "Uploads, searches, matches, prepares, approvals, submissions and every guard that tripped are recorded, readable by the account they belong to.",
+    title: "A record you can read",
+    body: "Uploads, searches, approvals and submissions are recorded, and you can read your own trail at any time.",
   },
   {
-    title: "Tenant isolation by construction",
-    body: "Authorization lives in the data layer, not the screens. Your résumés and applications are yours; another account cannot reach them, and a foreign id is indistinguishable from a missing one.",
+    title: "Your data stays yours",
+    body: "Your résumés and applications are private to your account. Another account cannot reach them, and an id that is not yours answers exactly like one that does not exist.",
   },
   {
-    title: "Secrets never reach the browser",
-    body: "The session is an HttpOnly cookie; the console holds no token. Job-board text is treated as data, never as instructions.",
+    title: "Your sign-in stays on the server",
+    body: "The browser holds no token a script could read; it carries a session cookie the server can revoke at any moment.",
   },
 ]

@@ -196,7 +196,7 @@ export function MatchesScreen() {
     return (
       <EmptyState
         title="No profile selected"
-        description="A search scores the stored job corpus against your profile. Upload a résumé first."
+        description="A search compares your profile with the listings you have stored. Upload a résumé first."
         action={<LinkButton to="/app/resume">Go to the Resume screen</LinkButton>}
       />
     )
@@ -208,12 +208,12 @@ export function MatchesScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Find the work that fits"
-        description="The search scores every listing the backend has stored against your profile. It never calls a job board — run a refresh on the Operations screen to bring new listings in."
+        description="The search ranks every listing already in your corpus against your profile. It does not call a job board — refresh on the Operations screen to bring new listings in."
       />
 
       <Card>
         <CardHeader>
-          <CardTitle>Search the stored corpus</CardTitle>
+          <CardTitle>Search your saved listings</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -278,7 +278,7 @@ export function MatchesScreen() {
             <ProgressState
               key="search"
               title="Matching the profile against the corpus"
-              description="The search embeds the profile once and scores the stored listings. This takes a few seconds."
+              description="Comparing your profile with every stored listing takes a few seconds."
             />
           ) : null}
 
@@ -297,7 +297,7 @@ export function MatchesScreen() {
             {data.results.length === 0 ? (
               <EmptyState
                 title="No matches"
-                description="The corpus holds no listing that matches this profile and filter. Run a refresh on the Operations screen, or widen the filters."
+                description="No stored listing matches this profile and filter. Refresh on the Operations screen, or widen the filters."
               />
             ) : (
               <div className="space-y-4">

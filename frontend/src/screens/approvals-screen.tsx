@@ -384,7 +384,7 @@ export function ApprovalsScreen() {
     <div className="space-y-10">
       <PageHeader
         title="Prepare an application"
-        description="Preparing builds the payload, checks the target and stores it. Nothing reaches the employer until a person approves it, and approving runs the payload exactly as it is stored here."
+        description="Preparing checks the target and stores exactly what will be sent. Nothing reaches the employer until a person approves it, and the approval sends what you see here — not a fresh version."
       />
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
@@ -396,7 +396,7 @@ export function ApprovalsScreen() {
         >
           <FormSection
             title="Job details"
-            description="Where the application will go. The server checks the host against its allowlist before anything else."
+            description="Where the application will go. This deployment may only submit to hosts it is allowed to use."
           >
             <Field
               id="job_title"
