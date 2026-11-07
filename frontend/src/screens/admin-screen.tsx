@@ -32,7 +32,7 @@ import {
 
 import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import type { AdminOverview, RunSummary } from "@/lib/api/types"
+import type { AdminOverview, RunSummary, WorkerHealthResponse } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
 import { describeStatus } from "@/lib/status"
 
@@ -104,7 +104,7 @@ export function AdminScreen() {
       ) : overview.isPending || !overview.data ? (
         <ProgressState
           title="Counting the platform"
-          description="Reading accounts, applications, the audit trail and the corpus."
+          description="Reading accounts, applications, the audit trail and the job listings."
         />
       ) : (
         <div className="space-y-10">
@@ -348,8 +348,6 @@ function BackgroundRuns() {
 
   const items = runs.data?.runs ?? []
   const waiting = items.filter((run) => !isRunTerminal(run.status)).length
-  const workerState = workers.data?.workers
-  const noWorker = workerState ? workerState.healthy === 0 : false
 
   return (
     <Section
@@ -357,31 +355,11 @@ function BackgroundRuns() {
       description="Every background job on the platform, of every type. A job keeps running when you close this page, and its state is stored on the server — not remembered here."
     >
       <div className="space-y-4">
-        {noWorker ? (
-          <Banner tone="warning" title="No background worker is running">
-            <p>
-              Queued work does not execute on its own — a separate worker
-              process drains the queue. Start it, and everything below begins
-              moving:
-            </p>
-            <p className="mt-2 font-mono text-xs">
-              python scripts/run_worker.py
-            </p>
-            {waiting > 0 ? (
-              <p className="mt-2">
-                {waiting} run{waiting === 1 ? "" : "s"} waiting.
-              </p>
-            ) : null}
-          </Banner>
-        ) : workerState ? (
-          <p className="text-xs text-muted-foreground">
-            {workerState.healthy} worker
-            {workerState.healthy === 1 ? "" : "s"} alive · a worker is
-            considered stale after {workerState.stale_after_seconds}s without a
-            heartbeat
-            {waiting > 0 ? ` · ${waiting} run${waiting === 1 ? "" : "s"} in flight` : ""}
-          </p>
-        ) : null}
+        <WorkerControl
+          health={workers.data}
+          waiting={waiting}
+          onChanged={() => workers.refetch()}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div
@@ -582,5 +560,142 @@ function BackgroundRuns() {
         </Dialog>
       </div>
     </Section>
+  )
+}
+
+/**
+ * The workers, and the two things you can do to them.
+ *
+ * The background work does not run inside a web request — it runs in these
+ * processes. When the queue is backed up, or nothing is moving at all, this is
+ * where you start another one, or stop one that is no longer wanted.
+ *
+ * Stopping is gentle: a worker finishes the item it is on and then leaves, so
+ * nothing is dropped. The bound and the on/off switch are the server's, and
+ * this only reports them — the buttons cannot exceed a limit the server
+ * enforces anyway.
+ */
+function WorkerControl({
+  health,
+  waiting,
+  onChanged,
+}: {
+  health?: WorkerHealthResponse
+  waiting: number
+  onChanged: () => void
+}) {
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const start = useMutation({
+    mutationFn: () => api.startWorker(),
+    onSuccess: (result) => {
+      setNotice(`Starting ${result.worker_id}. It will pick up queued work shortly.`)
+      onChanged()
+    },
+  })
+  const stop = useMutation({
+    mutationFn: (workerId: string) => api.stopWorker(workerId),
+    onSuccess: (result) => {
+      setNotice(`${result.worker_id} will stop after the job it is running.`)
+      onChanged()
+    },
+  })
+
+  const state = health?.workers
+  const control = health?.control
+  const workers = state?.workers ?? []
+  const running = state?.healthy ?? 0
+  const atLimit = control ? running >= control.max_concurrent : false
+  const canStart = Boolean(control?.enabled) && !atLimit
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium text-foreground">
+              {running === 0
+                ? "No worker is running"
+                : `${running} worker${running === 1 ? "" : "s"} running`}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {running === 0
+                ? "Queued work waits until a worker is running."
+                : "These processes do the fetching, indexing and repairs."}
+              {waiting > 0
+                ? ` ${waiting} job${waiting === 1 ? "" : "s"} waiting.`
+                : ""}
+            </p>
+          </div>
+          <Button
+            disabled={!canStart || start.isPending}
+            onClick={() => {
+              setNotice(null)
+              start.mutate()
+            }}
+          >
+            {start.isPending ? "Starting…" : "Start a worker"}
+          </Button>
+        </div>
+
+        {control && !control.enabled ? (
+          <p className="text-xs text-muted-foreground">
+            This deployment manages its workers outside the app. Start one with{" "}
+            <span className="font-mono">env\Scripts\python.exe
+            scripts
+un_worker.py</span>.
+          </p>
+        ) : control ? (
+          <p className="text-xs text-muted-foreground">
+            Up to {control.max_concurrent} at once. A second worker helps when
+            the queue is long; they share the search index, so start one only
+            when you need to catch up.
+          </p>
+        ) : null}
+
+        {workers.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {workers.map((worker) => (
+              <li
+                key={worker.worker_id}
+                className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <p className="truncate font-mono text-xs text-foreground">
+                    {worker.worker_id}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {worker.status}
+                    {worker.pid ? ` · pid ${worker.pid}` : ""} · heartbeat{" "}
+                    {Math.round(worker.heartbeat_age_seconds)}s ago ·{" "}
+                    {worker.processed_items} done
+                    {worker.failed_items > 0 ? `, ${worker.failed_items} failed` : ""}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!worker.stoppable || stop.isPending}
+                  onClick={() => {
+                    setNotice(null)
+                    stop.mutate(worker.worker_id)
+                  }}
+                >
+                  Stop
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {notice ? (
+          <Banner tone="success" title="Done">
+            <p>{notice}</p>
+          </Banner>
+        ) : null}
+        {start.isError ? <ErrorNotice error={start.error} verbose /> : null}
+        {stop.isError ? <ErrorNotice error={stop.error} verbose /> : null}
+      </CardContent>
+    </Card>
   )
 }

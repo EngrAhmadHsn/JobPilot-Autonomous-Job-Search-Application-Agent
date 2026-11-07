@@ -1,5 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { useDeferredValue, useState } from "react"
+import { useMutation } from "@tanstack/react-query"
+import { useState } from "react"
 import { Link } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
@@ -7,6 +7,7 @@ import { Disclosure } from "@/components/common/disclosure"
 import { SectionTitle } from "@/components/common/field-list"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Pagination } from "@/components/common/pagination"
+import { QueryCombobox } from "@/components/common/query-combobox"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
 import { PageHeader, Section } from "@/components/common/page-header"
@@ -54,7 +55,7 @@ function describeSearch(
   const scope =
     data.stats.found > 0
       ? `${data.stats.found} fetched · ${data.stats.dropped} dropped · ${data.stats.deduped} deduplicated · ${data.stats.persisted} persisted`
-      : `Scored against ${corpus.toLocaleString()} stored listings. This search never called a job board.`
+      : `Ranked against ${corpus.toLocaleString()} saved jobs.`
 
   return filter.length > 0 ? `${scope} Filtered ${filter.join(" ")}.` : scope
 }
@@ -204,16 +205,6 @@ export function MatchesScreen() {
     }) => api.searchJobs(body),
   })
 
-  // The query field suggests the titles the corpus actually holds. The value
-  // is deferred, so typing does not fire a request per keystroke, and the
-  // screen stays responsive without an effect.
-  const deferredQuery = useDeferredValue(query)
-  const suggestions = useQuery({
-    queryKey: ["job-suggestions", deferredQuery],
-    queryFn: ({ signal }) => api.suggestJobs(deferredQuery.trim(), signal),
-    enabled: deferredQuery.trim().length > 0,
-    staleTime: 60_000,
-  })
 
   if (!profileId) {
     return (
@@ -239,7 +230,7 @@ export function MatchesScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Find the work that fits"
-        description="The search ranks every listing already in your corpus against your profile. It does not call a job board — refresh on the Operations screen to bring new listings in."
+        description="Your saved jobs, ranked against your profile, each with the reason for its score."
       />
 
       <Card>
@@ -248,9 +239,8 @@ export function MatchesScreen() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            The search reads the jobs the backend has already stored — it does
-            not call any job board. Run a refresh on the Operations screen to
-            bring new listings in.
+            Search the jobs you have already saved. Add more from Operations
+            when you want a wider search.
           </p>
 
           <form
@@ -271,29 +261,11 @@ export function MatchesScreen() {
               <label htmlFor="search-query" className="text-sm font-medium">
                 Query
               </label>
-              <Input
-                id="search-query"
-                list="job-suggestion-list"
+              <QueryCombobox
+                inputId="search-query"
                 value={query}
-                placeholder="Start typing a role — suggestions come from your listings"
-                autoComplete="off"
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={setQuery}
               />
-              <datalist id="job-suggestion-list">
-                {(suggestions.data?.suggestions ?? []).map((suggestion) => (
-                  <option key={suggestion.value} value={suggestion.value}>
-                    {suggestion.count} listing
-                    {suggestion.count === 1 ? "" : "s"}
-                  </option>
-                ))}
-              </datalist>
-              {suggestions.data && suggestions.data.suggestions.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {suggestions.data.suggestions.length} suggestion
-                  {suggestions.data.suggestions.length === 1 ? "" : "s"} from
-                  your saved listings
-                </p>
-              ) : null}
             </div>
             <div className="space-y-1">
               <label htmlFor="search-location" className="text-sm font-medium">
@@ -327,8 +299,8 @@ export function MatchesScreen() {
           {search.isPending ? (
             <ProgressState
               key="search"
-              title="Matching the profile against the corpus"
-              description="Comparing your profile with every stored listing takes a few seconds."
+              title="Ranking your saved jobs"
+              description="This takes a few seconds."
             />
           ) : null}
 

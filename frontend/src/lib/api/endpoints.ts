@@ -45,6 +45,7 @@ import type {
   StoredTailoring,
   TailorRequest,
   TailorResponse,
+  WorkerActionResponse,
   WorkerHealthResponse,
 } from "./types"
 
@@ -415,6 +416,21 @@ export const api = {
     }),
 
   /** Worker liveness and the queue's shape — **superuser only**. */
+  /** Start a background worker process — **superuser only**. */
+  startWorker: (workerId?: string, signal?: AbortSignal) =>
+    request<WorkerActionResponse>("/api/admin/workers", {
+      method: "POST",
+      json: workerId ? { worker_id: workerId } : {},
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Ask a running worker to finish its batch and exit — **superuser only**. */
+  stopWorker: (workerId: string, signal?: AbortSignal) =>
+    request<WorkerActionResponse>(
+      `/api/admin/workers/${encodeURIComponent(workerId)}/stop`,
+      { method: "POST", signal, timeoutMs: 20_000 }
+    ),
   adminWorkerHealth: (signal?: AbortSignal) =>
     request<WorkerHealthResponse>("/api/admin/health/workers", {
       signal,

@@ -316,7 +316,7 @@ export function TailorJobScreen() {
         />
         <EmptyState
           title="That job is not in your matched list"
-          description="A tailoring is built from a listing you have been matched against. Search the corpus and pick the job from there."
+          description="Pick one of your matched jobs and we will rewrite your résumé for it."
           action={
             <LinkButton to="/app/matches">Find jobs that suit you</LinkButton>
           }
@@ -520,7 +520,7 @@ export function TailorIndexScreen() {
           {history.data && entries.length === 0 ? (
             <EmptyState
               title="No matches for this profile yet"
-              description="Search the corpus and this list fills itself: every job you have been scored against appears here."
+              description="Every job you have been matched against appears here."
               action={
                 <LinkButton variant="outline" to="/app/matches">
                   Find jobs that suit you

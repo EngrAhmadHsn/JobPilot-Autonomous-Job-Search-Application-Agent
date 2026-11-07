@@ -560,3 +560,60 @@ evidence coverage is 52.5%.
   encryption at rest remains the WS-14 NFR-S13 work, not this workstream.
 - No live (`--live`) run was performed for this workstream; the offline
   metrics are the reproducible baseline.
+
+---
+
+## 8. Console follow-ups (same day)
+
+Reported after using the running console. Five items, plus one defect.
+
+**A stale backend, not a code defect.** The first "I see no change" report was
+a `uvicorn` started **without `--reload`** before this workstream: it served
+the pre-WS-20 engine and 51 API paths instead of 56. The behaviour was correct
+in the code; the process was old. Restart it.
+
+**Worker control.** The Administration screen can now start and stop worker
+processes. It is a *bounded* capability, not a convenience:
+
+- `POST /api/admin/workers` starts one; `POST /api/admin/workers/{id}/stop`
+  asks one to finish its batch and exit. Both are administrator-only.
+- **Off unless enabled** (`WORKER_CONTROL_ENABLED`: on in development, off in
+  production by default) and **bounded** (`WORKER_MAX_CONCURRENT`, default 4).
+- The command is fixed (the application's own worker module), the worker id is
+  a validated label, and **no shell** is used.
+- **Stopping is cooperative.** The request is written to the worker's heartbeat
+  row; the worker reads it on its next heartbeat and exits cleanly, finishing
+  the item it is on. So a worker started by anyone — a shell, a service
+  manager, another host — is stopped the same way. The API never signals a
+  process it did not spawn (and could not, after a restart).
+- `heartbeat_worker` no longer resets a `stopping` row to `running` (that would
+  erase the request on the worker's own next beat); `queue.request_worker_stop`
+  and `queue.read_worker_status` are the pair that makes it work.
+- Every start and stop is audited (`worker.start` / `worker.stop`, ids only).
+
+**Query suggestions.** `GET /api/jobs/suggest` autocompletes from the titles
+the saved jobs actually hold, ranked by how many carry them. The console field
+uses its **own** panel, not the browser's datalist: a datalist cannot be
+styled, cannot show a match count, and renders outside the page. It opens from
+under the field and its rows arrive in sequence (`suggest-panel` + the shared
+`stagger`), and it is a real combobox (roles, arrow keys, Enter, Escape).
+
+**Pagination.** The ranked list pages ten at a time; the default slice is 50 so
+there is something to page.
+
+**A Profile screen.** The answers editor had no navigation entry and sat at the
+foot of the Resume screen. It is now its own destination, with the answers
+first and the résumé folded below it.
+
+**Editable work preferences.** Each preference (work mode, locations,
+employment types, expected salary) has an edit control that turns the value
+into an input in place. Saving writes to the confirmed application profile —
+and the matcher now *uses* those confirmed preferences (`_effective_preferences`
+in `src/matching/engine.py`), so editing them changes the ranking rather than
+only the display.
+
+**Copy.** User-facing descriptions on the operator screens now say what the
+screen does for the user, not how it is built: "the corpus" became "your saved
+jobs", "matching the profile against the corpus" became "ranking your saved
+jobs". The Administration and Operations screens keep the raw detail on
+purpose — they are the operator's instrument panel.

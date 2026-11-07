@@ -44,8 +44,11 @@ function workersResponse(healthy: number, total = healthy) {
         failed_items: 0,
         work_per_minute: 4,
         current_run_id: null,
+        spawned_by_api: false,
+        stoppable: healthy > index,
       })),
     },
+    control: { enabled: true, max_concurrent: 4 },
     queue: {
       items: {
         queued: 2,
@@ -232,11 +235,12 @@ describe("the administration screen", () => {
     ).toBeInTheDocument()
   })
 
-  it("says queued work will not run when no worker is alive", async () => {
+  it("says queued work will not run when no worker is alive, and offers one", async () => {
     /*
       The reported defect: a reconciliation was queued, the button said so,
-      and nothing happened — because the worker process was not running. The
-      screen has to say that rather than leave a silent queue.
+      and nothing happened — because no worker was running. The screen has to
+      say that rather than leave a silent queue, and it now offers to start
+      one instead of only naming a command.
     */
     server.use(
       http.get(`${BASE}/api/auth/me`, () =>
@@ -264,15 +268,66 @@ describe("the administration screen", () => {
 
     renderApp({ route: "/app/admin" })
 
+    expect(await screen.findByText("No worker is running")).toBeInTheDocument()
     expect(
-      await screen.findByText("No background worker is running")
+      screen.getByText(/Queued work waits until a worker is running/)
     ).toBeInTheDocument()
-    expect(screen.getByText(/python scripts\/run_worker\.py/)).toBeInTheDocument()
+    // Wait for the control state to load before asserting the button, so the
+    // assertion is about the loaded screen and not about the first paint.
+    expect(await screen.findByText(/Up to 4 at once/)).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Start a worker" })
+    ).toBeEnabled()
     // The queued run is listed, with the state a person can act on.
     expect(await screen.findByText("reconcile")).toBeInTheDocument()
-    expect(
-      screen.getByText(/Waiting for a worker/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Waiting for a worker/)).toBeInTheDocument()
+  })
+
+  it("starts and stops a worker through the control", async () => {
+    const calls: string[] = []
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () => HttpResponse.json(runsResponse([]))),
+      http.post(`${BASE}/api/admin/workers`, async ({ request }) => {
+        calls.push(`start ${JSON.stringify(await request.json())}`)
+        return HttpResponse.json(
+          { worker_id: "started-1", status: "starting", pid: 4242, detail: "" },
+          { status: 202 }
+        )
+      }),
+      http.post(`${BASE}/api/admin/workers/:id/stop`, ({ params }) => {
+        calls.push(`stop ${params.id}`)
+        return HttpResponse.json({
+          worker_id: String(params.id),
+          status: "stopping",
+          pid: null,
+          detail: "",
+        })
+      })
+    )
+
+    renderApp({ route: "/app/admin" })
+
+    await screen.findByText(/Up to 4 at once/)
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start a worker" })
+    )
+    expect(await screen.findByText(/Starting started-1/)).toBeInTheDocument()
+
+    const [firstStop] = screen.getAllByRole("button", { name: "Stop" })
+    expect(firstStop).toBeDefined()
+    await userEvent.click(firstStop as HTMLElement)
+    expect(await screen.findByText(/will stop after the job/)).toBeInTheDocument()
+
+    expect(calls).toEqual(["start {}", "stop worker-1"])
   })
 
   it("shows a run's progress and its raw detail on demand", async () => {

@@ -139,12 +139,13 @@ export interface paths {
         };
         /**
          * Read Worker Health
-         * @description Whether the background worker is alive — which the API cannot infer.
+         * @description Whether a background worker is alive, and how to manage one.
          *
          *     A process that answers HTTP requests says nothing about whether any
-         *     worker is draining the queue. This endpoint reads the heartbeats and the
-         *     queue's shape, and is deliberately separate from the API's own
-         *     readiness.
+         *     worker is draining the queue, so this reads the heartbeats directly. It
+         *     also reports whether this deployment lets the console start and stop
+         *     workers, and how many it may run at once, so the screen can show the
+         *     bound rather than hide it.
          */
         get: operations["read_worker_health_api_admin_health_workers_get"];
         put?: never;
@@ -244,6 +245,56 @@ export interface paths {
         get: operations["read_any_run_api_admin_runs__run_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Worker
+         * @description Start one background worker process, within the configured bound.
+         *
+         *     The command is fixed (the application's own worker module) and the worker
+         *     id is a label, not input. Starting is refused when the deployment has not
+         *     enabled it, and when the maximum number of workers is already running. An
+         *     administrator sees the bound on the screen; the server enforces it here.
+         */
+        post: operations["start_worker_api_admin_workers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/workers/{worker_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Worker
+         * @description Ask a running worker to finish its current batch and exit.
+         *
+         *     The request is **cooperative**: it is written to the worker's heartbeat
+         *     row and the worker acts on it, so a worker this API did not start (or no
+         *     longer remembers) is stopped the same way. Nothing is signalled, and in-
+         *     flight work is completed before the worker leaves.
+         */
+        post: operations["stop_worker_api_admin_workers__worker_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2791,6 +2842,31 @@ export interface components {
             status_category?: string | null;
         };
         /**
+         * WorkerActionResponse
+         * @description The result of starting or stopping a worker.
+         */
+        WorkerActionResponse: {
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Pid */
+            pid?: number | null;
+            /** Status */
+            status: string;
+            /** Worker Id */
+            worker_id: string;
+        };
+        /**
+         * WorkerStartRequest
+         * @description Optional shape for starting a worker.
+         */
+        WorkerStartRequest: {
+            /** Worker Id */
+            worker_id?: string | null;
+        };
+        /**
          * WorkPreferences
          * @description Work preferences the resume explicitly states.
          *
@@ -3107,6 +3183,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminRunDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_worker_api_admin_workers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WorkerStartRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_worker_api_admin_workers__worker_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerActionResponse"];
                 };
             };
             /** @description Validation Error */

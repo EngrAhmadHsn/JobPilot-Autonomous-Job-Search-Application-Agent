@@ -509,4 +509,38 @@
   .night-line {
     border-color: var(--color-night-line);
   }
+
+  /*
+    The query suggestions panel.
+
+    It opens from under the field — a short drop plus a small scale, so it
+    reads as coming *from* the input rather than appearing over the page —
+    and its rows stagger in like every other list in the console. The anchor
+    is the field's own box, so the panel stays aligned with it at any width.
+  */
+  .suggest-panel {
+    transform-origin: top right;
+    animation: suggest-panel 200ms var(--ease-soft) both;
+  }
+
+  @keyframes suggest-panel {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Reduced motion keeps the fade and the stagger, and drops the travel. */
+  html[data-motion="reduced"] .suggest-panel {
+    animation-name: reduced-fade !important;
+    animation-duration: 220ms !important;
+  }
+
+  .suggest-option[aria-selected="true"] {
+    background-color: var(--color-accent);
+  }
 }

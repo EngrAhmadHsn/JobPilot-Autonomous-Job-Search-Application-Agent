@@ -103,13 +103,13 @@ export function OperationsScreen() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Keep the corpus fresh"
+        title="Keep your job list fresh"
         description="Start a refresh and leave the page — the work continues in the background. Every figure below comes from the server, so what you see is the real state of the run."
       />
 
       <Card>
         <CardHeader>
-          <CardTitle>Queue a corpus refresh</CardTitle>
+          <CardTitle>Add the newest jobs</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -175,7 +175,7 @@ export function OperationsScreen() {
                       onRetry={() => child.refetch()}
                     />
                   ) : (
-                    <ProgressState title="Reading the embedding run" />
+                    <ProgressState title="Making your jobs searchable" />
                   )}
                 </div>
               </div>
@@ -193,7 +193,7 @@ export function OperationsScreen() {
         ) : history.isPending ? (
           <ProgressState
             title="Reading the run history"
-            description="Loading this account's executions from the backend."
+            description="Loading your runs."
           />
         ) : (history.data?.runs.length ?? 0) === 0 ? (
           <EmptyState

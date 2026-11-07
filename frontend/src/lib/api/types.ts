@@ -348,6 +348,9 @@ export interface WorkerHealthEntry {
   failed_items: number
   work_per_minute: number
   current_run_id: string | null
+  /** WS-20 follow-up: whether this API started the worker, and may stop it. */
+  spawned_by_api: boolean
+  stoppable: boolean
 }
 
 export interface WorkerHealth {
@@ -360,6 +363,19 @@ export interface WorkerHealth {
 export interface WorkerHealthResponse {
   workers: WorkerHealth
   queue: QueueStats
+  control: {
+    /** Whether this deployment lets the console start/stop workers. */
+    enabled: boolean
+    max_concurrent: number
+  }
+}
+
+/** The result of starting or stopping a worker. */
+export interface WorkerActionResponse {
+  worker_id: string
+  status: string
+  pid: number | null
+  detail: string
 }
 
 export interface QueueStats {
