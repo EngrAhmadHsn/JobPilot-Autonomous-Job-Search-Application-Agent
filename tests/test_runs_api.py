@@ -292,3 +292,54 @@ def test_the_metrics_and_worker_health_are_administrator_views(api):
 
     _act_as(ALICE)
     assert client.get("/api/admin/jobs/metrics").status_code == 403
+
+# -- the platform-wide run listing (WS-18 follow-up) --------------------------
+
+
+def test_the_admin_listing_covers_every_type_of_run(api):
+    """A queued refresh or reconciliation must not be invisible.
+
+    The embedding-runs listing answers the recovery question for one kind of
+    work. An administrator who queues a reconciliation and then sees nothing
+    in the list concludes the button did nothing — the run has to be listed,
+    of whatever type it is.
+    """
+    client, factory = api
+    _act_as(ADMIN)
+    embedding = _make_run(factory, owner="alice", job_type="embedding", items=2)
+    refresh = _make_run(factory, owner=None, job_type="refresh", items=1)
+    reconcile = _make_run(factory, owner=None, job_type="reconcile", items=1)
+
+    everything = client.get("/api/admin/runs")
+    assert everything.status_code == 200
+    ids = {run["id"] for run in everything.json()["runs"]}
+    assert {embedding, refresh, reconcile} <= ids
+
+    # The embedding-only listing keeps its meaning.
+    only_embeddings = client.get("/api/admin/embedding-runs")
+    assert {run["id"] for run in only_embeddings.json()["runs"]} == {embedding}
+
+    # Filters are applied by the data layer.
+    filtered = client.get("/api/admin/runs?job_type=reconcile")
+    assert [run["id"] for run in filtered.json()["runs"]] == [reconcile]
+    queued = client.get("/api/admin/runs?status=QUEUED")
+    assert {run["id"] for run in queued.json()["runs"]} == {embedding, refresh, reconcile}
+
+
+def test_any_runs_detail_is_readable_but_only_by_an_administrator(api):
+    client, factory = api
+    run_id = _make_run(factory, owner=None, job_type="reconcile", items=1)
+
+    _act_as(ALICE)
+    assert client.get(f"/api/admin/runs/{run_id}").status_code == 403
+    assert client.get("/api/admin/runs").status_code == 403
+
+    _act_as(ADMIN)
+    response = client.get(f"/api/admin/runs/{run_id}")
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["id"] == run_id
+    assert run["job_type"] == "reconcile"
+    assert any(event["event"] == "run.created" for event in run["events"])
+
+    assert client.get("/api/admin/runs/no-such-run").status_code == 404

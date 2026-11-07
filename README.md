@@ -324,6 +324,8 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/runs/{run_id}` | One run's state, checkpoints and item summary | WS-18 |
 | `GET /api/admin/embedding-runs` | Platform embedding runs (superuser only) | WS-18 |
 | `GET /api/admin/embedding-runs/{run_id}` | One embedding run's detail (superuser only) | WS-18 |
+| `GET /api/admin/runs` | Every durable run, filtered by type or status (superuser only) | WS-18 |
+| `GET /api/admin/runs/{run_id}` | One run of any type, with its checkpoint (superuser only) | WS-18 |
 | `POST /api/admin/embedding-runs/{run_id}/resume` | Resume outstanding work (superuser only) | WS-18 |
 | `POST /api/admin/embedding-runs/{run_id}/cancel` | Cancel a run safely (superuser only) | WS-18 |
 | `POST /api/admin/embeddings/reconcile` | Queue a SQL/Chroma reconciliation (superuser only) | WS-18 |

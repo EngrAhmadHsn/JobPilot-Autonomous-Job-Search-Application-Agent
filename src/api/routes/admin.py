@@ -180,6 +180,46 @@ def list_embedding_runs(
     return AdminRunsResponse(runs=[run_service.run_to_dict(run) for run in runs], count=len(runs))
 
 
+@router.get("/runs", response_model=AdminRunsResponse)
+def list_all_runs(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+    job_type: str | None = None,
+    run_status: str | None = Query(None, alias="status"),
+    limit: int = 50,
+) -> AdminRunsResponse:
+    """Every durable run on the platform, newest first.
+
+    The embedding-runs listing above is the recovery surface for one kind of
+    work; this one is the platform's whole queue, which is what an operator
+    needs when a refresh, a reconciliation and an embedding pass are all in
+    flight — or when a queued run is not moving because no worker is running.
+
+    Filters are optional and applied by the data layer, not by the route.
+    """
+    runs = access.list_runs(
+        db,
+        scope,
+        job_type=job_type,
+        statuses=[run_status] if run_status else None,
+        limit=limit,
+    )
+    return AdminRunsResponse(runs=[run_service.run_to_dict(run) for run in runs], count=len(runs))
+
+
+@router.get("/runs/{run_id}", response_model=AdminRunDetailResponse)
+def read_any_run(
+    run_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> AdminRunDetailResponse:
+    """One run of any type, with its checkpoint, counters and events."""
+    run = access.get_run(db, scope, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+    return AdminRunDetailResponse(run=run_service.run_detail(db, run))
+
+
 @router.get("/embedding-runs/{run_id}", response_model=AdminRunDetailResponse)
 def read_embedding_run(
     run_id: str,

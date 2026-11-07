@@ -91,6 +91,8 @@ PROTECTED_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("GET", "/api/runs/{run_id}"),
     ("GET", "/api/admin/embedding-runs"),
     ("GET", "/api/admin/embedding-runs/{run_id}"),
+    ("GET", "/api/admin/runs"),
+    ("GET", "/api/admin/runs/{run_id}"),
     ("POST", "/api/admin/embedding-runs/{run_id}/resume"),
     ("POST", "/api/admin/embedding-runs/{run_id}/cancel"),
     ("POST", "/api/admin/embeddings/reconcile"),
