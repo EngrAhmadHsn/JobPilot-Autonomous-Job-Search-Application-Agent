@@ -54,6 +54,7 @@ _SCORE_FIELDS = (
     "seniority_score",
     "location_score",
     "preference_score",
+    "role_score",
     "evidence_coverage",
 )
 

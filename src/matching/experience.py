@@ -58,6 +58,16 @@ _TECH_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A sentence offering degree-alternative bars ("BS with 4+ or MS with 2+
+# years"). In this construction the *highest* alternative is the bar — the
+# candidate without the stronger degree must beat it — and a bare "N+" means
+# years ("4+" never spells the unit out).
+_DEGREE_ALTERNATIVE_RE = re.compile(
+    r"\b(bs|ba|b\.?s\.?|ms|ma|m\.?s\.?|ph\.?d|phd|bachelor|master|doctorate)\b",
+    re.IGNORECASE,
+)
+_BARE_PLUS_RE = re.compile(r"(?P<years>\d+(?:\.\d+)?)\s*\+", re.IGNORECASE)
+
 MAX_CANDIDATE_YEARS = 50.0
 MAX_REQUIRED_YEARS = 30.0
 
@@ -137,7 +147,10 @@ def _extract_required_years(text: str) -> float | None:
         return None
     general: list[float] = []
     for sentence in re.split(r"[\n.;•]+", text):
-        years = _years_in_sentence(sentence)
+        # WS-21: a degree-alternative sentence states several bars at once;
+        # the highest one is the real bar (see _DEGREE_ALTERNATIVE_RE).
+        degree_alternative = bool(_DEGREE_ALTERNATIVE_RE.search(sentence))
+        years = _years_in_sentence(sentence, max_across=degree_alternative)
         if years is None:
             continue
         # Skip a technology-specific bar: it is not the total requirement.
@@ -149,30 +162,32 @@ def _extract_required_years(text: str) -> float | None:
     return min(max(general), MAX_REQUIRED_YEARS)
 
 
-def _years_in_sentence(sentence: str) -> float | None:
+def _years_in_sentence(sentence: str, *, max_across: bool = False) -> float | None:
     """The stated bar in one sentence, or None.
 
     Order matters: an explicit "N or more" or "at least N" beats a bare range,
     and a range ("3-5") is read as its top. The first matching form wins so the
-    earliest requirement in the sentence is the one reported.
+    earliest requirement in the sentence is the one reported — except in a
+    degree-alternative sentence (``max_across``), where the highest stated
+    alternative is the bar and a bare "N+" counts as years.
     """
-    earliest: tuple[int, float] | None = None
+    matches: list[tuple[int, float]] = []
     for regex, pick in (
         (_OR_MORE_RE, lambda m: float(m.group("years"))),
         (_REQUIRED_RANGE_RE, lambda m: float(m.group("high"))),
     ):
-        match = regex.search(sentence)
-        if match is not None:
-            candidate = (match.start(), pick(match))
-            if earliest is None or candidate[0] < earliest[0]:
-                earliest = candidate
-    phrase = _REQUIRED_YEARS_RE.search(sentence)
-    if phrase is not None:
-        candidate = (phrase.start(), float(phrase.group("years")))
-        if earliest is None or candidate[0] < earliest[0]:
-            earliest = candidate
-    if earliest is None:
+        for match in regex.finditer(sentence):
+            matches.append((match.start(), pick(match)))
+    for match in _REQUIRED_YEARS_RE.finditer(sentence):
+        matches.append((match.start(), float(match.group("years"))))
+    if max_across:
+        for match in _BARE_PLUS_RE.finditer(sentence):
+            matches.append((match.start(), float(match.group("years"))))
+    if not matches:
         return None
+    if max_across:
+        return min(max(value for _position, value in matches), MAX_REQUIRED_YEARS)
+    earliest = min(matches, key=lambda item: item[0])
     return min(earliest[1], MAX_REQUIRED_YEARS)
 
 

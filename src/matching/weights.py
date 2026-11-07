@@ -1,26 +1,34 @@
-"""Match-weight defaults and validation (WS-03, extended WS-20).
+"""Match-weight defaults and validation (WS-03, extended WS-20, WS-21).
 
-The hybrid score blends seven components. Weights are validated once at
+The hybrid score blends eight components. Weights are validated once at
 settings load (``MATCH_WEIGHTS`` env) and again at every engine call, so an
 invalid override can never silently skew ranking.
 
-WS-20 adds the ``lexical`` component (BM25 over the full posting) and — the
+WS-20 added the ``lexical`` component (BM25 over the full posting) and — the
 important part — **removes** ``redistribute_without``. A component whose value
 is unavailable keeps its weight in the denominator; its weight is never moved
 onto the components that happen to be present. See ``src/matching/scores.py``
 for the full policy.
+
+WS-21 adds the ``role`` component — the occupational-role relevance between
+the candidate's target roles and the listing's classified job family
+(``src/matching/roles.py``). It is a **breaking** weight-set change: an
+override must now name all eight components. The other weights were rescaled
+to make room, keeping each component's relative importance close to WS-20's
+while role takes the second-largest share after ``skill``.
 """
 
 from __future__ import annotations
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "semantic": 0.15,
-    "lexical": 0.10,
-    "skill": 0.25,
-    "experience": 0.20,
-    "seniority": 0.10,
-    "location": 0.10,
-    "preference": 0.10,
+    "semantic": 0.13,
+    "lexical": 0.08,
+    "skill": 0.22,
+    "experience": 0.17,
+    "seniority": 0.08,
+    "location": 0.09,
+    "preference": 0.08,
+    "role": 0.15,
 }
 
 # Sum tolerance: weights are authored as fractions summing to ~1.

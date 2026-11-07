@@ -24,6 +24,19 @@ class JobMatchResult(BaseModel):
     seniority_score: float = Field(..., ge=0, le=100)
     location_score: float = Field(..., ge=0, le=100)
     preference_score: float = Field(..., ge=0, le=100)
+    #: WS-21: relevance between the candidate's target roles and the
+    #: listing's classified occupational family. 0 with an unknown state when
+    #: either side is not known — never a silent default.
+    role_score: float = Field(0.0, ge=0, le=100)
+    #: WS-21 role evidence: the classified family (``None`` = unknown), how
+    #: sure the classifier is, the candidate targets the comparison used
+    #: (``user`` / ``inferred`` / ``cleared`` / ``none``), and whether the
+    #: role mismatch capped the overall score.
+    role_family: str | None = None
+    role_family_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    role_targets: list[str] = Field(default_factory=list)
+    role_target_source: str = "none"
+    role_capped: bool = False
     #: 0-100: the share of the counted weight that is backed by a measurement.
     evidence_coverage: float = Field(0.0, ge=0, le=100)
     #: Per-component :class:`~src.matching.scores.ScoreState` values, by name.

@@ -33,6 +33,12 @@ from src.matching.lexical import (
     candidate_tokens,
     lexical_score,
 )
+from src.matching.roles import (
+    FAMILY_LABELS,
+    ROLE_MISMATCH_CAP,
+    RoleRelevance,
+    role_relevance,
+)
 from src.matching.scores import ComponentScore, ScoreState, blend, measured_state
 from src.matching.weights import DEFAULT_WEIGHTS, validate_weights
 from src.resume.profile import CandidateProfile, WorkPreferences, work_preferences_stated
@@ -182,13 +188,26 @@ def _skill_component(job: JobListing, profile: CandidateProfile) -> ComponentSco
     matched = [*required_hits, *preferred_hits]
     missing = [skill for skill in matched_names if skill.strip().casefold() not in candidate]
     denominator = len(required) + 0.5 * len(preferred)
-    value = max(
-        0.0, min(100.0, (len(required_hits) + 0.5 * len(preferred_hits)) / denominator * 100)
-    )
+    coverage = (len(required_hits) + 0.5 * len(preferred_hits)) / denominator
+    # WS-21: thin evidence cannot deliver a full score. A one-token list is a
+    # weak statement of what the job needs — the same token appears in half
+    # the corpus — so the coverage is damped by how much evidence there is
+    # (two listed requirements are full confidence). Without this, a listing
+    # that names one generic skill matched by everyone scored like a listing
+    # whose real requirement list is fully met.
+    evidence_factor = min(1.0, denominator / 2.0)
+    value = max(0.0, min(100.0, coverage * evidence_factor * 100))
+    reason = ""
+    if evidence_factor < 1.0 and coverage > 0:
+        reason = (
+            f"only {len(matched_names)} listed requirement(s); the score is damped "
+            "because a very short requirement list is weak evidence"
+        )
     return ComponentScore(
         name="skill",
         value=value,
         state=measured_state(value),
+        reason=reason,
         matched=matched,
         missing=missing,
     )
@@ -379,6 +398,35 @@ def _lexical_component(
     )
 
 
+def _role_component(relevance: RoleRelevance) -> ComponentScore:
+    """The occupational-role component, from a precomputed comparison.
+
+    Unknown and measured states follow the WS-20 vocabulary: no target roles
+    is candidate data missing; an unclassifiable listing is a missing job
+    requirement; an unrelated role is a *measured mismatch* worth its low
+    value (and, in ``calculate_match``, a cap).
+    """
+    if relevance.target_source in {"none", "cleared"}:
+        return ComponentScore(
+            name="role",
+            state=ScoreState.CANDIDATE_DATA_MISSING,
+            reason=relevance.reason or "the candidate has no target roles",
+        )
+    if relevance.family is None:
+        return ComponentScore(
+            name="role",
+            state=ScoreState.JOB_REQUIREMENT_MISSING,
+            reason=relevance.reason or "the listing's occupational role is not recognisable",
+        )
+    return ComponentScore(
+        name="role",
+        value=relevance.value,
+        state=measured_state(relevance.value),
+        reason=relevance.reason,
+        matched=[FAMILY_LABELS.get(relevance.family, relevance.family)],
+    )
+
+
 # --------------------------------------------------------------------------
 # Public entry point
 # --------------------------------------------------------------------------
@@ -423,6 +471,10 @@ def calculate_match(
         configured = get_settings().match_weights
         effective_weights = validate_weights(configured) if configured else dict(DEFAULT_WEIGHTS)
 
+    # WS-21: the occupational-role comparison, computed once and turned into
+    # the eighth component below (and, on a WEAK/UNRELATED role, the cap).
+    relevance = role_relevance(profile, job)
+
     components: dict[str, ComponentScore] = {
         "semantic": _semantic_component(job, semantic_score, semantic_state),
         "lexical": _lexical_component(job, profile, lexical, bm25_index),
@@ -431,8 +483,16 @@ def calculate_match(
         "seniority": _seniority_component(job, profile),
         "location": _location_component(job, profile),
         "preference": _preference_component(job, profile),
+        "role": _role_component(relevance),
     }
     blended = blend(effective_weights, components)
+
+    # WS-21: a role the candidate's targets are WEAK-to-UNRELATED against can
+    # never read as a match. The cap is below the evaluation's decision
+    # threshold (30) and is always reported — see `role_capped` and the notes.
+    overall = blended.overall_score
+    if relevance.capped:
+        overall = min(overall, ROLE_MISMATCH_CAP)
 
     skill_match = components["skill"]
     lexical_component = components["lexical"]
@@ -440,7 +500,7 @@ def calculate_match(
         f"{name}: {component.reason}" for name, component in components.items() if component.reason
     ]
 
-    parts = [f"Match score: {blended.overall_score:.0f}/100"]
+    parts = [f"Match score: {overall:.0f}/100"]
     parts.append(f"Evidence coverage: {blended.evidence_coverage:.0f}%")
     for name in (
         "semantic",
@@ -450,6 +510,7 @@ def calculate_match(
         "seniority",
         "location",
         "preference",
+        "role",
     ):
         component = components[name]
         if component.state in {ScoreState.MATCHED, ScoreState.PARTIAL_MATCH, ScoreState.MISMATCH}:
@@ -466,15 +527,28 @@ def calculate_match(
     if lexical_component.missing:
         shown = ", ".join(lexical_component.missing[:10])
         explanation += f" Missing keywords: {shown}."
+    if relevance.family is not None:
+        # WS-21 · §2.5: the role evidence, concisely — the classified family,
+        # the classifier's confidence, and the targets the comparison used.
+        family_label = FAMILY_LABELS.get(relevance.family, relevance.family)
+        sentence = f" Classified role: {family_label} (confidence {relevance.confidence:.0%}"
+        if relevance.second_family is not None and relevance.confidence < 1.0:
+            second_label = FAMILY_LABELS.get(relevance.second_family, relevance.second_family)
+            sentence += f", second reading {second_label}"
+        sentence += ")"
+        if relevance.targets:
+            sentence += (
+                f"; candidate targets: {', '.join(relevance.targets[:5])}"
+                f" ({relevance.target_source})"
+            )
+        explanation += sentence + "."
     if notes:
         explanation += " Notes: " + "; ".join(notes) + "."
 
-    logger.info(
-        "Match calculated for %s at %s: %.1f", job.title, job.company, blended.overall_score
-    )
+    logger.info("Match calculated for %s at %s: %.1f", job.title, job.company, overall)
 
     return JobMatchResult(
-        overall_score=blended.overall_score,
+        overall_score=overall,
         semantic_score=components["semantic"].value,
         lexical_score=components["lexical"].value,
         skill_score=components["skill"].value,
@@ -482,6 +556,12 @@ def calculate_match(
         seniority_score=components["seniority"].value,
         location_score=components["location"].value,
         preference_score=components["preference"].value,
+        role_score=components["role"].value,
+        role_family=relevance.family,
+        role_family_confidence=relevance.confidence,
+        role_targets=list(relevance.targets),
+        role_target_source=relevance.target_source,
+        role_capped=relevance.capped,
         evidence_coverage=blended.evidence_coverage,
         component_states={name: component.state.value for name, component in components.items()},
         notes=notes,

@@ -117,6 +117,11 @@ class JobSearchPreferences(BaseModel):
     remote_preference: str | None = None  # remote | hybrid | onsite | any
     employment_types: list[str] = Field(default_factory=list)
     willing_to_relocate: bool | None = None
+    #: WS-21: the occupations the candidate wants matched against, free text
+    #: ("Web Developer", "Frontend Developer"). Confirmed via
+    #: ``confirmed_fields`` as ``preferences.target_roles``; when confirmed-
+    #: empty the field means *explicitly cleared*, and nothing is inferred.
+    target_roles: list[str] = Field(default_factory=list)
 
     @field_validator("remote_preference")
     @classmethod
@@ -134,6 +139,18 @@ class JobSearchPreferences(BaseModel):
     def _check_lists(cls, value: list[str]) -> list[str]:
         if len(value) > 50:
             raise ValueError("too many entries (max 50)")
+        out: list[str] = []
+        for item in value:
+            cleaned = _clean_str(item)
+            if cleaned is not None and cleaned not in out:
+                out.append(cleaned)
+        return out
+
+    @field_validator("target_roles")
+    @classmethod
+    def _check_target_roles(cls, value: list[str]) -> list[str]:
+        if len(value) > 20:
+            raise ValueError("too many target roles (max 20)")
         out: list[str] = []
         for item in value:
             cleaned = _clean_str(item)
