@@ -1,8 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 
 import { Banner } from "@/components/common/banner"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
+import {
+  RunProgress,
+  isRunTerminal,
+  runStatusCopy,
+} from "@/components/observability/run-progress"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { StatTile } from "@/components/common/stat-tile"
@@ -267,14 +272,55 @@ function barColor(tone: "plain" | "actor" | "outcome", key: string): string {
  * and the dimension. A confirmation is shown before the resume because the
  * action changes durable state.
  */
+/** The run types, as the filter offers them. */
+const RUN_TYPE_FILTERS = [
+  { value: "", label: "Everything" },
+  { value: "refresh", label: "Refreshes" },
+  { value: "embedding", label: "Embeddings" },
+  { value: "reconcile", label: "Reconciliations" },
+] as const
+
+/**
+ * The platform's background executions (WS-18).
+ *
+ * This is the recovery and oversight surface, and it reads like the
+ * operator's own Operations screen on purpose: the same numbers, the same
+ * status wording, the same progress panel — because both read the same rows.
+ * Two things an administrator needs that an operator does not:
+ *
+ * - **Every type of run**, not just the embedding passes: a refresh and a
+ *   reconciliation are queued work too, and one that never appears in the
+ *   list looks like a button that did nothing.
+ * - **Whether a worker is alive.** A queued run is not a failing run; it is
+ *   a run waiting for a process. The banner says which, and names the
+ *   command.
+ *
+ * The screen holds no authority: the server checks `is_superuser`, validates
+ * the transition, the model and the dimension, and audits the act.
+ */
 function BackgroundRuns() {
   const [confirming, setConfirming] = useState<RunSummary | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState<string>("")
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const runs = useQuery({
-    queryKey: ["admin", "embedding-runs"],
-    queryFn: ({ signal }) => api.adminEmbeddingRuns(signal),
+    queryKey: ["admin", "runs", typeFilter],
+    queryFn: ({ signal }) =>
+      api.adminRuns(typeFilter ? { job_type: typeFilter } : {}, signal),
     refetchInterval: 5_000,
+  })
+
+  const workers = useQuery({
+    queryKey: ["admin", "workers"],
+    queryFn: ({ signal }) => api.adminWorkerHealth(signal),
+    refetchInterval: 10_000,
+  })
+
+  const detail = useQuery({
+    queryKey: ["admin", "run", expandedId],
+    queryFn: ({ signal }) => api.adminRun(expandedId as string, signal),
+    enabled: Boolean(expandedId),
   })
 
   const resume = useMutation({
@@ -294,25 +340,83 @@ function BackgroundRuns() {
       setNotice(
         `Reconciliation ${result.queued ? "queued" : "already active"} as run ${result.run_id}.`
       )
+      setTypeFilter("")
+      setExpandedId(result.run_id)
       runs.refetch()
     },
   })
 
+  const items = runs.data?.runs ?? []
+  const waiting = items.filter((run) => !isRunTerminal(run.status)).length
+  const workerState = workers.data?.workers
+  const noWorker = workerState ? workerState.healthy === 0 : false
+
   return (
     <Section
       title="Background runs"
-      description="Durable executions of the embedding worker. A run's state survives the browser, the API process and a worker restart."
+      description="Every background job on the platform, of every type. A job keeps running when you close this page, and its state is stored on the server — not remembered here."
     >
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-2">
+        {noWorker ? (
+          <Banner tone="warning" title="No background worker is running">
+            <p>
+              Queued work does not execute on its own — a separate worker
+              process drains the queue. Start it, and everything below begins
+              moving:
+            </p>
+            <p className="mt-2 font-mono text-xs">
+              python scripts/run_worker.py
+            </p>
+            {waiting > 0 ? (
+              <p className="mt-2">
+                {waiting} run{waiting === 1 ? "" : "s"} waiting.
+              </p>
+            ) : null}
+          </Banner>
+        ) : workerState ? (
+          <p className="text-xs text-muted-foreground">
+            {workerState.healthy} worker
+            {workerState.healthy === 1 ? "" : "s"} alive · a worker is
+            considered stale after {workerState.stale_after_seconds}s without a
+            heartbeat
+            {waiting > 0 ? ` · ${waiting} run${waiting === 1 ? "" : "s"} in flight` : ""}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div
+            role="group"
+            aria-label="Filter by run type"
+            className="inline-flex rounded-lg border border-border bg-card p-0.5"
+          >
+            {RUN_TYPE_FILTERS.map((filter) => (
+              <button
+                key={filter.value || "all"}
+                type="button"
+                onClick={() => {
+                  setTypeFilter(filter.value)
+                  setExpandedId(null)
+                }}
+                aria-pressed={typeFilter === filter.value}
+                className={
+                  typeFilter === filter.value
+                    ? "rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+                    : "rounded-md px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                }
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+
           <Button
             variant="outline"
             disabled={reconcile.isPending}
             onClick={() => reconcile.mutate()}
           >
             {reconcile.isPending
-              ? "Queueing reconciliation..."
-              : "Reconcile the vector index"}
+              ? "Queueing the repair…"
+              : "Repair the search index"}
           </Button>
         </div>
 
@@ -334,12 +438,12 @@ function BackgroundRuns() {
         ) : runs.isPending ? (
           <ProgressState
             title="Reading the background runs"
-            description="Loading the platform's embedding executions."
+            description="Loading the platform's executions."
           />
-        ) : (runs.data?.runs.length ?? 0) === 0 ? (
+        ) : items.length === 0 ? (
           <EmptyState
-            title="No embedding runs yet"
-            description="A refresh that finds new or changed listings creates one. Interrupted runs appear here with a Resume action."
+            title="No runs of this type"
+            description="A refresh that finds new or changed listings creates one, and so does a reconciliation. Interrupted runs appear here with a Resume action."
           />
         ) : (
           <Table>
@@ -350,42 +454,77 @@ function BackgroundRuns() {
                 <TableHead>Status</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead>Heartbeat</TableHead>
+                <TableHead>Last heartbeat</TableHead>
                 <TableHead>Last error</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runs.data!.runs.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell className="font-mono text-xs">
-                    {run.id.slice(0, 12)}
-                  </TableCell>
-                  <TableCell>{run.job_type}</TableCell>
-                  <TableCell>{run.status}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {run.progress_percent}% ({run.completed_items}/
-                    {run.total_items})
-                  </TableCell>
-                  <TableCell>{formatDateTime(run.created_at)}</TableCell>
-                  <TableCell>{formatDateTime(run.heartbeat_at)}</TableCell>
-                  <TableCell className="max-w-56 truncate text-xs text-muted-foreground">
-                    {run.last_error ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    {run.resumable ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setConfirming(run)}
-                      >
-                        Resume
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
+              {items.map((run) => (
+                <Fragment key={run.id}>
+                  <TableRow>
+                    <TableCell className="font-mono text-xs">
+                      {run.id.slice(0, 12)}
+                    </TableCell>
+                    <TableCell>{run.job_type}</TableCell>
+                    <TableCell className={runStatusCopy(run.status).tone}>
+                      {runStatusCopy(run.status).label}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {run.progress_percent}% ({run.completed_items}/
+                      {run.total_items})
+                    </TableCell>
+                    <TableCell>{formatDateTime(run.created_at)}</TableCell>
+                    <TableCell>{formatDateTime(run.heartbeat_at)}</TableCell>
+                    <TableCell className="max-w-56 truncate text-xs text-muted-foreground">
+                      {run.last_error ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-expanded={expandedId === run.id}
+                          onClick={() =>
+                            setExpandedId(expandedId === run.id ? null : run.id)
+                          }
+                        >
+                          {expandedId === run.id ? "Hide" : "Progress"}
+                        </Button>
+                        {run.resumable ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setConfirming(run)}
+                          >
+                            Resume
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {expandedId === run.id ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="bg-muted/30">
+                        {detail.isPending ? (
+                          <ProgressState title="Reading the run" />
+                        ) : detail.isError ? (
+                          <ErrorNotice
+                            error={detail.error}
+                            onRetry={() => detail.refetch()}
+                            verbose
+                          />
+                        ) : detail.data ? (
+                          <RunProgress
+                            run={detail.data.run}
+                            events={detail.data.run.events}
+                            verbose
+                          />
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
@@ -411,7 +550,7 @@ function BackgroundRuns() {
                 <dt className="text-muted-foreground">Run</dt>
                 <dd className="font-mono text-xs">{confirming.id}</dd>
                 <dt className="text-muted-foreground">Status</dt>
-                <dd>{confirming.status}</dd>
+                <dd>{runStatusCopy(confirming.status).label}</dd>
                 <dt className="text-muted-foreground">Progress</dt>
                 <dd>
                   {confirming.completed_items} of {confirming.total_items}{" "}
@@ -436,7 +575,7 @@ function BackgroundRuns() {
                   if (confirming) resume.mutate(confirming.id)
                 }}
               >
-                {resume.isPending ? "Resuming..." : "Resume outstanding work"}
+                {resume.isPending ? "Resuming…" : "Resume outstanding work"}
               </Button>
             </DialogFooter>
           </DialogContent>

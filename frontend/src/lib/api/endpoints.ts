@@ -295,6 +295,30 @@ export const api = {
       timeoutMs: 20_000,
     }),
 
+  /**
+   * Every durable run on the platform — **superuser only**.
+   *
+   * The embedding-runs listing is the recovery surface for one kind of
+   * work; this is the whole queue, which is what an operator needs when a
+   * refresh, a reconciliation and an embedding pass are all in flight.
+   */
+  adminRuns: (
+    params: { job_type?: string; status?: string } = {},
+    signal?: AbortSignal
+  ) =>
+    request<RunsListResponse>("/api/admin/runs", {
+      query: { job_type: params.job_type, status: params.status },
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** One run of any type, with its checkpoint — **superuser only**. */
+  adminRun: (runId: string, signal?: AbortSignal) =>
+    request<RunDetailResponse>(`/api/admin/runs/${encodeURIComponent(runId)}`, {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
   /** One embedding run's detail — **superuser only**. */
   adminEmbeddingRun: (runId: string, signal?: AbortSignal) =>
     request<RunDetailResponse>(

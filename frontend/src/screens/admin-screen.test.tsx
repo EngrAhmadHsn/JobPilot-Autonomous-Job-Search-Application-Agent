@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import {
   adminOverviewResponse,
   identityResponse,
+  runDetail,
   runsResponse,
   runSummary,
 } from "@/test/factories"
@@ -24,6 +25,44 @@ const BASE = "http://api.test"
  * confirmation followed by the real recovery API — never a client-side
  * status change.
  */
+/** The worker view, as the backend reports it. */
+function workersResponse(healthy: number, total = healthy) {
+  return {
+    workers: {
+      healthy,
+      total,
+      stale_after_seconds: 60,
+      workers: Array.from({ length: total }, (_, index) => ({
+        worker_id: `worker-${index + 1}`,
+        status: healthy > index ? "running" : "stopped",
+        hostname: "dev-machine",
+        pid: 100 + index,
+        heartbeat_age_seconds: healthy > index ? 3 : 900,
+        healthy: healthy > index,
+        starts: 1,
+        processed_items: 12,
+        failed_items: 0,
+        work_per_minute: 4,
+        current_run_id: null,
+      })),
+    },
+    queue: {
+      items: {
+        queued: 2,
+        running: 0,
+        retry_wait: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        stale_leases: 0,
+        reclaimed_leases: 0,
+        oldest_pending_age_seconds: 3773,
+      },
+      runs: { queued: 2 },
+    },
+  }
+}
+
 describe("the administration screen", () => {
   it("tells an ordinary account that it is not an administrator", async () => {
     // The default mocked principal is not a superuser.
@@ -79,7 +118,10 @@ describe("the administration screen", () => {
       http.get(`${BASE}/api/admin/overview`, () =>
         HttpResponse.json(adminOverviewResponse())
       ),
-      http.get(`${BASE}/api/admin/embedding-runs`, () =>
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
         HttpResponse.json(
           runsResponse([
             runSummary({
@@ -115,7 +157,9 @@ describe("the administration screen", () => {
     const user = userEvent.setup()
 
     expect(await screen.findByText("Background runs")).toBeInTheDocument()
-    expect(await screen.findByText("RECOVERABLE")).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Interrupted — needs an administrator/)
+    ).toBeInTheDocument()
 
     await user.click(await screen.findByRole("button", { name: "Resume" }))
 
@@ -142,7 +186,10 @@ describe("the administration screen", () => {
       http.get(`${BASE}/api/admin/overview`, () =>
         HttpResponse.json(adminOverviewResponse())
       ),
-      http.get(`${BASE}/api/admin/embedding-runs`, () =>
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
         HttpResponse.json(
           runsResponse([
             runSummary({
@@ -185,6 +232,102 @@ describe("the administration screen", () => {
     ).toBeInTheDocument()
   })
 
+  it("says queued work will not run when no worker is alive", async () => {
+    /*
+      The reported defect: a reconciliation was queued, the button said so,
+      and nothing happened — because the worker process was not running. The
+      screen has to say that rather than leave a silent queue.
+    */
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(0))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            runSummary({
+              id: "run-reconcile-1",
+              job_type: "reconcile",
+              status: "QUEUED",
+              resumable: false,
+            }),
+          ])
+        )
+      )
+    )
+
+    renderApp({ route: "/app/admin" })
+
+    expect(
+      await screen.findByText("No background worker is running")
+    ).toBeInTheDocument()
+    expect(screen.getByText(/python scripts\/run_worker\.py/)).toBeInTheDocument()
+    // The queued run is listed, with the state a person can act on.
+    expect(await screen.findByText("reconcile")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Waiting for a worker/)
+    ).toBeInTheDocument()
+  })
+
+  it("shows a run's progress and its raw detail on demand", async () => {
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            runSummary({
+              id: "run-refresh-1",
+              job_type: "refresh",
+              status: "RUNNING",
+              progress_percent: 60,
+              completed_items: 60,
+              total_items: 100,
+              remaining_items: 40,
+            }),
+          ])
+        )
+      ),
+      http.get(`${BASE}/api/admin/runs/:runId`, () =>
+        HttpResponse.json({
+          run: runDetail({
+            id: "run-refresh-1",
+            job_type: "refresh",
+            status: "RUNNING",
+            progress_percent: 60,
+            completed_items: 60,
+            total_items: 100,
+            remaining_items: 40,
+          }),
+        })
+      )
+    )
+
+    renderApp({ route: "/app/admin" })
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole("button", { name: "Progress" }))
+
+    // The same panel the operator sees, plus the administrator's detail.
+    expect(await screen.findByText("Working now")).toBeInTheDocument()
+    expect(screen.getByText(/60 of 100 done/)).toBeInTheDocument()
+    expect(screen.getByText("Run id")).toBeInTheDocument()
+    expect(screen.getByText("Lifecycle events")).toBeInTheDocument()
+  })
+
   it("offers no resume for a finished run", async () => {
     server.use(
       http.get(`${BASE}/api/auth/me`, () =>
@@ -193,7 +336,10 @@ describe("the administration screen", () => {
       http.get(`${BASE}/api/admin/overview`, () =>
         HttpResponse.json(adminOverviewResponse())
       ),
-      http.get(`${BASE}/api/admin/embedding-runs`, () =>
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
         HttpResponse.json(
           runsResponse([
             runSummary({
@@ -210,7 +356,7 @@ describe("the administration screen", () => {
     renderApp({ route: "/app/admin" })
 
     expect(await screen.findByText("Background runs")).toBeInTheDocument()
-    expect(await screen.findByText("COMPLETED")).toBeInTheDocument()
+    expect(await screen.findByText(/Finished/)).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Resume" })
     ).not.toBeInTheDocument()

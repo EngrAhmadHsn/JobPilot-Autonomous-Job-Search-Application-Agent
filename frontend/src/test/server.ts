@@ -176,6 +176,18 @@ export const server = setupServer(
   http.get(`${BASE}/api/admin/embedding-runs`, () =>
     HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
   ),
+  http.get(`${BASE}/api/admin/runs`, () =>
+    HttpResponse.json(
+      { detail: "Administration is available to platform administrators only." },
+      { status: 403 }
+    )
+  ),
+  http.get(`${BASE}/api/admin/health/workers`, () =>
+    HttpResponse.json(
+      { detail: "Administration is available to platform administrators only." },
+      { status: 403 }
+    )
+  ),
   http.post(`${BASE}/api/admin/embedding-runs/:runId/resume`, () =>
     HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
   ),
