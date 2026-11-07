@@ -233,7 +233,14 @@ export function MatchesScreen() {
         description="Your saved jobs, ranked against your profile, each with the reason for its score."
       />
 
-      <Card>
+      {/*
+        WS-21: the query suggestions panel is absolutely positioned from
+        under the field and must extend past this card's edge. The shared
+        Card clips by default (`overflow-hidden`) and every other screen
+        relies on that, so the exception lives here, at the one call site —
+        not in card.tsx.
+      */}
+      <Card className="overflow-visible">
         <CardHeader>
           <CardTitle>Search your saved listings</CardTitle>
         </CardHeader>

@@ -22,6 +22,33 @@ describe("the matches screen", () => {
     expect(screen.getByText("No profile selected")).toBeInTheDocument()
   })
 
+  it("lets the suggestion panel out of the search card (WS-21)", async () => {
+    /*
+      The defect: the panel is absolutely positioned from under the query
+      field, and the shared Card's default `overflow-hidden` cut it off at
+      the card's edge. jsdom cannot measure layout, so the *contract* (this
+      one card is overflow-visible) is pinned here; the real boxes are
+      measured in a browser by e2e/suggestions.spec.ts.
+    */
+    withProfile()
+    server.use(
+      http.get(`${BASE}/api/jobs/suggest`, () =>
+        HttpResponse.json({
+          query: "eng",
+          suggestions: [{ value: "AI Engineer", count: 3 }],
+        })
+      )
+    )
+    const user = userEvent.setup()
+    const { container } = renderScreen(<MatchesScreen />)
+
+    await user.type(screen.getByLabelText("Query"), "eng")
+    expect(await screen.findByRole("listbox")).toBeInTheDocument()
+
+    const card = container.querySelector('[data-slot="card"]')
+    expect(card?.className).toContain("overflow-visible")
+  })
+
   it("ranks the matches and explains the ranking", async () => {
     withProfile()
     const user = userEvent.setup()
