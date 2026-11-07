@@ -203,7 +203,8 @@ def test_production_allows_explicit_origins(
 
 
 VALID_WEIGHTS = (
-    '{"semantic":0.2,"skill":0.3,"experience":0.2,"seniority":0.1,"location":0.1,"preference":0.1}'
+    '{"semantic":0.15,"lexical":0.1,"skill":0.25,"experience":0.2,'
+    '"seniority":0.1,"location":0.1,"preference":0.1}'
 )
 
 
@@ -215,8 +216,9 @@ def test_match_weights_valid_json_parses(clean_env: None, monkeypatch: pytest.Mo
     monkeypatch.setenv("MATCH_WEIGHTS", VALID_WEIGHTS)
     weights = Settings().match_weights
     assert weights == {
-        "semantic": 0.2,
-        "skill": 0.3,
+        "semantic": 0.15,
+        "lexical": 0.1,
+        "skill": 0.25,
         "experience": 0.2,
         "seniority": 0.1,
         "location": 0.1,
@@ -243,7 +245,8 @@ def test_match_weights_non_object_fails_fast(
 def test_match_weights_bad_sum_fails_fast(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "MATCH_WEIGHTS",
-        '{"semantic":0.5,"skill":0.5,"experience":0.2,"seniority":0.1,"location":0.1,"preference":0.1}',
+        '{"semantic":0.5,"lexical":0.1,"skill":0.5,"experience":0.2,'
+        '"seniority":0.1,"location":0.1,"preference":0.1}',
     )
     with pytest.raises(RuntimeError, match="sum"):
         Settings()

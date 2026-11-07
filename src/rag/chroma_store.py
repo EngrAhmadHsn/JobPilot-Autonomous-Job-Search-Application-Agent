@@ -414,12 +414,14 @@ class ChromaVectorStore:
 
 
 def candidate_query_text(profile: CandidateProfile) -> str:
-    """Compose the semantic query describing a candidate (WS-04 call site)."""
-    parts: list[str] = []
-    if profile.personal_information.title:
-        parts.append(profile.personal_information.title)
-    if profile.skills:
-        parts.append(f"Skills: {', '.join(profile.skills[:20])}.")
-    if profile.summary:
-        parts.append(profile.summary[:300])
-    return " | ".join(parts) if parts else "job search"
+    """Compose the semantic query describing a candidate (WS-04, widened WS-20).
+
+    WS-20 uses the **whole** professional record — title, summary, skills,
+    experience titles and bullets, project technologies and descriptions,
+    education and certifications — instead of only the first 20 skills and a
+    300-character summary. Contact information is deliberately excluded.
+    """
+    from src.matching.lexical import candidate_lexical_text
+
+    text = candidate_lexical_text(profile)
+    return text if text.strip() else "job search"

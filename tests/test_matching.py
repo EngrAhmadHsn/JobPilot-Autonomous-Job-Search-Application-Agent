@@ -78,10 +78,12 @@ def test_skill_matching_is_case_insensitive_but_lists_keep_job_casing():
     assert result.matched_requirements == ["Python"]
 
 
-def test_job_without_stated_skills_is_neutral():
+def test_job_without_stated_skills_is_unknown_not_neutral():
+    """WS-20: a listing that lists no skills yields no skill evidence, not 70."""
     job = make_job()
     result = calculate_match(job, make_profile(["python"]), semantic_score=50, **DEFAULT_KW)
-    assert result.skill_score == 70.0
+    assert result.skill_score == 0.0
+    assert result.component_states["skill"] == "JOB_REQUIREMENT_MISSING"
     assert result.matched_requirements == []
 
 
@@ -146,13 +148,14 @@ def test_experience_score_shortfall_penalized_25_per_year():
     assert experience_score(job, profile) == pytest.approx(50.0)  # 3 years vs 5
 
 
-def test_experience_score_neutral_without_requirement():
-    assert experience_score(make_job(), make_profile()) == 70.0
+def test_experience_score_none_without_requirement():
+    """WS-20: no stated requirement is *unknown*, not the neutral 70."""
+    assert experience_score(make_job(), make_profile()) is None
 
 
-def test_experience_score_neutral_when_candidate_undated():
+def test_experience_score_none_when_candidate_undated():
     job = make_job(experience_requirements="5+ years")
-    assert experience_score(job, make_profile()) == 70.0
+    assert experience_score(job, make_profile()) is None
 
 
 # --- seniority -------------------------------------------------------------------
@@ -172,10 +175,12 @@ def test_seniority_gap_penalized_30_per_rank():
     assert result.seniority_score == pytest.approx(40.0)  # gap 2 -> 100 - 60
 
 
-def test_seniority_unknown_candidate_is_neutral():
+def test_seniority_unknown_candidate_is_missing_not_neutral():
+    """WS-20: an unknown candidate side is CANDIDATE_DATA_MISSING, not 70."""
     job = make_job(title="Senior Platform Engineer")
     result = calculate_match(job, make_profile(), semantic_score=50, **DEFAULT_KW)
-    assert result.seniority_score == 70.0
+    assert result.seniority_score == 0.0
+    assert result.component_states["seniority"] == "CANDIDATE_DATA_MISSING"
 
 
 def test_job_seniority_field_takes_precedence_over_title():
@@ -188,9 +193,11 @@ def test_job_seniority_field_takes_precedence_over_title():
 def test_intern_keyword_not_matched_inside_other_words():
     job = make_job(title="International Sales Manager")
     profile = make_profile(experience=[ExperienceEntry(title="Mid-level Analyst")])
-    # job title has no rank keyword ("international" != "intern"); neutral.
+    # job title has no rank keyword ("international" != "intern"); the job side
+    # is unknown, so the component is JOB_REQUIREMENT_MISSING (WS-20), not 70.
     result = calculate_match(job, profile, semantic_score=50, **DEFAULT_KW)
-    assert result.seniority_score == 70.0
+    assert result.seniority_score == 0.0
+    assert result.component_states["seniority"] == "JOB_REQUIREMENT_MISSING"
 
 
 # --- location ---------------------------------------------------------------------
@@ -209,10 +216,11 @@ def test_location_preferred_city_match_scores_100():
     assert result.location_score == 100.0
 
 
-def test_location_no_preferences_is_neutral():
+def test_location_no_preferences_is_missing_not_neutral():
     job = make_job(remote_policy="onsite", location="New York")
     result = calculate_match(job, make_profile(), semantic_score=50, **DEFAULT_KW)
-    assert result.location_score == 70.0
+    assert result.location_score == 0.0
+    assert result.component_states["location"] == "CANDIDATE_DATA_MISSING"
 
 
 def test_location_onsite_conflict_scores_25():
@@ -260,9 +268,10 @@ def test_preference_salary_floor_violated_scores_25():
     assert result.preference_score == 25.0
 
 
-def test_preference_no_signals_is_neutral():
+def test_preference_no_signals_is_missing_not_neutral():
     result = calculate_match(make_job(), make_profile(), semantic_score=50, **DEFAULT_KW)
-    assert result.preference_score == 70.0
+    assert result.preference_score == 0.0
+    assert result.component_states["preference"] == "JOB_REQUIREMENT_MISSING"
 
 
 def test_preference_subscores_average():
@@ -276,7 +285,8 @@ def test_preference_subscores_average():
 
 
 OVERRIDE_WEIGHTS = {
-    "semantic": 0.4,
+    "semantic": 0.35,
+    "lexical": 0.05,
     "skill": 0.4,
     "experience": 0.05,
     "seniority": 0.05,
@@ -320,21 +330,28 @@ def test_weights_reject_non_positive_values():
 # --- degraded mode ---------------------------------------------------------------------
 
 
-def test_degraded_mode_redistributes_weights_and_notes_explanation():
+def test_unavailable_semantic_keeps_its_weight_and_contributes_zero():
+    """WS-20: no redistribution. Missing semantic is zero over the full weight."""
     job = make_job(required_skills=["python"])
     profile = make_profile(["python"])
     result = calculate_match(job, profile, semantic_score=None, weights=dict(DEFAULT_WEIGHTS))
-    assert "degraded" in result.explanation
-    # overall == weighted mean over the five remaining components (rescaled)
-    expected = (
-        0.375 * result.skill_score
-        + 0.25 * result.experience_score
-        + 0.125 * result.seniority_score
-        + 0.125 * result.location_score
-        + 0.125 * result.preference_score
+    assert result.semantic_score == 0.0
+    assert result.component_states["semantic"] == "EMBEDDING_UNAVAILABLE"
+    # The denominator is the full configured weight set (1.0), never a rescaled
+    # five-component total: overall == Σ wᵢvᵢ / Σ wᵢ with semantic contributing 0.
+    expected = sum(
+        DEFAULT_WEIGHTS[name] * result.__dict__[f"{name}_score"] for name in DEFAULT_WEIGHTS
     )
     assert result.overall_score == pytest.approx(expected)
-    assert result.semantic_score == 0.0
+
+
+def test_missing_semantic_does_not_raise_the_score_above_measured():
+    """A listing without a vector must not outscore one with a measured vector."""
+    job = make_job(required_skills=["python"])
+    profile = make_profile(["python"])
+    with_vector = calculate_match(job, profile, semantic_score=90, weights=dict(DEFAULT_WEIGHTS))
+    without = calculate_match(job, profile, semantic_score=None, weights=dict(DEFAULT_WEIGHTS))
+    assert without.overall_score < with_vector.overall_score
 
 
 def test_degraded_mode_differs_from_semantic_run():
