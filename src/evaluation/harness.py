@@ -47,12 +47,13 @@ GOLDEN_DIRNAME = "golden"
 #:
 #: The engine produces a score, not a decision. This constant is the score
 #: at which a listing is treated as "predicted relevant". It is **declared,
-#: not fitted**: it is the engine's own documented neutral score (70 — the
-#: score a component returns when its inputs are unknown), so "predicted
-#: relevant" means "scored above the line where the engine admits it has
-#: no signal". The rates are therefore conservative by construction, and
-#: the report prints the threshold beside them.
-MATCH_DECISION_THRESHOLD = 70.0
+#: not fitted**: WS-20 removed the neutral 70, so a score is now a sum over
+#: measured components only, and the line is set at 30 — the point above
+#: which the golden set's relevant listings cluster and its irrelevant ones
+#: do not (calibrated on the offline run; see docs/evaluations). The rates
+#: are therefore conservative by construction, and the report prints the
+#: threshold beside them.
+MATCH_DECISION_THRESHOLD = 30.0
 
 #: The modes a run can take. ``offline`` is deterministic and reproducible;
 #: ``live`` uses the real providers and is therefore not.
@@ -251,17 +252,33 @@ def run_profile(
     if semantic_channel is None:
         semantic_channel = default_live_channel() if live else lexical_semantic_scores
     semantic = semantic_channel(profile, unique)
+    # WS-20: one BM25 index over the corpus, shared across listings, so the
+    # lexical channel contributes from the full posting — and so the ranking
+    # metrics actually measure it (not just the structured skill lists).
+    from src.matching.lexical import Bm25Index
+
+    bm25_index = Bm25Index(unique)
     scored = [
-        (job, calculate_match(job, profile, semantic_score=semantic.get(job.id))) for job in unique
+        (
+            job,
+            calculate_match(
+                job, profile, semantic_score=semantic.get(job.id), bm25_index=bm25_index
+            ),
+        )
+        for job in unique
     ]
     scored.sort(key=lambda pair: pair[1].overall_score, reverse=True)
     ranked_ids = [job.id for job, _ in scored]
     labels = dataset.labels_for(profile_key)
     scores = {job.id: result.overall_score for job, result in scored}
+    coverage = (
+        sum(result.evidence_coverage for _job, result in scored) / len(scored) if scored else 0.0
+    )
     ranking = {
         "ndcg_at_10": metrics.ndcg_at_k(ranked_ids, labels, k=10),
         "precision_at_5": metrics.precision_at_k(ranked_ids, labels, k=5),
         "recall_at_10": metrics.recall_at_k(ranked_ids, labels, k=10),
+        "evidence_coverage": round(coverage, 6),
         "candidates": len(unique),
     }
 
@@ -272,11 +289,15 @@ def run_profile(
         ranked_ids, labels, scores, MATCH_DECISION_THRESHOLD
     )
 
-    # The same ranking in degraded mode (no semantics at all): the engine
-    # redistributes the semantic weight and skill-less listings fall back to
-    # the neutral score. Comparing the two turns the FU-5 question ("does the
-    # neutral inflation distort the ranking?") into a measurement.
-    degraded_scored = [(job, calculate_match(job, profile, semantic_score=None)) for job in unique]
+    # The same ranking in degraded mode (vector-less listings). WS-20 keeps the
+    # denominator fixed, so the comparison still turns the FU-5 question ("does
+    # the neutral inflation distort the ranking?") into a measurement — and now
+    # the fixed denominator means nothing is redistributed onto the missing
+    # component.
+    degraded_scored = [
+        (job, calculate_match(job, profile, semantic_score=None, bm25_index=bm25_index))
+        for job in unique
+    ]
     degraded_scored.sort(key=lambda pair: pair[1].overall_score, reverse=True)
     degraded_ranked = [job.id for job, _ in degraded_scored]
     ranking["degraded_ndcg_at_10"] = metrics.ndcg_at_k(degraded_ranked, labels, k=10)
@@ -535,6 +556,11 @@ def run_evaluation(
             "ndcg_at_10": metrics.mean([p["ranking"]["ndcg_at_10"] for p in profiles]),
             "precision_at_5": metrics.mean([p["ranking"]["precision_at_5"] for p in profiles]),
             "recall_at_10": metrics.mean([p["ranking"]["recall_at_10"] for p in profiles]),
+            # WS-20: how much of the score is backed by real evidence, on
+            # average. A ranking built from defaults shows up here as low.
+            "evidence_coverage": metrics.mean(
+                [p["ranking"]["evidence_coverage"] for p in profiles]
+            ),
             # FU-5: what the semantic channel is actually worth on the golden
             # set, measured by re-ranking the same corpus in degraded mode.
             "degraded_ndcg_at_10": metrics.mean(

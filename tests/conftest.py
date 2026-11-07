@@ -53,6 +53,7 @@ from src.db import (  # noqa: F401  (imported for the model registration)
     applications,
     approval,
     audit,
+    eeo,
     evidence,
     jobs,
     matches,

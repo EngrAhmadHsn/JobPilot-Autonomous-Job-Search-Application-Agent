@@ -286,6 +286,11 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/jobs/search` | Rank the stored corpus for a profile | WS-04 |
 | `GET /api/jobs/{job_id}` | Read one stored listing | WS-04 |
 | `GET /api/profiles/{profile_id}/matches` | Read the match history | WS-04 |
+| `GET /api/profiles/{profile_id}/application-profile` | Read the user-confirmed application profile (preferences and answers) | WS-20 |
+| `PUT /api/profiles/{profile_id}/application-profile` | Replace the user-confirmed application profile | WS-20 |
+| `GET /api/profiles/{profile_id}/eeo` | Read the voluntary EEO selections (isolated, never used for ranking) | WS-20 |
+| `PUT /api/profiles/{profile_id}/eeo` | Upsert the voluntary EEO selections (requires opt-in) | WS-20 |
+| `DELETE /api/profiles/{profile_id}/eeo` | Delete the EEO selections outright | WS-20 |
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |

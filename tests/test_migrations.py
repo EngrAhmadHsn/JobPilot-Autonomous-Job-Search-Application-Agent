@@ -74,6 +74,7 @@ CANDIDATE_PROFILE_COLUMNS = {
     "location",
     "title",
     "profile_json",
+    "application_json",
     "file_path",
     "created_at",
     "owner_id",
@@ -565,6 +566,28 @@ JOB_WORK_ITEM_COLUMNS = {
     "last_error_kind",
     "metadata",
 }
+
+
+def test_ws20_application_profile_and_eeo(migration_env: tuple[Config, str]) -> None:
+    """The application-profile column and the isolated EEO table exist (WS-20)."""
+    cfg, url = migration_env
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        assert "candidate_eeo" in inspector.get_table_names()
+        profile_columns = {col["name"] for col in inspector.get_columns("candidate_profiles")}
+        assert "application_json" in profile_columns
+        eeo_columns = {col["name"] for col in inspector.get_columns("candidate_eeo")}
+        assert eeo_columns == {"profile_id", "owner_id", "data", "updated_at"}
+        eeo_indexes = {ix["name"] for ix in inspector.get_indexes("candidate_eeo")}
+        assert "ix_candidate_eeo_owner_id" in eeo_indexes
+    finally:
+        engine.dispose()
+
+    command.downgrade(cfg, "base")
+    assert "candidate_eeo" not in _table_names(url)
 
 
 def test_ws18_durable_execution_tables(migration_env: tuple[Config, str]) -> None:

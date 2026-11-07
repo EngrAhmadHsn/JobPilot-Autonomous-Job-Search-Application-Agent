@@ -38,6 +38,7 @@ from src.db import (  # noqa: F401
     applications,
     approval,
     audit,
+    eeo,
     evidence,
     jobs,
     matches,
