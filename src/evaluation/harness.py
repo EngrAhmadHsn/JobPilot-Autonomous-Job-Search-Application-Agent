@@ -306,6 +306,38 @@ def run_profile(
         ranking["ndcg_at_10"] - ranking["degraded_ndcg_at_10"], 6
     )
 
+    # WS-21: the occupational-role measurements. Each listing is classified
+    # once; a listing counts as *mismatched* when its family is WEAK-or-worse
+    # against every one of the candidate's target families, and as *uncertain*
+    # when the classifier cannot name a family or names two readings. The
+    # candidate side comes from the same resolution the engine uses (confirmed
+    # targets, then the labelled inference), so the benchmark measures the
+    # production path.
+    from src.matching.roles import (
+        BAND_WEAK,
+        classify_job_role,
+        compatibility,
+        resolve_candidate_targets,
+    )
+
+    candidate_targets = resolve_candidate_targets(profile)
+    mismatched: dict[str, bool] = {}
+    uncertain: dict[str, bool] = {}
+    for job in unique:
+        classification = classify_job_role(job)
+        uncertain[job.id] = classification.family is None or classification.ambiguous
+        mismatched[job.id] = bool(
+            candidate_targets.families
+            and classification.family is not None
+            and max(
+                compatibility(target_family, classification.family)
+                for target_family in candidate_targets.families
+            )
+            <= BAND_WEAK
+        )
+    ranking["role_mismatch_at_10"] = metrics.role_mismatch_rate_at_k(ranked_ids, mismatched, 10)
+    ranking["role_uncertain_at_10"] = metrics.uncertain_role_rate_at_k(ranked_ids, uncertain, 10)
+
     return {
         "profile": profile_key,
         "extraction": extraction,
@@ -580,6 +612,14 @@ def run_evaluation(
                 [p["ranking"]["matching"]["false_negative_rate"] for p in profiles]
             ),
             "match_decision_threshold": MATCH_DECISION_THRESHOLD,
+            # WS-21: the occupational-role quality of the top-10, and how
+            # often the classifier itself was not sure.
+            "role_mismatch_at_10": metrics.mean(
+                [p["ranking"]["role_mismatch_at_10"] for p in profiles]
+            ),
+            "role_uncertain_at_10": metrics.mean(
+                [p["ranking"]["role_uncertain_at_10"] for p in profiles]
+            ),
         },
         "tailoring": tailoring,
         "ats": {

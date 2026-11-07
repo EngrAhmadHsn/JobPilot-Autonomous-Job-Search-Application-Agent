@@ -19,6 +19,8 @@
   "max": {
     "ranking.false_positive_rate": -1.0,
     "ranking.false_negative_rate": 0.85,
+    "ranking.role_mismatch_at_10": 0.35,
+    "ranking.role_uncertain_at_10": 0.5,
     "relevance.hallucination_rate": 0.1
   },
   "security": {

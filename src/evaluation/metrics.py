@@ -443,6 +443,36 @@ def coverage_delta(before_ratio: float, after_ratio: float) -> float:
     return round(after_ratio - before_ratio, 6)
 
 
+# ---------------------------------------------------------- occupational role
+
+
+def role_mismatch_rate_at_k(
+    ranked_ids: Sequence[str], mismatched: Mapping[str, bool], k: int = 10
+) -> float:
+    """Share of the top-k whose occupational role is weak-or-unrelated (WS-21).
+
+    ``mismatched`` is computed by the caller — the harness classifies each
+    listing and compares it with the candidate's target families — so this
+    stays a pure rate like every other metric here. It is the number the
+    "a Web Developer must not be recommended a Physical Design Engineer"
+    requirement is measured with.
+    """
+    top = list(ranked_ids[:k])
+    if not top:
+        return 0.0
+    return round(sum(1 for job_id in top if mismatched.get(job_id, False)) / len(top), 6)
+
+
+def uncertain_role_rate_at_k(
+    ranked_ids: Sequence[str], uncertain: Mapping[str, bool], k: int = 10
+) -> float:
+    """Share of the top-k whose role classification is unknown or ambiguous."""
+    top = list(ranked_ids[:k])
+    if not top:
+        return 0.0
+    return round(sum(1 for job_id in top if uncertain.get(job_id, False)) / len(top), 6)
+
+
 __all__ = [
     "GRADE_IRRELEVANT",
     "GRADE_PARTIAL",
@@ -462,5 +492,7 @@ __all__ = [
     "ndcg_at_k",
     "precision_at_k",
     "recall_at_k",
+    "role_mismatch_rate_at_k",
     "set_f1",
+    "uncertain_role_rate_at_k",
 ]

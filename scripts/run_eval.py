@@ -70,6 +70,10 @@ def flatten_metrics(results: dict) -> dict[str, float]:
         "ranking.semantic_delta_ndcg_at_10": float(metrics["ranking"]["semantic_delta_ndcg_at_10"]),
         "ranking.false_positive_rate": float(metrics["ranking"]["false_positive_rate"]),
         "ranking.false_negative_rate": float(metrics["ranking"]["false_negative_rate"]),
+        # WS-21: the occupational-role rates are gate-able like any other
+        # measured number; the bounds live in thresholds.json.
+        "ranking.role_mismatch_at_10": float(metrics["ranking"]["role_mismatch_at_10"]),
+        "ranking.role_uncertain_at_10": float(metrics["ranking"]["role_uncertain_at_10"]),
         "ats.coverage_delta": float(metrics["ats"]["coverage_delta"]),
         "relevance.duplicate_rate": float(metrics["relevance"]["duplicate_rate"]),
         "relevance.job_relevance": float(metrics["relevance"]["job_relevance"]),
@@ -173,15 +177,16 @@ def render_markdown(results: dict) -> str:
         "",
         "## Per-profile ranking",
         "",
-        "| Profile | nDCG@10 | Precision@5 | nDCG@10 degraded | Semantic delta |",
-        "|---|---|---|---|---|",
+        "| Profile | nDCG@10 | Precision@5 | nDCG@10 degraded | Semantic delta | Role mismatch@10 |",
+        "|---|---|---|---|---|---|",
     ]
     for profile in results["profiles"]:
         lines.append(
             f"| {profile['profile']} | {profile['ranking']['ndcg_at_10']:.4f} | "
             f"{profile['ranking']['precision_at_5']:.4f} | "
             f"{profile['ranking']['degraded_ndcg_at_10']:.4f} | "
-            f"{profile['ranking']['semantic_delta_ndcg_at_10']:+.4f} |"
+            f"{profile['ranking']['semantic_delta_ndcg_at_10']:+.4f} | "
+            f"{profile['ranking']['role_mismatch_at_10']:.4f} |"
         )
 
     lines += [
