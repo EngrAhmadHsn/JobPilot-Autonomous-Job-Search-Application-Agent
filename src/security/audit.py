@@ -63,6 +63,10 @@ ACTION_RUN_ENQUEUE = "run.enqueue"
 ACTION_RUN_RESUME = "run.resume"
 ACTION_RUN_CANCEL = "run.cancel"
 ACTION_RUN_RECONCILE = "run.reconcile"
+# WS-20: the candidate edits the user-confirmed application profile or its
+# EEO selections. One row per write, holding **field names and counts only** —
+# never an EEO value, never a salary figure, never a work-authorization answer.
+ACTION_PROFILE_UPDATE = "profile.update"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"

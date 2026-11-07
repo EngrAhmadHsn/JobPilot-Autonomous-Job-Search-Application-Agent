@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
 from src.db.users import LEGACY_OWNER_ID
+from src.resume.application_profile import ApplicationProfile
 from src.resume.profile import CandidateProfile
 
 
@@ -42,6 +43,11 @@ class CandidateProfileDB(Base):
     location: Mapped[str | None] = mapped_column(String, nullable=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     profile_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    #: WS-20: the **user-confirmed** application profile (preferences and
+    #: application answers), kept separate from the résumé-derived
+    #: ``profile_json``. Nullable so every pre-WS-20 row stays valid; a NULL
+    #: reads back as an empty (all-default) profile.
+    application_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
@@ -69,11 +75,27 @@ def build_profile_row(
         phone=info.phone or None,
         location=info.location or None,
         title=info.title or None,
-        profile_json=profile.model_dump(mode="json"),
+        profile_json=profile.model_dump(mode="json", exclude={"application_profile"}),
         file_path=file_path,
     )
 
 
 def profile_from_row(row: CandidateProfileDB) -> CandidateProfile:
-    """Rebuild the validated CandidateProfile from the stored JSON."""
-    return CandidateProfile.model_validate(row.profile_json)
+    """Rebuild the validated CandidateProfile from the stored JSON.
+
+    WS-20: the user-confirmed ``application_json`` (when present) is merged in,
+    so callers of the profile — the matcher, the form layer — see the
+    confirmed preferences and answers alongside the résumé facts. A row with a
+    NULL ``application_json`` (every pre-WS-20 row) reads as an empty profile.
+    """
+    profile = CandidateProfile.model_validate(row.profile_json)
+    if row.application_json:
+        profile.application_profile = ApplicationProfile.model_validate(row.application_json)
+    return profile
+
+
+def application_profile_from_row(row: CandidateProfileDB) -> ApplicationProfile:
+    """The stored application profile of a row, or an empty one."""
+    if row.application_json:
+        return ApplicationProfile.model_validate(row.application_json)
+    return ApplicationProfile()

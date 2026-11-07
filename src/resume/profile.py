@@ -11,6 +11,8 @@ import re
 
 from pydantic import BaseModel, Field
 
+from src.resume.application_profile import ApplicationProfile
+
 
 class PersonalInformation(BaseModel):
     name: str = ""
@@ -71,7 +73,14 @@ def work_preferences_stated(prefs: WorkPreferences) -> bool:
 
 
 class CandidateProfile(BaseModel):
-    """Structured candidate profile produced by the resume parser."""
+    """Structured candidate profile produced by the resume parser.
+
+    WS-20 adds ``application_profile``: the **user-confirmed** application
+    answers and job-search preferences, kept separate from the résumé-derived
+    fields above. It is empty by default, so older stored profiles validate
+    unchanged; the persisted copy lives in its own column
+    (``candidate_profiles.application_json``), not inside this JSON blob.
+    """
 
     personal_information: PersonalInformation = Field(default_factory=PersonalInformation)
     summary: str = ""
@@ -83,6 +92,7 @@ class CandidateProfile(BaseModel):
     certifications: list[str] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     work_preferences: WorkPreferences = Field(default_factory=WorkPreferences)
+    application_profile: ApplicationProfile = Field(default_factory=ApplicationProfile)
 
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")

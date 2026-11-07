@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
+from src.db.eeo import CandidateEeoDB
 from src.db.evidence import ApplicationEvidenceDB
 from src.db.jobs import JobDB
 from src.db.matches import JobMatchDB
@@ -126,6 +127,7 @@ def _owned(statement: Select, model: type, scope: UserScope) -> Select:
 #: reproducible.
 _OWNED_MODELS: tuple[type, ...] = (
     CandidateProfileDB,
+    CandidateEeoDB,
     JobMatchDB,
     TailoredResumeDB,
     ApplicationDB,
@@ -190,6 +192,23 @@ def list_profiles(db: Session, scope: UserScope) -> list[CandidateProfileDB]:
     """Every profile this scope may read."""
     statement = select(CandidateProfileDB).order_by(CandidateProfileDB.created_at.desc())
     return list(db.execute(_owned(statement, CandidateProfileDB, scope)).scalars())
+
+
+# -- EEO / voluntary self-identification (WS-20) ------------------------------
+
+
+def get_eeo(db: Session, scope: UserScope, profile_id: str) -> object | None:
+    """The EEO row of one profile if this scope may read it, else ``None``.
+
+    The same ownership rule as every other user-scoped table: a foreign row is
+    ``None`` (the caller answers 404), never "forbidden".
+    """
+    if not profile_id:
+        return None
+    from src.db.eeo import CandidateEeoDB
+
+    statement = select(CandidateEeoDB).where(CandidateEeoDB.profile_id == profile_id)
+    return db.execute(_owned(statement, CandidateEeoDB, scope)).scalar_one_or_none()
 
 
 # -- job matches --------------------------------------------------------------

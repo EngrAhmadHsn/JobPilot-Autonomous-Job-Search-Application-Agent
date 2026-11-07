@@ -24,6 +24,7 @@ from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
 from src.api.routes.jobs import runs_router
+from src.api.routes.profile_answers import router as profile_answers_router
 from src.api.routes.resumes import router as resumes_router
 from src.api.routes.tailoring import router as tailoring_router
 from src.api.routes.tracking import router as tracking_router
@@ -131,6 +132,8 @@ app.include_router(jobs_router)
 # WS-18: the caller's own durable execution history.
 app.include_router(runs_router)
 app.include_router(profiles_matches_router)
+# WS-20: the user-confirmed application profile and the isolated EEO resource.
+app.include_router(profile_answers_router)
 app.include_router(tailoring_router)
 app.include_router(tracking_router)
 # WS-13: the two artifact downloads the operator console needs (BA-1, BA-2).

@@ -91,6 +91,10 @@ class FormPlan(BaseModel):
 
     questions: list[FormQuestion] = Field(default_factory=list)
     answers: dict[str, str] = Field(default_factory=dict)
+    #: WS-20: label -> provenance of the answer (``user_confirmed`` /
+    #: ``resume_derived`` / ``derived``), so a proposed answer is reviewable
+    #: with its source.
+    answer_sources: dict[str, str] = Field(default_factory=dict)
     unresolved: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
 
@@ -101,9 +105,15 @@ class ProfileFacts(BaseModel):
     A fact is present only when it exists. An absent key means *no evidence*,
     which is a different thing from "the answer is no" — and the difference is
     what keeps the agent from answering a question it cannot ground.
+
+    WS-20 adds ``provenance``: where each fact came from
+    (``user_confirmed`` for application-profile values, ``resume_derived`` for
+    résumé values, ``derived`` for a deterministic transformation). The form
+    plan reports it so a proposed answer can be reviewed with its source.
     """
 
     values: dict[str, str] = Field(default_factory=dict)
+    provenance: dict[str, str] = Field(default_factory=dict)
 
     def get(self, key: str) -> str | None:
         """The value of *key*, or ``None`` when there is no evidence for it."""
@@ -116,6 +126,10 @@ class ProfileFacts(BaseModel):
     def has(self, key: str) -> bool:
         """True when a non-empty value exists for *key*."""
         return self.get(key) is not None
+
+    def source_of(self, key: str) -> str:
+        """The provenance label of *key* (``derived`` when unrecorded)."""
+        return self.provenance.get(key, "derived")
 
     @classmethod
     def from_prepared(cls, prepared: PreparedApplication) -> ProfileFacts:
@@ -133,7 +147,15 @@ class ProfileFacts(BaseModel):
             values.setdefault("cover_letter", prepared.cover_letter)
         if prepared.resume_path and str(prepared.resume_path).strip():
             values.setdefault("resume", str(prepared.resume_path))
-        return cls(values=values)
+        # Prepared values come from the operator/request, not the résumé.
+        provenance = {key: "user_confirmed" for key in values}
+        return cls(values=values, provenance=provenance)
+
+    @classmethod
+    def from_profile(cls, profile: CandidateProfile) -> ProfileFacts:
+        """Build facts (with provenance) from a candidate profile."""
+        values, provenance = facts_with_provenance(profile)
+        return cls(values=values, provenance=provenance)
 
 
 # --------------------------------------------------------------------------
@@ -280,18 +302,31 @@ def lookup_fact_key(label: str) -> str | None:
     return FIELD_MAP[winners[0]]
 
 
-def facts_from_profile(profile: CandidateProfile) -> dict[str, str]:
-    """The facts a parsed candidate profile actually states.
+def facts_with_provenance(profile: CandidateProfile) -> tuple[dict[str, str], dict[str, str]]:
+    """The facts a profile states, and where each one came from.
 
-    The derivation is deterministic and additive. It never infers a fact the
-    document does not state: a profile that lists no dates yields no
-    ``years_of_experience`` fact, and the question that asks for it becomes
-    unresolved rather than "0".
+    Résumé-derived facts are labelled ``resume_derived``; values from the
+    user-confirmed application profile are labelled ``user_confirmed``; a value
+    the product computes deterministically (e.g. notice days → weeks) is
+    ``derived``. The derivation never infers a fact the document does not
+    state: a profile with no dated experience yields no
+    ``years_of_experience``, and the question becomes unresolved rather than
+    "0".
     """
     info = profile.personal_information
     prefs = profile.work_preferences
 
     facts: dict[str, str] = {}
+    provenance: dict[str, str] = {}
+
+    def put(key: str, value: object, source: str) -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if text:
+            facts.setdefault(key, text)
+            provenance.setdefault(key, source)
+
     for key, value in (
         ("name", info.name),
         ("email", info.email),
@@ -302,19 +337,85 @@ def facts_from_profile(profile: CandidateProfile) -> dict[str, str]:
         ("work_authorization", prefs.work_authorization),
         ("min_salary", prefs.min_salary),
     ):
-        if value and value.strip():
-            facts[key] = value.strip()
+        put(key, value, "resume_derived")
 
     if prefs.employment_types:
-        facts["employment_types"] = ", ".join(prefs.employment_types)
+        put("employment_types", ", ".join(prefs.employment_types), "resume_derived")
     if profile.skills:
-        facts["skills"] = ", ".join(profile.skills)
+        put("skills", ", ".join(profile.skills), "resume_derived")
 
     stated_years = [entry.years for entry in profile.experience if entry.years is not None]
     if stated_years:
-        facts["years_of_experience"] = str(sum(stated_years))
+        put("years_of_experience", sum(stated_years), "resume_derived")
 
-    return facts
+    # WS-20: the user-confirmed application profile supplements the résumé.
+    # These are the answers a résumé simply does not carry.
+    app = getattr(profile, "application_profile", None)
+    if app is not None:
+        _application_facts(app, put)
+    return facts, provenance
+
+
+def _application_facts(app, put) -> None:
+    """Add the application-profile facts (WS-20) via *put*."""
+    from src.applications.questions import format_salary, notice_period_days
+
+    confirmed = "user_confirmed"
+    prof = app.professional
+    put("total_experience_years", prof.total_experience_years, confirmed)
+    put("seniority_level", prof.seniority_level, confirmed)
+    put("current_title", prof.current_title, confirmed)
+    put("portfolio_url", prof.portfolio_url, confirmed)
+    put("linkedin_url", prof.linkedin_url, confirmed)
+    if prof.skill_experience_years:
+        put(
+            "skill_experience_years",
+            ", ".join(f"{skill} {years:g}" for skill, years in prof.skill_experience_years.items()),
+            confirmed,
+        )
+
+    prefs = app.preferences
+    put("work_mode", prefs.remote_preference, confirmed)
+    if prefs.preferred_locations:
+        put("preferred_locations", ", ".join(prefs.preferred_locations), confirmed)
+    if prefs.employment_types:
+        put("employment_types", ", ".join(prefs.employment_types), confirmed)
+
+    wa = app.answers.work_authorization
+    if wa.legally_authorized is not None:
+        put("legally_authorized", "yes" if wa.legally_authorized else "no", confirmed)
+    if wa.requires_sponsorship is not None:
+        put("requires_sponsorship", "yes" if wa.requires_sponsorship else "no", confirmed)
+    put("citizenship_status", wa.citizenship_status or wa.status_category, confirmed)
+
+    comp = app.answers.compensation
+    if comp.expected_salary is not None:
+        put(
+            "expected_salary",
+            format_salary(comp.expected_salary, comp.expected_currency, comp.expected_period),
+            confirmed,
+        )
+    put("expected_currency", comp.expected_currency, confirmed)
+    put("expected_period", comp.expected_period, confirmed)
+    if comp.current_salary is not None:
+        put(
+            "current_salary",
+            format_salary(comp.current_salary, comp.current_currency, comp.current_period),
+            confirmed,
+        )
+
+    notice = app.answers.notice
+    days = notice_period_days(notice.notice_days, immediate=notice.immediate)
+    if days is not None:
+        put("notice_period_days", days, confirmed)
+    if notice.available_from is not None:
+        put("availability_date", notice.available_from.isoformat(), confirmed)
+
+
+def facts_from_profile(profile: CandidateProfile) -> dict[str, str]:
+    """The fact values a candidate profile states (no provenance)."""
+    values, _provenance = facts_with_provenance(profile)
+    return values
 
 
 # --------------------------------------------------------------------------
@@ -375,45 +476,79 @@ def checkbox_truth(value: str) -> bool | None:
     return None
 
 
+def _shape_for_control(question: FormQuestion, value: str) -> str | None:
+    """Coerce a grounded value to what the control can accept, or ``None``.
+
+    A select/radio may only be given an option the page offers; an unrecognized
+    checkbox token is not interpreted. A value the control cannot use is no
+    answer — never a fabricated one.
+    """
+    if question.kind in {"select", "radio"}:
+        if not question.options:
+            return None
+        return _option_match(value, question.options)
+    if question.kind == "checkbox":
+        if question.options:
+            return _option_match(value, question.options)
+        if checkbox_truth(value) is None:
+            return None
+        return value
+    return value
+
+
+def _grounded_value(question: FormQuestion, facts: ProfileFacts) -> tuple[str, str | None]:
+    """The raw grounded value and the fact key it came from.
+
+    Two stages: the fields the WS-08 map knows, then the WS-20 taxonomy for
+    everything else. A category that must never be auto-answered (EEO, a legal
+    attestation) yields no value, so the question goes to a human.
+    """
+    from src.applications.questions import CATEGORY_FACT_KEYS, NEVER_AUTOFILL, classify_text
+
+    key = lookup_fact_key(question.label)
+    if key is not None:
+        for source_key in FACT_SOURCES.get(key, (key,)):
+            value = facts.get(source_key)
+            if value:
+                return value, source_key
+
+    classification = classify_text(question.label)
+    if classification.category in NEVER_AUTOFILL:
+        return "", None
+    for source_key in CATEGORY_FACT_KEYS.get(classification.category, ()):
+        value = facts.get(source_key)
+        if value:
+            return value, source_key
+    return "", None
+
+
 def answer_question(
     question: FormQuestion, profile: ProfileFacts | Mapping[str, str] | None
 ) -> str | None:
     """The grounded answer to *question*, or ``None`` when there is none.
 
-    The answer comes from the candidate's own evidence and nowhere else. A
-    question whose label is not in the field map, whose fact has no value, or
-    whose value cannot be used by the control (an option that does not exist,
-    a checkbox token that is neither yes nor no) is **not** answered.
+    The answer comes from the candidate's own evidence and nowhere else — the
+    résumé facts and the user-confirmed application profile. A question whose
+    label is not recognized, whose fact has no value, whose category must never
+    be auto-answered (EEO, attestation), or whose value the control cannot use
+    is **not** answered.
     """
-    key = lookup_fact_key(question.label)
-    if key is None:
-        return None
-
     facts = _as_facts(profile)
-    value: str | None = None
-    for source_key in FACT_SOURCES.get(key, (key,)):
-        candidate = facts.get(source_key)
-        if candidate:
-            value = candidate
-            break
-    if value is None:
+    value, _source = _grounded_value(question, facts)
+    if not value:
         return None
+    return _shape_for_control(question, value)
 
-    if question.kind in {"select", "radio"}:
-        if not question.options:
-            # A group without options cannot be matched against anything.
-            return None
-        return _option_match(value, question.options)
 
-    if question.kind == "checkbox":
-        if question.options:
-            # A checkbox group: the value names the option to tick.
-            return _option_match(value, question.options)
-        if checkbox_truth(value) is None:
-            return None
-        return value
-
-    return value
+def answer_provenance(
+    question: FormQuestion, profile: ProfileFacts | Mapping[str, str] | None
+) -> str | None:
+    """Where the answer to *question* came from, or ``None`` when unanswered."""
+    facts = _as_facts(profile)
+    value, source = _grounded_value(question, facts)
+    if not value or source is None:
+        return None
+    return facts.source_of(source)
 
 
 def classify_question(
@@ -422,9 +557,18 @@ def classify_question(
     """The class of *question*: ``known``, ``mappable`` or ``unknown``."""
     if answer_question(question, profile) is not None:
         return "known"
-    if lookup_fact_key(question.label) is None:
+    if lookup_fact_key(question.label) is not None:
+        return "mappable"
+    # A taxonomy match without a value is still mappable; a taxonomy miss (or a
+    # never-autofill category) is unknown and belongs to a human.
+    from src.applications.questions import CATEGORY_FACT_KEYS, NEVER_AUTOFILL, classify_text
+
+    classification = classify_text(question.label)
+    if classification.category in NEVER_AUTOFILL:
         return "unknown"
-    return "mappable"
+    if CATEGORY_FACT_KEYS.get(classification.category):
+        return "mappable"
+    return "unknown"
 
 
 # --------------------------------------------------------------------------
@@ -453,6 +597,7 @@ def build_form_plan(
 
     questions: list[FormQuestion] = []
     answers: dict[str, str] = {}
+    answer_sources: dict[str, str] = {}
     unresolved: list[str] = []
     skipped: list[str] = []
 
@@ -467,7 +612,10 @@ def build_form_plan(
         if value is not None:
             question.classification = "known"
             answers[question.label] = value
-        elif lookup_fact_key(question.label) is None:
+            source = answer_provenance(question, profile)
+            if source:
+                answer_sources[question.label] = source
+        elif classify_question(question, profile) == "unknown":
             question.classification = "unknown"
             unresolved.append(question.label)
         else:
@@ -482,6 +630,7 @@ def build_form_plan(
     return FormPlan(
         questions=questions,
         answers=answers,
+        answer_sources=answer_sources,
         unresolved=unresolved,
         skipped=skipped,
     )
