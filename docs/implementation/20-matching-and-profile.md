@@ -374,6 +374,93 @@ adding `rank-bm25`; the corpus is small and the formula is transparent.
 
 ---
 
+## 5b. The scoring formula, precisely
+
+Let the components be
+``C = {semantic, lexical, skill, experience, seniority, location, preference}``
+with configured weights ``w_c`` (defaults below; ``Σ w_c = 1``). Each component
+carries a **state** ``s_c`` and, when measured, a value ``v_c ∈ [0, 100]``.
+
+**Weights** (``MATCH_WEIGHTS`` override must name all seven):
+
+| semantic | lexical | skill | experience | seniority | location | preference |
+|---|---|---|---|---|---|---|
+| 0.15 | 0.10 | 0.25 | 0.20 | 0.10 | 0.10 | 0.10 |
+
+**States.** ``MEASURED = {MATCHED, PARTIAL_MATCH, MISMATCH}``;
+``UNKNOWN = {CANDIDATE_DATA_MISSING, JOB_REQUIREMENT_MISSING,
+EMBEDDING_PENDING, EMBEDDING_UNAVAILABLE}``.
+For an unknown component, ``v_c := 0``. ``NOT_APPLICABLE`` is excluded from the
+sum (and is not currently produced by any component).
+
+```
+D = Σ_{c : s_c ≠ NOT_APPLICABLE}  w_c
+N = Σ_{c : s_c ≠ NOT_APPLICABLE}  w_c · v_c
+overall_score = N / D                          ∈ [0, 100]
+evidence_coverage = (Σ_{c : s_c ∈ MEASURED} w_c / D) · 100   ∈ [0, 100]
+```
+
+The denominator ``D`` is the **configured weight set** — an unknown component
+keeps its weight and contributes ``0``. Nothing is redistributed.
+
+**A measured value's state** (``measured_state``): ``MATCHED`` if ``v ≥ 60``,
+``PARTIAL_MATCH`` if ``0 < v < 60``, ``MISMATCH`` if ``v = 0``.
+
+**Components.**
+
+- *semantic* — ``v = clamp(sim, 0, 100)`` where ``sim`` is the cosine
+  similarity from the embedding provider. A **measured** ``0.0`` is a
+  measurement (``MISMATCH``); a **missing** vector is not —``EMBEDDING_PENDING``
+  when the store is up, ``EMBEDDING_UNAVAILABLE`` when it cannot be read,
+  ``CANDIDATE_DATA_MISSING`` when the candidate text is empty.
+- *lexical* — ``v = 0.6 · BM25_scaled + 0.4 · keyword_coverage``; with
+  ``BM25_scaled = 100 · raw / (raw + K)``, ``K = 6.0``, and ``raw`` the Okapi
+  BM25 score of the field-weighted document (title ×3, required skills ×3,
+  preferred ×2, requirements ×2, description ×1; ``k1 = 1.5``, ``b = 0.75``).
+  ``keyword_coverage = Σ weight(matched title/description terms) / Σ weight(all)``
+  (a title term weighs 2, any other term 1). Structured skill lists are
+  **excluded** from the coverage numerator to avoid double-counting *skill*.
+- *skill* — ``v = (required_hits + 0.5 · preferred_hits) / (|required| + 0.5 · |preferred|) · 100``.
+- *experience* — with a stated requirement ``req`` and candidate years ``act``:
+  ``v = clamp(100 − 25 · max(0, req − act), 0, 100)``.
+- *seniority* — ``v = clamp(100 − 30 · |candidate_rank − job_rank|, 0, 100)``.
+- *location* — remote or a preferred-city match ``100``; an onsite-only listing
+  against stated preferences ``25``; hybrid ``55``; an unstated job location
+  with stated preferences ``40``.
+- *preference* — the mean of the applicable sub-scores: employment type
+  (``100`` match / ``40`` mismatch) and salary floor (``100`` met / ``25``
+  not met).
+
+**Worked example.** A listing that states no skills, no seniority and no
+experience requirement, against a profile with skills but no dated experience
+and no preferences, with a measured semantic similarity of 71 and a lexical
+score of 46:
+
+```
+semantic    w=.15  v=71   MATCHED
+lexical     w=.10  v=46   PARTIAL_MATCH
+skill       w=.25  v=0    JOB_REQUIREMENT_MISSING
+experience  w=.20  v=0    JOB_REQUIREMENT_MISSING
+seniority   w=.10  v=0    JOB_REQUIREMENT_MISSING
+location    w=.10  v=0    CANDIDATE_DATA_MISSING
+preference  w=.10  v=0    CANDIDATE_DATA_MISSING
+D = 1.00 ; N = .15·71 + .10·46 = 15.25 ; overall = 15.25 ; coverage = 25%
+```
+
+Before WS-20 the same case would have scored the five unknowns at ``70`` and
+redistributed the semantic weight — roughly ``70`` overall, with nothing
+telling the reader it was five parts default. Now the two measured components
+are the whole score, and the coverage says so.
+
+**The evaluation decision line** is a separate, declared constant:
+``MATCH_DECISION_THRESHOLD = 30`` (``src/evaluation/harness.py``). It is not
+part of the engine — the engine produces a score, not a decision, and **no
+code path rejects or filters a candidate.** An all-unknown listing scores
+``0`` with ``0%`` coverage and is still returned; ``only_embedded`` is the
+only filter and it is opt-in and off by default.
+
+---
+
 ## 7. Delivery report
 
 ### Files changed
@@ -414,10 +501,15 @@ table. The user's database was **not** recreated; existing rows validate.
 
 - `GET`/`PUT /api/profiles/{id}/application-profile`
 - `GET`/`PUT`/`DELETE /api/profiles/{id}/eeo`
+- `GET /api/jobs/suggest` — autocomplete drawn from the corpus's own titles.
 - `POST /api/jobs/search` gains `only_embedded` and returns `semantic_coverage`.
-- The console's résumé screen gains the application-answers editor and the
-  optional EEO card; the score breakdown shows the keyword component, unknown
-  states in words, and evidence coverage.
+- The console gains a **Profile** destination (`/app/profile`) holding the
+  résumé view and the application-answers editor (the panel was previously
+  buried at the foot of the Résumé screen and had no navigation entry);
+  the matches screen gains corpus-driven query suggestions and **10-row
+  pagination** over the ranked list (the default ranked slice is now 50, so
+  the pager has something to page); and the score breakdown shows the keyword
+  component, unknown states in words, and evidence coverage.
 
 ### Tests executed
 
@@ -433,6 +525,23 @@ table. The user's database was **not** recreated; existing rows validate.
   taxonomy's three legal questions, the migration, `search_stored_jobs` giving
   a pending listing no semantic advantage (`semantic_coverage` 50%), and the
   profile/answer/EEO routes with owner scoping and opt-in enforcement.
+- **Verified in the live console** (the dev server on `:5173` against a
+  restarted backend): the Profile destination renders and the answers editor
+  is editable; the matches query field offers 10 corpus-derived suggestions;
+  the ranked list pages 10 at a time ("1–10 of 50", "Page 1 of 5"); and a
+  match's breakdown reads *"Match score: 51/100, Evidence coverage: 60%, …
+  Experience: unknown (JOB_REQUIREMENT_MISSING), Seniority: unknown
+  (JOB_REQUIREMENT_MISSING), Location: 100%, Preference: unknown
+  (CANDIDATE_DATA_MISSING)"* — no 70 anywhere, unknowns explicit.
+
+### A note on "I see no change"
+
+The first report of "no change" was a **stale backend**: the running
+``uvicorn`` had been started without ``--reload`` before this workstream, so it
+served the pre-WS-20 engine (unknown-to-70 and weight redistribution) and 51
+API paths instead of 54. The fix is a restart, not a code change — the
+behaviour above is what the new code does. The service is now running the
+current code.
 
 ### Before/after metrics
 

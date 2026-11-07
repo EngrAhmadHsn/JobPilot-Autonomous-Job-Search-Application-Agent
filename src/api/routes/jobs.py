@@ -27,6 +27,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
@@ -127,6 +128,20 @@ class MatchesHistoryResponse(BaseModel):
 
     profile_id: str
     matches: list[dict]
+
+
+class JobSuggestion(BaseModel):
+    """One autocomplete suggestion for the query field (WS-20 follow-up)."""
+
+    value: str = Field(..., description="A job title the corpus holds")
+    count: int = Field(..., description="How many stored listings carry it")
+
+
+class JobSuggestResponse(BaseModel):
+    """Query suggestions drawn from the corpus's own titles."""
+
+    query: str
+    suggestions: list[JobSuggestion] = Field(default_factory=list)
 
 
 def get_job_search_executor(
@@ -307,6 +322,51 @@ def search_jobs(
         degraded=report.degraded,
         semantic_coverage=report.semantic_coverage,
     )
+
+
+@router.get("/suggest", response_model=JobSuggestResponse)
+def suggest_job_queries(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+    q: str = "",
+    limit: int = 10,
+) -> JobSuggestResponse:
+    """Autocomplete the query field from the titles the corpus actually holds.
+
+    The suggestions are **titles from the stored corpus**, not a static list:
+    the search's filter matches any token of the query against a listing's
+    title and description, so a suggested title is guaranteed to be a
+    meaningful query. They are ranked by how many listings carry the title, so
+    the most common roles come first, and then alphabetically for a stable
+    order across calls.
+
+    ``q`` narrows the suggestions (a case-insensitive substring); an empty
+    ``q`` returns the corpus's most common titles, which is a useful "what is
+    in here" starting point. The corpus is shared board data, so no owner
+    filter applies.
+    """
+    bounded = max(1, min(int(limit), 20))
+    statement = (
+        # ``select(JobDB)`` (not ``select(JobDB.title, …)``): the shared corpus
+        # is named as the model, so the route/isolation AST check can see that
+        # this reads ``jobs`` and not a user-scoped table.
+        select(JobDB)
+        .with_only_columns(JobDB.title, func.count().label("listings"))
+        .where(JobDB.title.isnot(None))
+        .group_by(JobDB.title)
+        .order_by(func.count().desc(), JobDB.title.asc())
+        .limit(200)
+    )
+    needle = q.strip().lower()
+    if needle:
+        statement = statement.where(func.lower(JobDB.title).contains(needle))
+    rows = db.execute(statement).all()
+    suggestions = [
+        JobSuggestion(value=str(title), count=int(count))
+        for title, count in rows[:bounded]
+        if title
+    ]
+    return JobSuggestResponse(query=q, suggestions=suggestions)
 
 
 @router.get("/{job_id}")

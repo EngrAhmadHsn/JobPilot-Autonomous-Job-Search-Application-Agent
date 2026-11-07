@@ -301,3 +301,34 @@ def test_search_defaults_to_store_only_executor(
     assert body["stats"]["stored"] == len(FIXTURE_JOBS)
     assert body["degraded"] is False
     assert len(body["results"]) == len(FIXTURE_JOBS)  # top_n clamps to corpus size
+
+
+def test_suggest_returns_titles_from_the_corpus(
+    api: TestClient, tmp_path: Path, profile_id: str
+) -> None:
+    """The query autocomplete is drawn from the stored corpus, ranked by count."""
+    engine = create_engine(f"sqlite:///{(tmp_path / 'api.db').as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    save_jobs(FIXTURE_JOBS, session_factory=factory)
+    engine.dispose()
+
+    # A broad query returns titles the corpus holds, with their counts.
+    response = api.get("/api/jobs/suggest")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggestions"], "the corpus has titles to suggest"
+    titles = {item["value"] for item in body["suggestions"]}
+    corpus_titles = {job.title for job in FIXTURE_JOBS}
+    assert titles <= corpus_titles
+    assert all(item["count"] >= 1 for item in body["suggestions"])
+
+    # A narrowing query filters; a query nothing matches returns none.
+    one_title = next(iter(corpus_titles))
+    narrowed = api.get("/api/jobs/suggest", params={"q": one_title[:6]}).json()
+    assert all(
+        one_title[:6].lower() in item["value"].lower()
+        for item in narrowed["suggestions"]
+    )
+    empty = api.get("/api/jobs/suggest", params={"q": "zzz-no-such-title"}).json()
+    assert empty["suggestions"] == []
