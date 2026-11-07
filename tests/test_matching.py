@@ -74,7 +74,9 @@ def test_skill_preferred_hits_count_half():
 def test_skill_matching_is_case_insensitive_but_lists_keep_job_casing():
     job = make_job(required_skills=["Python"])
     result = calculate_match(job, make_profile(["PYTHON"]), semantic_score=50, **DEFAULT_KW)
-    assert result.skill_score == 100.0
+    # WS-21: one listed requirement is thin evidence, so the otherwise perfect
+    # coverage is damped to half — a single generic token cannot deliver 100.
+    assert result.skill_score == pytest.approx(50.0)
     assert result.matched_requirements == ["Python"]
 
 
@@ -134,6 +136,23 @@ def test_required_years_from_description_first_line():
 
 def test_required_years_none_when_unstated():
     assert required_years(make_job()) is None
+
+
+def test_degree_alternative_sentence_takes_the_highest_bar():
+    """WS-21: "BS w/ 4+ or MS with 2+ years" is a 4-year bar, not 2."""
+    job = make_job(
+        description=(
+            "BS w/ 4+ or MS with 2+ years of experience or PhD with 0-1 year(s) in a related field."
+        )
+    )
+    assert required_years(job) == 4.0
+
+
+def test_ordinary_sentences_keep_earliest_match_semantics():
+    # Without degree alternatives the earliest stated bar still wins, so the
+    # WS-21 degree fix cannot reshape unrelated sentences.
+    job = make_job(description="2+ years of experience, and 5 years preferred.")
+    assert required_years(job) == 2.0
 
 
 def test_experience_score_meets_requirement():
@@ -285,13 +304,14 @@ def test_preference_subscores_average():
 
 
 OVERRIDE_WEIGHTS = {
-    "semantic": 0.35,
+    "semantic": 0.30,
     "lexical": 0.05,
-    "skill": 0.4,
+    "skill": 0.35,
     "experience": 0.05,
     "seniority": 0.05,
     "location": 0.05,
     "preference": 0.05,
+    "role": 0.10,
 }
 
 
