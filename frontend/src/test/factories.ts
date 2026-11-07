@@ -79,6 +79,41 @@ export function candidateProfile(
       work_authorization: null,
       employment_types: ["full-time"],
     },
+    application_profile: {
+      professional: {
+        total_experience_years: null,
+        seniority_level: null,
+        current_title: null,
+        skill_experience_years: {},
+        portfolio_url: null,
+        linkedin_url: null,
+      },
+      preferences: {
+        preferred_locations: [],
+        remote_preference: null,
+        employment_types: [],
+        willing_to_relocate: null,
+      },
+      answers: {
+        work_authorization: {
+          legally_authorized: null,
+          requires_sponsorship: null,
+          authorized_countries: [],
+          citizenship_status: null,
+          status_category: null,
+        },
+        compensation: {
+          expected_salary: null,
+          expected_currency: null,
+          expected_period: null,
+          current_salary: null,
+          current_currency: null,
+          current_period: null,
+        },
+        notice: { notice_days: null, available_from: null, immediate: null },
+      },
+      confirmed_fields: [],
+    },
     ...overrides,
   }
 }
@@ -127,13 +162,27 @@ export function matchPair(overrides: Partial<JobMatchPair> = {}): JobMatchPair {
     match: {
       overall_score: 82.5,
       semantic_score: 80,
+      lexical_score: 70,
       skill_score: 90,
       experience_score: 75,
       seniority_score: 80,
       location_score: 100,
       preference_score: 70,
+      evidence_coverage: 100,
+      component_states: {
+        semantic: "MATCHED",
+        lexical: "MATCHED",
+        skill: "MATCHED",
+        experience: "MATCHED",
+        seniority: "MATCHED",
+        location: "MATCHED",
+        preference: "MATCHED",
+      },
+      notes: [],
       missing_requirements: ["Kubernetes"],
       matched_requirements: ["Python", "SQL"],
+      missing_keywords: [],
+      matched_keywords: ["python", "sql"],
       explanation:
         "The profile states Python and SQL, which the listing asks for.",
     },
@@ -148,8 +197,16 @@ export function jobSearchResponse(
     profile_id: "profile-1",
     results: [matchPair()],
     source_errors: {},
-    stats: { found: 12, dropped: 1, deduped: 11, persisted: 11, stored: 11 },
+    stats: {
+      found: 12,
+      dropped: 1,
+      deduped: 11,
+      persisted: 11,
+      stored: 11,
+      semantic_covered: 11,
+    },
     degraded: false,
+    semantic_coverage: 100,
     ...overrides,
   }
 }

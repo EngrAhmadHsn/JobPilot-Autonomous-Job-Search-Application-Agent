@@ -8,6 +8,7 @@ import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
 import { DocumentList } from "@/components/documents/document-picker"
+import { ApplicationProfilePanel } from "@/components/profile/application-profile-panel"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Button } from "@/components/ui/button"
 
@@ -407,7 +408,14 @@ export function ResumeScreen() {
           ) : null}
 
           {storedProfile.data ? (
-            <ProfileView profile={storedProfile.data.profile} />
+            <>
+              <ProfileView profile={storedProfile.data.profile} />
+              <div className="mt-8">
+                <ApplicationProfilePanel
+                  profileId={storedProfile.data.profile_id}
+                />
+              </div>
+            </>
           ) : null}
         </Section>
       ) : null}

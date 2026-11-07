@@ -147,6 +147,23 @@ export type WorkPreferences = DeepRequired<
 >
 
 /**
+ * The user-confirmed application profile (WS-20) — the preferences and
+ * application answers a résumé does not carry. Kept separate from the parsed
+ * résumé profile.
+ */
+export type ApplicationProfile = DeepRequired<
+  components["schemas"]["ApplicationProfile"]
+>
+/** The write shape: every field is optional, so a partial update is valid. */
+export type ApplicationProfileInput = components["schemas"]["ApplicationProfile"]
+export type ApplicationProfileResponse = DeepRequired<
+  components["schemas"]["ApplicationProfileResponse"]
+>
+/** Voluntary EEO data (WS-20) — isolated, opt-in, never used for ranking. */
+export type EeoProfile = DeepRequired<components["schemas"]["EeoProfile"]>
+export type EeoResponse = DeepRequired<components["schemas"]["EeoResponse"]>
+
+/**
  * One document the account already has.
  *
  * The library is the union of the uploaded résumés (a résumé *is* a

@@ -33,13 +33,19 @@ function matchFromHistory(
   return {
     overall_score: asNumber(scores.overall_score),
     semantic_score: asNumber(scores.semantic_score),
+    lexical_score: asNumber(scores.lexical_score),
     skill_score: asNumber(scores.skill_score),
     experience_score: asNumber(scores.experience_score),
     seniority_score: asNumber(scores.seniority_score),
     location_score: asNumber(scores.location_score),
     preference_score: asNumber(scores.preference_score),
+    evidence_coverage: asNumber(scores.evidence_coverage),
+    component_states: asRecord(scores.component_states) as Record<string, string>,
+    notes: asStringArray(scores.notes),
     missing_requirements: asStringArray(scores.missing_requirements),
     matched_requirements: asStringArray(scores.matched_requirements),
+    missing_keywords: asStringArray(scores.missing_keywords),
+    matched_keywords: asStringArray(scores.matched_keywords),
     explanation: typeof entry.explanation === "string" ? entry.explanation : "",
   }
 }

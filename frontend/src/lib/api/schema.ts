@@ -203,6 +203,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Runs
+         * @description Every durable run on the platform, newest first.
+         *
+         *     The embedding-runs listing above is the recovery surface for one kind of
+         *     work; this one is the platform's whole queue, which is what an operator
+         *     needs when a refresh, a reconciliation and an embedding pass are all in
+         *     flight — or when a queued run is not moving because no worker is running.
+         *
+         *     Filters are optional and applied by the data layer, not by the route.
+         */
+        get: operations["list_all_runs_api_admin_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Any Run
+         * @description One run of any type, with its checkpoint, counters and events.
+         */
+        get: operations["read_any_run_api_admin_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/applications": {
         parameters: {
             query?: never;
@@ -1023,6 +1070,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profiles/{profile_id}/application-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Application Profile
+         * @description Return the user-confirmed application profile (empty when never set).
+         */
+        get: operations["get_application_profile_api_profiles__profile_id__application_profile_get"];
+        /**
+         * Put Application Profile
+         * @description Replace the user-confirmed application profile (validated, bounded).
+         *
+         *     The body is a full :class:`ApplicationProfile`; Pydantic validation caps
+         *     every list and range, so an oversized or malformed body is a 422 before it
+         *     reaches the database.
+         */
+        put: operations["put_application_profile_api_profiles__profile_id__application_profile_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profiles/{profile_id}/eeo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Eeo
+         * @description Return the stored EEO selections (all-unset when never provided).
+         */
+        get: operations["get_eeo_api_profiles__profile_id__eeo_get"];
+        /**
+         * Put Eeo
+         * @description Upsert the voluntary EEO selections for a profile.
+         *
+         *     The values are never echoed to logs and never audited (only the fact that a
+         *     write happened, and which fields were present, is recorded). Storing the
+         *     values requires ``opt_in``.
+         */
+        put: operations["put_eeo_api_profiles__profile_id__eeo_put"];
+        post?: never;
+        /**
+         * Delete Eeo
+         * @description Delete a profile's EEO row outright (a real delete, not a soft flag).
+         */
+        delete: operations["delete_eeo_api_profiles__profile_id__eeo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profiles/{profile_id}/matches": {
         parameters: {
             query?: never;
@@ -1236,6 +1343,15 @@ export interface components {
             }[];
         };
         /**
+         * ApplicationAnswers
+         * @description The answers a form asks for, grounded in user-confirmed values.
+         */
+        ApplicationAnswers: {
+            compensation?: components["schemas"]["Compensation"];
+            notice?: components["schemas"]["NoticePeriod"];
+            work_authorization?: components["schemas"]["WorkAuthorizationInfo"];
+        };
+        /**
          * ApplicationDetailResponse
          * @description A tracked application with its full, ordered history.
          */
@@ -1416,6 +1532,30 @@ export interface components {
              * @description Unique workflow execution ID
              */
             workflow_id: string;
+        };
+        /**
+         * ApplicationProfile
+         * @description The user-confirmed application profile (kept separate from the résumé).
+         *
+         *     ``confirmed_fields`` lists the dotted paths the user explicitly confirmed,
+         *     so a caller can tell a *confirmed* value from an imported one and label a
+         *     form answer's provenance honestly.
+         */
+        ApplicationProfile: {
+            answers?: components["schemas"]["ApplicationAnswers"];
+            /** Confirmed Fields */
+            confirmed_fields?: string[];
+            preferences?: components["schemas"]["JobSearchPreferences"];
+            professional?: components["schemas"]["ProfessionalInfo"];
+        };
+        /**
+         * ApplicationProfileResponse
+         * @description The stored application profile for one résumé profile.
+         */
+        ApplicationProfileResponse: {
+            application_profile: components["schemas"]["ApplicationProfile"];
+            /** Profile Id */
+            profile_id: string;
         };
         /**
          * ApplicationSummary
@@ -1664,10 +1804,17 @@ export interface components {
         /**
          * CandidateProfile
          * @description Structured candidate profile produced by the resume parser.
+         *
+         *     WS-20 adds ``application_profile``: the **user-confirmed** application
+         *     answers and job-search preferences, kept separate from the résumé-derived
+         *     fields above. It is empty by default, so older stored profiles validate
+         *     unchanged; the persisted copy lives in its own column
+         *     (``candidate_profiles.application_json``), not inside this JSON blob.
          */
         CandidateProfile: {
             /** Achievements */
             achievements?: string[];
+            application_profile?: components["schemas"]["ApplicationProfile"];
             /** Certifications */
             certifications?: string[];
             /** Education */
@@ -1689,6 +1836,27 @@ export interface components {
              */
             summary: string;
             work_preferences?: components["schemas"]["WorkPreferences"];
+        };
+        /**
+         * Compensation
+         * @description Expected **and** current compensation, each with currency and period.
+         *
+         *     Expected salary is not current salary. Keeping them in separate fields is
+         *     what stops "desired salary" from being answered with a past paycheque.
+         */
+        Compensation: {
+            /** Current Currency */
+            current_currency?: string | null;
+            /** Current Period */
+            current_period?: string | null;
+            /** Current Salary */
+            current_salary?: number | null;
+            /** Expected Currency */
+            expected_currency?: string | null;
+            /** Expected Period */
+            expected_period?: string | null;
+            /** Expected Salary */
+            expected_salary?: number | null;
         };
         /** EducationEntry */
         EducationEntry: {
@@ -1714,6 +1882,39 @@ export interface components {
              * @default
              */
             institution: string;
+        };
+        /**
+         * EeoProfile
+         * @description Owner-scoped voluntary self-identification data.
+         *
+         *     Every field is ``None`` until the user answers. A field set to
+         *     :data:`DECLINED` records an explicit "prefer not to answer" — which is
+         *     **not** the same as leaving it unanswered, and is never auto-selected.
+         *     ``opt_in`` must be true for the data to be stored at all.
+         */
+        EeoProfile: {
+            /** Disability */
+            disability?: string | null;
+            /** Gender */
+            gender?: string | null;
+            /**
+             * Opt In
+             * @default false
+             */
+            opt_in: boolean;
+            /** Race Ethnicity */
+            race_ethnicity?: string | null;
+            /** Veteran Status */
+            veteran_status?: string | null;
+        };
+        /**
+         * EeoResponse
+         * @description The stored EEO selections for one profile (empty when unset).
+         */
+        EeoResponse: {
+            eeo: components["schemas"]["EeoProfile"];
+            /** Profile Id */
+            profile_id: string;
         };
         /** ErrorModel */
         ErrorModel: {
@@ -1859,8 +2060,24 @@ export interface components {
         /**
          * JobMatchResult
          * @description Result of matching a candidate profile against a job listing.
+         *
+         *     Every component score is 0-100 and, in the WS-20 policy, only meaningful
+         *     when the corresponding entry in ``component_states`` is a *measured* state.
+         *     An unknown component carries ``0.0`` — it is never presented as a match —
+         *     and its reason appears in ``notes``. ``evidence_coverage`` says how much of
+         *     the overall score rests on real information, so a score and its coverage
+         *     are always readable together.
          */
         JobMatchResult: {
+            /** Component States */
+            component_states?: {
+                [key: string]: string;
+            };
+            /**
+             * Evidence Coverage
+             * @default 0
+             */
+            evidence_coverage: number;
             /** Experience Score */
             experience_score: number;
             /**
@@ -1868,12 +2085,23 @@ export interface components {
              * @default
              */
             explanation: string;
+            /**
+             * Lexical Score
+             * @default 0
+             */
+            lexical_score: number;
             /** Location Score */
             location_score: number;
+            /** Matched Keywords */
+            matched_keywords?: string[];
             /** Matched Requirements */
             matched_requirements?: string[];
+            /** Missing Keywords */
+            missing_keywords?: string[];
             /** Missing Requirements */
             missing_requirements?: string[];
+            /** Notes */
+            notes?: string[];
             /** Overall Score */
             overall_score: number;
             /** Preference Score */
@@ -1886,6 +2114,20 @@ export interface components {
             skill_score: number;
         };
         /**
+         * JobSearchPreferences
+         * @description Where and how the candidate wants to work (user-stated only).
+         */
+        JobSearchPreferences: {
+            /** Employment Types */
+            employment_types?: string[];
+            /** Preferred Locations */
+            preferred_locations?: string[];
+            /** Remote Preference */
+            remote_preference?: string | null;
+            /** Willing To Relocate */
+            willing_to_relocate?: boolean | null;
+        };
+        /**
          * JobSearchRequest
          * @description Request body for a store-only job search (FU-1).
          */
@@ -1895,6 +2137,12 @@ export interface components {
              * @description Optional case-insensitive location substring filter
              */
             location?: string | null;
+            /**
+             * Only Embedded
+             * @description WS-20: return only listings with a verified vector. Off by default — a pending listing stays visible (it may still match lexically) but earns no semantic credit.
+             * @default false
+             */
+            only_embedded: boolean;
             /**
              * Profile Id
              * @description Id returned by POST /api/resumes
@@ -1926,6 +2174,11 @@ export interface components {
             profile_id: string;
             /** Results */
             results: components["schemas"]["JobMatchPair"][];
+            /**
+             * Semantic Coverage
+             * @default 100
+             */
+            semantic_coverage: number;
             /** Source Errors */
             source_errors?: {
                 [key: string]: string;
@@ -1957,6 +2210,11 @@ export interface components {
              * @default 0
              */
             persisted: number;
+            /**
+             * Semantic Covered
+             * @default 0
+             */
+            semantic_covered: number;
             /**
              * Stored
              * @default 0
@@ -1998,6 +2256,18 @@ export interface components {
             }[];
             /** Profile Id */
             profile_id: string;
+        };
+        /**
+         * NoticePeriod
+         * @description Notice period and availability, with zero meaning "immediate".
+         */
+        NoticePeriod: {
+            /** Available From */
+            available_from?: string | null;
+            /** Immediate */
+            immediate?: boolean | null;
+            /** Notice Days */
+            notice_days?: number | null;
         };
         /** PersonalInformation */
         PersonalInformation: {
@@ -2061,6 +2331,26 @@ export interface components {
             requires_manual_review: boolean;
             /** Resume Path */
             resume_path?: string | null;
+        };
+        /**
+         * ProfessionalInfo
+         * @description Confirmed professional facts (supplement the résumé, never invent).
+         */
+        ProfessionalInfo: {
+            /** Current Title */
+            current_title?: string | null;
+            /** Linkedin Url */
+            linkedin_url?: string | null;
+            /** Portfolio Url */
+            portfolio_url?: string | null;
+            /** Seniority Level */
+            seniority_level?: string | null;
+            /** Skill Experience Years */
+            skill_experience_years?: {
+                [key: string]: number;
+            };
+            /** Total Experience Years */
+            total_experience_years?: number | null;
         };
         /** ProjectEntry */
         ProjectEntry: {
@@ -2422,6 +2712,27 @@ export interface components {
             type: string;
         };
         /**
+         * WorkAuthorizationInfo
+         * @description Three **distinct** question families — never conflated.
+         *
+         *     A candidate may be ``legally_authorized`` today *and* still
+         *     ``requires_sponsorship`` for a future role or transfer. Filling one from
+         *     the other would be a fabricated legal answer, so they are separate fields
+         *     and each is only ever set by the user.
+         */
+        WorkAuthorizationInfo: {
+            /** Authorized Countries */
+            authorized_countries?: string[];
+            /** Citizenship Status */
+            citizenship_status?: string | null;
+            /** Legally Authorized */
+            legally_authorized?: boolean | null;
+            /** Requires Sponsorship */
+            requires_sponsorship?: boolean | null;
+            /** Status Category */
+            status_category?: string | null;
+        };
+        /**
          * WorkPreferences
          * @description Work preferences the resume explicitly states.
          *
@@ -2683,6 +2994,70 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    list_all_runs_api_admin_runs_get: {
+        parameters: {
+            query?: {
+                job_type?: string | null;
+                limit?: number;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRunsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_any_run_api_admin_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRunDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3734,6 +4109,167 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["JobSearchResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_application_profile_api_profiles__profile_id__application_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_application_profile_api_profiles__profile_id__application_profile_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_eeo_api_profiles__profile_id__eeo_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EeoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_eeo_api_profiles__profile_id__eeo_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EeoProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EeoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_eeo_api_profiles__profile_id__eeo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

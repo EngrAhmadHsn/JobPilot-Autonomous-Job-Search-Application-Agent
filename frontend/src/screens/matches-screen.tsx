@@ -189,6 +189,7 @@ export function MatchesScreen() {
       query?: string
       location?: string
       top_n: number
+      only_embedded: boolean
     }) => api.searchJobs(body),
   })
 
@@ -231,6 +232,7 @@ export function MatchesScreen() {
                 query: query.trim() || undefined,
                 location: location.trim() || undefined,
                 top_n: topN,
+                only_embedded: false,
               })
             }}
           >

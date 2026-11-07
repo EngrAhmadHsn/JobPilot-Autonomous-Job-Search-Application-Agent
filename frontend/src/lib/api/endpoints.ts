@@ -14,8 +14,12 @@ import { request, requestForm } from "./client"
 import type {
   AdminOverview,
   ApplicationDetail,
+  ApplicationProfileInput,
+  ApplicationProfileResponse,
   AuditPage,
   DocumentRecord,
+  EeoProfile,
+  EeoResponse,
   ApplicationEvidenceRecord,
   ApplicationList,
   ApplicationPrepareRequest,
@@ -143,6 +147,48 @@ export const api = {
         timeoutMs: 30_000,
       }
     ),
+
+  /** The user-confirmed application profile (WS-20). */
+  getApplicationProfile: (profileId: string, signal?: AbortSignal) =>
+    request<ApplicationProfileResponse>(
+      `/api/profiles/${encodeURIComponent(profileId)}/application-profile`,
+      { signal, timeoutMs: 20_000 }
+    ),
+
+  /** Replace the user-confirmed application profile (WS-20). */
+  putApplicationProfile: (
+    profileId: string,
+    body: ApplicationProfileInput,
+    signal?: AbortSignal
+  ) =>
+    request<ApplicationProfileResponse>(
+      `/api/profiles/${encodeURIComponent(profileId)}/application-profile`,
+      { method: "PUT", json: body, signal, timeoutMs: 20_000 }
+    ),
+
+  /** The voluntary EEO selections (WS-20) — empty until the user opts in. */
+  getEeo: (profileId: string, signal?: AbortSignal) =>
+    request<EeoResponse>(`/api/profiles/${encodeURIComponent(profileId)}/eeo`, {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Upsert the voluntary EEO selections (requires opt_in). */
+  putEeo: (profileId: string, body: EeoProfile, signal?: AbortSignal) =>
+    request<EeoResponse>(`/api/profiles/${encodeURIComponent(profileId)}/eeo`, {
+      method: "PUT",
+      json: body,
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Delete a profile's EEO data outright. */
+  deleteEeo: (profileId: string, signal?: AbortSignal) =>
+    request<void>(`/api/profiles/${encodeURIComponent(profileId)}/eeo`, {
+      method: "DELETE",
+      signal,
+      timeoutMs: 20_000,
+    }),
 
   /** Tailor the profile's resume for one job (~80 s). */
   tailor: (body: TailorRequest, signal?: AbortSignal) =>
