@@ -1,33 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Pencil, X } from "lucide-react"
 import { useState } from "react"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { api } from "@/lib/api/endpoints"
 import type { ApplicationProfileInput, EeoProfile } from "@/lib/api/types"
 
 /**
- * The answers you confirm (WS-20).
+ * The answers you confirm (WS-20; work preferences unified in WS-21).
  *
  * A résumé is not an application form. It rarely says whether you can work
  * without sponsorship, what salary you want, or how much notice you owe — yet
  * every application asks. This is where you answer once, so the agent can
  * answer for you.
  *
- * Two cards, in the order they matter:
+ * Three cards, in the order they matter:
  *
- * 1. **Work preferences** — what you want from a job (where, how, how much).
- *    Each line is editable in place; a preference you set here is what the
- *    matching uses.
+ * 1. **Work preferences** — the shared editor (the Résumé page shows the
+ *    same one), so both pages always agree.
  * 2. **Application answers** — the facts a form asks for. Work authorization,
  *    sponsorship and citizenship are three separate questions, because they
  *    are three separate answers.
- *
- * Voluntary self-identification is a third, separate card: never inferred,
- * never used for matching, and deletable.
+ * 3. **Voluntary self-identification** — never inferred, never used for
+ *    matching, and deletable.
  */
 
 type Tri = "" | "yes" | "no"
@@ -44,11 +48,6 @@ const num = (value: string): number | null => {
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
 }
-const list = (value: string): string[] =>
-  value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
 
 const labelClass = "text-xs font-medium text-muted-foreground"
 const fieldClass = "space-y-1"
@@ -76,7 +75,9 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
     mutationFn: (body: ApplicationProfileInput) =>
       api.putApplicationProfile(profileId, body),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["application-profile", profileId] }),
+      queryClient.invalidateQueries({
+        queryKey: ["application-profile", profileId],
+      }),
   })
 
   if (query.isPending) {
@@ -89,12 +90,7 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
   const loaded = query.data.application_profile as ApplicationProfileInput
   return (
     <div className="space-y-5">
-      <WorkPreferencesCard
-        key={`prefs-${profileId}`}
-        profile={loaded}
-        onSave={(body) => save.mutate(body)}
-        saving={save.isPending}
-      />
+      <WorkPreferencesCard key={`prefs-${profileId}`} profileId={profileId} />
       <ApplicationAnswersCard
         key={`answers-${profileId}`}
         profile={loaded}
@@ -103,213 +99,6 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
       />
       <EeoCard profileId={profileId} />
     </div>
-  )
-}
-
-/** One editable line: the value, and a pencil that turns it into an input. */
-function EditableRow({
-  label,
-  display,
-  children,
-  editing,
-  onEdit,
-  onCancel,
-  onSave,
-}: {
-  label: string
-  display: string
-  children: React.ReactNode
-  editing: boolean
-  onEdit: () => void
-  onCancel: () => void
-  onSave: () => void
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p className={labelClass}>{label}</p>
-        {editing ? (
-          <div className="mt-1">{children}</div>
-        ) : (
-          <p className="truncate text-sm text-foreground">{display}</p>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1 pt-4">
-        {editing ? (
-          <>
-            <Button variant="ghost" size="sm" aria-label={`Save ${label}`} onClick={onSave}>
-              <Check aria-hidden="true" className="size-4" />
-            </Button>
-            <Button variant="ghost" size="sm" aria-label={`Cancel ${label}`} onClick={onCancel}>
-              <X aria-hidden="true" className="size-4" />
-            </Button>
-          </>
-        ) : (
-          <Button variant="ghost" size="sm" aria-label={`Edit ${label}`} onClick={onEdit}>
-            <Pencil aria-hidden="true" className="size-4" />
-          </Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * The work preferences, editable in place.
- *
- * These are what you want, not what a résumé happened to say — so the matching
- * uses them (a preferred city or a salary floor changes the ranking).
- */
-function WorkPreferencesCard({
-  profile,
-  onSave,
-  saving,
-}: {
-  profile: ApplicationProfileInput
-  onSave: (body: ApplicationProfileInput) => void
-  saving: boolean
-}) {
-  const prefs = profile.preferences ?? {}
-  const comp = profile.answers?.compensation ?? {}
-  const [editing, setEditing] = useState<string | null>(null)
-
-  // A working copy, so saving one field never drops the others.
-  const [draft, setDraft] = useState({
-    remote: prefs.remote_preference ?? "",
-    locations: (prefs.preferred_locations ?? []).join(", "),
-    employment: (prefs.employment_types ?? []).join(", "),
-    salary: comp.expected_salary?.toString() ?? "",
-    currency: comp.expected_currency ?? "",
-    period: comp.expected_period ?? "",
-  })
-
-  function commit() {
-    onSave({
-      ...emptyProfile(),
-      ...profile,
-      preferences: {
-        ...prefs,
-        remote_preference: draft.remote || null,
-        preferred_locations: list(draft.locations),
-        employment_types: list(draft.employment),
-      },
-      answers: {
-        ...profile.answers,
-        compensation: {
-          ...comp,
-          expected_salary: num(draft.salary),
-          expected_currency: draft.currency.trim() || null,
-          expected_period: draft.period || null,
-        },
-      },
-      confirmed_fields: ["preferences", "answers.compensation"],
-    })
-    setEditing(null)
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Work preferences</CardTitle>
-        <CardDescription>
-          What you want from a job. These guide the ranking, so they are yours
-          to set — a résumé can only guess.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="divide-y divide-border">
-        <EditableRow
-          label="Work mode"
-          display={draft.remote || "Not set"}
-          editing={editing === "remote"}
-          onEdit={() => setEditing("remote")}
-          onCancel={() => setEditing(null)}
-          onSave={commit}
-        >
-          <select
-            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-            value={draft.remote}
-            onChange={(e) => setDraft((d) => ({ ...d, remote: e.target.value }))}
-          >
-            <option value="">Not set</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="onsite">Onsite</option>
-            <option value="any">Any</option>
-          </select>
-        </EditableRow>
-
-        <EditableRow
-          label="Preferred locations"
-          display={draft.locations || "Not set"}
-          editing={editing === "locations"}
-          onEdit={() => setEditing("locations")}
-          onCancel={() => setEditing(null)}
-          onSave={commit}
-        >
-          <Input
-            placeholder="Berlin, Remote"
-            value={draft.locations}
-            onChange={(e) => setDraft((d) => ({ ...d, locations: e.target.value }))}
-          />
-        </EditableRow>
-
-        <EditableRow
-          label="Employment types"
-          display={draft.employment || "Not set"}
-          editing={editing === "employment"}
-          onEdit={() => setEditing("employment")}
-          onCancel={() => setEditing(null)}
-          onSave={commit}
-        >
-          <Input
-            placeholder="full-time, contract"
-            value={draft.employment}
-            onChange={(e) => setDraft((d) => ({ ...d, employment: e.target.value }))}
-          />
-        </EditableRow>
-
-        <EditableRow
-          label="Expected salary"
-          display={
-            draft.salary
-              ? `${draft.currency || ""} ${draft.salary}${draft.period ? ` per ${draft.period}` : ""}`.trim()
-              : "Not set"
-          }
-          editing={editing === "salary"}
-          onEdit={() => setEditing("salary")}
-          onCancel={() => setEditing(null)}
-          onSave={commit}
-        >
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Input
-              inputMode="numeric"
-              placeholder="Amount"
-              value={draft.salary}
-              onChange={(e) => setDraft((d) => ({ ...d, salary: e.target.value }))}
-            />
-            <Input
-              placeholder="USD"
-              value={draft.currency}
-              onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))}
-            />
-            <select
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={draft.period}
-              onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))}
-            >
-              <option value="">Period</option>
-              <option value="annual">Annual</option>
-              <option value="monthly">Monthly</option>
-              <option value="weekly">Weekly</option>
-              <option value="daily">Daily</option>
-              <option value="hourly">Hourly</option>
-            </select>
-          </div>
-        </EditableRow>
-
-        {saving ? <p className="pt-2 text-xs text-muted-foreground">Saving…</p> : null}
-      </CardContent>
-    </Card>
   )
 }
 
@@ -392,7 +181,9 @@ function ApplicationAnswersCard({
             <Input
               inputMode="numeric"
               value={form.years}
-              onChange={(e) => setForm((f) => ({ ...f, years: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, years: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
@@ -400,28 +191,36 @@ function ApplicationAnswersCard({
             <Input
               placeholder="senior, lead, mid…"
               value={form.seniority}
-              onChange={(e) => setForm((f) => ({ ...f, seniority: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, seniority: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
             <span className={labelClass}>Current title</span>
             <Input
               value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, title: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
             <span className={labelClass}>Portfolio URL</span>
             <Input
               value={form.portfolio}
-              onChange={(e) => setForm((f) => ({ ...f, portfolio: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, portfolio: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
             <span className={labelClass}>LinkedIn URL</span>
             <Input
               value={form.linkedin}
-              onChange={(e) => setForm((f) => ({ ...f, linkedin: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, linkedin: e.target.value }))
+              }
             />
           </label>
         </div>
@@ -432,7 +231,9 @@ function ApplicationAnswersCard({
             <select
               className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               value={form.authorized}
-              onChange={(e) => setForm((f) => ({ ...f, authorized: e.target.value as Tri }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, authorized: e.target.value as Tri }))
+              }
             >
               <option value="">Not answered</option>
               <option value="yes">Yes</option>
@@ -444,7 +245,9 @@ function ApplicationAnswersCard({
             <select
               className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               value={form.sponsorship}
-              onChange={(e) => setForm((f) => ({ ...f, sponsorship: e.target.value as Tri }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, sponsorship: e.target.value as Tri }))
+              }
             >
               <option value="">Not answered</option>
               <option value="yes">Yes, now or later</option>
@@ -455,7 +258,9 @@ function ApplicationAnswersCard({
             <span className={labelClass}>Citizenship / status (optional)</span>
             <Input
               value={form.citizenship}
-              onChange={(e) => setForm((f) => ({ ...f, citizenship: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, citizenship: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
@@ -463,15 +268,21 @@ function ApplicationAnswersCard({
             <Input
               inputMode="numeric"
               value={form.currentSalary}
-              onChange={(e) => setForm((f) => ({ ...f, currentSalary: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, currentSalary: e.target.value }))
+              }
             />
           </label>
           <label className={fieldClass}>
-            <span className={labelClass}>Notice period (days; 0 = immediate)</span>
+            <span className={labelClass}>
+              Notice period (days; 0 = immediate)
+            </span>
             <Input
               inputMode="numeric"
               value={form.noticeDays}
-              onChange={(e) => setForm((f) => ({ ...f, noticeDays: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, noticeDays: e.target.value }))
+              }
             />
           </label>
         </div>
@@ -511,16 +322,23 @@ function EeoCard({ profileId }: { profileId: string }) {
   const effectiveOptIn = optIn ?? Boolean(eeo?.opt_in)
   const currentValues =
     values ??
-    Object.fromEntries(EEO_FIELDS.map(({ key }) => [key, (eeo?.[key] as string) ?? ""]))
+    Object.fromEntries(
+      EEO_FIELDS.map(({ key }) => [key, (eeo?.[key] as string) ?? ""])
+    )
 
   const save = useMutation({
     mutationFn: () =>
-      api.putEeo(profileId, { opt_in: effectiveOptIn, ...currentValues } as EeoProfile),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eeo", profileId] }),
+      api.putEeo(profileId, {
+        opt_in: effectiveOptIn,
+        ...currentValues,
+      } as EeoProfile),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["eeo", profileId] }),
   })
   const remove = useMutation({
     mutationFn: () => api.deleteEeo(profileId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eeo", profileId] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["eeo", profileId] }),
   })
 
   return (
@@ -559,10 +377,18 @@ function EeoCard({ profileId }: { profileId: string }) {
           ))}
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save
           </Button>
-          <Button variant="ghost" onClick={() => remove.mutate()} disabled={remove.isPending}>
+          <Button
+            variant="ghost"
+            onClick={() => remove.mutate()}
+            disabled={remove.isPending}
+          >
             Delete this data
           </Button>
         </div>

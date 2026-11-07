@@ -88,11 +88,17 @@ def _seniority_rank(text: str | None) -> int | None:
 def _effective_preferences(profile: CandidateProfile) -> WorkPreferences:
     """The candidate's preferences: what they confirmed, then what the résumé said.
 
-    A résumé rarely states a work mode or a salary floor; the application
-    profile is where the user does. A confirmed value therefore *wins* over a
-    résumé-derived one, field by field, and the résumé value is the fallback.
-    This is what makes editing the preferences on the Profile screen change the
-    ranking, instead of only changing a display.
+    WS-21 makes the merge explicit about *cleared* values. The application
+    profile is saved as a whole document, and ``confirmed_fields`` records the
+    groups the user saved: once ``preferences`` is confirmed, every field it
+    owns is the user's answer — including an empty one, which means "cleared"
+    and must not resurrect the résumé's value. The same holds for
+    ``answers.compensation``: a confirmed expectation beats the résumé's
+    verbatim ``min_salary`` (the WS-20 order had it backwards), and a
+    confirmed empty salary is *no* floor, not the old one.
+
+    Groups without a marker keep the WS-20 semantics (a truthy confirmed value
+    wins, the résumé is the fallback), so a pre-WS-21 save behaves as it did.
     """
     resume = profile.work_preferences
     app = getattr(profile, "application_profile", None)
@@ -101,16 +107,32 @@ def _effective_preferences(profile: CandidateProfile) -> WorkPreferences:
     if prefs is None:
         return resume
 
+    confirmed = set(getattr(app, "confirmed_fields", None) or [])
+    preferences_confirmed = "preferences" in confirmed
+    compensation_confirmed = "answers.compensation" in confirmed
+
     merged = resume.model_copy(deep=True)
-    if prefs.remote_preference:
+    if preferences_confirmed:
+        # Explicitly saved: even an empty value is the answer.
         merged.remote_preference = prefs.remote_preference
-    if prefs.preferred_locations:
         merged.preferred_locations = list(prefs.preferred_locations)
-    if prefs.employment_types:
         merged.employment_types = list(prefs.employment_types)
+    else:
+        if prefs.remote_preference:
+            merged.remote_preference = prefs.remote_preference
+        if prefs.preferred_locations:
+            merged.preferred_locations = list(prefs.preferred_locations)
+        if prefs.employment_types:
+            merged.employment_types = list(prefs.employment_types)
+
     compensation = getattr(answers, "compensation", None) if answers is not None else None
     expected = getattr(compensation, "expected_salary", None) if compensation is not None else None
-    if expected is not None and not merged.min_salary:
+    if compensation_confirmed:
+        merged.min_salary = None
+        if expected is not None:
+            currency = getattr(compensation, "expected_currency", None) or ""
+            merged.min_salary = f"{currency} {expected:g}".strip()
+    elif expected is not None and not merged.min_salary:
         currency = getattr(compensation, "expected_currency", None) or ""
         merged.min_salary = f"{currency} {expected:g}".strip()
     return merged

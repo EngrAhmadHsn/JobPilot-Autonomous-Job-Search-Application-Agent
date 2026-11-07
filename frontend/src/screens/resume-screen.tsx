@@ -9,6 +9,7 @@ import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
 import { DocumentList } from "@/components/documents/document-picker"
 import { ProfileView } from "@/components/profile/profile-view"
+import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
 
@@ -147,8 +148,12 @@ const STEPS = [
  * and the next step.
  */
 export function ResumeScreen() {
-  const { profileId, profile: storedProfile, missing: profileMissing, documents } =
-    useProfileWithFallback()
+  const {
+    profileId,
+    profile: storedProfile,
+    missing: profileMissing,
+    documents,
+  } = useProfileWithFallback()
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
@@ -385,6 +390,17 @@ export function ResumeScreen() {
 
       {profileId ? (
         <Section
+          title="What you want next"
+          description="Editable on either page — the Résumé and Profile pages share one set of preferences, and the ranking uses exactly this."
+        >
+          <div className="max-w-3xl">
+            <WorkPreferencesCard profileId={profileId} />
+          </div>
+        </Section>
+      ) : null}
+
+      {profileId ? (
+        <Section
           title="What the agent read"
           description="Everything below came out of your document. Nothing was inferred."
           action={
@@ -412,8 +428,9 @@ export function ResumeScreen() {
               <ProfileView profile={storedProfile.data.profile} />
               <div className="rounded-lg border border-border bg-muted/40 p-4">
                 <p className="text-sm text-foreground">
-                  Work authorization, salary, notice period and EEO answers are
-                  not on a résumé. They live on the Profile screen.
+                  Work authorization, notice period and EEO answers are not on a
+                  résumé. They live on the Profile screen, along with the same
+                  work preferences editor you see above.
                 </p>
                 <div className="mt-3">
                   <LinkButton to="/app/profile">

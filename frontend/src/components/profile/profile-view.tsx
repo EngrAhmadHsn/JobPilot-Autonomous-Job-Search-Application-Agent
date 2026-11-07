@@ -14,7 +14,6 @@ import type { CandidateProfile } from "@/lib/api/types"
  */
 export function ProfileView({ profile }: { profile: CandidateProfile }) {
   const info = profile.personal_information
-  const preferences = profile.work_preferences
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -215,36 +214,6 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
               </div>
             ))
           )}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="font-heading text-sm font-semibold">
-            Work preferences
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          <p>
-            <span className="text-muted-foreground">Remote:</span>{" "}
-            {preferences.remote_preference || "not stated"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Locations:</span>{" "}
-            {preferences.preferred_locations.join(", ") || "not stated"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Employment types:</span>{" "}
-            {preferences.employment_types.join(", ") || "not stated"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Minimum salary:</span>{" "}
-            {preferences.min_salary || "not stated"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Work authorization:</span>{" "}
-            {preferences.work_authorization || "not stated"}
-          </p>
         </CardContent>
       </Card>
 

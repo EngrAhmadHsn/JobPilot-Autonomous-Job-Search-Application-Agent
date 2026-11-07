@@ -5,6 +5,7 @@ import {
   applicationDetail,
   applicationEvidence,
   applicationList,
+  applicationProfileResponse,
   approvalDecision,
   auditResponse,
   healthResponse,
@@ -34,6 +35,26 @@ import {
  */
 const BASE = "http://api.test"
 
+/*
+  The application profile is **stateful** in the mock, like the real
+  backend: a PUT is persisted and the next GET returns it. A stateless echo
+  would make a save-then-refetch test flip back to the old values and miss
+  exactly the bug this state exists to catch. `resetStore()` runs between
+  tests (see `setup.ts`).
+*/
+let storedApplicationProfile = applicationProfileResponse().application_profile
+
+export function resetStore() {
+  storedApplicationProfile = applicationProfileResponse().application_profile
+}
+
+/** Let a test control what the next GET returns (e.g. after a captured PUT). */
+export function setStoredApplicationProfile(
+  profile: typeof storedApplicationProfile
+) {
+  storedApplicationProfile = profile
+}
+
 export const server = setupServer(
   http.get(`${BASE}/api/health`, () => HttpResponse.json(healthResponse())),
 
@@ -58,6 +79,27 @@ export const server = setupServer(
   ),
   http.get(`${BASE}/api/resumes/:profileId`, () =>
     HttpResponse.json(profileResponse())
+  ),
+
+  // The user-confirmed application profile (WS-20; shared editor in WS-21).
+  // Stateful on purpose: a PUT persists, and the next GET returns it.
+  http.get(`${BASE}/api/profiles/:profileId/application-profile`, () =>
+    HttpResponse.json(applicationProfileResponse(storedApplicationProfile))
+  ),
+  http.put(
+    `${BASE}/api/profiles/:profileId/application-profile`,
+    async ({ request }) => {
+      storedApplicationProfile =
+        (await request.json()) as typeof storedApplicationProfile
+      return HttpResponse.json(
+        applicationProfileResponse(storedApplicationProfile)
+      )
+    }
+  ),
+
+  // Voluntary self-identification: empty until a test opts in.
+  http.get(`${BASE}/api/profiles/:profileId/eeo`, () =>
+    HttpResponse.json({ profile_id: "profile-1", eeo: { opt_in: false } })
   ),
 
   http.post(`${BASE}/api/jobs/search`, () =>
@@ -160,9 +202,7 @@ export const server = setupServer(
   ),
 
   // WS-18: the refresh is accepted as durable work; the screen polls the run.
-  http.post(`${BASE}/api/jobs/refresh`, () =>
-    HttpResponse.json(runAccepted())
-  ),
+  http.post(`${BASE}/api/jobs/refresh`, () => HttpResponse.json(runAccepted())),
   http.get(`${BASE}/api/runs`, () => HttpResponse.json(runsResponse())),
   http.get(`${BASE}/api/runs/:runId`, ({ params }) =>
     HttpResponse.json({
@@ -174,25 +214,44 @@ export const server = setupServer(
   // overview: the default mocked principal is not a superuser, so the
   // server's answer is a 403.
   http.get(`${BASE}/api/admin/embedding-runs`, () =>
-    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
+    HttpResponse.json(
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
+      { status: 403 }
+    )
   ),
   http.get(`${BASE}/api/admin/runs`, () =>
     HttpResponse.json(
-      { detail: "Administration is available to platform administrators only." },
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
       { status: 403 }
     )
   ),
   http.get(`${BASE}/api/admin/health/workers`, () =>
     HttpResponse.json(
-      { detail: "Administration is available to platform administrators only." },
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
       { status: 403 }
     )
   ),
   http.post(`${BASE}/api/admin/embedding-runs/:runId/resume`, () =>
-    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
+    HttpResponse.json(
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
+      { status: 403 }
+    )
   ),
   http.post(`${BASE}/api/admin/embeddings/reconcile`, () =>
-    HttpResponse.json({ detail: "Administration is available to platform administrators only." }, { status: 403 })
+    HttpResponse.json(
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
+      { status: 403 }
+    )
   ),
 
   // The account's own audit trail (WS-17 observability).
@@ -204,7 +263,9 @@ export const server = setupServer(
   // `/api/auth/me` with a superuser.
   http.get(`${BASE}/api/admin/overview`, () =>
     HttpResponse.json(
-      { detail: "Administration is available to platform administrators only." },
+      {
+        detail: "Administration is available to platform administrators only.",
+      },
       { status: 403 }
     )
   )

@@ -131,6 +131,13 @@ export function profileResponse() {
   return { profile_id: "profile-1", profile: candidateProfile() }
 }
 
+/** The user-confirmed application profile, shaped like the WS-20 routes. */
+export function applicationProfileResponse(
+  applicationProfile = candidateProfile().application_profile
+) {
+  return { profile_id: "profile-1", application_profile: applicationProfile }
+}
+
 export function jobListing(overrides: Partial<JobListing> = {}): JobListing {
   return {
     id: "greenhouse:1",
@@ -511,11 +518,8 @@ export function adminOverviewResponse(): AdminOverview {
   }
 }
 
-
 /** A refresh the API accepted as durable work (WS-18). */
-export function runAccepted(
-  overrides: Partial<RunAccepted> = {}
-): RunAccepted {
+export function runAccepted(overrides: Partial<RunAccepted> = {}): RunAccepted {
   return {
     run_id: "run-1",
     status: "QUEUED",

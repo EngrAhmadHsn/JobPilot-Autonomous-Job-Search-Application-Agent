@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, vi } from "vitest"
 
 import { setCurrentProfileId } from "@/lib/profile"
 
-import { server } from "./server"
+import { server, resetStore } from "./server"
 
 /**
  * The test environment.
@@ -21,6 +21,9 @@ beforeAll(() => {
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  // The mock's stateful stores (the application profile persists PUTs) must
+  // not leak between tests.
+  resetStore()
   window.localStorage.clear()
   // The current profile lives in a module-level store; it has to be reset
   // explicitly, or a test would inherit the previous test's profile.
