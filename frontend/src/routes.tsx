@@ -9,6 +9,7 @@ import { MatchesScreen } from "@/screens/matches-screen"
 import { ApprovalsScreen } from "@/screens/approvals-screen"
 import { OperationsScreen } from "@/screens/operations-screen"
 import { OverviewScreen } from "@/screens/overview-screen"
+import { ProfileScreen } from "@/screens/profile-screen"
 import { ResumeScreen } from "@/screens/resume-screen"
 import { SignInScreen } from "@/screens/sign-in-screen"
 import { TailorIndexScreen, TailorJobScreen } from "@/screens/tailor-screen"
@@ -56,6 +57,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <OverviewScreen /> },
       { path: "resume", element: <ResumeScreen /> },
+      { path: "profile", element: <ProfileScreen /> },
       { path: "matches", element: <MatchesScreen /> },
       { path: "matches/:jobId", element: <JobDetailScreen /> },
       { path: "tailor", element: <TailorIndexScreen /> },

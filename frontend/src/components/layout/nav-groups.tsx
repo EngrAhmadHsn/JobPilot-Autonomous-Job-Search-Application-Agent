@@ -32,6 +32,7 @@ export const NAV_GROUPS = [
     label: "Discover",
     items: [
       { to: "/app/resume", label: "Resume" },
+      { to: "/app/profile", label: "Profile" },
       { to: "/app/matches", label: "Matches" },
       { to: "/app/tailor", label: "Tailor" },
     ],

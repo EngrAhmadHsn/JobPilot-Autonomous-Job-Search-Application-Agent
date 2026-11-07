@@ -1,11 +1,12 @@
-import { useMutation } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { useDeferredValue, useState } from "react"
 import { Link } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { Disclosure } from "@/components/common/disclosure"
 import { SectionTitle } from "@/components/common/field-list"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { Pagination } from "@/components/common/pagination"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
 import { PageHeader, Section } from "@/components/common/page-header"
@@ -20,6 +21,14 @@ import { stagger } from "@/lib/stagger"
 import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
+
+/**
+ * How many matches the console shows at once.
+ *
+ * The server ranks a slice of up to 50 listings; the console pages it ten at
+ * a time, so a broad search is readable without one long scroll.
+ */
+const PAGE_SIZE = 10
 
 /**
  * What the search actually did, in words the operator can act on.
@@ -181,7 +190,9 @@ export function MatchesScreen() {
   const profileId = useCurrentProfileId()
   const [query, setQuery] = useState("")
   const [location, setLocation] = useState("")
-  const [topN, setTopN] = useState(10)
+  // The server ranks a slice of up to 50; the console shows it ten at a time.
+  const [topN, setTopN] = useState(50)
+  const [page, setPage] = useState(0)
 
   const search = useMutation({
     mutationFn: (body: {
@@ -191,6 +202,17 @@ export function MatchesScreen() {
       top_n: number
       only_embedded: boolean
     }) => api.searchJobs(body),
+  })
+
+  // The query field suggests the titles the corpus actually holds. The value
+  // is deferred, so typing does not fire a request per keystroke, and the
+  // screen stays responsive without an effect.
+  const deferredQuery = useDeferredValue(query)
+  const suggestions = useQuery({
+    queryKey: ["job-suggestions", deferredQuery],
+    queryFn: ({ signal }) => api.suggestJobs(deferredQuery.trim(), signal),
+    enabled: deferredQuery.trim().length > 0,
+    staleTime: 60_000,
   })
 
   if (!profileId) {
@@ -204,6 +226,14 @@ export function MatchesScreen() {
   }
 
   const data = search.data
+  const total = data?.results.length ?? 0
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  // Clamp rather than reset: a shorter result set after a new search lands on
+  // its last page instead of an empty one, with no effect and no extra state.
+  const currentPage = Math.min(page, pageCount - 1)
+  const visible = data
+    ? data.results.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE)
+    : []
 
   return (
     <div className="space-y-6">
@@ -227,6 +257,7 @@ export function MatchesScreen() {
             className="grid gap-3 sm:grid-cols-[2fr_2fr_6rem_auto] sm:items-end"
             onSubmit={(event) => {
               event.preventDefault()
+              setPage(0)
               search.mutate({
                 profile_id: profileId,
                 query: query.trim() || undefined,
@@ -242,10 +273,27 @@ export function MatchesScreen() {
               </label>
               <Input
                 id="search-query"
+                list="job-suggestion-list"
                 value={query}
-                placeholder="Any token in the title or description"
+                placeholder="Start typing a role — suggestions come from your listings"
+                autoComplete="off"
                 onChange={(event) => setQuery(event.target.value)}
               />
+              <datalist id="job-suggestion-list">
+                {(suggestions.data?.suggestions ?? []).map((suggestion) => (
+                  <option key={suggestion.value} value={suggestion.value}>
+                    {suggestion.count} listing
+                    {suggestion.count === 1 ? "" : "s"}
+                  </option>
+                ))}
+              </datalist>
+              {suggestions.data && suggestions.data.suggestions.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {suggestions.data.suggestions.length} suggestion
+                  {suggestions.data.suggestions.length === 1 ? "" : "s"} from
+                  your saved listings
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1">
               <label htmlFor="search-location" className="text-sm font-medium">
@@ -303,9 +351,20 @@ export function MatchesScreen() {
               />
             ) : (
               <div className="space-y-4">
-                {data.results.map((pair, index) => (
-                  <MatchCard key={pair.job.id} pair={pair} index={index} />
+                {visible.map((pair, index) => (
+                  <MatchCard
+                    key={pair.job.id}
+                    pair={pair}
+                    index={currentPage * PAGE_SIZE + index}
+                  />
                 ))}
+                <Pagination
+                  page={currentPage}
+                  pageSize={PAGE_SIZE}
+                  total={total}
+                  onPageChange={setPage}
+                  label="matches"
+                />
               </div>
             )}
           </div>

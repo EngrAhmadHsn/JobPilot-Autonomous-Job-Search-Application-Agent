@@ -163,6 +163,12 @@ export type ApplicationProfileResponse = DeepRequired<
 export type EeoProfile = DeepRequired<components["schemas"]["EeoProfile"]>
 export type EeoResponse = DeepRequired<components["schemas"]["EeoResponse"]>
 
+/** A query autocomplete suggestion drawn from the corpus's own titles. */
+export type JobSuggestion = DeepRequired<components["schemas"]["JobSuggestion"]>
+export type JobSuggestResponse = DeepRequired<
+  components["schemas"]["JobSuggestResponse"]
+>
+
 /**
  * One document the account already has.
  *

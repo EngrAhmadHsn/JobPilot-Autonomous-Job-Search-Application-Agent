@@ -33,6 +33,7 @@ import type {
   JobDetail,
   JobSearchRequest,
   JobSearchResponse,
+  JobSuggestResponse,
   MatchesHistory,
   ResumeProfileResponse,
   ResumeUploadResponse,
@@ -137,6 +138,13 @@ export const api = {
       signal,
       timeoutMs: 20_000,
     }),
+
+  /** Autocomplete the query field from the corpus's own titles. */
+  suggestJobs: (q: string, signal?: AbortSignal) =>
+    request<JobSuggestResponse>(
+      `/api/jobs/suggest?q=${encodeURIComponent(q)}&limit=10`,
+      { signal, timeoutMs: 10_000 }
+    ),
 
   /** The persisted match history for one profile. */
   getProfileMatches: (profileId: string, signal?: AbortSignal) =>

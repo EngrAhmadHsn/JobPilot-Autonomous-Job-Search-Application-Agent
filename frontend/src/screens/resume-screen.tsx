@@ -8,9 +8,9 @@ import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
 import { DocumentList } from "@/components/documents/document-picker"
-import { ApplicationProfilePanel } from "@/components/profile/application-profile-panel"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/ui/link-button"
 
 import { api } from "@/lib/api/endpoints"
 import { formatBytes } from "@/lib/format"
@@ -408,14 +408,20 @@ export function ResumeScreen() {
           ) : null}
 
           {storedProfile.data ? (
-            <>
+            <div className="space-y-6">
               <ProfileView profile={storedProfile.data.profile} />
-              <div className="mt-8">
-                <ApplicationProfilePanel
-                  profileId={storedProfile.data.profile_id}
-                />
+              <div className="rounded-lg border border-border bg-muted/40 p-4">
+                <p className="text-sm text-foreground">
+                  Work authorization, salary, notice period and EEO answers are
+                  not on a résumé. They live on the Profile screen.
+                </p>
+                <div className="mt-3">
+                  <LinkButton to="/app/profile">
+                    Answer application questions
+                  </LinkButton>
+                </div>
               </div>
-            </>
+            </div>
           ) : null}
         </Section>
       ) : null}

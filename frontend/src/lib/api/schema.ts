@@ -1070,6 +1070,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest Job Queries
+         * @description Autocomplete the query field from the titles the corpus actually holds.
+         *
+         *     The suggestions are **titles from the stored corpus**, not a static list:
+         *     the search's filter matches any token of the query against a listing's
+         *     title and description, so a suggested title is guaranteed to be a
+         *     meaningful query. They are ranked by how many listings carry the title, so
+         *     the most common roles come first, and then alphabetically for a stable
+         *     order across calls.
+         *
+         *     ``q`` narrows the suggestions (a case-insensitive substring); an empty
+         *     ``q`` returns the corpus's most common titles, which is a useful "what is
+         *     in here" starting point. The corpus is shared board data, so no owner
+         *     filter applies.
+         */
+        get: operations["suggest_job_queries_api_jobs_suggest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profiles/{profile_id}/application-profile": {
         parameters: {
             query?: never;
@@ -2220,6 +2252,32 @@ export interface components {
              * @default 0
              */
             stored: number;
+        };
+        /**
+         * JobSuggestion
+         * @description One autocomplete suggestion for the query field (WS-20 follow-up).
+         */
+        JobSuggestion: {
+            /**
+             * Count
+             * @description How many stored listings carry it
+             */
+            count: number;
+            /**
+             * Value
+             * @description A job title the corpus holds
+             */
+            value: string;
+        };
+        /**
+         * JobSuggestResponse
+         * @description Query suggestions drawn from the corpus's own titles.
+         */
+        JobSuggestResponse: {
+            /** Query */
+            query: string;
+            /** Suggestions */
+            suggestions?: components["schemas"]["JobSuggestion"][];
         };
         /**
          * KeywordCoverage
@@ -4108,6 +4166,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobSearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_job_queries_api_jobs_suggest_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobSuggestResponse"];
                 };
             };
             /** @description Validation Error */
