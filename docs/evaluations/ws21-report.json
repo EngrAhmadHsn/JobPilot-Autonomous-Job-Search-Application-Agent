@@ -1,0 +1,390 @@
+{
+  "dataset": {
+    "hash": "021aa3f6d56a1b63a4d68be4b7cbc1733a008c59c62d113d37e46fe8e1868db8",
+    "jobs": 29,
+    "profiles": 5,
+    "tailoring_pairs": 6
+  },
+  "metrics": {
+    "ats": {
+      "coverage_delta": 0.111111,
+      "mean_score": 87.0
+    },
+    "dedup": {
+      "f1": 1.0,
+      "false_negative": 0,
+      "false_positive": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positive": 5
+    },
+    "extraction": {
+      "education_precision": 1.0,
+      "education_recall": 1.0,
+      "experience_precision": 1.0,
+      "experience_recall": 1.0,
+      "field_accuracy": 1.0,
+      "skills_f1": 1.0,
+      "summary_coverage": 1.0
+    },
+    "ranking": {
+      "degraded_ndcg_at_10": 0.825333,
+      "degraded_precision_at_5": 0.44,
+      "evidence_coverage": 59.175,
+      "false_negative_rate": 0.353333,
+      "false_positive_rate": 0.0,
+      "match_decision_threshold": 30.0,
+      "ndcg_at_10": 0.824026,
+      "precision_at_5": 0.4,
+      "recall_at_10": 0.733333,
+      "role_mismatch_at_10": 0.28,
+      "role_uncertain_at_10": 0.28,
+      "semantic_delta_ndcg_at_10": -0.001307
+    },
+    "relevance": {
+      "duplicate_rate": 0.172414,
+      "hallucination_rate": 0.060606,
+      "job_relevance": 1.0
+    },
+    "tailoring": {
+      "agreement": 1.0,
+      "expected_violations": 2,
+      "found_violations": 2,
+      "pairs": 6,
+      "violation_recall": 1.0
+    }
+  },
+  "mode": "offline",
+  "pairs": [
+    {
+      "ats_score": 100.0,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-001",
+      "job_relevance": 1.0,
+      "passed": true,
+      "produced_claims": 7,
+      "profile": "alex_rivera_backend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "stripped_claims": 0,
+      "violations": []
+    },
+    {
+      "ats_score": 71.7,
+      "coverage_after": 1.0,
+      "coverage_before": 0.6666666666666666,
+      "job": "golden:job-002",
+      "job_relevance": 1.0,
+      "passed": false,
+      "produced_claims": 5,
+      "profile": "alex_rivera_backend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [
+        "Rust"
+      ],
+      "stripped_claims": 1,
+      "violations": [
+        "Removed 1 skill(s) not present in profile"
+      ]
+    },
+    {
+      "ats_score": 92.5,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-003",
+      "job_relevance": 1.0,
+      "passed": true,
+      "produced_claims": 6,
+      "profile": "mina_chen_ml",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "stripped_claims": 0,
+      "violations": []
+    },
+    {
+      "ats_score": 83.5,
+      "coverage_after": 1.0,
+      "coverage_before": 0.6666666666666666,
+      "job": "golden:job-004",
+      "job_relevance": 1.0,
+      "passed": false,
+      "produced_claims": 5,
+      "profile": "mina_chen_ml",
+      "removed_experience": [
+        "Globex"
+      ],
+      "removed_projects": [],
+      "removed_skills": [],
+      "stripped_claims": 1,
+      "violations": [
+        "Removed experience for unknown company 'Globex'"
+      ]
+    },
+    {
+      "ats_score": 92.5,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-005",
+      "job_relevance": 1.0,
+      "passed": true,
+      "produced_claims": 5,
+      "profile": "sam_okoye_data",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "stripped_claims": 0,
+      "violations": []
+    },
+    {
+      "ats_score": 81.8,
+      "coverage_after": 1.0,
+      "coverage_before": 1.0,
+      "job": "golden:job-007",
+      "job_relevance": 1.0,
+      "passed": true,
+      "produced_claims": 5,
+      "profile": "lena_fischer_frontend",
+      "removed_experience": [],
+      "removed_projects": [],
+      "removed_skills": [],
+      "stripped_claims": 0,
+      "violations": []
+    }
+  ],
+  "profiles": [
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 2,
+          "matched": 2,
+          "precision": 1.0,
+          "produced": 2,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "alex_rivera_backend",
+      "ranking": {
+        "candidates": 24,
+        "degraded_ndcg_at_10": 0.717976,
+        "degraded_precision_at_5": 0.2,
+        "evidence_coverage": 57.375,
+        "matching": {
+          "false_negative": 8,
+          "false_negative_rate": 0.533333,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 30.0,
+          "true_negative": 14,
+          "true_positive": 7
+        },
+        "ndcg_at_10": 0.717976,
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.5,
+        "role_mismatch_at_10": 0.0,
+        "role_uncertain_at_10": 0.3,
+        "semantic_delta_ndcg_at_10": 0.0
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "mina_chen_ml",
+      "ranking": {
+        "candidates": 24,
+        "degraded_ndcg_at_10": 0.772352,
+        "degraded_precision_at_5": 0.6,
+        "evidence_coverage": 57.375,
+        "matching": {
+          "false_negative": 6,
+          "false_negative_rate": 0.666667,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 30.0,
+          "true_negative": 20,
+          "true_positive": 3
+        },
+        "ndcg_at_10": 0.765816,
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.75,
+        "role_mismatch_at_10": 0.3,
+        "role_uncertain_at_10": 0.4,
+        "semantic_delta_ndcg_at_10": -0.006536
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "sam_okoye_data",
+      "ranking": {
+        "candidates": 24,
+        "degraded_ndcg_at_10": 0.828681,
+        "degraded_precision_at_5": 0.6,
+        "evidence_coverage": 66.375,
+        "matching": {
+          "false_negative": 1,
+          "false_negative_rate": 0.166667,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 30.0,
+          "true_negative": 23,
+          "true_positive": 5
+        },
+        "ndcg_at_10": 0.828681,
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.75,
+        "role_mismatch_at_10": 0.3,
+        "role_uncertain_at_10": 0.1,
+        "semantic_delta_ndcg_at_10": 0.0
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 0,
+          "matched": 0,
+          "precision": 1.0,
+          "produced": 0,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "lena_fischer_frontend",
+      "ranking": {
+        "candidates": 24,
+        "degraded_ndcg_at_10": 0.807657,
+        "degraded_precision_at_5": 0.4,
+        "evidence_coverage": 57.375,
+        "matching": {
+          "false_negative": 2,
+          "false_negative_rate": 0.4,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 30.0,
+          "true_negative": 24,
+          "true_positive": 3
+        },
+        "ndcg_at_10": 0.807657,
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.666667,
+        "role_mismatch_at_10": 0.0,
+        "role_uncertain_at_10": 0.4,
+        "semantic_delta_ndcg_at_10": 0.0
+      }
+    },
+    {
+      "extraction": {
+        "education": {
+          "expected": 1,
+          "matched": 1,
+          "precision": 1.0,
+          "produced": 1,
+          "recall": 1.0
+        },
+        "experience": {
+          "expected": 0,
+          "matched": 0,
+          "precision": 1.0,
+          "produced": 0,
+          "recall": 1.0
+        },
+        "field_accuracy": 1.0,
+        "skills_f1": 1.0,
+        "summary_coverage": 1.0
+      },
+      "profile": "kai_nakamura_hardware",
+      "ranking": {
+        "candidates": 24,
+        "degraded_ndcg_at_10": 1.0,
+        "degraded_precision_at_5": 0.4,
+        "evidence_coverage": 57.375,
+        "matching": {
+          "false_negative": 0,
+          "false_negative_rate": 0.0,
+          "false_positive": 0,
+          "false_positive_rate": 0.0,
+          "threshold": 30.0,
+          "true_negative": 27,
+          "true_positive": 2
+        },
+        "ndcg_at_10": 1.0,
+        "precision_at_5": 0.4,
+        "recall_at_10": 1.0,
+        "role_mismatch_at_10": 0.8,
+        "role_uncertain_at_10": 0.2,
+        "semantic_delta_ndcg_at_10": 0.0
+      }
+    }
+  ],
+  "providers": {
+    "embeddings": {
+      "model": "none",
+      "provider": "lexical-standin"
+    },
+    "llm": {
+      "model": "none",
+      "provider": "canned-drafts"
+    }
+  },
+  "reproducible": true,
+  "unavailable": {
+    "browser": "the browser-automation metrics need a browser and a live database; run scripts/verify_ws09.py",
+    "system": "the application-lifecycle metrics need a browser and a live database; run scripts/verify_ws09.py"
+  }
+}
