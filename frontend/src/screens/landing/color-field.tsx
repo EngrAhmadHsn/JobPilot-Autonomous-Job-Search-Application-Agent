@@ -52,6 +52,29 @@ const LIME: [number, number, number] = [217, 243, 106]
 const TERRACOTTA: [number, number, number] = [241, 214, 200]
 const FOREST: [number, number, number] = [122, 155, 109]
 
+/**
+ * The largest extent one bloom may be sized from, in CSS pixels.
+ *
+ * The radius used to scale with `max(width, height)`, so on a 2560 px
+ * display the deepest bloom reached roughly 1,500 px from the cursor —
+ * wider than the hero is tall. Near the bottom of the hero the wash was
+ * still bright when the section clipped it, so the boundary against the
+ * next section read as a hard step between two shades of the same night.
+ * The field is a lamp over a desk, not a flood: the extent is capped, and
+ * the falloff therefore ends inside the hero on every screen.
+ */
+const MAX_BLOOM_EXTENT = 900
+
+/**
+ * The vertical fade applied to the canvas.
+ *
+ * The cap bounds the radius; this makes the bottom edge *invisible* rather
+ * than merely dim, so no bloom can end on the section boundary whatever the
+ * pointer does.
+ */
+const FIELD_FADE =
+  "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 72%, rgba(0,0,0,0) 100%)"
+
 export function ColorField({ className }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   // The **effective** preference: "System" follows the OS, but a visitor who
@@ -123,8 +146,11 @@ export function ColorField({ className }: { className?: string }) {
     const draw = () => {
       context.clearRect(0, 0, width, height)
       context.globalCompositeOperation = "lighter"
+      // The scale the blooms are sized from is capped, so a wide monitor
+      // gets the same lamp as a laptop instead of a wall-to-wall wash.
+      const extent = Math.min(Math.max(width, height), MAX_BLOOM_EXTENT * dpr)
       for (const bloom of blooms) {
-        const radius = bloom.radius * Math.max(width, height) * 0.5
+        const radius = bloom.radius * extent * 0.5
         const gradient = context.createRadialGradient(
           bloom.x,
           bloom.y,
@@ -228,6 +254,9 @@ export function ColorField({ className }: { className?: string }) {
         // The blooms are additive light on a dark canvas; a soft multiplier
         // would make an opaque sheet instead.
         opacity: 0.9,
+        // The light ends inside the hero, never on its boundary.
+        maskImage: FIELD_FADE,
+        WebkitMaskImage: FIELD_FADE,
       }}
     />
   )
@@ -238,7 +267,9 @@ export function ColorField({ className }: { className?: string }) {
  *
  * It is the same wash, frozen: two soft radial gradients in the identity's
  * colours. It is a real gradient, not a placeholder — a touch visitor gets
- * a composed hero, not an empty one.
+ * a composed hero, not an empty one. Its horizontal radius is capped for
+ * the same reason the canvas is: above ~1200 px a percentage radius paints
+ * across the whole viewport, and the wash would end on the section's edge.
  */
 export const COLOR_FIELD_FALLBACK =
-  "radial-gradient(50% 60% at 28% 32%, color-mix(in oklab, #d9f36a 22%, transparent), transparent 70%), radial-gradient(45% 55% at 74% 60%, color-mix(in oklab, #f1d6c8 20%, transparent), transparent 72%)"
+  "radial-gradient(ellipse min(60vw, 620px) 60% at 28% 32%, color-mix(in oklab, #d9f36a 22%, transparent), transparent 70%), radial-gradient(ellipse min(52vw, 540px) 55% at 74% 60%, color-mix(in oklab, #f1d6c8 20%, transparent), transparent 72%)"

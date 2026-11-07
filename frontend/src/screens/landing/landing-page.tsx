@@ -45,17 +45,9 @@ export function LandingPage() {
             `--i` index) — it is not a scroll reveal and not a loop, and
             `prefers-reduced-motion` flattens it to an instant appearance.
           */}
-          <p
-            className="enter-up inline-flex items-center gap-2 rounded-full border border-night-line bg-night-soft/80 px-3 py-1 text-xs text-night-muted backdrop-blur"
-            style={{ "--i": 0 } as CSSProperties}
-          >
-            <span className="size-1.5 rounded-full bg-lime" aria-hidden="true" />
-            Autonomous job search · with a human at the wheel
-          </p>
-
           <h1
-            className="enter-up mt-6 max-w-[19ch] font-heading text-4xl leading-[1.05] font-semibold tracking-tight text-balance text-ivory sm:text-6xl"
-            style={{ "--i": 1 } as CSSProperties}
+            className="enter-up max-w-[19ch] font-heading text-4xl leading-[1.05] font-semibold tracking-tight text-balance text-ivory sm:text-6xl"
+            style={{ "--i": 0 } as CSSProperties}
           >
             Your job search, on autopilot.
             <span className="block text-lime">Your decisions, in your hands.</span>
@@ -63,7 +55,7 @@ export function LandingPage() {
 
           <p
             className="enter-up mt-6 max-w-[58ch] text-lg leading-relaxed text-night-muted"
-            style={{ "--i": 2 } as CSSProperties}
+            style={{ "--i": 1 } as CSSProperties}
           >
             JobPilot finds roles that fit, explains why each one does, tailors
             your résumé without inventing a word, and prepares each application
@@ -73,7 +65,7 @@ export function LandingPage() {
 
           <div
             className="enter-up mt-8 flex flex-wrap items-center gap-3"
-            style={{ "--i": 3 } as CSSProperties}
+            style={{ "--i": 2 } as CSSProperties}
           >
             <Link
               to="/sign-in"
@@ -91,7 +83,7 @@ export function LandingPage() {
 
           <p
             className="enter-up mt-5 text-xs text-night-muted"
-            style={{ "--i": 4 } as CSSProperties}
+            style={{ "--i": 3 } as CSSProperties}
           >
             Approval required before every submission · an audit record for
             every action · no credential ever leaves the server

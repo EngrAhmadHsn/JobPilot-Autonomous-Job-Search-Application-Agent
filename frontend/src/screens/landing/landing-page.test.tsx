@@ -64,4 +64,15 @@ describe("the landing page", () => {
       await screen.findByText(/tenant isolation by construction/i)
     ).toBeInTheDocument()
   })
+
+  it("opens on the headline, without the AI-badge pill", async () => {
+    // The pill used to sit above the h1 ("Autonomous job search · with a
+    // human at the wheel"). It read as a generated-marketing marker and it
+    // delayed the actual claim, so the hero opens on the headline instead.
+    renderApp({ route: "/" })
+
+    await screen.findByRole("heading", { name: /your job search/i })
+    expect(screen.queryByText(/autonomous job search/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/human at the wheel/i)).not.toBeInTheDocument()
+  })
 })
