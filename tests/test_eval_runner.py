@@ -43,8 +43,8 @@ def test_offline_run_populates_every_metric(results: dict) -> None:
             if isinstance(value, (int, float)):
                 assert value is not None
     assert results["mode"] == "offline"
-    assert results["dataset"]["profiles"] == 4
-    assert results["dataset"]["jobs"] == 25
+    assert results["dataset"]["profiles"] == 5
+    assert results["dataset"]["jobs"] == 29
     assert results["dataset"]["tailoring_pairs"] == 6
 
 

@@ -1,0 +1,17 @@
+Kai Nakamura
+Physical Design Engineer
+kai.nakamura@example.jp | +81 3 1234 5678 | Munich, Germany
+SUMMARY
+Physical design engineer closing timing on advanced-node blocks, with a background in RTL design and synthesis.
+TECHNICAL SKILLS
+Hardware: Verilog, SystemVerilog, RTL, Timing Closure, Place and Route, Physical Verification
+Tools: Cadence Innovus, Synopsys PrimeTime, Tcl
+PROJECTS
+5nm Block Closure — Cadence Innovus, Tcl
+- Closed timing on a high-utilization block with a 12 percent power reduction.
+- Automated the place-and-route flow with Tcl scripts.
+EDUCATION
+Master of Electrical Engineering (MSc)	2015-2017
+Example Institute of Technology
+CERTIFICATIONS
+- Advanced Physical Design

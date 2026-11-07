@@ -118,5 +118,37 @@
     "certifications": ["Accessibility Fundamentals"],
     "achievements": [],
     "preferences": {}
+  },
+  "kai_nakamura_hardware": {
+    "file": "resumes/kai_nakamura_hardware.txt",
+    "name": "Kai Nakamura",
+    "title": "Physical Design Engineer",
+    "email": "kai.nakamura@example.jp",
+    "phone": "+81 3 1234 5678",
+    "location": "Munich, Germany",
+    "website": "",
+    "summary_contains": ["Physical design engineer", "timing"],
+    "skills": [
+      "Verilog",
+      "SystemVerilog",
+      "RTL",
+      "Timing Closure",
+      "Place and Route",
+      "Physical Verification",
+      "Cadence Innovus",
+      "Synopsys PrimeTime",
+      "Tcl"
+    ],
+    "experience": [],
+    "education": [
+      {
+        "degree": "Master of Electrical Engineering (MSc)",
+        "institution": "Example Institute of Technology"
+      }
+    ],
+    "projects": [{"name": "5nm Block Closure"}],
+    "certifications": ["Advanced Physical Design"],
+    "achievements": [],
+    "preferences": {}
   }
 }

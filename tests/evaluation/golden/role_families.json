@@ -1,0 +1,147 @@
+{
+  "golden:job-001": {
+    "ambiguous": true,
+    "family": "software_engineering",
+    "track": "unknown"
+  },
+  "golden:job-002": {
+    "ambiguous": true,
+    "family": "software_engineering",
+    "track": "unknown"
+  },
+  "golden:job-003": {
+    "ambiguous": false,
+    "family": "data_science_ml",
+    "track": "unknown"
+  },
+  "golden:job-004": {
+    "ambiguous": false,
+    "family": "devops_cloud",
+    "track": "unknown"
+  },
+  "golden:job-005": {
+    "ambiguous": false,
+    "family": "data_analytics",
+    "track": "unknown"
+  },
+  "golden:job-006": {
+    "ambiguous": false,
+    "family": "data_engineering",
+    "track": "unknown"
+  },
+  "golden:job-007": {
+    "ambiguous": false,
+    "family": "web_development",
+    "track": "unknown"
+  },
+  "golden:job-008": {
+    "ambiguous": false,
+    "family": "web_development",
+    "track": "unknown"
+  },
+  "golden:job-009": {
+    "ambiguous": false,
+    "family": "devops_cloud",
+    "track": "unknown"
+  },
+  "golden:job-010": {
+    "ambiguous": false,
+    "family": "software_engineering",
+    "track": "unknown"
+  },
+  "golden:job-011": {
+    "ambiguous": false,
+    "family": "sales",
+    "track": "unknown"
+  },
+  "golden:job-012": {
+    "ambiguous": false,
+    "family": "product_management",
+    "track": "manager"
+  },
+  "golden:job-013": {
+    "ambiguous": false,
+    "family": "data_science_ml",
+    "track": "unknown"
+  },
+  "golden:job-014": {
+    "ambiguous": true,
+    "family": "web_development",
+    "track": "unknown"
+  },
+  "golden:job-015": {
+    "ambiguous": false,
+    "family": "devops_cloud",
+    "track": "unknown"
+  },
+  "golden:job-016": {
+    "ambiguous": true,
+    "family": "devops_cloud",
+    "track": "unknown"
+  },
+  "golden:job-017": {
+    "ambiguous": false,
+    "family": "data_engineering",
+    "track": "unknown"
+  },
+  "golden:job-018": {
+    "ambiguous": false,
+    "family": "web_development",
+    "track": "unknown"
+  },
+  "golden:job-019": {
+    "ambiguous": true,
+    "family": "software_engineering",
+    "track": "unknown"
+  },
+  "golden:job-020": {
+    "ambiguous": true,
+    "family": "software_engineering",
+    "track": "unknown"
+  },
+  "golden:job-021": {
+    "ambiguous": false,
+    "family": "data_science_ml",
+    "track": "unknown"
+  },
+  "golden:job-022": {
+    "ambiguous": false,
+    "family": "data_analytics",
+    "track": "unknown"
+  },
+  "golden:job-023": {
+    "ambiguous": false,
+    "family": "web_development",
+    "track": "unknown"
+  },
+  "golden:job-024": {
+    "ambiguous": false,
+    "family": "security",
+    "track": "unknown"
+  },
+  "golden:job-025": {
+    "ambiguous": false,
+    "family": null,
+    "track": "manager"
+  },
+  "golden:job-026": {
+    "ambiguous": false,
+    "family": "data_analytics",
+    "track": "unknown"
+  },
+  "golden:job-027": {
+    "ambiguous": false,
+    "family": "hardware_physical_design",
+    "track": "unknown"
+  },
+  "golden:job-028": {
+    "ambiguous": false,
+    "family": "hardware_physical_design",
+    "track": "unknown"
+  },
+  "golden:job-029": {
+    "ambiguous": false,
+    "family": "sales",
+    "track": "unknown"
+  }
+}
