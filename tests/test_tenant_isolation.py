@@ -176,6 +176,10 @@ class TestCrossUserAccess:
         assert access.list_job_matches(session, ALICE, "profile-alice")
         assert access.list_job_matches(session, BOB, "profile-alice") == []
 
+    def test_the_ranked_match_view_is_not_readable_by_another_user(self, session):
+        assert access.list_ranked_job_matches(session, ALICE, "profile-alice")
+        assert access.list_ranked_job_matches(session, BOB, "profile-alice") == []
+
     def test_the_evidence_is_not_readable_by_another_user(self, session):
         assert access.list_evidence(session, ALICE, "wf-1")
         assert access.list_evidence(session, BOB, "wf-1") == []

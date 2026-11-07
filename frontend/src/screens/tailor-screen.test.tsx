@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 import { setCurrentProfileId } from "@/lib/profile"
 import { server } from "@/test/server"
 import { renderApp } from "@/test/render"
-import { tailorResponse } from "@/test/factories"
+import { jobListing, tailorResponse } from "@/test/factories"
 
 const BASE = "http://api.test"
 const ROUTE = `/app/tailor/${encodeURIComponent("greenhouse:1")}`
@@ -24,7 +24,74 @@ describe("the tailor index", () => {
         level: 1,
       })
     ).toBeInTheDocument()
-    expect(screen.getByText("Tailoring needs a résumé first")).toBeInTheDocument()
+    expect(
+      screen.getByText("Tailoring needs a résumé first")
+    ).toBeInTheDocument()
+  })
+
+  it("lists one row per job, best match first (WS-21)", async () => {
+    setCurrentProfileId("profile-1")
+    let requested = ""
+    server.use(
+      http.get(`${BASE}/api/profiles/:profileId/matches`, ({ request }) => {
+        requested = new URL(request.url).search
+        return HttpResponse.json({
+          profile_id: "profile-1",
+          matches: [
+            {
+              profile_id: "profile-1",
+              job_id: "job-b",
+              scores: { overall_score: 91 },
+              explanation: "",
+              created_at: "2026-11-08T12:00:00Z",
+            },
+            {
+              profile_id: "profile-1",
+              job_id: "job-d",
+              scores: { overall_score: 84 },
+              explanation: "",
+              created_at: "2026-11-08T11:00:00Z",
+            },
+            {
+              profile_id: "profile-1",
+              job_id: "job-c",
+              scores: { overall_score: 72 },
+              explanation: "",
+              created_at: "2026-11-08T10:00:00Z",
+            },
+            {
+              profile_id: "profile-1",
+              job_id: "job-a",
+              scores: { overall_score: 45 },
+              explanation: "",
+              created_at: "2026-11-08T09:00:00Z",
+            },
+          ],
+        })
+      }),
+      http.get(`${BASE}/api/jobs/:jobId`, ({ params }) =>
+        HttpResponse.json({
+          job: jobListing({
+            id: String(params.jobId),
+            title: `Role ${String(params.jobId)}`,
+          }),
+        })
+      )
+    )
+    renderApp({ route: "/app/tailor" })
+
+    const titles = await screen.findAllByText(/^Role job-/)
+    // One row per job, in the order the server ranked them (best first) —
+    // the screen never re-sorts or slices what it was given.
+    expect(titles.map((element) => element.textContent)).toEqual([
+      "Role job-b",
+      "Role job-d",
+      "Role job-c",
+      "Role job-a",
+    ])
+    // The server was asked for the ranked view — not the raw history.
+    expect(requested).toContain("ranked=true")
+    expect(requested).toContain("limit=25")
   })
 })
 
@@ -133,7 +200,9 @@ describe("the tailor screen", () => {
     renderApp({ route: ROUTE })
 
     await waitFor(() => {
-      expect(screen.getByText("Tailoring needs a résumé first")).toBeInTheDocument()
+      expect(
+        screen.getByText("Tailoring needs a résumé first")
+      ).toBeInTheDocument()
     })
   })
 })
