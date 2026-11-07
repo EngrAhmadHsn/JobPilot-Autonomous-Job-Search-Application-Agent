@@ -422,10 +422,17 @@ table. The user's database was **not** recreated; existing rows validate.
 ### Tests executed
 
 - Python: **1434 passed, 1 skipped** (`-m "not browser"`), ruff clean.
+- Browser-marked Python tests: **16 passed** (`-m browser`).
 - Frontend: **147 + 2 Vitest**, eslint clean, `tsc -b` clean, production build
   succeeds.
 - Evaluation: `scripts/run_eval.py --check` — all metrics within thresholds.
 - Migrations: upgrade to head and downgrade to base, on SQLite, reversible.
+- **Live acceptance: `scripts/verify_ws20.py` — 28/28 checks passed** against a
+  throwaway database and a live server: the score policy (no neutral 70, no
+  redistribution), BM25 over a buried requirement and Java≠JavaScript, the
+  taxonomy's three legal questions, the migration, `search_stored_jobs` giving
+  a pending listing no semantic advantage (`semantic_coverage` 50%), and the
+  profile/answer/EEO routes with owner scoping and opt-in enforcement.
 
 ### Before/after metrics
 
