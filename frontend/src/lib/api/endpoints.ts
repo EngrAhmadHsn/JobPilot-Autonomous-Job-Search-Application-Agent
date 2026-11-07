@@ -147,15 +147,29 @@ export const api = {
       { signal, timeoutMs: 10_000 }
     ),
 
-  /** The persisted match history for one profile. */
-  getProfileMatches: (profileId: string, signal?: AbortSignal) =>
-    request<MatchesHistory>(
-      `/api/profiles/${encodeURIComponent(profileId)}/matches`,
+  /**
+   * The persisted match history for one profile.
+   *
+   * With `ranked`, the server deduplicates to the most recent match per job
+   * and orders by overall score (the Tailor picker's relevance order),
+   * limited after deduplication; without it, the raw history.
+   */
+  getProfileMatches: (
+    profileId: string,
+    options: { ranked?: boolean; limit?: number; signal?: AbortSignal } = {}
+  ) => {
+    const params = new URLSearchParams()
+    if (options.ranked) params.set("ranked", "true")
+    if (options.limit) params.set("limit", String(options.limit))
+    const suffix = params.size > 0 ? `?${params.toString()}` : ""
+    return request<MatchesHistory>(
+      `/api/profiles/${encodeURIComponent(profileId)}/matches${suffix}`,
       {
-        signal,
+        signal: options.signal,
         timeoutMs: 30_000,
       }
-    ),
+    )
+  },
 
   /** The user-confirmed application profile (WS-20). */
   getApplicationProfile: (profileId: string, signal?: AbortSignal) =>

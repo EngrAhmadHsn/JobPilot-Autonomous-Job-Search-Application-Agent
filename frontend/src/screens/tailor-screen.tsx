@@ -17,7 +17,7 @@ import { ApiError, apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { formatDateTime, formatList } from "@/lib/format"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
-import { asNumber, asRecord, asString } from "@/lib/safe"
+import { asRecord, asString } from "@/lib/safe"
 import type { TailorResponse } from "@/lib/api/types"
 
 /**
@@ -422,15 +422,22 @@ export function TailorIndexScreen() {
   const { profileId, missing } = useProfileWithFallback()
 
   const history = useQuery({
-    queryKey: ["profile-matches", profileId],
-    queryFn: ({ signal }) => api.getProfileMatches(profileId as string, signal),
+    // The **ranked** view: the server returns the most recent match per job,
+    // best overall score first, limited after deduplication (WS-21).
+    queryKey: ["profile-matches", profileId, "ranked"],
+    queryFn: ({ signal }) =>
+      api.getProfileMatches(profileId as string, {
+        ranked: true,
+        limit: 25,
+        signal,
+      }),
     enabled: Boolean(profileId) && !missing,
   })
 
   const entries = history.data?.matches ?? []
 
   const jobs = useQueries({
-    queries: entries.slice(0, 25).map((entry) => {
+    queries: entries.map((entry) => {
       const jobId = asString(entry.job_id)
       return {
         queryKey: ["job", jobId],
@@ -502,8 +509,9 @@ export function TailorIndexScreen() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            The jobs this profile has been scored against, newest search first.
-            A tailored résumé is produced for one profile and one job at a time.
+            The jobs this profile has been scored against, best match first —
+            one row per job, each shown with its most recent score. A tailored
+            résumé is produced for one profile and one job at a time.
           </p>
 
           {history.isPending && !missing ? (
@@ -530,14 +538,15 @@ export function TailorIndexScreen() {
           ) : null}
 
           <ul className="divide-y divide-border/60">
-            {entries.slice(0, 25).map((entry, index) => {
+            {entries.map((entry, index) => {
               const job = jobs[index]?.data
               const scores = asRecord(entry.scores)
-              const overall = asNumber(scores.overall_score)
+              const rawOverall = scores.overall_score
+              const overall = typeof rawOverall === "number" ? rawOverall : null
               const jobId = asString(entry.job_id)
               return (
                 <li
-                  key={`${jobId}-${index}`}
+                  key={jobId}
                   className="flex items-center justify-between gap-3 py-2"
                 >
                   <div className="min-w-0">
@@ -552,7 +561,7 @@ export function TailorIndexScreen() {
                       {formatDateTime(asString(entry.created_at) || null)}
                     </p>
                   </div>
-                  {overall > 0 ? <OverallScore value={overall} /> : null}
+                  {overall !== null ? <OverallScore value={overall} /> : null}
                 </li>
               )
             })}

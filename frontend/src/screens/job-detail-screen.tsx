@@ -42,7 +42,8 @@ function matchFromHistory(
     // WS-21: older persisted rows predate the role fields; the accessors
     // default them safely (no role evidence — never a fabricated match).
     role_score: asNumber(scores.role_score),
-    role_family: typeof scores.role_family === "string" ? scores.role_family : null,
+    role_family:
+      typeof scores.role_family === "string" ? scores.role_family : null,
     role_family_confidence: asNumber(scores.role_family_confidence),
     role_targets: asStringArray(scores.role_targets),
     role_target_source:
@@ -51,7 +52,10 @@ function matchFromHistory(
         : "none",
     role_capped: scores.role_capped === true,
     evidence_coverage: asNumber(scores.evidence_coverage),
-    component_states: asRecord(scores.component_states) as Record<string, string>,
+    component_states: asRecord(scores.component_states) as Record<
+      string,
+      string
+    >,
     notes: asStringArray(scores.notes),
     missing_requirements: asStringArray(scores.missing_requirements),
     matched_requirements: asStringArray(scores.matched_requirements),
@@ -79,7 +83,8 @@ export function JobDetailScreen() {
 
   const history = useQuery({
     queryKey: ["profile-matches", profileId],
-    queryFn: ({ signal }) => api.getProfileMatches(profileId as string, signal),
+    queryFn: ({ signal }) =>
+      api.getProfileMatches(profileId as string, { signal }),
     enabled: Boolean(profileId),
   })
 

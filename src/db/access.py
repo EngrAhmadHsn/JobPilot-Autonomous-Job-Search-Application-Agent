@@ -222,6 +222,64 @@ def list_job_matches(db: Session, scope: UserScope, profile_id: str) -> list[Job
     return list(db.execute(_owned(statement, JobMatchDB, scope)).scalars())
 
 
+def list_ranked_job_matches(
+    db: Session, scope: UserScope, profile_id: str, *, limit: int = 25
+) -> list[JobMatchDB]:
+    """The most recent match of each job, best score first (WS-21).
+
+    The Tailor picker offers *relevance*; the history accessor above offers
+    the audit trail. Repeated searches insert a row per (profile, job), so
+    this deduplicates to the newest row of each job with a window function
+    (portable across SQLite ≥ 3.25 and PostgreSQL — no JSON column
+    ordering, and no dialect-specific operators), drops rows with an
+    unusable score safely, sorts by the persisted overall score descending
+    with deterministic tie-breaks (newest record, then job id), and limits
+    only **after** the deduplication and the sort.
+    """
+    from sqlalchemy import func
+
+    numbered = (
+        select(
+            JobMatchDB.id.label("id"),
+            func.row_number()
+            .over(partition_by=JobMatchDB.job_id, order_by=JobMatchDB.id.desc())
+            .label("row_rank"),
+        )
+        .where(JobMatchDB.profile_id == profile_id)
+        .subquery()
+    )
+    statement = (
+        select(JobMatchDB)
+        .join(numbered, JobMatchDB.id == numbered.c.id)
+        .where(numbered.c.row_rank == 1)
+    )
+    rows = list(db.execute(_owned(statement, JobMatchDB, scope)).scalars())
+
+    def score_of(row: JobMatchDB) -> float | None:
+        value = dict(row.scores or {}).get("overall_score")
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def sort_key(row: JobMatchDB) -> tuple[int, float, float, str]:
+        score = score_of(row)
+        created = row.created_at.timestamp() if row.created_at is not None else 0.0
+        # Missing and malformed scores sort last; a tie goes to the newest
+        # record, then to the job id, so the order is deterministic.
+        return (
+            0 if score is not None else 1,
+            -(score if score is not None else 0.0),
+            -created,
+            row.job_id or "",
+        )
+
+    ranked = sorted(rows, key=sort_key)
+    return ranked[: max(1, min(int(limit), 200))]
+
+
 # -- tailored resumes ---------------------------------------------------------
 
 

@@ -25,7 +25,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -394,11 +394,31 @@ def get_profile_matches(
     profile_id: str,
     db: Annotated[Session, Depends(get_db)],
     scope: Annotated[UserScope, Depends(current_scope)],
+    ranked: Annotated[
+        bool,
+        Query(
+            description=(
+                "WS-21: return the most recent match per job, ordered by "
+                "overall score (the Tailor picker's relevance order) and "
+                "limited after deduplication."
+            )
+        ),
+    ] = False,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
 ) -> MatchesHistoryResponse:
-    """Persisted match history for one profile, oldest first."""
+    """Persisted matches for one profile.
+
+    Default: the account's match **history** (one row per search), newest
+    first. With ``ranked=true``: the most recent match of each job, best
+    overall score first, limited after deduplication — relevance, not a
+    trail.
+    """
     if access.get_profile(db, scope, profile_id) is None:
         raise HTTPException(status_code=404, detail="Profile not found")
-    rows = access.list_job_matches(db, scope, profile_id)
+    if ranked:
+        rows = access.list_ranked_job_matches(db, scope, profile_id, limit=limit or 25)
+    else:
+        rows = access.list_job_matches(db, scope, profile_id)
     return MatchesHistoryResponse(
         profile_id=profile_id, matches=[match_row_to_dict(row) for row in rows]
     )
