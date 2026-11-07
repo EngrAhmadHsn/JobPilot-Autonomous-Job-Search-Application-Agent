@@ -84,16 +84,14 @@ describe("the sign-in screen", () => {
     ).toBeInTheDocument()
   })
 
-  it("says when the credentials are refused", async () => {
+  it("says when the credentials are refused, in words a person can use", async () => {
     server.use(
       http.get(`${BASE}/api/auth/me`, () =>
         HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
       ),
       http.post(`${BASE}/api/auth/cookie/login`, () =>
-        HttpResponse.json(
-          { detail: "400: LOGIN_BAD_CREDENTIALS" },
-          { status: 400 }
-        )
+        // The server's real answer: a fastapi-users code, not a sentence.
+        HttpResponse.json({ detail: "LOGIN_BAD_CREDENTIALS" }, { status: 400 })
       )
     )
 
@@ -108,7 +106,11 @@ describe("the sign-in screen", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(
-      await screen.findByText(/LOGIN_BAD_CREDENTIALS|bad credentials/i)
+      await screen.findByText(/don't match an account here/i)
     ).toBeInTheDocument()
+    // The signed-in surface says it in the product's voice: the taxonomy is
+    // for an administrator, and the sign-in form is not one.
+    expect(screen.queryByText(/LOGIN_BAD_CREDENTIALS/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/HTTP 400/)).not.toBeInTheDocument()
   })
 })

@@ -93,6 +93,7 @@ export function AdminScreen() {
           <ErrorNotice
             error={overview.error}
             onRetry={() => overview.refetch()}
+            verbose
           />
         )
       ) : overview.isPending || !overview.data ? (
@@ -320,11 +321,16 @@ function BackgroundRuns() {
             <p>{notice}</p>
           </Banner>
         ) : null}
-        {resume.isError ? <ErrorNotice error={resume.error} /> : null}
-        {reconcile.isError ? <ErrorNotice error={reconcile.error} /> : null}
+        {/* The administration screen is where the raw status and the
+            server's own words are read: everything else says it in the
+            product's voice (see src/lib/errors.ts). */}
+        {resume.isError ? <ErrorNotice error={resume.error} verbose /> : null}
+        {reconcile.isError ? (
+          <ErrorNotice error={reconcile.error} verbose />
+        ) : null}
 
         {runs.isError ? (
-          <ErrorNotice error={runs.error} onRetry={() => runs.refetch()} />
+          <ErrorNotice error={runs.error} onRetry={() => runs.refetch()} verbose />
         ) : runs.isPending ? (
           <ProgressState
             title="Reading the background runs"

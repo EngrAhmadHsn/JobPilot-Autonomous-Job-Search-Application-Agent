@@ -170,8 +170,18 @@ describe("the administration screen", () => {
       screen.getByRole("button", { name: "Resume outstanding work" })
     )
 
+    // The sentence appears twice on purpose: as the message, and inside the
+    // technical line the administrator reads.
     expect(
-      await screen.findByText(/This run embedded with a different model/)
+      (await screen.findAllByText(/This run embedded with a different model/))
+        .length
+    ).toBeGreaterThan(0)
+    // The administration panel is where the raw answer is wanted: the
+    // status and the server's own words, verbatim.
+    expect(
+      screen.getByText(
+        "HTTP 409 · This run embedded with a different model."
+      )
     ).toBeInTheDocument()
   })
 
