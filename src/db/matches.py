@@ -48,11 +48,13 @@ class JobMatchDB(Base):
 _SCORE_FIELDS = (
     "overall_score",
     "semantic_score",
+    "lexical_score",
     "skill_score",
     "experience_score",
     "seniority_score",
     "location_score",
     "preference_score",
+    "evidence_coverage",
 )
 
 
@@ -66,6 +68,7 @@ def build_match_rows(
         scores = {field: getattr(match, field) for field in _SCORE_FIELDS}
         scores["missing_requirements"] = list(match.missing_requirements)
         scores["matched_requirements"] = list(match.matched_requirements)
+        scores["component_states"] = dict(match.component_states)
         rows.append(
             JobMatchDB(
                 owner_id=owner_id,

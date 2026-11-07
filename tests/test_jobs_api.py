@@ -37,8 +37,10 @@ class RecordingExecutor:
         self._report = report
         self.calls: list[tuple] = []
 
-    def __call__(self, profile, query, location, top_n):
-        self.calls.append((profile.personal_information.name, query, location, top_n))
+    def __call__(self, profile, query, location, top_n, *, only_embedded=False):
+        self.calls.append(
+            (profile.personal_information.name, query, location, top_n, only_embedded)
+        )
         return self._report
 
 
@@ -128,7 +130,7 @@ def test_search_with_overridden_executor(api: TestClient, profile_id: str) -> No
     assert len(body["results"]) == 2
 
     # The stored profile (not a fresh parse) reached the executor, with args.
-    assert executor.calls == [("Ahmad Hassan", "python engineer", "Remote", 5)]
+    assert executor.calls == [("Ahmad Hassan", "python engineer", "Remote", 5, False)]
 
     first = body["results"][0]
     assert first["job"]["id"].startswith("fixture:")
@@ -267,7 +269,9 @@ def test_an_unreadable_run_is_a_404_not_an_existence_oracle(api: TestClient) -> 
     assert api.get("/api/runs/no-such-run").status_code == 404
 
 
-def test_search_defaults_to_store_only_executor(api: TestClient, tmp_path: Path, profile_id: str) -> None:
+def test_search_defaults_to_store_only_executor(
+    api: TestClient, tmp_path: Path, profile_id: str
+) -> None:
     """Without an override, /api/jobs/search must run the store-only path:
     persisted rows are matched, no board source is contacted."""
     from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store

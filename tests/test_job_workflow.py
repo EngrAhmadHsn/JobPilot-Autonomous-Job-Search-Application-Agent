@@ -198,7 +198,11 @@ def test_degraded_mode_when_store_factory_fails(profile, tmp_session_factory, tm
     assert report.degraded is True
     assert len(report.results) == len(FIXTURE_JOBS)
     assert all(pair.match.semantic_score == 0.0 for pair in report.results)
-    assert all("degraded mode" in pair.match.explanation for pair in report.results)
+    # WS-20: the semantic component is explicitly unknown, not silently zero.
+    assert all(
+        pair.match.component_states["semantic"] == "EMBEDDING_UNAVAILABLE"
+        for pair in report.results
+    )
 
 
 def test_degraded_mode_when_embedding_fails_mid_run(profile, tmp_session_factory, tmp_path):

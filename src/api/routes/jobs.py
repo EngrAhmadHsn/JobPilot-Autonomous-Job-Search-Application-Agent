@@ -69,6 +69,14 @@ class JobSearchRequest(BaseModel):
         None, description="Optional case-insensitive location substring filter"
     )
     top_n: int = Field(10, ge=1, description="Size of the ranked slice (clamped server-side)")
+    only_embedded: bool = Field(
+        False,
+        description=(
+            "WS-20: return only listings with a verified vector. Off by default — a "
+            "pending listing stays visible (it may still match lexically) but earns no "
+            "semantic credit."
+        ),
+    )
 
 
 class JobSearchResponse(BaseModel):
@@ -79,6 +87,8 @@ class JobSearchResponse(BaseModel):
     source_errors: dict[str, str] = Field(default_factory=dict)
     stats: JobSearchStats
     degraded: bool = False
+    #: WS-20: share of the considered listings that had a real semantic vector.
+    semantic_coverage: float = 100.0
 
 
 class RunAcceptedResponse(BaseModel):
@@ -130,9 +140,11 @@ def get_job_search_executor(
     """
     from sqlalchemy.orm import sessionmaker
 
-    def execute(profile, query, location, top_n) -> JobSearchReport:
+    def execute(profile, query, location, top_n, *, only_embedded=False) -> JobSearchReport:
         factory = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)
-        return search_stored_jobs(profile, query, location, top_n, session_factory=factory)
+        return search_stored_jobs(
+            profile, query, location, top_n, only_embedded=only_embedded, session_factory=factory
+        )
 
     return execute
 
@@ -251,7 +263,7 @@ def search_jobs(
         },
     )
 
-    report = executor(profile, req.query, req.location, req.top_n)
+    report = executor(profile, req.query, req.location, req.top_n, only_embedded=req.only_embedded)
 
     if report.results:
         db.add_all(build_match_rows(req.profile_id, report.results, owner_id=scope.user_id))
@@ -293,6 +305,7 @@ def search_jobs(
         source_errors=report.source_errors,
         stats=report.stats,
         degraded=report.degraded,
+        semantic_coverage=report.semantic_coverage,
     )
 
 

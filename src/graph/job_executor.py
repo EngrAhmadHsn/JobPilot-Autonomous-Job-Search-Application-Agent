@@ -50,6 +50,8 @@ class JobSearchStats(BaseModel):
     deduped: int = 0  # unique listings that reached matching
     persisted: int = 0  # rows upserted into the jobs table
     stored: int = 0  # listings loaded from the jobs table (store-only search)
+    #: WS-20: how many of the considered listings had a usable semantic vector.
+    semantic_covered: int = 0
 
 
 class JobSearchReport(BaseModel):
@@ -58,7 +60,9 @@ class JobSearchReport(BaseModel):
     results: list[JobMatchPair] = Field(default_factory=list)
     source_errors: dict[str, str] = Field(default_factory=dict)
     stats: JobSearchStats = Field(default_factory=JobSearchStats)
-    degraded: bool = False  # semantic scoring was unavailable (WS-03 mode)
+    degraded: bool = False  # some listings scored without the semantic component (WS-03/WS-20)
+    #: WS-20: percentage of considered listings that had a real semantic vector.
+    semantic_coverage: float = 100.0
 
 
 class JobRefreshStats(BaseModel):
@@ -685,6 +689,7 @@ def search_stored_jobs(
     location: str | None = None,
     top_n: int = DEFAULT_TOP_N,
     *,
+    only_embedded: bool = False,
     store_factory: StoreFactory | None = None,
     session_factory: sessionmaker | None = None,
 ) -> JobSearchReport:
@@ -692,12 +697,18 @@ def search_stored_jobs(
 
     Loads every listing from the ``jobs`` table, scores it with the hybrid
     engine (semantics from the vector store, one query-embedding request for
-    the candidate text), ranks, and returns the top-N. Optional ``query`` and
-    ``location`` narrow the corpus client-side (ANY query token in
-    title+description; case-insensitive location substring) — deterministic,
-    no sources are ever contacted. Listings not yet in the vector store
-    (embedding backfill still trickling, or a store failure) score without
-    the semantic component and flip the report's ``degraded`` flag.
+    the candidate text; a BM25 lexical channel over the full posting), ranks,
+    and returns the top-N. Optional ``query`` and ``location`` narrow the
+    corpus client-side (ANY query token in title+description; case-insensitive
+    location substring) — deterministic, no sources are ever contacted.
+
+    WS-20: a listing with no vector is **not** advantaged. The WS-18 queue is
+    consulted for its embedding state (``EMBEDDING_PENDING`` vs
+    ``EMBEDDING_UNAVAILABLE``), it earns zero semantic credit, and the fixed
+    denominator means nothing is redistributed onto it. ``only_embedded``
+    filters such listings out entirely; it is off by default so a pending
+    listing stays visible as a lexical/structured match. Ranking is a stable
+    ``(score desc, job id)`` sort.
 
     Returns:
         JobSearchReport — never raises for store failures (degrades instead).
@@ -750,8 +761,7 @@ def search_stored_jobs(
 
         store = _get_store(store_factory)
     similarities: dict[str, float] = {}
-    # An empty corpus is not degraded — there is nothing missing semantics.
-    degraded = bool(jobs) and store is None
+    store_unavailable = bool(jobs) and store is None
     if store is not None:
         from src.rag.chroma_store import candidate_query_text
 
@@ -760,33 +770,97 @@ def search_stored_jobs(
             # query() drops one row when n_results == count, which used to
             # report a phantom gap and flip `degraded`.
             similarities = store.similarities_for_all(candidate_query_text(profile))
-            degraded = any(job.id not in similarities for job in jobs)
-            if degraded:
-                logger.warning(
-                    "Some stored listings lack vectors (backfill in flight): %d/%d have semantics",
-                    len(similarities),
-                    len(jobs),
-                )
         except Exception:
-            logger.exception("Vector store unavailable; matching in degraded mode")
+            logger.exception("Vector store unavailable; matching with lexical + structured signals")
             similarities = {}
-            degraded = True
+            store_unavailable = True
+
+    # WS-20: ask the WS-18 queue what the embedding state of each vector-less
+    # listing actually is, instead of collapsing "queued", "failed" and "the
+    # store is down" into one boolean.
+    from src.matching.embedding_status import embedding_status_for_jobs, is_pending_status
+    from src.matching.lexical import (
+        Bm25Index,
+        candidate_lexical_text,
+        candidate_tokens,
+        lexical_score,
+    )
+    from src.matching.scores import ScoreState
+
+    missing_ids = [job.id for job in jobs if job.id not in similarities]
+    statuses = (
+        embedding_status_for_jobs(missing_ids, session_factory=factory) if missing_ids else {}
+    )
+
+    # WS-20: an explicit, opt-in filter for fully-indexed results. Off by
+    # default: a pending listing stays visible (it may still be a good lexical
+    # match) but earns no semantic credit.
+    if only_embedded:
+        jobs = [job for job in jobs if job.id in similarities]
+
+    index = Bm25Index(jobs)
+    candidate_token_list = candidate_tokens(profile)
+    candidate_text = candidate_lexical_text(profile)
 
     from src.matching.engine import calculate_match
 
-    matches = [
-        JobMatchPair(job=job, match=calculate_match(job, profile, semantic_score=sim))
-        for job, sim in ((job, similarities.get(job.id)) for job in jobs)
-    ]
-    ranked = sorted(matches, key=lambda pair: pair.match.overall_score, reverse=True)
+    matches: list[JobMatchPair] = []
+    semantic_covered = 0
+    for job in jobs:
+        if job.id in similarities:
+            semantic_score: float | None = similarities[job.id]
+            semantic_state: ScoreState | None = None
+            semantic_covered += 1
+        else:
+            semantic_score = None
+            if store_unavailable:
+                semantic_state = ScoreState.EMBEDDING_UNAVAILABLE
+            else:
+                status = statuses.get(job.id)
+                if status is None or is_pending_status(status):
+                    semantic_state = ScoreState.EMBEDDING_PENDING
+                else:
+                    # An item exists but is not pending (e.g. COMPLETED) yet the
+                    # store has no vector: treat as an outage, not a pending job.
+                    semantic_state = ScoreState.EMBEDDING_UNAVAILABLE
+        lexical_result = lexical_score(
+            job,
+            index=index,
+            candidate_token_list=candidate_token_list,
+            candidate_text=candidate_text,
+        )
+        match = calculate_match(
+            job,
+            profile,
+            semantic_score=semantic_score,
+            semantic_state=semantic_state,
+            lexical=lexical_result,
+        )
+        matches.append(JobMatchPair(job=job, match=match))
+
+    # Deterministic tie-break on the job id so a repeated search is stable.
+    ranked = sorted(matches, key=lambda pair: (-pair.match.overall_score, pair.job.id))
     top = ranked[:clamped_top_n]
+
+    degraded = bool(jobs) and semantic_covered < len(jobs)
+    if degraded:
+        logger.warning(
+            "Semantic coverage %d/%d (pending or failed embeddings): those listings "
+            "score without the semantic component",
+            semantic_covered,
+            len(jobs),
+        )
+    semantic_coverage = (semantic_covered / len(jobs) * 100.0) if jobs else 100.0
 
     stats = JobSearchStats(
         found=0,  # store-only: no sources contacted
         deduped=len(jobs),
         stored=len(jobs),
+        semantic_covered=semantic_covered,
     )
-    report = JobSearchReport(results=top, stats=stats, degraded=degraded)
+    report = JobSearchReport(
+        results=top, stats=stats, degraded=degraded, semantic_coverage=semantic_coverage
+    )
     logger.info(
         "Stored-job search complete",
         extra={
@@ -794,6 +868,7 @@ def search_stored_jobs(
             "considered": len(jobs),
             "returned": len(report.results),
             "degraded": report.degraded,
+            "semantic_coverage": round(semantic_coverage, 1),
         },
     )
     return report
