@@ -67,6 +67,11 @@ ACTION_RUN_RECONCILE = "run.reconcile"
 # EEO selections. One row per write, holding **field names and counts only** —
 # never an EEO value, never a salary figure, never a work-authorization answer.
 ACTION_PROFILE_UPDATE = "profile.update"
+# WS-20 follow-up: the administrator starts or stops a background worker
+# process from the console. One row per action, holding the worker id, pid and
+# host — never a command line, never an environment.
+ACTION_WORKER_START = "worker.start"
+ACTION_WORKER_STOP = "worker.stop"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"

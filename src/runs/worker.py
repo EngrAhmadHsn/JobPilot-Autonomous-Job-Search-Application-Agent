@@ -49,6 +49,7 @@ from src.runs.state import (
     ERROR_PERMANENT,
     WORK_COMPLETED,
     WORK_FAILED,
+    WORKER_STOPPING,
     utcnow,
 )
 
@@ -214,8 +215,18 @@ class Worker:
                     failed_items=self._failed_since_heartbeat,
                     now=self._now(),
                 )
+                # The stop request is cooperative and lives in the heartbeat
+                # row, so an operator who started this worker from anywhere —
+                # the console, a shell, a service manager — can ask it to stop
+                # without the caller holding a handle on the process.
+                status = queue.read_worker_status(session, worker_id=self.worker_id)
             self._processed_since_heartbeat = 0
             self._failed_since_heartbeat = 0
+            if status == WORKER_STOPPING and not self._stop.is_set():
+                logger.info(
+                    "Worker %s was asked to stop; finishing the current batch", self.worker_id
+                )
+                self.request_stop()
         except Exception:
             logger.exception("Worker heartbeat failed")
 
@@ -309,9 +320,7 @@ class Worker:
             )
         except Exception as exc:  # noqa: BLE001 - classified below
             retryable, _kind = _classify(exc)
-            self._settle_failure(
-                item, error=f"{type(exc).__name__}: {exc}", retryable=retryable
-            )
+            self._settle_failure(item, error=f"{type(exc).__name__}: {exc}", retryable=retryable)
 
     def _execute_refresh(self, item: queue.ClaimedWork) -> None:
         run = self._load_run(item.run_id)

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.runs import JobRunDB, JobRunEventDB, JobWorkItemDB, WorkerHeartbeatDB
@@ -64,6 +64,7 @@ from src.runs.state import (
     WORK_QUEUED,
     WORK_RETRY_WAIT,
     WORK_RUNNING,
+    WORKER_STOPPING,
     IllegalTransition,
     LeaseLost,
     assert_transition,
@@ -1271,7 +1272,14 @@ def heartbeat_worker(
         update(WorkerHeartbeatDB)
         .where(WorkerHeartbeatDB.worker_id == worker_id)
         .values(
-            status="running",
+            # A heartbeat must not erase a stop request: "stopping" is how an
+            # operator (or the console) asks a worker to finish and exit, and
+            # the worker reads it on its next heartbeat. Only a non-stopping
+            # row is reset to "running".
+            status=case(
+                (WorkerHeartbeatDB.status == WORKER_STOPPING, WORKER_STOPPING),
+                else_="running",
+            ),
             last_heartbeat_at=_now(now),
             current_run_id=current_run_id,
             processed_items=WorkerHeartbeatDB.processed_items + int(processed_items),
@@ -1280,6 +1288,34 @@ def heartbeat_worker(
         .execution_options(synchronize_session=False)
     )
     session.commit()
+
+
+def read_worker_status(session: Session, *, worker_id: str) -> str | None:
+    """The persisted status of one worker, or ``None`` when unknown."""
+    return session.execute(
+        select(WorkerHeartbeatDB.status).where(WorkerHeartbeatDB.worker_id == worker_id)
+    ).scalar_one_or_none()
+
+
+def request_worker_stop(session: Session, *, worker_id: str, now: datetime | None = None) -> bool:
+    """Ask a worker to finish its batch and exit; True when a row changed.
+
+    The request is cooperative and lives in the database, so it reaches a
+    worker started by anyone — the console, a shell, a service manager — on
+    any host that shares the database, without the API needing a handle on a
+    process it did not spawn.
+    """
+    result = session.execute(
+        update(WorkerHeartbeatDB)
+        .where(
+            WorkerHeartbeatDB.worker_id == worker_id,
+            WorkerHeartbeatDB.status.notin_((WORKER_STOPPING, "stopped", "crashed")),
+        )
+        .values(status=WORKER_STOPPING)
+        .execution_options(synchronize_session=False)
+    )
+    session.commit()
+    return bool(result.rowcount)
 
 
 def mark_worker_stopped(
@@ -1312,9 +1348,7 @@ def worker_health(
     for worker in workers:
         age = (moment - worker.last_heartbeat_at).total_seconds()
         is_healthy = worker.status == "running" and age <= stale_after
-        elapsed_minutes = max(
-            (moment - worker.started_at).total_seconds() / 60.0, 1.0 / 60.0
-        )
+        elapsed_minutes = max((moment - worker.started_at).total_seconds() / 60.0, 1.0 / 60.0)
         healthy += 1 if is_healthy else 0
         entries.append(
             {

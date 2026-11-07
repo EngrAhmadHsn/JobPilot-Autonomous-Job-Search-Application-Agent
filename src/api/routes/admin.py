@@ -39,7 +39,14 @@ from src.db.audit import AuditEventDB
 from src.db.session import get_db
 from src.runs import queue as run_queue
 from src.runs import service as run_service
+from src.runs import supervisor as worker_supervisor
 from src.runs.embedding import JOB_TYPE_EMBEDDING
+from src.security.audit import (
+    ACTION_WORKER_START,
+    ACTION_WORKER_STOP,
+    OUTCOME_SUCCESS,
+    record_audit,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -347,19 +354,119 @@ def read_job_metrics(
     return run_service.queue_metrics(db)
 
 
+class WorkerStartRequest(BaseModel):
+    """Optional shape for starting a worker."""
+
+    worker_id: str | None = None
+
+
+class WorkerActionResponse(BaseModel):
+    """The result of starting or stopping a worker."""
+
+    worker_id: str
+    status: str
+    pid: int | None = None
+    detail: str = ""
+
+
 @router.get("/health/workers")
 def read_worker_health(
     db: Annotated[Session, Depends(get_db)],
     scope: Annotated[UserScope, Depends(require_superuser)],
 ) -> dict:
-    """Whether the background worker is alive — which the API cannot infer.
+    """Whether a background worker is alive, and how to manage one.
 
     A process that answers HTTP requests says nothing about whether any
-    worker is draining the queue. This endpoint reads the heartbeats and the
-    queue's shape, and is deliberately separate from the API's own
-    readiness.
+    worker is draining the queue, so this reads the heartbeats directly. It
+    also reports whether this deployment lets the console start and stop
+    workers, and how many it may run at once, so the screen can show the
+    bound rather than hide it.
     """
+    health = run_queue.worker_health(db)
+    spawned = {handle.worker_id: handle for handle in worker_supervisor.spawned_workers()}
+    for worker in health["workers"]:
+        handle = spawned.get(worker["worker_id"])
+        worker["spawned_by_api"] = handle is not None
+        # Only a worker that is actually alive can be stopped meaningfully;
+        # a stale row is one that is already gone.
+        worker["stoppable"] = worker["healthy"]
+    settings = get_settings()
     return {
-        "workers": run_queue.worker_health(db),
+        "workers": health,
         "queue": run_queue.queue_stats(db),
+        "control": {
+            "enabled": settings.worker_control_enabled,
+            "max_concurrent": settings.worker_max_concurrent,
+        },
     }
+
+
+@router.post("/workers", response_model=WorkerActionResponse, status_code=status.HTTP_202_ACCEPTED)
+def start_worker(
+    scope: Annotated[UserScope, Depends(require_superuser)],
+    body: WorkerStartRequest | None = None,
+) -> WorkerActionResponse:
+    """Start one background worker process, within the configured bound.
+
+    The command is fixed (the application's own worker module) and the worker
+    id is a label, not input. Starting is refused when the deployment has not
+    enabled it, and when the maximum number of workers is already running. An
+    administrator sees the bound on the screen; the server enforces it here.
+    """
+    try:
+        handle = worker_supervisor.start_worker(worker_id=body.worker_id if body else None)
+    except worker_supervisor.WorkerControlDisabled as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except worker_supervisor.WorkerLimitReached as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    record_audit(
+        ACTION_WORKER_START,
+        actor=scope.user_id,
+        resource=handle.worker_id,
+        outcome=OUTCOME_SUCCESS,
+        owner_id=scope.user_id,
+        metadata={"worker_id": handle.worker_id, "pid": handle.pid},
+    )
+    return WorkerActionResponse(
+        worker_id=handle.worker_id, status="starting", pid=handle.pid, detail="Worker starting"
+    )
+
+
+@router.post("/workers/{worker_id}/stop", response_model=WorkerActionResponse)
+def stop_worker(
+    worker_id: str,
+    scope: Annotated[UserScope, Depends(require_superuser)],
+) -> WorkerActionResponse:
+    """Ask a running worker to finish its current batch and exit.
+
+    The request is **cooperative**: it is written to the worker's heartbeat
+    row and the worker acts on it, so a worker this API did not start (or no
+    longer remembers) is stopped the same way. Nothing is signalled, and in-
+    flight work is completed before the worker leaves.
+    """
+    try:
+        changed = worker_supervisor.stop_worker(worker_id=worker_id)
+    except worker_supervisor.WorkerControlDisabled as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if not changed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No running worker {worker_id!r} to stop",
+        )
+
+    record_audit(
+        ACTION_WORKER_STOP,
+        actor=scope.user_id,
+        resource=worker_id,
+        outcome=OUTCOME_SUCCESS,
+        owner_id=scope.user_id,
+        metadata={"worker_id": worker_id},
+    )
+    return WorkerActionResponse(
+        worker_id=worker_id, status="stopping", detail="Worker will stop after the current batch"
+    )

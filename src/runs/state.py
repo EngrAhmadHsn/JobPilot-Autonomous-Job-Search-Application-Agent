@@ -60,6 +60,11 @@ __all__ = [
     "RUN_STATUSES",
     "RUN_TRANSITIONS",
     "TERMINAL_RUN_STATUSES",
+    "WORKER_CRASHED",
+    "WORKER_RUNNING",
+    "WORKER_STATUSES",
+    "WORKER_STOPPED",
+    "WORKER_STOPPING",
     "WORK_CANCELLED",
     "WORK_COMPLETED",
     "WORK_FAILED",
@@ -112,9 +117,7 @@ ACTIVE_RUN_STATUSES: frozenset[str] = frozenset(
 #: attributable administrator action, not adopted silently by whichever
 #: worker polls next. ``PAUSED`` is excluded for the same reason (a budget
 #: stop must not spin).
-CLAIMABLE_RUN_STATUSES: frozenset[str] = frozenset(
-    {RUN_QUEUED, RUN_RUNNING, RUN_RETRY_WAIT}
-)
+CLAIMABLE_RUN_STATUSES: frozenset[str] = frozenset({RUN_QUEUED, RUN_RUNNING, RUN_RETRY_WAIT})
 
 #: A run an administrator may explicitly put back in the queue.
 RESUMABLE_RUN_STATUSES: frozenset[str] = frozenset(
@@ -187,6 +190,22 @@ WORK_TRANSITIONS: dict[str, frozenset[str]] = {
     WORK_FAILED: frozenset({WORK_QUEUED}),
     WORK_CANCELLED: frozenset(),
 }
+
+# -- worker statuses (the heartbeat row) -------------------------------------
+
+#: The worker is looping normally.
+WORKER_RUNNING = "running"
+#: An operator asked it to finish the current batch and exit. Cooperative:
+#: the worker reads this on its next heartbeat and stops itself.
+WORKER_STOPPING = "stopping"
+#: It exited cleanly.
+WORKER_STOPPED = "stopped"
+#: Its lease/run was reaped because it went silent.
+WORKER_CRASHED = "crashed"
+
+WORKER_STATUSES: frozenset[str] = frozenset(
+    {WORKER_RUNNING, WORKER_STOPPING, WORKER_STOPPED, WORKER_CRASHED}
+)
 
 # -- failure categories ------------------------------------------------------
 

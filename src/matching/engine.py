@@ -35,7 +35,7 @@ from src.matching.lexical import (
 )
 from src.matching.scores import ComponentScore, ScoreState, blend, measured_state
 from src.matching.weights import DEFAULT_WEIGHTS, validate_weights
-from src.resume.profile import CandidateProfile, work_preferences_stated
+from src.resume.profile import CandidateProfile, WorkPreferences, work_preferences_stated
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,37 @@ def _seniority_rank(text: str | None) -> int | None:
         if re.search(rf"\b{re.escape(keyword)}\b", lowered):
             return rank
     return None
+
+
+def _effective_preferences(profile: CandidateProfile) -> WorkPreferences:
+    """The candidate's preferences: what they confirmed, then what the résumé said.
+
+    A résumé rarely states a work mode or a salary floor; the application
+    profile is where the user does. A confirmed value therefore *wins* over a
+    résumé-derived one, field by field, and the résumé value is the fallback.
+    This is what makes editing the preferences on the Profile screen change the
+    ranking, instead of only changing a display.
+    """
+    resume = profile.work_preferences
+    app = getattr(profile, "application_profile", None)
+    prefs = getattr(app, "preferences", None) if app is not None else None
+    answers = getattr(app, "answers", None) if app is not None else None
+    if prefs is None:
+        return resume
+
+    merged = resume.model_copy(deep=True)
+    if prefs.remote_preference:
+        merged.remote_preference = prefs.remote_preference
+    if prefs.preferred_locations:
+        merged.preferred_locations = list(prefs.preferred_locations)
+    if prefs.employment_types:
+        merged.employment_types = list(prefs.employment_types)
+    compensation = getattr(answers, "compensation", None) if answers is not None else None
+    expected = getattr(compensation, "expected_salary", None) if compensation is not None else None
+    if expected is not None and not merged.min_salary:
+        currency = getattr(compensation, "expected_currency", None) or ""
+        merged.min_salary = f"{currency} {expected:g}".strip()
+    return merged
 
 
 def _normalize_employment_type(value: str | None) -> str:
@@ -238,7 +269,7 @@ def _seniority_component(job: JobListing, profile: CandidateProfile) -> Componen
 
 
 def _location_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
-    prefs = profile.work_preferences
+    prefs = _effective_preferences(profile)
     policy = (job.remote_policy or "").casefold().replace("-", "").replace(" ", "")
     job_location = (job.location or "").casefold()
     preferred = [loc.strip().casefold() for loc in prefs.preferred_locations if loc.strip()]
@@ -278,7 +309,7 @@ def _location_component(job: JobListing, profile: CandidateProfile) -> Component
 
 
 def _preference_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
-    prefs = profile.work_preferences
+    prefs = _effective_preferences(profile)
     subscores: list[float] = []
     job_has_signal = False
 

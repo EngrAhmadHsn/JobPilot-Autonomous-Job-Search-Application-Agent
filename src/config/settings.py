@@ -150,6 +150,25 @@ class Settings:
         # How old a worker's last heartbeat may be before the health endpoint
         # stops calling it healthy.
         self.worker_stale_seconds = float(os.getenv("WORKER_STALE_SECONDS", "60"))
+        # Whether the API may start and stop worker processes on its own host.
+        #
+        # An HTTP endpoint that spawns a process is a capability, not a
+        # convenience, so it is **off by default in production** and on in
+        # development, where the worker is one screen away. A production
+        # deployment supervises its worker outside the API (systemd, a
+        # container, a Windows service) and leaves this off. The bound is
+        # what makes "start another worker" safe to expose at all.
+        raw_worker_control = os.getenv("WORKER_CONTROL_ENABLED")
+        if raw_worker_control is None:
+            self.worker_control_enabled = self.app_env == "development"
+        else:
+            self.worker_control_enabled = raw_worker_control.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        self.worker_max_concurrent = int(os.getenv("WORKER_MAX_CONCURRENT", "4"))
         # Retries: one schedule for every provider call. A cap keeps a
         # provider that asks for an hour of backoff from parking a worker.
         self.retry_max_delay_seconds = float(os.getenv("RETRY_MAX_DELAY_SECONDS", "60"))
@@ -178,6 +197,8 @@ class Settings:
             raise RuntimeError("WORKER_BATCH_SIZE must be at least 1. Refusing to start.")
         if self.worker_max_attempts < 1:
             raise RuntimeError("WORKER_MAX_ATTEMPTS must be at least 1. Refusing to start.")
+        if self.worker_max_concurrent < 1:
+            raise RuntimeError("WORKER_MAX_CONCURRENT must be at least 1. Refusing to start.")
         if self.circuit_failure_threshold < 1:
             raise RuntimeError("CIRCUIT_FAILURE_THRESHOLD must be at least 1. Refusing to start.")
 

@@ -147,6 +147,9 @@ SETTINGS_VAR_TO_ATTR = {
     "CIRCUIT_FAILURE_THRESHOLD": "circuit_failure_threshold",
     "CIRCUIT_RECOVERY_SECONDS": "circuit_recovery_seconds",
     "CIRCUIT_SHARED_STATE": "circuit_shared_state",
+    # WS-20 follow-up: the API's bounded worker control.
+    "WORKER_CONTROL_ENABLED": "worker_control_enabled",
+    "WORKER_MAX_CONCURRENT": "worker_max_concurrent",
 }
 
 # The same, for the WS-12 runtime limits.
