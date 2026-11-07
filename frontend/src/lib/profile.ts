@@ -48,10 +48,19 @@ export function getCurrentProfileId(): string | null {
   return current
 }
 
-/** Choose the profile the console works with (null clears it). */
-export function setCurrentProfileId(profileId: string | null): void {
+/**
+ * Choose the profile the console works with (null clears it).
+ *
+ * Named "choose" rather than "set": this is an **external store** write (it
+ * persists the handle and notifies the subscribers), not a React state
+ * update, and the name should not imply otherwise.
+ */
+export function chooseProfile(profileId: string | null): void {
   write(profileId)
 }
+
+/** The former name, kept so an older call site keeps compiling. */
+export const setCurrentProfileId = chooseProfile
 
 /** Subscribe to changes of the current profile. */
 export function subscribeToCurrentProfile(listener: () => void): () => void {

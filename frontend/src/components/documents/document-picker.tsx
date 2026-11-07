@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FileText, Upload } from "lucide-react"
-import { useRef } from "react"
+import { useRef, useState } from "react"
 
 import { ErrorNotice } from "@/components/common/error-notice"
+import { Pagination } from "@/components/common/pagination"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { Button } from "@/components/ui/button"
 
@@ -11,6 +12,24 @@ import { api } from "@/lib/api/endpoints"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { stagger } from "@/lib/stagger"
 import type { DocumentRecord } from "@/lib/api/types"
+
+/** How many documents one page of the library shows. */
+export const DOCUMENTS_PER_PAGE = 5
+
+/**
+ * The account's documents.
+ *
+ * One query, shared by every screen that lists them: the résumé the operator
+ * uploaded and every tailored résumé the agent produced. The backend returns
+ * the whole library newest first (there is no paging parameter), so the
+ * console pages what it already has.
+ */
+export function useDocuments() {
+  return useQuery({
+    queryKey: ["documents"],
+    queryFn: ({ signal }) => api.documents(signal),
+  })
+}
 
 /** How a document is described in the list. */
 function DocumentRow({
@@ -53,14 +72,20 @@ function DocumentRow({
       </span>
       <span className="flex shrink-0 items-center gap-4">
         {onUse ? (
-          <button
-            type="button"
-            onClick={onUse}
-            aria-label={`Use ${document.title}`}
-            className="text-xs font-medium text-primary underline underline-offset-4 transition-colors hover:text-foreground"
-          >
-            Use
-          </button>
+          selected ? (
+            // The console is reading this document right now. Saying so beats
+            // a "Use" button that would do what is already true.
+            <span className="text-xs font-medium text-primary">In use</span>
+          ) : (
+            <button
+              type="button"
+              onClick={onUse}
+              aria-label={`Use ${document.title}`}
+              className="text-xs font-medium text-primary underline underline-offset-4 transition-colors hover:text-foreground"
+            >
+              Use
+            </button>
+          )
         ) : null}
         <a
           href={apiUrl(
@@ -78,9 +103,13 @@ function DocumentRow({
   if (!onSelect) {
     return (
       <li
+        aria-current={selected || undefined}
         {...stagger(
           index,
-          "flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+          "flex items-center gap-3 rounded-xl border px-3 py-2.5 " +
+            (selected
+              ? "border-primary bg-accent/50"
+              : "border-border bg-card")
         )}
       >
         {content}
@@ -120,22 +149,72 @@ function DocumentRow({
   )
 }
 
+/** A paged list of rows, with the counter and the page control. */
+function DocumentPages({
+  items,
+  selectedId,
+  onSelect,
+  onUse,
+  page,
+  onPageChange,
+}: {
+  items: DocumentRecord[]
+  selectedId?: string | null
+  onSelect?: (document: DocumentRecord) => void
+  onUse?: (document: DocumentRecord) => void
+  page: number
+  onPageChange: (page: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(items.length / DOCUMENTS_PER_PAGE))
+  const safePage = Math.min(page, pages - 1)
+  const visible = items.slice(
+    safePage * DOCUMENTS_PER_PAGE,
+    (safePage + 1) * DOCUMENTS_PER_PAGE
+  )
+
+  return (
+    <>
+      <ul className="space-y-2">
+        {visible.map((document, index) => (
+          <DocumentRow
+            key={document.id}
+            index={index}
+            document={document}
+            selected={selectedId === document.id}
+            onSelect={onSelect ? () => onSelect(document) : undefined}
+            onUse={onUse ? () => onUse(document) : undefined}
+          />
+        ))}
+      </ul>
+      <Pagination
+        page={safePage}
+        pageSize={DOCUMENTS_PER_PAGE}
+        total={items.length}
+        onPageChange={onPageChange}
+        label="documents"
+      />
+    </>
+  )
+}
+
 /**
  * The account's documents, as a list.
  *
- * What the operator already has: the résumé they uploaded and the tailored
- * résumés the agent produced. Each one can be opened.
+ * `selectedId` marks the document the console is currently working with, so
+ * the operator can see which one the screens are reading — the same
+ * highlight the approvals picker uses.
  */
 export function DocumentList({
+  selectedId,
   onUse,
 }: {
+  /** The document the console is working with, when there is one. */
+  selectedId?: string | null
   /** Called with the document the operator chose to work with. */
   onUse?: (document: DocumentRecord) => void
 } = {}) {
-  const documents = useQuery({
-    queryKey: ["documents"],
-    queryFn: ({ signal }) => api.documents(signal),
-  })
+  const documents = useDocuments()
+  const [page, setPage] = useState(0)
 
   if (documents.isPending) {
     return <ProgressState key="documents" title="Loading your documents" />
@@ -161,17 +240,13 @@ export function DocumentList({
   }
 
   return (
-    <ul className="space-y-2">
-      {items.map((document, index) => (
-        <DocumentRow
-          key={document.id}
-          index={index}
-          document={document}
-          selected={false}
-          onUse={onUse ? () => onUse(document) : undefined}
-        />
-      ))}
-    </ul>
+    <DocumentPages
+      items={items}
+      selectedId={selectedId}
+      onUse={onUse}
+      page={page}
+      onPageChange={setPage}
+    />
   )
 }
 
@@ -193,11 +268,9 @@ export function DocumentPicker({
 }) {
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [page, setPage] = useState(0)
 
-  const documents = useQuery({
-    queryKey: ["documents"],
-    queryFn: ({ signal }) => api.documents(signal),
-  })
+  const documents = useDocuments()
 
   /*
     The upload selects the document it just created.
@@ -249,16 +322,13 @@ export function DocumentPicker({
       ) : null}
 
       {items.length > 0 ? (
-        <ul className="space-y-2">
-          {items.map((document) => (
-            <DocumentRow
-              key={document.id}
-              document={document}
-              selected={selected?.id === document.id}
-              onSelect={() => onChange(document.path)}
-            />
-          ))}
-        </ul>
+        <DocumentPages
+          items={items}
+          selectedId={selected?.id ?? null}
+          onSelect={(document) => onChange(document.path)}
+          page={page}
+          onPageChange={setPage}
+        />
       ) : null}
 
       <input

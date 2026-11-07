@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { FileText, Upload } from "lucide-react"
 import { useRef, useState } from "react"
 import { Link } from "react-router-dom"
@@ -11,10 +11,10 @@ import { DocumentList } from "@/components/documents/document-picker"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Button } from "@/components/ui/button"
 
-import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { formatBytes } from "@/lib/format"
-import { setCurrentProfileId, useCurrentProfileId } from "@/lib/profile"
+import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
+import { chooseProfile } from "@/lib/profile"
 
 /**
  * The upload rules, mirrored from the server.
@@ -146,35 +146,38 @@ const STEPS = [
  * and the next step.
  */
 export function ResumeScreen() {
-  const profileId = useCurrentProfileId()
+  const { profileId, profile: storedProfile, missing: profileMissing, documents } =
+    useProfileWithFallback()
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  /** The document the operator picked, when it differs from the derived one. */
+  const [chosenDocumentId, setChosenDocumentId] = useState<string | null>(null)
 
   const upload = useMutation({
     mutationFn: (resume: File) => api.uploadResume(resume),
     onSuccess: (result) => {
-      setCurrentProfileId(result.profile_id)
+      chooseProfile(result.profile_id)
+      setChosenDocumentId(null)
     },
   })
 
   /*
-    The server is the authority about the profile. A handle the console kept
-    from an earlier session may name a profile this account cannot read —
-    another account's, or one that has been removed. The server says 404,
-    and the console says so in words the operator can act on, rather than
-    leaving a broken profile behind a raw error.
+    Which document the highlight marks: the one the operator picked when it
+    still belongs to the current profile, otherwise the uploaded résumé that
+    produced it.
   */
-  const storedProfile = useQuery({
-    queryKey: ["profile", profileId],
-    queryFn: ({ signal }) => api.getResume(profileId as string, signal),
-    enabled: Boolean(profileId),
-    retry: false,
-  })
-  const profileMissing =
-    storedProfile.error instanceof ApiError &&
-    storedProfile.error.status === 404
+  const items = documents.data?.documents ?? []
+  const chosen = items.find((item) => item.id === chosenDocumentId)
+  const selectedDocumentId =
+    chosen && chosen.profile_id === profileId
+      ? chosen.id
+      : (items.find(
+          (item) => item.kind === "resume" && item.profile_id === profileId
+        )?.id ??
+        items.find((item) => item.profile_id === profileId)?.id ??
+        null)
 
   const handleFile = (candidate: File | null) => {
     setFile(candidate)
@@ -369,9 +372,11 @@ export function ResumeScreen() {
         description="The résumé you uploaded, and every tailored résumé the agent has written for you. Use one to work with it — the agent reads that document as your profile — or open it to see the file."
       >
         <DocumentList
+          selectedId={selectedDocumentId}
           onUse={(document) => {
+            setChosenDocumentId(document.id)
             if (document.profile_id) {
-              setCurrentProfileId(document.profile_id)
+              chooseProfile(document.profile_id)
             }
           }}
         />
@@ -394,18 +399,7 @@ export function ResumeScreen() {
             </div>
           ) : null}
 
-          {profileMissing ? (
-            <Banner
-              tone="warning"
-              title="That profile is not available to this account"
-            >
-              <p>
-                The console was working with a profile this account cannot read
-                — it belongs to another account, or it has been removed. Choose
-                one of your documents above, or upload a new résumé.
-              </p>
-            </Banner>
-          ) : storedProfile.isError ? (
+          {storedProfile.isError && !profileMissing ? (
             <ErrorNotice
               error={storedProfile.error}
               onRetry={() => storedProfile.refetch()}
