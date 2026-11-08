@@ -205,12 +205,22 @@ class TestOpenAICompatibleProvider:
             api_key=KEY, model="gpt-4o-mini", base_url="https://example.test/v1", http_client=http
         )
         schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
-        provider.complete(_request(model="gpt-4o-mini", response_schema=schema))
+        provider.complete(
+            _request(
+                model="gpt-4o-mini",
+                response_schema=schema,
+                prompt="TAILOR THIS RESUME",
+            )
+        )
         body = json.loads(seen[0].read())
         assert body["response_format"] == {"type": "json_object"}
         prompt = body["messages"][0]["content"]
         assert "JSON" in prompt
         assert "ok" in prompt
+        # WS-22: the caller's prompt must survive alongside the schema. The
+        # first version replaced it, so a structured call asked the model for
+        # a JSON object without ever saying what the object was about.
+        assert "TAILOR THIS RESUME" in prompt
 
     def test_the_url_is_the_chat_completions_endpoint(self) -> None:
         http, seen = _mock_http(lambda _r: httpx.Response(200, json=_chat_response()))

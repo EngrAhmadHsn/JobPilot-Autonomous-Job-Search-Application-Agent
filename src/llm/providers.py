@@ -273,7 +273,16 @@ class OpenAICompatibleProvider:
         return self._http
 
     def build_request(self, request: ProviderRequest) -> tuple[dict[str, Any], str]:
-        """The JSON body and the URL of one chat-completions call."""
+        """The JSON body and the URL of one chat-completions call.
+
+        WS-22: a structured call sends the schema instruction **and the
+        caller's prompt**. The first version replaced the prompt with the
+        schema — the wording said "the schema in the prompt", the code left
+        the prompt out — so an openai-compatible tailoring run asked the
+        model to produce a JSON object and never told it what the object was
+        about. Found by the WS-22 live verification, whose fake provider
+        captured a prompt containing nothing but a schema.
+        """
         prompt = request.prompt
         body: dict[str, Any] = {
             "model": request.model,
@@ -283,7 +292,10 @@ class OpenAICompatibleProvider:
         if request.response_schema is not None:
             body["response_format"] = {"type": "json_object"}
             body["messages"] = [
-                {"role": "user", "content": _schema_instruction(request.response_schema)}
+                {
+                    "role": "user",
+                    "content": _schema_instruction(request.response_schema) + prompt,
+                }
             ]
         url = f"{self.base_url}/chat/completions"
         return body, url
@@ -392,7 +404,10 @@ def build_provider(
     """
     name = (provider or "").strip().lower()
     if name == PROVIDER_GOOGLE:
-        return GeminiProvider(api_key=api_key, model=model, client=client)
+        # WS-22: the base URL is forwarded so a regional endpoint, a proxy or
+        # a bring-your-own-key gateway is honoured for the Google provider
+        # too, exactly as the openai-compatible branch already does.
+        return GeminiProvider(api_key=api_key, model=model, client=client, base_url=base_url)
     if name in _OPENAI_COMPATIBLE_ALIASES:
         default_base_url = _OPENAI_COMPATIBLE_ALIASES[name]
         resolved = base_url or default_base_url
