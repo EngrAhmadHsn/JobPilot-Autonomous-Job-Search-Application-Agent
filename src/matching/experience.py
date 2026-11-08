@@ -191,7 +191,15 @@ def _years_in_sentence(sentence: str, *, max_across: bool = False) -> float | No
     return min(earliest[1], MAX_REQUIRED_YEARS)
 
 
-def experience_score(job: JobListing, profile: CandidateProfile) -> float | None:
+_UNCACHED_REQUIREMENT = object()
+
+
+def experience_score(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    requirement: float | None | object = _UNCACHED_REQUIREMENT,
+) -> float | None:
     """Score how candidate experience meets the stated requirement.
 
     ``100 - 25`` per missing year, clamped to 0-100. Returns ``None`` when
@@ -199,8 +207,16 @@ def experience_score(job: JobListing, profile: CandidateProfile) -> float | None
     experience) — the engine turns that into an explicit
     ``JOB_REQUIREMENT_MISSING`` / ``CANDIDATE_DATA_MISSING`` state rather than
     a neutral 70 (WS-20).
+
+    ``requirement`` lets a bulk search pass the already-parsed bar from the
+    corpus cache (``required_years`` is listing-only, and parsing it is a
+    whole-description regex pass — the single most expensive per-listing
+    recomputation in a search). When omitted, it is parsed here.
     """
-    required = required_years(job)
+    if requirement is _UNCACHED_REQUIREMENT:
+        required = required_years(job)
+    else:
+        required = requirement if isinstance(requirement, (int, float)) else None
     if required is None:
         return None
     actual = years_of_experience(profile)

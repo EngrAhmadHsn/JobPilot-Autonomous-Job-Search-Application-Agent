@@ -368,6 +368,7 @@ def lexical_score(
     index: Bm25Index | None,
     candidate_token_list: list[str],
     candidate_text: str,
+    important_terms: list[tuple[str, float]] | None = None,
 ) -> LexicalResult:
     """The lexical component for one listing.
 
@@ -375,13 +376,18 @@ def lexical_score(
     index (no corpus statistics) leaves only keyword coverage; an empty
     candidate leaves zero — but that is the caller's signal of *missing data*,
     not a measured zero.
+
+    ``important_terms`` is the precomputed weight list for this listing
+    (``_important_terms(job)``): it depends only on the listing, so a bulk
+    search passes the corpus cache's copy instead of re-tokenizing every
+    posting on every request.
     """
     bm25 = 0.0
     if index is not None:
         bm25 = Bm25Index.scale(index.score(job.id, candidate_token_list))
 
     candidate_set = set(candidate_token_list)
-    terms = _important_terms(job)
+    terms = important_terms if important_terms is not None else _important_terms(job)
     total_weight = sum(weight for _term, weight in terms)
     matched_weight = 0.0
     matched: list[str] = []

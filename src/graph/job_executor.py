@@ -720,7 +720,6 @@ def search_stored_jobs(
         extra={"workflow_id": workflow_id, "query": query, "location": location},
     )
 
-    from src.db.jobs import JobDB, listing_from_row
 
     factory = session_factory
     if factory is None:
@@ -731,17 +730,24 @@ def search_stored_jobs(
     # an unbounded corpus is an unbounded search — the corpus cap in the
     # admission control is the primary defence, and this limit is the
     # backstop for a corpus that grew before the cap was in place.
+    # WS-21 follow-up: the mapping, the BM25 index and the per-listing
+    # derived data (important terms, stated experience bar) are rebuilt once
+    # per corpus state and cached — see src/matching/corpus_cache.py. The
+    # cache key is the corpus's own bookkeeping (row count + newest
+    # last_seen_at), so a refresh invalidates it without an explicit call.
     from src.security.limits import get_limits
 
     corpus_limit = get_limits().max_corpus_listings
-    with factory() as session:
-        rows = session.query(JobDB).limit(corpus_limit).all()
-    if len(rows) >= corpus_limit:
+
+    from src.matching.corpus_cache import get_corpus_artifacts
+
+    artifacts = get_corpus_artifacts(session_factory=factory, limit=corpus_limit)
+    if len(artifacts.jobs) >= corpus_limit:
         logger.warning(
             "Search considered %d listings (the corpus cap); results may be partial",
-            len(rows),
+            len(artifacts.jobs),
         )
-    jobs = [listing_from_row(row) for row in rows]
+    jobs = artifacts.jobs
 
     if query and query.strip():
         tokens = [token for token in (t.strip().lower() for t in query.split()) if len(token) >= 2]
@@ -780,7 +786,6 @@ def search_stored_jobs(
     # store is down" into one boolean.
     from src.matching.embedding_status import embedding_status_for_jobs, is_pending_status
     from src.matching.lexical import (
-        Bm25Index,
         candidate_lexical_text,
         candidate_tokens,
         lexical_score,
@@ -798,7 +803,10 @@ def search_stored_jobs(
     if only_embedded:
         jobs = [job for job in jobs if job.id in similarities]
 
-    index = Bm25Index(jobs)
+    # WS-21 follow-up: the index is built over the **whole corpus**, not the
+    # client-side-filtered slice, so its statistics are stable regardless of
+    # the filter — and it is rebuilt only when the corpus changes.
+    index = artifacts.index
     candidate_token_list = candidate_tokens(profile)
     candidate_text = candidate_lexical_text(profile)
 
@@ -828,6 +836,7 @@ def search_stored_jobs(
             index=index,
             candidate_token_list=candidate_token_list,
             candidate_text=candidate_text,
+            important_terms=artifacts.lexical_terms.get(job.id),
         )
         match = calculate_match(
             job,
@@ -835,6 +844,7 @@ def search_stored_jobs(
             semantic_score=semantic_score,
             semantic_state=semantic_state,
             lexical=lexical_result,
+            artifacts=artifacts,
         )
         matches.append(JobMatchPair(job=job, match=match))
 

@@ -25,6 +25,7 @@ import re
 from src.config.settings import get_settings
 from src.jobs.contracts import JobListing
 from src.matching.contracts import JobMatchResult
+from src.matching.corpus_cache import CorpusArtifacts
 from src.matching.experience import experience_score
 from src.matching.lexical import (
     Bm25Index,
@@ -46,6 +47,10 @@ from src.resume.profile import CandidateProfile, WorkPreferences, work_preferenc
 logger = logging.getLogger(__name__)
 
 CONFLICT_SCORE = 25.0
+
+#: "The caller did not precompute this" — distinct from a precomputed ``None``,
+#: which is a real value ("the listing states no requirement").
+_UNCACHED = object()
 
 # Rank ladder for seniority comparison (checked highest first so "senior staff"
 # resolves to staff). Word-boundary matching keeps "intern" out of
@@ -235,10 +240,16 @@ def _skill_component(job: JobListing, profile: CandidateProfile) -> ComponentSco
     )
 
 
-def _experience_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
+def _experience_component(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    requirement: float | None | object = _UNCACHED,
+) -> ComponentScore:
     from src.matching.experience import required_years, years_of_experience
 
-    requirement = required_years(job)
+    if requirement is _UNCACHED:
+        requirement = required_years(job)
     if requirement is None:
         return ComponentScore(
             name="experience",
@@ -255,7 +266,7 @@ def _experience_component(job: JobListing, profile: CandidateProfile) -> Compone
                 "profile has no dated experience"
             ),
         )
-    value = experience_score(job, profile) or 0.0
+    value = experience_score(job, profile, requirement=requirement) or 0.0
     state = measured_state(value)
     reason = ""
     if state is ScoreState.MISMATCH:
@@ -393,6 +404,8 @@ def _lexical_component(
     profile: CandidateProfile,
     lexical: LexicalResult | None,
     index: Bm25Index | None,
+    *,
+    important_terms: list[tuple[str, float]] | None = None,
 ) -> ComponentScore:
     tokens = candidate_tokens(profile)
     text = candidate_lexical_text(profile)
@@ -409,7 +422,11 @@ def _lexical_component(
             reason="the listing has no text to match against",
         )
     result = lexical or lexical_score(
-        job, index=index, candidate_token_list=tokens, candidate_text=text
+        job,
+        index=index,
+        candidate_token_list=tokens,
+        candidate_text=text,
+        important_terms=important_terms,
     )
     return ComponentScore(
         name="lexical",
@@ -463,6 +480,7 @@ def calculate_match(
     lexical: LexicalResult | None = None,
     bm25_index: Bm25Index | None = None,
     weights: dict[str, float] | None = None,
+    artifacts: CorpusArtifacts | None = None,
 ) -> JobMatchResult:
     """Calculate the hybrid match between a job listing and a candidate profile.
 
@@ -481,6 +499,11 @@ def calculate_match(
         bm25_index: A shared index used when ``lexical`` is not supplied.
         weights: Component weight overrides; must sum to ~1.0 and name every
             default component. Falls back to ``MATCH_WEIGHTS``, then defaults.
+        artifacts: The corpus cache (WS-21 follow-up). When the listing is in
+            it, the per-listing computations that depend only on the listing —
+            its important terms and its stated experience bar — are read
+            instead of recomputed; a listing outside the cache computes them
+            as before.
 
     Returns:
         JobMatchResult — component scores, their states, evidence coverage and
@@ -497,11 +520,18 @@ def calculate_match(
     # the eighth component below (and, on a WEAK/UNRELATED role, the cap).
     relevance = role_relevance(profile, job)
 
+    cached_terms = artifacts.lexical_terms.get(job.id) if artifacts is not None else None
+    cached_requirement: float | None | object = (
+        artifacts.required_years.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
+    )
+
     components: dict[str, ComponentScore] = {
         "semantic": _semantic_component(job, semantic_score, semantic_state),
-        "lexical": _lexical_component(job, profile, lexical, bm25_index),
+        "lexical": _lexical_component(
+            job, profile, lexical, bm25_index, important_terms=cached_terms
+        ),
         "skill": _skill_component(job, profile),
-        "experience": _experience_component(job, profile),
+        "experience": _experience_component(job, profile, requirement=cached_requirement),
         "seniority": _seniority_component(job, profile),
         "location": _location_component(job, profile),
         "preference": _preference_component(job, profile),
