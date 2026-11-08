@@ -395,17 +395,38 @@ chat-completions server, with a throwaway data directory:
   table (`tests/test_docs_accuracy.py`).
 - frontend: `model-credentials-card.test.tsx` (8) and
   `match-gap-chips.test.tsx` (7).
-- the full suites: 1,619 backend tests (serial, `-m "not browser"`), 205
-  frontend tests, `ruff` clean, `tsc` clean.
+- the full suites, measured on 2026-11-08:
+  - **backend**: 1,598 selected (`pytest -q -m "not browser"`, serial, 7:20)
+    → **1,592 passed** and the **6 documented Remotive DNS flakes**
+    (`socket.gaierror` in the SSRF guard — see `AGENTS.md`; they are
+    environmental and were not touched);
+  - **frontend**: **205 tests in 33 files** (`npx vitest run
+    --maxWorkers=1`) and `tsc -b --noEmit` clean;
+  - **`ruff check src tests scripts`** clean;
+  - **e2e**: 5/5 against the production build (`npm run build && npm run
+    preview` on 4173) and a private-port backend running this code — the
+    smoke journey, plus keyboard, account-menu and drawer checks. One
+    adjustment was needed and is part of this workstream: with the model
+    provider **stalling** (TCP reachable, the API call hanging) the API's
+    retry budget is ~190 s, so the smoke test's 180 s wait for
+    "tailored **or** model unavailable" failed one step before the API
+    answered. The wait is now 260 s and the test timeout 420 s.
 
 ### Notes for the next session
 
 - **`npm test` can exhaust the Node heap on this machine** when vitest fans
-  out; `npx vitest run --maxWorkers=1` is the reliable invocation (190 → 205
-  tests, ~2.5 minutes).
+  out; `npx vitest run --maxWorkers=1` is the reliable invocation (205 tests
+  in 33 files, ~2.5 minutes). A partial "20 passed (33)" from the fanned-out
+  run is worker memory pressure, not a red suite.
 - The console's `api:types` generation needs no running server: dumping
   `app.openapi()` to `frontend/node_modules/.cache/openapi.json` and running
-  `openapi-typescript` over it produces the same file.
+  `openapi-typescript` over it produces the same file. **Do not run
+  `prettier --write` on the result** — the committed `schema.ts` is the
+  generator's own layout (4-space indent, no semicolons), and Prettier
+  rewrites the whole file (≈10 k lines) for a 300-line change.
+- The e2e's preview server **binds `localhost` (IPv6) only**: setting
+  `E2E_BASE_URL=http://127.0.0.1:4173` makes Playwright's readiness poll fail
+  with a 180 s webServer timeout that looks like a build failure.
 
 ## 11. Pending, explicitly
 
