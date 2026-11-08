@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 
@@ -30,6 +30,51 @@ import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
  * a time, so a broad search is readable without one long scroll.
  */
 const PAGE_SIZE = 10
+
+/**
+ * The last search, kept across navigation and reloads (WS-21 follow-up).
+ *
+ * A search is a **mutation**: its result lived in the component, so leaving
+ * the screen discarded it — and with a slow search that meant paying the
+ * whole cost again just to look at what you already had. The result is
+ * therefore written to the query cache under a per-profile key (navigation
+ * keeps it) and mirrored to localStorage (a reload keeps it). Only listings
+ * are stored, and only in the operator's own browser.
+ */
+interface StoredSearch {
+  query: string
+  location: string
+  topN: number
+  response: JobSearchResponse
+}
+
+function storedSearchKey(profileId: string): string {
+  return `ajp.lastSearch.${profileId}`
+}
+
+function loadStoredSearch(profileId: string | null): StoredSearch | null {
+  if (!profileId) return null
+  try {
+    const raw = window.localStorage.getItem(storedSearchKey(profileId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as StoredSearch
+    if (!parsed || typeof parsed !== "object" || !parsed.response) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function saveStoredSearch(profileId: string, record: StoredSearch): void {
+  try {
+    window.localStorage.setItem(
+      storedSearchKey(profileId),
+      JSON.stringify(record)
+    )
+  } catch {
+    // A storage refusal (quota, private mode) must never fail the search.
+  }
+}
 
 /**
  * What the search actually did, in words the operator can act on.
@@ -189,11 +234,31 @@ function SearchBanners({ data }: { data: JobSearchResponse }) {
  */
 export function MatchesScreen() {
   const profileId = useCurrentProfileId()
-  const [query, setQuery] = useState("")
-  const [location, setLocation] = useState("")
+  const queryClient = useQueryClient()
+  // The last search this browser made for this profile, if any — read once,
+  // at mount, so leaving and returning (or reloading) shows it again.
+  const [restored] = useState(() => loadStoredSearch(profileId))
+  const [query, setQuery] = useState(restored?.query ?? "")
+  const [location, setLocation] = useState(restored?.location ?? "")
   // The server ranks a slice of up to 50; the console shows it ten at a time.
-  const [topN, setTopN] = useState(50)
+  const [topN, setTopN] = useState(restored?.topN ?? 50)
   const [page, setPage] = useState(0)
+
+  /*
+    The search runs from the button, so it is a mutation; this query never
+    fetches. It exists to *carry* the result: seeded from the stored search at
+    mount, updated by the mutation, and re-read on every remount — so the
+    last ranking survives navigation within the session and a page reload.
+  */
+  const results = useQuery({
+    queryKey: ["job-search", profileId],
+    queryFn: async () => {
+      throw new Error("searches are triggered by the search button")
+    },
+    enabled: false,
+    staleTime: Infinity,
+    initialData: restored?.response,
+  })
 
   const search = useMutation({
     mutationFn: (body: {
@@ -203,27 +268,42 @@ export function MatchesScreen() {
       top_n: number
       only_embedded: boolean
     }) => api.searchJobs(body),
+    onSuccess: (response, variables) => {
+      queryClient.setQueryData(["job-search", profileId], response)
+      if (profileId) {
+        saveStoredSearch(profileId, {
+          query: variables.query ?? "",
+          location: variables.location ?? "",
+          topN: variables.top_n,
+          response,
+        })
+      }
+    },
   })
-
 
   if (!profileId) {
     return (
       <EmptyState
         title="No profile selected"
         description="A search compares your profile with the listings you have stored. Upload a résumé first."
-        action={<LinkButton to="/app/resume">Go to the Resume screen</LinkButton>}
+        action={
+          <LinkButton to="/app/resume">Go to the Resume screen</LinkButton>
+        }
       />
     )
   }
 
-  const data = search.data
+  const data = results.data
   const total = data?.results.length ?? 0
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   // Clamp rather than reset: a shorter result set after a new search lands on
   // its last page instead of an empty one, with no effect and no extra state.
   const currentPage = Math.min(page, pageCount - 1)
   const visible = data
-    ? data.results.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE)
+    ? data.results.slice(
+        currentPage * PAGE_SIZE,
+        currentPage * PAGE_SIZE + PAGE_SIZE
+      )
     : []
 
   return (

@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
 
 import { MatchesScreen } from "@/screens/matches-screen"
-import { jobSearchResponse } from "@/test/factories"
+import { jobListing, jobSearchResponse, matchPair } from "@/test/factories"
 import { setCurrentProfileId } from "@/lib/profile"
 import { server } from "@/test/server"
 import { renderApp, renderScreen } from "@/test/render"
@@ -47,6 +47,70 @@ describe("the matches screen", () => {
 
     const card = container.querySelector('[data-slot="card"]')
     expect(card?.className).toContain("overflow-visible")
+  })
+
+  it("keeps the last search when the screen is left and returned to", async () => {
+    withProfile()
+    let calls = 0
+    server.use(
+      http.get(`${BASE}/api/jobs/suggest`, () =>
+        HttpResponse.json({ query: "eng", suggestions: [] })
+      ),
+      http.post(`${BASE}/api/jobs/search`, () => {
+        calls += 1
+        return HttpResponse.json(jobSearchResponse())
+      })
+    )
+    const user = userEvent.setup()
+    const first = renderScreen(<MatchesScreen />)
+
+    await user.type(screen.getByLabelText("Query"), "eng")
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    expect(calls).toBe(1)
+
+    // Leave the screen and come back: the ranking — and the fields that
+    // produced it — are still there, without paying for the search again.
+    first.unmount()
+    renderScreen(<MatchesScreen />)
+
+    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    expect(screen.getByText("82.5")).toBeInTheDocument()
+    expect(screen.getByLabelText("Query")).toHaveValue("eng")
+    expect(calls).toBe(1)
+  })
+
+  it("a new search replaces the kept one", async () => {
+    withProfile()
+    let calls = 0
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () => {
+        calls += 1
+        const title = `Role ${calls}`
+        return HttpResponse.json(
+          jobSearchResponse({
+            results: [
+              matchPair({
+                job: jobListing({ id: `job-${calls}`, title }),
+              }),
+            ],
+          })
+        )
+      })
+    )
+    const user = userEvent.setup()
+    const first = renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    expect(await screen.findByText("Role 1")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    expect(await screen.findByText("Role 2")).toBeInTheDocument()
+
+    first.unmount()
+    renderScreen(<MatchesScreen />)
+    expect(await screen.findByText("Role 2")).toBeInTheDocument()
+    expect(screen.queryByText("Role 1")).not.toBeInTheDocument()
+    expect(calls).toBe(2)
   })
 
   it("ranks the matches and explains the ranking", async () => {
