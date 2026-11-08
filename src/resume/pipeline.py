@@ -24,6 +24,7 @@ from src.research.engine import JobInsights, research_job
 from src.resume.ats import AtsReport, analyze_ats
 from src.resume.profile import CandidateProfile
 from src.resume.render import render_tailored_docx, tailored_docx_path
+from src.resume.style import StyleReport
 from src.resume.tailor import (
     FactualityReport,
     GenerateFn,
@@ -40,6 +41,8 @@ class TailoringOutcome(BaseModel):
     tailored: TailoredResume
     factuality: FactualityReport
     ats_report: AtsReport
+    #: WS-22: the deterministic style verdict on the delivered content.
+    style: StyleReport
     insights: JobInsights
     docx_path: str
 
@@ -99,6 +102,7 @@ def run_tailoring(
         tailored=result.tailored,
         factuality=result.factuality,
         ats_report=report,
+        style=result.style,
         insights=insights,
         docx_path=str(path.resolve()),
     )

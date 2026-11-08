@@ -23,6 +23,7 @@ from src.db.base import Base
 from src.db.users import LEGACY_OWNER_ID
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
+from src.resume.style import StyleReport
 from src.resume.tailor import FactualityReport, TailoredResume
 
 
@@ -47,6 +48,10 @@ class TailoredResumeDB(Base):
     tailored: Mapped[dict] = mapped_column(JSON, nullable=False)
     factuality: Mapped[dict] = mapped_column(JSON, nullable=False)
     ats_report: Mapped[dict] = mapped_column(JSON, nullable=False)
+    #: WS-22: the deterministic style report (banned phrases, weak phrases,
+    #: quantified bullets). Nullable so rows written before this column
+    #: existed stay valid and read back as an empty report.
+    style: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     insights: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     docx_path: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
@@ -61,6 +66,7 @@ class StoredTailoring(BaseModel):
     tailored: TailoredResume
     factuality: FactualityReport
     ats_report: AtsReport
+    style: StyleReport = StyleReport()
     insights: JobInsights | None = None
     docx_path: str
     created_at: datetime
@@ -80,6 +86,7 @@ def build_tailored_row(
     factuality: FactualityReport,
     ats_report: AtsReport,
     docx_path: str,
+    style: StyleReport | None = None,
     insights: JobInsights | None = None,
 ) -> TailoredResumeDB:
     """Map a tailoring result onto a new row (the caller owns the session)."""
@@ -91,6 +98,7 @@ def build_tailored_row(
         tailored=tailored.model_dump(mode="json"),
         factuality=factuality.model_dump(mode="json"),
         ats_report=ats_report.model_dump(mode="json"),
+        style=style.model_dump(mode="json") if style is not None else None,
         insights=insights.model_dump(mode="json") if insights is not None else None,
         docx_path=docx_path,
     )
@@ -105,6 +113,7 @@ def stored_from_row(row: TailoredResumeDB) -> StoredTailoring:
         tailored=TailoredResume.model_validate(row.tailored),
         factuality=FactualityReport.model_validate(row.factuality),
         ats_report=AtsReport.model_validate(row.ats_report),
+        style=StyleReport.model_validate(row.style) if row.style else StyleReport(),
         insights=JobInsights.model_validate(row.insights) if row.insights else None,
         docx_path=row.docx_path,
         created_at=row.created_at,

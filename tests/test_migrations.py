@@ -97,6 +97,8 @@ TAILORED_RESUMES_COLUMNS = {
     "tailored",
     "factuality",
     "ats_report",
+    # WS-22: the deterministic style report on the delivered content.
+    "style",
     "insights",
     "docx_path",
     "created_at",
@@ -212,6 +214,9 @@ def test_upgrade_head_creates_jobs_and_evidence(
         "applications",
         "application_events",
         "alembic_version",
+        # WS-22: the per-user model credentials and the shared reference data.
+        "llm_credentials",
+        "visa_sponsors",
     } <= tables
 
     engine = create_engine(url)

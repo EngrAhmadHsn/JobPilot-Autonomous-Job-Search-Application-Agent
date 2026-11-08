@@ -28,9 +28,11 @@ from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.db.tailored import build_tailored_row, stored_from_row
 from src.llm.client import LLMError
+from src.llm.errors import LLMCredentialError
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
 from src.resume.pipeline import run_tailoring
+from src.resume.style import StyleReport
 from src.resume.tailor import FactualityReport, GenerateFn, TailoredResume
 from src.storage.paths import KIND_TAILORED, user_dir
 
@@ -55,6 +57,8 @@ class TailorResponse(BaseModel):
     tailored: TailoredResume
     factuality: FactualityReport
     ats_report: AtsReport
+    #: WS-22: the deterministic style verdict on the delivered content.
+    style: StyleReport
     insights: JobInsights
     docx_path: str
 
@@ -112,6 +116,13 @@ def tailor_resume_endpoint(
             profile_id=req.profile_id,
             job_id=req.job_id,
         )
+    except LLMCredentialError as exc:
+        # WS-22: the caller's own credential is missing or rejected. The
+        # message is ours and actionable ("register a key under Profile →
+        # Model credentials"), so it is shown verbatim — the one
+        # configuration error the caller can fix from the console.
+        logger.warning("Tailoring refused: the caller's model credential is unusable")
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LLMError as exc:
         # The message never carries request content or the API key.
         logger.warning("Tailoring failed: LLM unavailable (%s)", type(exc).__name__)
@@ -126,6 +137,7 @@ def tailor_resume_endpoint(
         tailored=outcome.tailored,
         factuality=outcome.factuality,
         ats_report=outcome.ats_report,
+        style=outcome.style,
         insights=outcome.insights,
         docx_path=outcome.docx_path,
     )
@@ -147,6 +159,7 @@ def tailor_resume_endpoint(
         tailored=outcome.tailored,
         factuality=outcome.factuality,
         ats_report=outcome.ats_report,
+        style=outcome.style,
         insights=outcome.insights,
         docx_path=outcome.docx_path,
     )
@@ -170,6 +183,7 @@ def get_tailored(
         tailored=stored.tailored,
         factuality=stored.factuality,
         ats_report=stored.ats_report,
+        style=stored.style,
         insights=stored.insights or JobInsights(),
         docx_path=stored.docx_path,
         created_at=stored.created_at.isoformat(),
