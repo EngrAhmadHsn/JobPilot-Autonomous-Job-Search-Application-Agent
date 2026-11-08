@@ -596,6 +596,31 @@ All five parts are implemented, committed (`255c623` … `bb2e6c7`, plus the
   rank 4.
 - New gated metrics: `role_mismatch_at_10 ≤ 0.35`, `role_uncertain_at_10 ≤ 0.5`.
 
+### The search-time finding (from the first live runs)
+
+The console timed out on a search while this workstream was being verified.
+The timing probe (`scripts/profile_search_timing.py`) located the cost
+precisely, on 6,696 listings:
+
+| Phase | Time |
+|---|---|
+| corpus load + validation (JobListing) | 1.4 s |
+| embed the candidate query (fastembed) | 6.6 s |
+| similarities for ALL 6,696 vectors (fetch + cosine) | 7.1 s |
+| BM25 index over the corpus | 8.5 s |
+| `calculate_match` × 6,696 (all eight components) | 209 s → **59 s** |
+| — of which the role classifier alone | ~160 s → **~5 s** |
+
+The vector store was never the bottleneck: the exhaustive similarity scan —
+every vector, exact cosine — costs seven seconds. The scoring loop was, and
+the WS-21 classifier's first version dominated it. The description tier ran
+82 `\b`-anchored regexes over every posting, and a leading `\b` defeats the
+regex engine's literal fast path. A substring prefilter (identical
+semantics — the top score before and after is the same number) plus a
+content-keyed `lru_cache` cut the loop to 59 s cold and the classifier to
+~5 s (~0.01 s warm). A cold search now runs in ≈83 s against the console's
+120 s cap, and the live acceptance search completes in 71 s end to end.
+
 ## 10. Remaining limitations
 
 - The classifier is a curated taxonomy of 20 families with hand-written
@@ -608,10 +633,13 @@ All five parts are implemented, committed (`255c623` … `bb2e6c7`, plus the
   field disables it deliberately.
 - A search still scores **every stored listing** (bounded by the corpus
   cap), synchronously, recomputing the corpus-derived artifacts per request.
-  At ~6.7 k listings a cold search approaches the console's 120 s request
-  budget. The artifact cache (corpus listings, BM25 index, role
-  classifications) and/or the WS-18 durable-run pattern are the natural next
-  steps — deliberately left out of this workstream (see the measured
-  breakdown in the completion report).
+  After the classifier fix (§9) a cold search runs in ≈83 s against the
+  console's 120 s cap, so the timeout class is closed for this corpus size —
+  but the margin shrinks as the corpus grows. The next steps: a
+  corpus-artifact cache (listings, BM25 index, classifications) keyed on a
+  corpus version; a cheaper scan for the remaining per-listing components;
+  a semantic top-K ∪ BM25 top-K candidate union if the corpus outgrows
+  exhaustive scoring; and/or the WS-18 durable-run pattern for the search
+  itself. Deliberately left out of this workstream.
 - Precision@5 is at its declared threshold on this dataset; the ML profile's
   top-5 moved one relevant listing below rank 5.
