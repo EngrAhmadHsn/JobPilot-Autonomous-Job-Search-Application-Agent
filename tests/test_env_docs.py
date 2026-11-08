@@ -99,6 +99,11 @@ SETTINGS_VAR_TO_ATTR = {
     "LLM_TIMEOUT": "llm_timeout",
     "LLM_MAX_RPM": "llm_max_rpm",
     "LLM_MAX_RETRIES": "llm_max_retries",
+    # WS-22: the bring-your-own-key mode and its encryption key source. The
+    # key source is documented as an empty default (unset means "derive from
+    # AUTH_SECRET, or fall back to the development key file").
+    "BYOK_MODE": "byok_mode",
+    "BYOK_ENCRYPTION_KEY": "byok_encryption_key",
     "LANGSMITH_TRACING": "llm_tracing",
     "LANGSMITH_API_KEY": "langsmith_api_key",
     "LANGSMITH_PROJECT": "langsmith_project",

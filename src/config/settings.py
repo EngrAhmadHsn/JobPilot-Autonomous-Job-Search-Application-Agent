@@ -71,6 +71,26 @@ class Settings:
                 "Refusing to start."
             )
 
+        # -- Bring your own key (WS-22) --------------------------------------
+        #
+        # A user may register their own provider credential; when one is
+        # stored, that user's model calls run on their key, their quota and
+        # their bill. The mode decides whether the platform key may still be
+        # used, and the encryption key material decides whether a stored key
+        # can be protected at rest.
+        self.byok_mode = os.getenv("BYOK_MODE", "optional").strip().lower()
+        if self.byok_mode not in ("disabled", "optional", "required"):
+            raise RuntimeError(
+                f"BYOK_MODE must be 'disabled', 'optional' or 'required', got "
+                f"{self.byok_mode!r}. Refusing to start."
+            )
+        # An explicit urlsafe-base64 32-byte key for the credential store. When
+        # unset the deployment derives one from AUTH_SECRET, and development
+        # falls back to a generated local key file (see
+        # ``src.security.secrets.resolve_box``); production refuses to start
+        # with BYOK enabled and no key material.
+        self.byok_encryption_key = os.getenv("BYOK_ENCRYPTION_KEY", "").strip()
+
         # LangSmith tracing for LangGraph runs (optional)
         self.llm_tracing = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
         self.langsmith_api_key = os.getenv("LANGSMITH_API_KEY", "")
@@ -302,6 +322,7 @@ class Settings:
 
         self._validate_production_cors()
         self._validate_production_identity()
+        self._validate_production_byok()
 
     @staticmethod
     def _parse_match_weights(raw: str | None) -> dict[str, float] | None:
@@ -404,6 +425,49 @@ class Settings:
             raise RuntimeError(
                 "EMBEDDING_PROVIDER=gemini requires LLM_API_KEY in production. Refusing to start."
             )
+
+    def _validate_production_byok(self) -> None:
+        """Fail fast on an unusable bring-your-own-key encryption key.
+
+        A stored user credential is encrypted at rest, so the deployment must
+        be able to say where that encryption key comes from:
+
+        - an explicit ``BYOK_ENCRYPTION_KEY`` — validated here, because a
+          mistyped key would otherwise surface as an unreadable credential at
+          the first call rather than as a startup failure;
+        - or the ``AUTH_SECRET`` it is derived from. The identity check above
+          already guarantees one exists in production, so in practice a
+          deployment reaches BYOK with key material; the no-material branch
+          below is the guard for a configuration that disables the identity
+          requirement and enables BYOK anyway.
+
+        The development-only local key file is **not** accepted in
+        production: a deployment that cannot say where its encryption key
+        comes from must not offer to hold users' provider keys.
+        """
+        if self.app_env != "production" or self.byok_mode == "disabled":
+            return
+        if self.byok_encryption_key:
+            try:
+                from cryptography.fernet import Fernet
+
+                Fernet(self.byok_encryption_key.encode("ascii"))
+            except Exception as exc:
+                raise RuntimeError(
+                    "BYOK_ENCRYPTION_KEY is not a valid urlsafe base64 32-byte key "
+                    f"({type(exc).__name__}). Generate one with: "
+                    'python -c "from cryptography.fernet import Fernet; '
+                    'print(Fernet.generate_key().decode())". Refusing to start.'
+                ) from exc
+            return
+        if self.auth_secret:
+            return
+        raise RuntimeError(
+            "APP_ENV=production with BYOK_MODE="
+            f"{self.byok_mode} requires an encryption key source: set "
+            "BYOK_ENCRYPTION_KEY (urlsafe base64, 32 bytes) or AUTH_SECRET. "
+            "Refusing to start."
+        )
 
 
 def ensure_dir(path: str | Path) -> Path:
