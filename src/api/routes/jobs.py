@@ -42,6 +42,10 @@ from src.graph.job_executor import (
     search_stored_jobs,
 )
 from src.graph.job_state import JobMatchPair
+from src.matching.sponsors import (
+    attach_sponsor_status,
+    sponsor_fields_for_jobs,
+)
 from src.runs import queue as run_queue
 from src.runs import service as run_service
 from src.security.audit import (
@@ -280,6 +284,15 @@ def search_jobs(
 
     report = executor(profile, req.query, req.location, req.top_n, only_embedded=req.only_embedded)
 
+    # WS-22: attach the verified sponsorship finding (one batched lookup over
+    # the imported registers). It is evidence for the operator, never a score
+    # — the engine's own numbers are untouched.
+    attach_sponsor_status(
+        db,
+        [pair.match for pair in report.results],
+        [pair.job.company for pair in report.results],
+    )
+
     if report.results:
         db.add_all(build_match_rows(req.profile_id, report.results, owner_id=scope.user_id))
         db.commit()
@@ -419,6 +432,17 @@ def get_profile_matches(
         rows = access.list_ranked_job_matches(db, scope, profile_id, limit=limit or 25)
     else:
         rows = access.list_job_matches(db, scope, profile_id)
-    return MatchesHistoryResponse(
-        profile_id=profile_id, matches=[match_row_to_dict(row) for row in rows]
-    )
+
+    # WS-22: the persisted rows carry scores and the explanation, not the
+    # company, so the sponsorship finding is computed from the shared corpus
+    # and the register (see src.matching.sponsors) and added to the response.
+    fields = sponsor_fields_for_jobs(db, [row.job_id for row in rows])
+    matches = []
+    for row in rows:
+        serialized = match_row_to_dict(row)
+        # Every requested id is present in `fields` (see the helper).
+        status, note = fields[row.job_id]
+        serialized["sponsor_status"] = status
+        serialized["sponsor_note"] = note
+        matches.append(serialized)
+    return MatchesHistoryResponse(profile_id=profile_id, matches=matches)

@@ -48,4 +48,12 @@ class JobMatchResult(BaseModel):
     #: Important keywords the job text mentions and the candidate does not.
     missing_keywords: list[str] = Field(default_factory=list)
     matched_keywords: list[str] = Field(default_factory=list)
+    #: WS-22: the verified sponsorship finding for this listing's employer,
+    #: from the imported official registers
+    #: (``verified`` | ``not_found`` | ``no_data``; ``None`` when the lookup
+    #: did not run). **Evidence, not a score**: it is attached by the API
+    #: layer after scoring and changes no component — see
+    #: ``src.matching.sponsors`` for why.
+    sponsor_status: str | None = None
+    sponsor_note: str | None = None
     explanation: str = ""
