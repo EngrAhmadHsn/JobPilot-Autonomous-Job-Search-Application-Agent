@@ -36,7 +36,7 @@ from src.db.users import UserDB
 __all__ = ["LEGACY_SCOPE", "UserScope", "current_scope"]
 
 
-def current_scope(
+async def current_scope(
     user: Annotated[UserDB, Depends(current_active_user)],
 ) -> UserScope:
     """The scope the current request acts as.
@@ -49,8 +49,20 @@ def current_scope(
 
     The scope is also **published** as the current tenant, so the
     provider-spend accounting knows whose budget a call is spending
-    (WS-14 · Phase G). The publication happens here — the one place
+    (WS-14 · Phase G) and so a model call can find the caller's own
+    credential (WS-22). The publication happens here — the one place
     that knows the principal — rather than in each route.
+
+    **This dependency is ``async`` on purpose (WS-22).** A sync dependency
+    is executed by FastAPI in a worker thread under a *copy* of the
+    context, so a ``ContextVar.set`` inside it is discarded the moment it
+    returns: the route body — and everything it calls — would read the
+    default and see no tenant at all. An async dependency runs on the
+    request's own task, so the value it publishes is what the handler
+    (sync or async) observes. The defect was invisible until a feature
+    depended on the publication over HTTP (BYOK fell back to the platform
+    key; the WS-14 spend attribution had the same hole), and
+    ``tests/test_ws22_byok_api.py`` now pins the mechanism.
     """
 
     scope = UserScope(user_id=user.id, is_superuser=bool(user.is_superuser))
