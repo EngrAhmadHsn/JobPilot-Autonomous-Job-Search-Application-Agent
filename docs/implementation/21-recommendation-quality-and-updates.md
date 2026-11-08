@@ -1,6 +1,6 @@
 # WS-21 · Job recommendation quality, targeted UI updates, profile consistency & the match experience
 
-Status: **In progress (plan written 2026-11-08)** · Milestone: **M5** · Depends on: WS-03 (matching engine), WS-09 (evaluation harness), WS-13/17/19 (console), WS-18 (durable execution), WS-20 (matching accuracy, application profile)
+Status: **Done (2026-11-08)** · Milestone: **M5** · Depends on: WS-03 (matching engine), WS-09 (evaluation harness), WS-13/17/19 (console), WS-18 (durable execution), WS-20 (matching accuracy, application profile)
 
 > Five reported problems, one workstream:
 >
@@ -557,9 +557,61 @@ Menu/Portal/Positioner patterns in `dropdown-menu.tsx` and `tooltip.tsx`).
 
 ## 9. Results
 
-_(filled during implementation — before/after tables, test counts, live
-acceptance output)_
+All five parts are implemented, committed (`255c623` … `bb2e6c7`, plus the
+`docs`/`test` commits around them) and verified.
+
+### Tests
+
+- **Backend**: 1 475 passed, 1 skipped in the parallel run; the only
+  failures anywhere are the six documented Remotive DNS tests
+  (`tests/test_jobs.py`, `tests/test_http_client.py`) — the known
+  environmental flake in modules WS-21 does not touch. Four tests that fail
+  under `-n 4` pass serially (confirmed individually). New suites:
+  `tests/test_roles.py` (25), `tests/test_preferences_merge.py` (7),
+  `tests/test_ranked_matches.py` (6), `tests/test_golden_roles.py` (2), plus
+  the tenant-isolation matrix line for the ranked accessor.
+- **Frontend**: 32 files / 180 tests green; `tsc -b` and `eslint .` clean;
+  the production build succeeds.
+- **Browser**: `frontend/e2e/suggestions.spec.ts` passes against the
+  production build and the real backend (the panel's box extends past the
+  card's; ArrowDown/Escape keep working).
+- **Live acceptance**: `scripts/verify_ws21.py` — **19/19 checks** over HTTP
+  with a real account: register → login → résumé upload → confirmed target
+  roles round-trip → corpus search (no capped listing in the top 10; the
+  named unrelated listings absent; 6/10 web-development roles; semantic
+  channel 6 071/6 696) → ranked matches (one row per job, descending).
+
+### The measured effect (`docs/evaluations/ws21-comparison.md`)
+
+- The **frontend candidate's top-10**: role mismatch **0.30 → 0.00**; the
+  Physical Design Engineer (rank 6) and RTL Design Engineer (rank 9) are
+  gone. For the hardware candidate both hardware listings hold ranks 1–2
+  (nDCG 1.0).
+- Mean across profiles: **nDCG@10 0.8183 → 0.8240**, **false-negative rate
+  0.4756 → 0.3533**; nDCG improved or held for all five profiles. Precision@5
+  sits at its declared bound (0.40).
+- **Live corpus** (`scripts/ws21_repro.py`): the reference profile's top-30
+  is now web/software work; the two named listings score ≤25 (capped, below
+  the decision threshold); the React Full-stack listing rose from rank 19 to
+  rank 4.
+- New gated metrics: `role_mismatch_at_10 ≤ 0.35`, `role_uncertain_at_10 ≤ 0.5`.
 
 ## 10. Remaining limitations
 
-_(filled at completion)_
+- The classifier is a curated taxonomy of 20 families with hand-written
+  signal tables (title > responsibilities > technologies); a role outside it
+  is *unknown* (weight kept, value 0, with a note) rather than mis-typed.
+  The uncertainty rate is measured and reported (0.28 on the golden set).
+- When no targets are confirmed, a labelled inference applies (current title
+  → headline → recent roles). The product answer is the editable
+  target-roles field; the inference is a fallback, and a confirmed-empty
+  field disables it deliberately.
+- A search still scores **every stored listing** (bounded by the corpus
+  cap), synchronously, recomputing the corpus-derived artifacts per request.
+  At ~6.7 k listings a cold search approaches the console's 120 s request
+  budget. The artifact cache (corpus listings, BM25 index, role
+  classifications) and/or the WS-18 durable-run pattern are the natural next
+  steps — deliberately left out of this workstream (see the measured
+  breakdown in the completion report).
+- Precision@5 is at its declared threshold on this dataset; the ML profile's
+  top-5 moved one relevant listing below rank 5.

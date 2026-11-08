@@ -251,7 +251,7 @@ development. To point the console at another API, set `VITE_API_BASE_URL`.
 | Screen | What it is for |
 |---|---|
 | Resume | Upload a resume, and see what the parser understood — and what it could not state |
-| Matches | Search the stored corpus, with the six component scores and the explanation behind each rank |
+| Matches | Search the stored corpus, with the eight component scores (including the occupational-role match) and the explanation behind each rank |
 | Tailor | Tailor a resume for one job: the tailored text, the factuality report, the ATS report, the grounded insights |
 | Approvals | Prepare an application, read exactly what will be submitted, then approve or reject it |
 | Tracker | Every application, its full ordered history, its evidence, and the human outcome |
@@ -362,7 +362,7 @@ code ever disagree. The settings you are most likely to change:
 | `EMBEDDING_PROVIDER` | `fastembed` (local, no quota) or `gemini` (API) | `fastembed` |
 | `EMBEDDING_MODEL` | The embedding model; its identity is persisted with the vectors | `google/embeddinggemma-2@int8` |
 | `FASTEMBED_CACHE_PATH`, `CHROMA_DIR` | Model weights and vector store | `./data/fastembed`, `./data/chroma` |
-| `MATCH_WEIGHTS` | JSON override for the six match weights, summing to 1.0 | the built-in weights |
+| `MATCH_WEIGHTS` | JSON override for the eight match weights, summing to 1.0 | the built-in weights |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` is experimental) | unset |
 | `LLM_TIMEOUT`, `LLM_MAX_RPM`, `LLM_MAX_RETRIES` | Seconds per call, calls per minute, retries after the first attempt | 60, 10, 2 |
 | `DATA_DIR` | The root of all runtime state | `./data` |
