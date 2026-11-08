@@ -72,6 +72,13 @@ ACTION_PROFILE_UPDATE = "profile.update"
 # host — never a command line, never an environment.
 ACTION_WORKER_START = "worker.start"
 ACTION_WORKER_STOP = "worker.stop"
+# WS-22: the bring-your-own-key lifecycle. A row records that a credential
+# was registered, removed or exercised — provider, model and a display hint
+# only. The key itself is never in an audit row, and neither is a key-shaped
+# metadata *name* (the redaction filter drops those outright).
+ACTION_LLM_CREDENTIAL_SET = "llm.credential.set"
+ACTION_LLM_CREDENTIAL_DELETE = "llm.credential.delete"
+ACTION_LLM_CREDENTIAL_TEST = "llm.credential.test"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"
