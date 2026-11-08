@@ -46,6 +46,11 @@ class GenerationUsage(BaseModel):
     duration_ms: int = 0
     attempts: int = 1
     error_type: str | None = None
+    #: WS-22: whose key the call spent — ``platform`` or ``byok``. The
+    #: metadata *name* avoids the word "credential" and any ``*key`` suffix
+    #: because the redaction filter drops those outright (see the module
+    #: docstring); the value is not a secret, the name simply has to survive.
+    spend_source: str = "platform"
 
     def to_audit_metadata(self) -> dict[str, Any]:
         """The audit metadata for this call — counts only, never content."""
@@ -59,6 +64,7 @@ class GenerationUsage(BaseModel):
             "duration_ms": self.duration_ms,
             "attempts": self.attempts,
             "error_type": self.error_type,
+            "spend_source": self.spend_source,
         }
 
 

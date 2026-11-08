@@ -66,7 +66,14 @@ from src.llm.usage import (
 
 logger = logging.getLogger(__name__)
 
+#: WS-22: whose key a call spends. ``platform`` is the deployment's own
+#: configured key; ``byok`` is the calling user's registered credential.
+SPEND_PLATFORM = "platform"
+SPEND_BYOK = "byok"
+
 __all__ = [
+    "SPEND_BYOK",
+    "SPEND_PLATFORM",
     "LLMCircuitOpen",
     "LLMClient",
     "LLMConfigError",
@@ -111,6 +118,14 @@ class LLMClient:
         provider_instance: A ready-made provider adapter (the injection seam
             for the tests).
         limiter: A ready-made rate limiter.
+        breaker_scope: The circuit-breaker bucket this client's failures
+            count against. Defaults to the provider name; WS-22 gives a
+            bring-your-own-key client its own bucket per user, so one user's
+            failing key can never open the breaker for the platform key or
+            for another user.
+        spend_source: ``platform`` (the deployment's own key) or ``byok``
+            (the caller's own key). Recorded on the usage row so "whose key
+            did this call spend" has an answer; WS-22.
         sleep, clock, jitter: The timing seams, so the tests drive the
             backoff and the pacing on virtual time.
     """
@@ -128,6 +143,8 @@ class LLMClient:
         max_rpm: int | None = None,
         provider_instance: Provider | None = None,
         limiter: SlidingWindowLimiter | None = None,
+        breaker_scope: str | None = None,
+        spend_source: str = SPEND_PLATFORM,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         jitter: Callable[[float, float], float] = random.uniform,
@@ -146,6 +163,8 @@ class LLMClient:
         self._jitter = jitter
         self._provider_instance = provider_instance
         self._provider: Provider | None = None
+        self._breaker_scope = breaker_scope
+        self._spend_source = spend_source
         self._limiter = limiter or SlidingWindowLimiter(
             self._max_rpm, _LIMIT_WINDOW_SECONDS, clock=clock, sleep=sleep
         )
@@ -236,6 +255,10 @@ class LLMClient:
         provider = self._provider or self._provider_instance
         return getattr(provider, "name", None) or self.provider or "unknown"
 
+    def _breaker_key(self) -> str:
+        """The circuit-breaker bucket for this client's calls."""
+        return self._breaker_scope or f"llm:{self._provider_name()}"
+
     @staticmethod
     def _is_retryable(exc: LLMError) -> bool:
         """Whether a failure is worth another attempt.
@@ -260,7 +283,7 @@ class LLMClient:
         request) never opens the breaker — that is a configuration error,
         not an outage.
         """
-        breaker = get_breaker(f"llm:{self._provider_name()}")
+        breaker = get_breaker(self._breaker_key())
         if not breaker.allow_request():
             raise LLMCircuitOpen(
                 f"The {self._provider_name()} circuit is open after repeated failures; "
@@ -304,6 +327,7 @@ class LLMClient:
             total_tokens=response.total_tokens,
             duration_ms=self._elapsed_ms(started),
             attempts=attempts,
+            spend_source=self._spend_source,
         )
         self._last_usage = usage
         record_usage(usage)
@@ -318,6 +342,7 @@ class LLMClient:
             duration_ms=self._elapsed_ms(started),
             attempts=attempts,
             error_type=type(exc).__name__,
+            spend_source=self._spend_source,
         )
         self._last_usage = usage
         record_usage(usage, outcome="error")

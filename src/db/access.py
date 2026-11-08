@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
+from src.db.byok import LlmCredentialDB
 from src.db.eeo import CandidateEeoDB
 from src.db.evidence import ApplicationEvidenceDB
 from src.db.jobs import JobDB
@@ -64,9 +65,11 @@ __all__ = [
     "count_jobs",
     "count_owned",
     "count_users",
+    "delete_llm_credential",
     "get_application",
     "get_application_by_approval",
     "get_approval",
+    "get_llm_credential",
     "get_profile",
     "get_run",
     "get_tailored",
@@ -78,6 +81,8 @@ __all__ = [
     "list_runs",
     "list_tailored",
     "list_work_items",
+    "touch_llm_credential",
+    "upsert_llm_credential",
 ]
 
 
@@ -494,6 +499,72 @@ def list_run_events(db: Session, scope: UserScope, run_id: str) -> list[JobRunEv
             .order_by(JobRunEventDB.id.desc())
         ).scalars()
     )
+
+    # -- the caller's own model credential (WS-22) --------------------------------
+
+
+def get_llm_credential(db: Session, scope: UserScope) -> LlmCredentialDB | None:
+    """The caller's own stored provider credential, if any.
+
+    **A superuser scope reads no more than an ordinary one here.** The
+    platform's cross-owner view is a legitimate exception for audit rows and
+    an illegitimate one for a credential: it is somebody's private key. The
+    filter is therefore on the scope's own id, never relaxed.
+    """
+    if not scope.user_id:
+        return None
+    statement = select(LlmCredentialDB).where(LlmCredentialDB.owner_id == scope.user_id)
+    return db.execute(statement).scalar_one_or_none()
+
+
+def upsert_llm_credential(
+    db: Session,
+    scope: UserScope,
+    *,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    encrypted_key: str,
+    hint: str,
+) -> LlmCredentialDB:
+    """Insert or replace the caller's credential (the caller commits).
+
+    The row is keyed by the caller's own id, so one user can never write
+    over another's credential — there is nothing to pass that says whose row
+    to touch.
+    """
+    row = get_llm_credential(db, scope)
+    if row is None:
+        row = LlmCredentialDB(owner_id=scope.user_id)
+        db.add(row)
+    row.provider = provider
+    row.model = model
+    row.base_url = base_url
+    row.encrypted_key = encrypted_key
+    row.hint = hint
+    db.flush()
+    return row
+
+
+def delete_llm_credential(db: Session, scope: UserScope) -> bool:
+    """Delete the caller's credential; True when one existed."""
+    row = get_llm_credential(db, scope)
+    if row is None:
+        return False
+    db.delete(row)
+    db.flush()
+    return True
+
+
+def touch_llm_credential(db: Session, scope: UserScope) -> None:
+    """Record that the credential was just used (``last_used_at``)."""
+    row = get_llm_credential(db, scope)
+    if row is None:
+        return
+    from datetime import UTC, datetime
+
+    row.last_used_at = datetime.now(UTC)
+    db.flush()
 
 
 # -- aggregates (the platform view) -------------------------------------------

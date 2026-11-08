@@ -26,6 +26,7 @@ from __future__ import annotations
 __all__ = [
     "LLMCircuitOpen",
     "LLMConfigError",
+    "LLMCredentialError",
     "LLMDailyQuotaExhausted",
     "LLMError",
     "LLMInvalidOutput",
@@ -43,6 +44,17 @@ class LLMError(RuntimeError):
 
 class LLMConfigError(LLMError):
     """Unconfigured or unsupported provider — do not retry."""
+
+
+class LLMCredentialError(LLMConfigError):
+    """The caller's *own* credential cannot be used (WS-22).
+
+    A distinct subclass because it is the one configuration error the caller
+    can act on from the console, and because its message is **ours**: the
+    providers' own 401 text never travels in it (the bring-your-own-key
+    client rewrites a rejected key into a pointer at Profile → Model
+    credentials). Routes may therefore show it verbatim.
+    """
 
 
 class LLMRateLimited(LLMError):

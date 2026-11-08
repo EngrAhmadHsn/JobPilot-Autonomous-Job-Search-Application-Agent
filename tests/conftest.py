@@ -53,12 +53,14 @@ from src.db import (  # noqa: F401  (imported for the model registration)
     applications,
     approval,
     audit,
+    byok,
     eeo,
     evidence,
     jobs,
     matches,
     profiles,
     runs,
+    sponsors,
     tailored,
 )
 from src.db.base import Base

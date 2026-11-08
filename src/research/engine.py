@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from src.core.text import content_tokens, normalize, tokenize
 from src.jobs.contracts import JobListing
-from src.llm.client import get_client
+from src.llm.credentials import resolve_client
 from src.security.injection import fence_rules, fence_untrusted, is_injection
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,9 @@ def _build_research_prompt(job: JobListing) -> str:
 
 
 def _default_generate[T: BaseModel](prompt: str, schema: type[T]) -> T:
-    return get_client().generate_structured(prompt, schema)
+    # WS-22: resolved per caller — a registered bring-your-own-key credential
+    # is used when present, the platform client otherwise.
+    return resolve_client().generate_structured(prompt, schema)
 
 
 def research_job(job: JobListing, *, generate: GenerateFn | None = None) -> JobInsights:

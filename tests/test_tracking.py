@@ -481,11 +481,23 @@ class TestEventLogIsAppendOnly:
     """No code path may rewrite the history."""
 
     @staticmethod
-    def _mutation_findings(path: Path) -> list[str]:
+    def _enclosing_function(tree: ast.Module, node: ast.Call) -> ast.AST | None:
+        """The innermost function/method definition containing *node*."""
+        best: ast.AST | None = None
+        for candidate in ast.walk(tree):
+            if not isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            end = getattr(candidate, "end_lineno", candidate.lineno)
+            inside = candidate.lineno <= node.lineno <= end
+            if inside and (best is None or candidate.lineno > best.lineno):  # type: ignore[attr-defined]
+                best = candidate
+        return best
+
+    @classmethod
+    def _mutation_findings(cls, path: Path) -> list[str]:
         """Calls in *path* that could update or delete an event row."""
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-        imports_events = "ApplicationEventDB" in source
         findings: list[str] = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -495,12 +507,31 @@ class TestEventLogIsAppendOnly:
                 continue
             rendered = ast.dump(node)
             targets_events = "application_events" in rendered or "ApplicationEventDB" in rendered
-            # A session.delete() in a module that knows the event model is
-            # the only way it could delete an event.
-            if name == "delete" and imports_events:
-                findings.append(f"{path.name}:{node.lineno} deletes an event row")
-            elif targets_events:
+            if targets_events:
                 findings.append(f"{path.name}:{node.lineno} updates or deletes event rows")
+                continue
+            if name != "delete":
+                continue
+            # A bare ``session.delete(row)`` names no model, so the check
+            # reads the **function it sits in**: a delete is only a finding
+            # when the code around it is about event rows. WS-22 sharpened
+            # this from a module-level rule ("knows the event model") to a
+            # statement-level one, because ``src/db/access.py`` legitimately
+            # deletes a *different* owned row (the caller's own model
+            # credential) while also reading the event model for the audit
+            # view. The residual limit is honest and recorded: a function
+            # that deletes an event row **and never mentions events in its
+            # own body or name** would slip through — it would also have to
+            # fetch that row elsewhere, and every fetch names the model.
+            enclosing = cls._enclosing_function(tree, node)
+            if enclosing is None:
+                continue
+            body = ast.get_source_segment(source, enclosing) or ""
+            if "event" in getattr(enclosing, "name", "").lower() or "ApplicationEventDB" in body:
+                findings.append(
+                    f"{path.name}:{node.lineno} deletes a row inside "
+                    f"{getattr(enclosing, 'name', '<module>')}(), which handles events"
+                )
         return findings
 
     def test_no_module_updates_or_deletes_an_event(self):
@@ -526,6 +557,55 @@ class TestEventLogIsAppendOnly:
             assert (SRC_ROOT / "retention.py").is_file(), (
                 f"the append-only exception names {name}, which no longer exists"
             )
+
+    def test_the_sharpened_rule_still_catches_real_event_mutations(self, tmp_path: Path):
+        """The statement-level rule is not a softer rule.
+
+        WS-22 replaced the module-level "a delete in a module that knows the
+        event model is a finding" with a statement-level rule (see
+        ``_mutation_findings``). This test is the proof that the replacement
+        still catches every shape the old one did: an explicit event target,
+        and a bare ``session.delete(row)`` inside a function that handles
+        events. Without it, the sharpening would be an unverified weakening.
+        """
+        explicit = tmp_path / "explicit.py"
+        explicit.write_text(
+            "def purge(session):\n"
+            "    session.query(ApplicationEventDB).filter_by(id='x').delete()\n",
+            encoding="utf-8",
+        )
+        bare_in_event_function = tmp_path / "bare.py"
+        bare_in_event_function.write_text(
+            "def delete_event_row(session, row):\n    session.delete(row)\n",
+            encoding="utf-8",
+        )
+        bare_in_event_body = tmp_path / "bare_body.py"
+        bare_in_event_body.write_text(
+            "def purge(session, row):\n"
+            "    ApplicationEventDB.__table__.delete()\n"
+            "    session.delete(row)\n",
+            encoding="utf-8",
+        )
+        # The false positive WS-22 hit: an unrelated owned row, deleted by a
+        # function that never touches events.
+        unrelated = tmp_path / "unrelated.py"
+        unrelated.write_text(
+            "def delete_llm_credential(db, scope):\n"
+            "    row = db.get(LlmCredentialDB, scope.user_id)\n"
+            "    db.delete(row)\n",
+            encoding="utf-8",
+        )
+
+        assert self._mutation_findings(explicit), "an explicit event delete must be found"
+        assert self._mutation_findings(bare_in_event_function), (
+            "a delete inside a function named for events must be found"
+        )
+        assert self._mutation_findings(bare_in_event_body), (
+            "a delete inside a function that names the event model must be found"
+        )
+        assert self._mutation_findings(unrelated) == [], (
+            "a delete of a different owned row is not an event mutation"
+        )
 
     def test_the_tracking_module_offers_no_update_or_delete(self):
         source = (SRC_ROOT / "applications" / "tracking.py").read_text(encoding="utf-8")

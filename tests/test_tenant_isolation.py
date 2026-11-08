@@ -254,6 +254,10 @@ class TestNoDirectRouteQueries:
         "ApplicationEvidenceDB",
         "ApprovalRequestDB",
         "AuditEventDB",
+        # WS-22: the caller's own model credential. A route reaching it
+        # directly would bypass the rule that even a superuser reads no
+        # farther than their own row.
+        "LlmCredentialDB",
     )
 
     def _route_sources(self) -> list[Path]:
