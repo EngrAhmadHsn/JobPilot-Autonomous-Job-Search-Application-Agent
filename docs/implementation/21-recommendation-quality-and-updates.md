@@ -621,6 +621,22 @@ content-keyed `lru_cache` cut the loop to 59 s cold and the classifier to
 ~5 s (~0.01 s warm). A cold search now runs in ≈83 s against the console's
 120 s cap, and the live acceptance search completes in 71 s end to end.
 
+### Follow-up: the corpus is scored once, not once per request
+
+A second measured pass found the remaining 59 s scoring loop was mostly
+*recomputation*: the experience-bar regexes cost 20.9 s (and ran twice per
+listing — the component parsed the bar, then `experience_score` re-parsed
+it), the lexical tokenization 9.1 s, the corpus load 1.4 s and the BM25
+rebuild 8.5 s — none of it candidate-dependent. `src/matching/corpus_cache.py`
+now holds the listings, the BM25 index, every posting's important terms and
+every posting's stated experience bar, keyed by a fingerprint the corpus
+maintains itself (database identity + row count + newest `last_seen_at`), so
+a refresh invalidates it with no explicit call. Measured through the real
+path: **cold 70.5 s, warm 18.6 s and 18.3 s repeated — same top result.**
+The Matches screen also keeps the last search now (query cache per profile +
+a localStorage mirror): leaving and returning, or reloading, shows the
+ranking without paying for it again.
+
 ## 10. Remaining limitations
 
 - The classifier is a curated taxonomy of 20 families with hand-written
@@ -632,14 +648,13 @@ content-keyed `lru_cache` cut the loop to 59 s cold and the classifier to
   target-roles field; the inference is a fallback, and a confirmed-empty
   field disables it deliberately.
 - A search still scores **every stored listing** (bounded by the corpus
-  cap), synchronously, recomputing the corpus-derived artifacts per request.
-  After the classifier fix (§9) a cold search runs in ≈83 s against the
-  console's 120 s cap, so the timeout class is closed for this corpus size —
-  but the margin shrinks as the corpus grows. The next steps: a
-  corpus-artifact cache (listings, BM25 index, classifications) keyed on a
-  corpus version; a cheaper scan for the remaining per-listing components;
-  a semantic top-K ∪ BM25 top-K candidate union if the corpus outgrows
-  exhaustive scoring; and/or the WS-18 durable-run pattern for the search
-  itself. Deliberately left out of this workstream.
+  cap) synchronously — by design, so a skill-strong listing with a mediocre
+  cosine is never dropped. With the corpus cache and the classifier fix a
+  warm search runs in **≈19 s** and a cold one (after a restart or a corpus
+  change) in **≈70 s**, against the console's 120 s cap. The remaining
+  per-listing components (~14 s warm) and the cold build (~50 s) are the
+  next candidates, alongside a semantic top-K ∪ BM25 top-K candidate union
+  if the corpus outgrows exhaustive scoring, and/or the WS-18 durable-run
+  pattern for the search itself.
 - Precision@5 is at its declared threshold on this dataset; the ML profile's
   top-5 moved one relevant listing below rank 5.
