@@ -48,7 +48,15 @@ workstream-by-workstream record is in
 - Search the stored corpus (`POST /api/jobs/search`) and read the score breakdown, the
   matched skills and the missing skills for every result.
 - Tailor a resume for one job (`POST /api/tailor`) and get back the tailored content, the
-  ATS analysis and a **factuality report listing every claim the validator removed**.
+  ATS analysis, a **factuality report listing every claim the validator removed**, and a
+  **style report** on the delivered wording (AI jargon, filler phrases, quantified bullets).
+- **Bring your own model key** (`PUT /api/llm/credentials`): your calls then run on your own
+  provider key, your quota and your bill. The key is encrypted at rest, never returned by an
+  endpoint, and the tailoring prompt carries no candidate identity (names, e-mails, phones and
+  links are masked to placeholders and restored afterwards).
+- Cross-check an employer against the **official sponsorship registers** (USCIS H-1B Data Hub,
+  UK Home Office) — `scripts/import_visa_sponsors.py` — and see a verified badge on the match,
+  with the score untouched.
 - Run the application flow against the local fake ATS: prepare → approve → submit → verify,
   with the screenshot, the action trace and the Playwright trace archive written to disk.
 - Read the application's own history (`GET /api/applications`) — every status change, who
@@ -299,6 +307,10 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |
 | `GET /api/documents` | The account's document library (uploaded and tailored résumés) | WS-13 |
 | `GET /api/documents/{document_id}/download` | Download one of the account's documents | WS-13 |
+| `GET /api/llm/credentials` | The caller's model-credential state (masked; never the key) | WS-22 |
+| `PUT /api/llm/credentials` | Register or replace the caller's own provider key (encrypted at rest) | WS-22 |
+| `DELETE /api/llm/credentials` | Remove the caller's stored credential | WS-22 |
+| `POST /api/llm/credentials/test` | Exercise the stored credential with one small call | WS-22 |
 | `POST /api/applications/prepare` | Check the target, select the adapter, create an approval request | WS-06 |
 | `POST /api/applications/{approval_id}/approve` | Record a human approval and execute | WS-06 |
 | `POST /api/applications/{approval_id}/reject` | Record a human rejection | WS-06 |
@@ -350,6 +362,44 @@ uses the **cookie** (an `HttpOnly`, `SameSite=Lax` session cookie, with a double
 (`Authorization: Bearer …`). Both resolve to the same account, and a session is a
 server-side row, so it can be revoked the moment it is revoked.
 
+### Bring your own model key (WS-22)
+
+The deployment has its own model key (`LLM_API_KEY`); a user may register **their own**
+instead, so their tailoring and research calls run on their key, their quota and their bill.
+
+- The console has a **Model credentials** card on the Profile page; the API is
+  `GET/PUT/DELETE /api/llm/credentials` plus `POST /api/llm/credentials/test`.
+- The key is **encrypted at rest** (Fernet; the encryption key comes from
+  `BYOK_ENCRYPTION_KEY`, else HKDF over `AUTH_SECRET`, else — development only — a local
+  `data/secrets/byok.key`). No route returns it; the read shows a mask and the last four
+  characters.
+- **Registering a key does not spend it.** Proving it works is a separate button, because
+  the test call is billed to the user's own account.
+- `BYOK_MODE=required` refuses the platform key for user requests and says so in the
+  tailoring response (HTTP 409 with the fix); `disabled` hides the feature.
+- A user's stored key that fails **never silently falls back** to the platform key, its
+  circuit breaker and rate-limit bucket are their own, and the prompts it feeds carry no
+  candidate identity: names, e-mails, phone numbers and links are masked to placeholders
+  before the call and restored from the answer.
+
+### Verified sponsorship registers (WS-22)
+
+`scripts/import_visa_sponsors.py` loads an official export — the **USCIS H-1B Employer Data
+Hub** (`--uscis`, one CSV per fiscal year) or the **UK Home Office** register of licensed
+sponsors (`--uk`) — into the shared `visa_sponsors` table. A search result or match row then
+carries `sponsor_status` (`verified` / `not_found` / `no_data`) and a note.
+
+Two rules worth knowing:
+
+- The note is always about the **register**, never about the company. "Listed in the USCIS
+  H-1B Employer Data Hub (FY2024: 75 approvals)" is a fact; "does not sponsor" is not
+  something this data can support, so a miss reads "No entry found in the imported registers".
+- **The score is untouched.** A verified employer is a finding the operator reads, not a
+  ranking boost, and absence from a partial register is not evidence against a company.
+
+With no register imported every listing reports `no_data`, which is deliberately different
+from `not_found`.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Every variable the runtime reads is in that file, with a
@@ -363,8 +413,10 @@ code ever disagree. The settings you are most likely to change:
 | `EMBEDDING_MODEL` | The embedding model; its identity is persisted with the vectors | `google/embeddinggemma-2@int8` |
 | `FASTEMBED_CACHE_PATH`, `CHROMA_DIR` | Model weights and vector store | `./data/fastembed`, `./data/chroma` |
 | `MATCH_WEIGHTS` | JSON override for the eight match weights, summing to 1.0 | the built-in weights |
-| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` is experimental) | unset |
+| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` for any chat-completions endpoint) | unset |
 | `LLM_TIMEOUT`, `LLM_MAX_RPM`, `LLM_MAX_RETRIES` | Seconds per call, calls per minute, retries after the first attempt | 60, 10, 2 |
+| `BYOK_MODE` | Whether users may register their own model key: `optional`, `required` (platform key never used for user requests) or `disabled` | `optional` |
+| `BYOK_ENCRYPTION_KEY` | Where the credential store's encryption key comes from; empty derives it from `AUTH_SECRET`, and development falls back to a local key file | empty |
 | `DATA_DIR` | The root of all runtime state | `./data` |
 | `DATABASE_URL` | SQLite by default, PostgreSQL for deployment | `sqlite:///./data/app.db` |
 | `SUBMISSION_POLICY` | `PREPARE_ONLY` or `REQUIRE_APPROVAL` | `REQUIRE_APPROVAL` |

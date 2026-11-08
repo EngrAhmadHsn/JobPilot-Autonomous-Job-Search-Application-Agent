@@ -81,3 +81,32 @@ From across all 7 projects, the following technical patterns and innovations off
    - Script projects relying on deep XPath selectors break whenever job portals deploy minor DOM updates. We maintain **semantic accessibility-tree locators** (`role`, `accessible-name`).
 3. **Black-Box SaaS & Credential Leaks:**
    - Storing plaintext credentials in local scripts or relying on closed cloud backends undermines user security. We enforce zero-credential session reuse via isolated browser profiles and local-only data persistence.
+
+---
+
+## 5. Implementation status (added 2026-11-08, WS-22)
+
+This synthesis is the source document for **WS-22**
+(`docs/implementation/22-byok-and-reference-adoptions.md`), which dispositioned
+every idea above and implemented the ones that survived triage. The status of
+each, with the reason where the answer is "no":
+
+| Idea from §3 (and the per-project documents) | Status |
+| :--- | :--- |
+| Two-way PII redaction layer (auto-apply-bot) | **Adopted** — `src/security/pii.py`, wired into the tailoring prompt; the live run proves no candidate name, e-mail, phone or link reaches the provider. |
+| Anti-AI jargon & strong-verb policy (JobHunter AI) | **Adopted** — `src/resume/style.py`; the ban list in the prompt and the checker are the same constant, and the findings ride on the tailoring result. |
+| Official visa-sponsorship data hubs (JobOps) | **Adopted, adapted** — `src/matching/sponsors.py` + `scripts/import_visa_sponsors.py`. The reference's "elevate verified / demote unverified" was **rejected**: the finding is evidence, the score is untouched. |
+| Skill match & gap diagnosis badges (AutoApplyMax) | **Adopted** — `frontend/src/components/common/match-gap-chips.tsx`, plus the sponsor badge. |
+| Bring your own key (raised by this workstream) | **Adopted** — per-user credentials, encrypted at rest, resolved per request (`src/llm/credentials.py`). |
+| Direct ATS JSON endpoints (JobOps) | **Already held** — Greenhouse/Ashby/Lever/Remotive call the boards' JSON APIs directly; Workday's CXS endpoint is per-tenant and there is no public tenant directory (recorded, not invented). |
+| Fail-closed CDP port guard (JobHunter AI) | **Recorded, no code** — the runtime has no CDP attach path (`grep -rn "connect_over_cdp" src/` finds nothing). The rule is written down for whoever adds one. |
+| Form answer cache (auto-apply-bot) | **Already held, differently** — the WS-20 question taxonomy + application profile is the deterministic answer source. |
+| Token/cost ledger (auto-apply-bot) | **Already held** — WS-10 usage rows; WS-22 adds *whose key* the call spent. |
+| Decision audit stream / SSE (AutoJob) | **Already held, honestly** — WS-17 chose polling; WS-19 added per-run progress. |
+| Stuck-form watchdog (AutoApplyMax) | **Already held** — per-action timeouts, a failing wizard fails the run, evidence captured. |
+| Single-call application analytics (JobGPT) | **Already held** — `GET /api/admin/overview` and the tracker endpoints. |
+| Stealth Playwright args / Patchright (AutoJob) | **Rejected on policy** — `AGENTS.md` and `docs/SECURITY.md` forbid anti-bot evasion; a challenge is answered with `blocked_human_review`. |
+| Humanized typing / smooth scroll (Auto_job_applier_linkedIn) | **Rejected on policy** — detection evasion by another name. |
+| ChatOps push + approval cards (auto-apply-bot, JobHunter AI) | **Pending** — deferred by instruction; the approval flow and run events already produce the payloads. |
+| Standalone MCP server (JobGPT) | **Pending** — deferred by instruction. |
+| Typst resume PDF (JobOps) | **Pending** — PDF export is FR-1.8; a native toolchain is its own decision (the DOCX renderer is the deliverable today). |
