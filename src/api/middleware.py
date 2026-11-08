@@ -68,6 +68,9 @@ HEAVY_PATH_PREFIXES: tuple[str, ...] = (
     "/api/jobs/refresh",
     "/api/jobs/search",
     "/api/tailor",
+    # WS-22: exercising a stored credential spends the *user's* provider
+    # quota; it is bounded the same way as the calls it proves.
+    "/api/llm/credentials/test",
 )
 
 #: Path **suffixes** that are expensive whatever precedes them. WS-15: the

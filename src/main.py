@@ -24,6 +24,7 @@ from src.api.routes.health import router as health_router
 from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
 from src.api.routes.jobs import runs_router
+from src.api.routes.llm_credentials import router as llm_credentials_router
 from src.api.routes.profile_answers import router as profile_answers_router
 from src.api.routes.resumes import router as resumes_router
 from src.api.routes.tailoring import router as tailoring_router
@@ -135,6 +136,8 @@ app.include_router(profiles_matches_router)
 # WS-20: the user-confirmed application profile and the isolated EEO resource.
 app.include_router(profile_answers_router)
 app.include_router(tailoring_router)
+# WS-22: the caller's own model credential (bring your own key).
+app.include_router(llm_credentials_router)
 app.include_router(tracking_router)
 # WS-13: the two artifact downloads the operator console needs (BA-1, BA-2).
 app.include_router(artifacts_router)
