@@ -5,6 +5,7 @@ import { Disclosure } from "@/components/common/disclosure"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader } from "@/components/common/page-header"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
+import { MatchGapChips, SponsorBadge } from "@/components/common/match-gap-chips"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
@@ -26,7 +27,14 @@ import type { JobMatchResult } from "@/lib/api/types"
  * accessors and rebuilds the same shape the search response uses.
  */
 function matchFromHistory(
-  entry: { scores: unknown; explanation: unknown } | undefined
+  entry:
+    | {
+        scores: unknown
+        explanation: unknown
+        sponsor_status?: unknown
+        sponsor_note?: unknown
+      }
+    | undefined
 ): JobMatchResult | null {
   if (!entry) return null
   const scores = asRecord(entry.scores)
@@ -61,6 +69,11 @@ function matchFromHistory(
     matched_requirements: asStringArray(scores.matched_requirements),
     missing_keywords: asStringArray(scores.missing_keywords),
     matched_keywords: asStringArray(scores.matched_keywords),
+    // WS-22: the sponsorship finding rides on the serialized match row.
+    sponsor_status:
+      typeof entry.sponsor_status === "string" ? entry.sponsor_status : null,
+    sponsor_note:
+      typeof entry.sponsor_note === "string" ? entry.sponsor_note : null,
     explanation: typeof entry.explanation === "string" ? entry.explanation : "",
   }
 }
@@ -140,19 +153,16 @@ export function JobDetailScreen() {
                 </p>
               )}
               <ScoreGrid match={match} />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <SectionTitle>Matched requirements</SectionTitle>
-                  <PlainText className="mt-1.5">
-                    {formatList(match.matched_requirements)}
-                  </PlainText>
-                </div>
-                <div>
-                  <SectionTitle>Missing requirements</SectionTitle>
-                  <PlainText className="mt-1.5">
-                    {formatList(match.missing_requirements)}
-                  </PlainText>
-                </div>
+              <MatchGapChips
+                matched={match.matched_requirements}
+                missing={match.missing_requirements}
+                className="mt-4"
+              />
+              <div className="mt-4">
+                <SponsorBadge
+                  status={match.sponsor_status}
+                  note={match.sponsor_note}
+                />
               </div>
             </Disclosure>
           </CardContent>

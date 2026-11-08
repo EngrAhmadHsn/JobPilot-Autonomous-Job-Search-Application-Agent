@@ -34,6 +34,11 @@ import type {
   JobSearchRequest,
   JobSearchResponse,
   JobSuggestResponse,
+  LlmCredentialDeleteAck,
+  LlmCredentialInput,
+  LlmCredentialStatus,
+  LlmCredentialState,
+  LlmCredentialTestResult,
   MatchesHistory,
   ResumeProfileResponse,
   ResumeUploadResponse,
@@ -211,6 +216,40 @@ export const api = {
       method: "DELETE",
       signal,
       timeoutMs: 20_000,
+    }),
+
+  /** The caller's own model credential (WS-22) — masked, never the key. */
+  getLlmCredentials: (signal?: AbortSignal) =>
+    request<LlmCredentialState>("/api/llm/credentials", { signal, timeoutMs: 20_000 }),
+
+  /** Register or replace the caller's own provider key (WS-22). */
+  putLlmCredentials: (body: LlmCredentialInput, signal?: AbortSignal) =>
+    request<LlmCredentialStatus>("/api/llm/credentials", {
+      method: "PUT",
+      json: body,
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Remove the caller's stored credential (WS-22) — idempotent. */
+  deleteLlmCredentials: (signal?: AbortSignal) =>
+    request<LlmCredentialDeleteAck>("/api/llm/credentials", {
+      method: "DELETE",
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /**
+   * Exercise the stored credential with one small call (WS-22).
+   *
+   * It spends the caller's own provider quota, so it is an explicit action
+   * and it is given a live call's time budget.
+   */
+  testLlmCredentials: (signal?: AbortSignal) =>
+    request<LlmCredentialTestResult>("/api/llm/credentials/test", {
+      method: "POST",
+      signal,
+      timeoutMs: 60_000,
     }),
 
   /** Tailor the profile's resume for one job (~80 s). */

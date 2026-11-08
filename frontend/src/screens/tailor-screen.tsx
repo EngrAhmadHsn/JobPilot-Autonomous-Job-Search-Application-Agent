@@ -11,7 +11,13 @@ import { OverallScore } from "@/components/common/score-grid"
 import { PageHeader } from "@/components/common/page-header"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 import { ApiError, apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
@@ -87,6 +93,73 @@ function FactualityReport({
               {factuality.violations.map((violation) => (
                 <li key={violation}>
                   <PlainText as="span">{violation}</PlainText>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The deterministic style report on the delivered wording (WS-22). */
+function StylePanel({ style }: { style: TailorResponse["style"] }) {
+  const ratio = Math.round(style.quantified_ratio * 100)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Style report</CardTitle>
+        <CardDescription>
+          Plain-language check on the wording: AI jargon, filler phrases and
+          how many bullets carry a number. It reports — it never rewrites.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {style.findings.length === 0 ? (
+          <Banner tone="success" title="No jargon or filler found">
+            <p>
+              None of the checked phrases — the AI jargon and the weak
+              filler verbs in the style policy — appear in the summary, the
+              cover letter or the bullets.
+            </p>
+          </Banner>
+        ) : (
+          <Banner
+            tone="warning"
+            title={`${style.findings.length} phrase(s) to reconsider`}
+          >
+            <p>
+              The wording is delivered as written; these are the parts a
+              recruiter reads as filler.
+            </p>
+          </Banner>
+        )}
+
+        <FieldList
+          items={[
+            {
+              label: "Quantified bullets",
+              value: `${style.quantified_count} of ${style.bullet_count}${
+                style.bullet_count > 0 ? ` (${ratio}%)` : ""
+              }`,
+            },
+          ]}
+        />
+
+        {style.findings.length > 0 ? (
+          <div className="space-y-1">
+            <SectionTitle>Findings</SectionTitle>
+            <ul className="space-y-1 text-sm">
+              {style.findings.map((finding, index) => (
+                <li key={`${finding.phrase}-${index}`}>
+                  <span className="font-medium">
+                    <PlainText as="span">{finding.phrase}</PlainText>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    → {finding.suggestion}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -398,6 +471,7 @@ export function TailorJobScreen() {
 
           <FactualityReport factuality={result.factuality} />
           <TailoredResumePanel tailored={result.tailored} />
+          <StylePanel style={result.style} />
           <AtsPanel ats={result.ats_report} />
           <InsightsPanel insights={result.insights} />
         </>

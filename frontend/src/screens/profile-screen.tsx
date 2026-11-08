@@ -1,4 +1,5 @@
 import { ApplicationProfilePanel } from "@/components/profile/application-profile-panel"
+import { ModelCredentialsCard } from "@/components/profile/model-credentials-card"
 import { ProfileView } from "@/components/profile/profile-view"
 import { Disclosure } from "@/components/common/disclosure"
 import { ErrorNotice } from "@/components/common/error-notice"
@@ -66,6 +67,13 @@ export function ProfileScreen() {
           </Section>
         </>
       ) : null}
+
+      {/*
+        WS-22: the credential is an account setting, not a profile field, so
+        it renders whether or not a résumé exists yet — a deployment in
+        `required` mode must be able to take a key before the first résumé.
+      */}
+      <ModelCredentialsCard />
     </div>
   )
 }

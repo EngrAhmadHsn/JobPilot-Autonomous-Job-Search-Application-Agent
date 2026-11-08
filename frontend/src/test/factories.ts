@@ -199,6 +199,8 @@ export function matchPair(overrides: Partial<JobMatchPair> = {}): JobMatchPair {
       matched_requirements: ["Python", "SQL"],
       missing_keywords: [],
       matched_keywords: ["python", "sql"],
+      sponsor_status: null,
+      sponsor_note: null,
       explanation:
         "The profile states Python and SQL, which the listing asks for.",
     },
@@ -298,6 +300,12 @@ export function tailorResponse(
       title_alignment: 90,
       score: 85,
       notes: [],
+    },
+    style: {
+      findings: [],
+      bullet_count: 1,
+      quantified_count: 0,
+      quantified_ratio: 0,
     },
     insights: {
       responsibilities: ["Build machine learning systems"],

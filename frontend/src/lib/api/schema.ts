@@ -1153,6 +1153,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Credentials
+         * @description The caller's credential state — masked, never the key.
+         */
+        get: operations["get_credentials_api_llm_credentials_get"];
+        /**
+         * Put Credentials
+         * @description Register or replace the caller's own provider credential.
+         *
+         *     The key is encrypted before it is stored; the response carries the mask.
+         *     Registering does **not** test the key — that spends the user's quota, so
+         *     it is an explicit action (``POST .../test``).
+         */
+        put: operations["put_credentials_api_llm_credentials_put"];
+        post?: never;
+        /**
+         * Delete Credentials
+         * @description Remove the caller's stored credential (idempotent).
+         */
+        delete: operations["delete_credentials_api_llm_credentials_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/credentials/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Credentials
+         * @description Make one small call with the stored credential and report the outcome.
+         */
+        post: operations["test_credentials_api_llm_credentials_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profiles/{profile_id}/application-profile": {
         parameters: {
             query?: never;
@@ -1222,7 +1274,12 @@ export interface paths {
         };
         /**
          * Get Profile Matches
-         * @description Persisted match history for one profile, oldest first.
+         * @description Persisted matches for one profile.
+         *
+         *     Default: the account's match **history** (one row per search), newest
+         *     first. With ``ranked=true``: the most recent match of each job, best
+         *     overall score first, limited after deduplication — relevance, not a
+         *     trail.
          */
         get: operations["get_profile_matches_api_profiles__profile_id__matches_get"];
         put?: never;
@@ -1941,6 +1998,53 @@ export interface components {
             /** Expected Salary */
             expected_salary?: number | null;
         };
+        /**
+         * CredentialDeleteAck
+         * @description The result of removing a stored credential.
+         */
+        CredentialDeleteAck: {
+            /** Removed */
+            removed: boolean;
+        };
+        /**
+         * CredentialState
+         * @description Everything the console needs to render the credentials card.
+         */
+        CredentialState: {
+            /** Available */
+            available: boolean;
+            credential?: components["schemas"]["LlmCredentialStatus"] | null;
+            /** Encryption */
+            encryption: string;
+            /** Mode */
+            mode: string;
+            /** Platform Configured */
+            platform_configured: boolean;
+            /** Using */
+            using: string;
+        };
+        /**
+         * CredentialTestResult
+         * @description What happened when the stored credential was exercised.
+         *
+         *     ``error_type`` is the exception *class name* — never a provider message,
+         *     which can echo request material back.
+         */
+        CredentialTestResult: {
+            /**
+             * Error Type
+             * @description Exception type on failure
+             */
+            error_type?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Model */
+            model: string;
+            /** Ok */
+            ok: boolean;
+            /** Provider */
+            provider: string;
+        };
         /** EducationEntry */
         EducationEntry: {
             /**
@@ -2219,6 +2323,10 @@ export interface components {
             seniority_score: number;
             /** Skill Score */
             skill_score: number;
+            /** Sponsor Note */
+            sponsor_note?: string | null;
+            /** Sponsor Status */
+            sponsor_status?: string | null;
         };
         /**
          * JobSearchPreferences
@@ -2379,6 +2487,55 @@ export interface components {
             required_hit?: string[];
             /** Required Missing */
             required_missing?: string[];
+        };
+        /**
+         * LlmCredentialInput
+         * @description A credential a user registers. The key is never echoed back.
+         */
+        LlmCredentialInput: {
+            /** Api Key */
+            api_key: string;
+            /**
+             * Base Url
+             * @description Required for openai-compatible; validated against the SSRF rule
+             */
+            base_url?: string | null;
+            /** Model */
+            model: string;
+            /**
+             * Provider
+             * @description google, openai-compatible, openai or zai
+             */
+            provider: string;
+        };
+        /**
+         * LlmCredentialStatus
+         * @description The stored credential, described — never disclosed.
+         *
+         *     ``hint`` is the last four characters of the key, enough for the owner to
+         *     recognise which key is registered.
+         */
+        LlmCredentialStatus: {
+            /** Base Url */
+            base_url?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Hint */
+            hint: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * MatchesHistoryResponse
@@ -2650,9 +2807,54 @@ export interface components {
             job_id: string;
             /** Profile Id */
             profile_id: string;
+            style: components["schemas"]["StyleReport"];
             tailored: components["schemas"]["TailoredResume"];
             /** Tailoring Id */
             tailoring_id: string;
+        };
+        /**
+         * StyleFinding
+         * @description One phrase worth changing, and where it appeared.
+         */
+        StyleFinding: {
+            /** Category */
+            category: string;
+            /** Phrase */
+            phrase: string;
+            /**
+             * Snippet
+             * @description The sentence or bullet that carried it
+             */
+            snippet: string;
+            /** Suggestion */
+            suggestion: string;
+        };
+        /**
+         * StyleReport
+         * @description The deterministic style verdict on a piece of tailored writing.
+         *
+         *     ``quantified_ratio`` is the share of *bullets* that carry a number — the
+         *     one soft signal here, reported rather than judged: a résumé for a role
+         *     with nothing measurable has a low ratio honestly.
+         */
+        StyleReport: {
+            /**
+             * Bullet Count
+             * @default 0
+             */
+            bullet_count: number;
+            /** Findings */
+            findings?: components["schemas"]["StyleFinding"][];
+            /**
+             * Quantified Count
+             * @default 0
+             */
+            quantified_count: number;
+            /**
+             * Quantified Ratio
+             * @default 0
+             */
+            quantified_ratio: number;
         };
         /**
          * TailoredExperience
@@ -2749,6 +2951,7 @@ export interface components {
             job_id: string;
             /** Profile Id */
             profile_id: string;
+            style: components["schemas"]["StyleReport"];
             tailored: components["schemas"]["TailoredResume"];
             /** Tailoring Id */
             tailoring_id: string;
@@ -4377,6 +4580,99 @@ export interface operations {
             };
         };
     };
+    get_credentials_api_llm_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialState"];
+                };
+            };
+        };
+    };
+    put_credentials_api_llm_credentials_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmCredentialInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmCredentialStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_credentials_api_llm_credentials_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialDeleteAck"];
+                };
+            };
+        };
+    };
+    test_credentials_api_llm_credentials_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialTestResult"];
+                };
+            };
+        };
+    };
     get_application_profile_api_profiles__profile_id__application_profile_get: {
         parameters: {
             query?: never;
@@ -4540,7 +4836,11 @@ export interface operations {
     };
     get_profile_matches_api_profiles__profile_id__matches_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number | null;
+                /** @description WS-21: return the most recent match per job, ordered by overall score (the Tailor picker's relevance order) and limited after deduplication. */
+                ranked?: boolean;
+            };
             header?: never;
             path: {
                 profile_id: string;

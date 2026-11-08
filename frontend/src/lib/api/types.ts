@@ -163,6 +163,24 @@ export type ApplicationProfileResponse = DeepRequired<
 export type EeoProfile = DeepRequired<components["schemas"]["EeoProfile"]>
 export type EeoResponse = DeepRequired<components["schemas"]["EeoResponse"]>
 
+/**
+ * The caller's own model credential (WS-22).
+ *
+ * `LlmCredentialState` is the read: the deployment mode, whether the feature
+ * is available, which key a call would spend, and the stored credential —
+ * **masked**. The API never returns the key, and there is no field here that
+ * could carry it.
+ */
+export type LlmCredentialState = DeepRequired<components["schemas"]["CredentialState"]>
+export type LlmCredentialStatus = DeepRequired<
+  components["schemas"]["LlmCredentialStatus"]
+>
+export type LlmCredentialInput = components["schemas"]["LlmCredentialInput"]
+export type LlmCredentialDeleteAck = components["schemas"]["CredentialDeleteAck"]
+export type LlmCredentialTestResult = DeepRequired<
+  components["schemas"]["CredentialTestResult"]
+>
+
 /** A query autocomplete suggestion drawn from the corpus's own titles. */
 export type JobSuggestion = DeepRequired<components["schemas"]["JobSuggestion"]>
 export type JobSuggestResponse = DeepRequired<

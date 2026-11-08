@@ -6,6 +6,7 @@ import { Banner } from "@/components/common/banner"
 import { Disclosure } from "@/components/common/disclosure"
 import { SectionTitle } from "@/components/common/field-list"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { MatchGapChips, SponsorBadge } from "@/components/common/match-gap-chips"
 import { Pagination } from "@/components/common/pagination"
 import { QueryCombobox } from "@/components/common/query-combobox"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
@@ -19,7 +20,6 @@ import { Input } from "@/components/ui/input"
 
 import { api } from "@/lib/api/endpoints"
 import { stagger } from "@/lib/stagger"
-import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
 
@@ -158,19 +158,16 @@ function MatchCard({
 
           <ScoreGrid match={match} />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <SectionTitle>Matched requirements</SectionTitle>
-              <PlainText className="mt-1.5">
-                {formatList(match.matched_requirements)}
-              </PlainText>
-            </div>
-            <div>
-              <SectionTitle>Missing requirements</SectionTitle>
-              <PlainText className="mt-1.5">
-                {formatList(match.missing_requirements)}
-              </PlainText>
-            </div>
+          <MatchGapChips
+            matched={match.matched_requirements}
+            missing={match.missing_requirements}
+            className="mt-4"
+          />
+          <div className="mt-4">
+            <SponsorBadge
+              status={match.sponsor_status}
+              note={match.sponsor_note}
+            />
           </div>
         </Disclosure>
 
