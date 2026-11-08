@@ -16,6 +16,14 @@ const RESUME = join(HERE, "fixtures", "resume.txt")
  * the tailoring step passes when the tailored resume is ready **or** when
  * the console says the model is unavailable. A console that hid a provider
  * failure would fail this test, which is the point.
+ *
+ * WS-22: the "or unavailable" branch needs the time the API itself is
+ * allowed to spend. A provider that stalls (rather than refusing) costs the
+ * client its full timeout per attempt — three attempts of ``LLM_TIMEOUT``
+ * plus backoff, ~190 s by default — so a 180 s wait failed a run whose
+ * provider was merely slow, one step before the API answered. The wait is
+ * now larger than that budget, and the test's own timeout leaves room for
+ * the rest of the journey.
  */
 test("the operator can go from a resume to a tracked application", async ({
   page,
@@ -58,7 +66,9 @@ test("the operator can go from a resume to a tracked application", async ({
   const modelUnavailable = page.getByText(
     "The language model is unavailable; try again later."
   )
-  await expect(tailored.or(modelUnavailable)).toBeVisible({ timeout: 180_000 })
+  // The API's own worst case (LLM_TIMEOUT × (1 + LLM_MAX_RETRIES) + backoff)
+  // is ~190 s; wait past it rather than failing on the provider's latency.
+  await expect(tailored.or(modelUnavailable)).toBeVisible({ timeout: 260_000 })
   if (await tailored.isVisible()) {
     await expect(page.getByText("Factuality report")).toBeVisible()
   }

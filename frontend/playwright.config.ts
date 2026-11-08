@@ -27,7 +27,12 @@ export default defineConfig({
   // The tailoring call alone can take a minute, the approval step drives a
   // real browser against the fake ATS, and creating the test account
   // hashes a password with argon2 — which takes seconds on a busy machine.
-  timeout: 300_000,
+  //
+  // WS-22: a stalled provider costs the API its whole retry budget
+  // (~190 s) before it answers "the model is unavailable", and the
+  // smoke test now waits past that, so the total has room for the
+  // remaining steps (search, prepare, approve, history) as well.
+  timeout: 420_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
