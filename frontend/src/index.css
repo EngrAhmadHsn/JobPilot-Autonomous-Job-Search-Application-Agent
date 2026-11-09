@@ -204,6 +204,25 @@
   }
 
   /*
+    Interactive elements keep the pointer cursor.
+
+    Tailwind v4's preflight dropped the `cursor: pointer` that v3 applied to
+    `<button>` (it now leaves the browser default, which is an arrow). Every
+    button, tab and role="button" in the console therefore stopped reading as
+    clickable — the exact regression this restores. `:not(:disabled)` keeps a
+    disabled control from advertising a click it will refuse.
+  */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+
+  /*
     Motion answers an action; it never performs. And it is optional.
 
     **Reduced motion means less movement, not less feedback.** A blanket
