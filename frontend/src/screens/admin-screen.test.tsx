@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
@@ -69,6 +69,15 @@ function workersResponse(healthy: number, total = healthy) {
       runs: { queued: 2 },
     },
   }
+}
+
+/** A run with just enough shape to land in one group or the other. */
+function adminRun(
+  id: string,
+  status: string,
+  overrides: Record<string, unknown> = {}
+) {
+  return runSummary({ id, job_type: "embedding", status, ...overrides })
 }
 
 describe("the administration screen", () => {
@@ -388,6 +397,52 @@ describe("the administration screen", () => {
     expect(screen.getByText("Lifecycle events")).toBeInTheDocument()
   })
 
+  it("clamps a long error to one line instead of widening the table", async () => {
+    // The real text is a Node double error: far longer than any column. The
+    // cell has to keep its width, or the row grows and the action buttons
+    // scroll out of view (the defect this pins down).
+    const longError =
+      "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned " +
+      "while running MatMulNBits node. Name:'/model/ple/per_layer_model_" +
+      "projection/MatMul_Quant' Status Message: bfc_arena.cc:360 onnxruntime::" +
+      "BFCArena::AllocateRawInternal Failed to allocate memory for requested " +
+      "buffer of size 268435456 bytes".repeat(3)
+
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            runSummary({
+              id: "run-embed-4",
+              job_type: "embedding",
+              status: "RECOVERABLE",
+              last_error: longError,
+              resumable: true,
+            }),
+          ])
+        )
+      )
+    )
+
+    renderApp({ route: "/app/admin" })
+
+    const text = await screen.findByText(longError)
+    expect(text).toHaveClass("truncate")
+    expect(text).toHaveAttribute("title", longError)
+    // The actions the error used to displace are still rendered.
+    expect(screen.getByRole("button", { name: "Progress" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument()
+  })
+
   it("offers no resume for a finished run", async () => {
     server.use(
       http.get(`${BASE}/api/auth/me`, () =>
@@ -421,6 +476,92 @@ describe("the administration screen", () => {
       screen.queryByRole("button", { name: "Resume" })
     ).not.toBeInTheDocument()
   })
+
+  it("separates active work from settled history", async () => {
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            adminRun("run-active", "RUNNING", { resumable: false }),
+            adminRun("run-recoverable", "RECOVERABLE", { resumable: true }),
+            adminRun("run-done", "COMPLETED", { resumable: false }),
+            adminRun("run-failed", "FAILED", { resumable: true }),
+          ])
+        )
+      )
+    )
+
+    renderApp({ route: "/app/admin" })
+
+    // Both headings are groups, with their own counts.
+    expect(
+      await screen.findByRole("heading", { name: /^Active/ })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: /^Inactive/ })).toBeInTheDocument()
+
+    // An interrupted run is unfinished work, not history: its Resume lives
+    // in the Active group, next to the run that is actually running.
+    const activeHeading = screen.getByRole("heading", { name: /^Active/ })
+    const activeSection = activeHeading.closest("section")!
+    expect(activeSection).toHaveTextContent("Interrupted — needs an administrator")
+    expect(
+      activeSection.querySelector('button[aria-label], button') &&
+        Array.from(activeSection.querySelectorAll("button")).some(
+          (button) => button.textContent === "Resume"
+        )
+    ).toBe(true)
+
+    // A finished run is history, and only history.
+    const inactiveSection = screen
+      .getByRole("heading", { name: /^Inactive/ })
+      .closest("section")!
+    expect(inactiveSection).toHaveTextContent("Finished")
+    expect(inactiveSection).not.toHaveTextContent("Working now")
+  })
+
+  it("shows at most five rows per group and pages the rest", async () => {
+    const runs = Array.from({ length: 7 }, (_, index) =>
+      adminRun(`run-done-${index}`, "COMPLETED", { resumable: false })
+    )
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () => HttpResponse.json(runsResponse(runs)))
+    )
+
+    renderApp({ route: "/app/admin" })
+    const user = userEvent.setup()
+
+    const inactive = (await screen.findByRole("heading", { name: /^Inactive/ })).closest(
+      "section"
+    )!
+
+    // Five rows, not seven: the counter says what is on screen.
+    expect(inactive.querySelectorAll("tbody tr")).toHaveLength(5)
+    expect(within(inactive).getByText(/1–5 of 7 runs/)).toBeInTheDocument()
+
+    await user.click(within(inactive).getByRole("button", { name: "Next" }))
+
+    expect(inactive.querySelectorAll("tbody tr")).toHaveLength(2)
+    expect(within(inactive).getByText(/6–7 of 7 runs/)).toBeInTheDocument()
+  })
+
   it("labels a worker that stopped responding instead of printing its row", async () => {
     server.use(
       http.get(`${BASE}/api/auth/me`, () =>

@@ -30,23 +30,26 @@ const STATUS: Record<string, { label: string; help: string; tone: string }> = {
   RETRY_WAIT: {
     label: "Waiting to retry",
     help: "A step failed in a way that may pass on its own; the worker will try it again.",
-    tone: "text-terracotta",
+    // The *foreground* of the clay, not the fill: `--color-terracotta` is the
+    // pale swatch meant to sit behind text (a badge background), and using it
+    // as text paints an unreadable peach on the ivory surface.
+    tone: "text-terracotta-foreground",
   },
   PAUSED: {
     label: "Paused — daily budget spent",
     help: "The work is kept. It resumes after the daily reset, and the same limit applies then.",
-    tone: "text-terracotta",
+    tone: "text-terracotta-foreground",
   },
   RECOVERABLE: {
     label: "Interrupted — needs an administrator",
     help: "The worker stopped while this run still had work outstanding. Nothing is lost: an administrator resumes only what remains.",
-    tone: "text-terracotta",
+    tone: "text-terracotta-foreground",
   },
   COMPLETED: { label: "Finished", help: "", tone: "text-foreground" },
   PARTIAL: {
     label: "Finished with failures",
     help: "Some items failed permanently. What succeeded is kept.",
-    tone: "text-terracotta",
+    tone: "text-terracotta-foreground",
   },
   FAILED: {
     label: "Failed",

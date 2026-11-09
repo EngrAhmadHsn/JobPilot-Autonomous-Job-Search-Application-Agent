@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
+import type { UseQueryResult } from "@tanstack/react-query"
 import { Fragment, useState } from "react"
 
 import { Banner } from "@/components/common/banner"
@@ -10,6 +11,8 @@ import {
 } from "@/components/observability/run-progress"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
+import { Pagination } from "@/components/common/pagination"
+import { RelativeTime } from "@/components/common/relative-time"
 import { StatTile } from "@/components/common/stat-tile"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -34,6 +37,7 @@ import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import type {
   AdminOverview,
+  RunDetailResponse,
   RunSummary,
   WorkerHealthEntry,
   WorkerHealthResponse,
@@ -317,6 +321,8 @@ function BackgroundRuns() {
   const [notice, setNotice] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>("")
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [activePage, setActivePage] = useState(0)
+  const [inactivePage, setInactivePage] = useState(0)
 
   const runs = useQuery({
     queryKey: ["admin", "runs", typeFilter],
@@ -364,6 +370,16 @@ function BackgroundRuns() {
   const items = runs.data?.runs ?? []
   const waiting = items.filter((run) => !isRunTerminal(run.status)).length
 
+  // Two groups, because they answer two different questions: "what is the
+  // machine doing" and "what did it do". A settled run is history; a run in
+  // flight is work. Mixing them in one list (and one long scroll) is what
+  // made a 30-row queue look unreadable. "Active" is every status something
+  // can still change from, which is deliberately wider than the terminal
+  // set — a RECOVERABLE run is quiet but unfinished, and it belongs with the
+  // work, where its Resume button is.
+  const active = items.filter((run) => !isRunTerminal(run.status))
+  const inactive = items.filter((run) => isRunTerminal(run.status))
+
   return (
     <Section
       title="Background runs"
@@ -389,6 +405,8 @@ function BackgroundRuns() {
                 onClick={() => {
                   setTypeFilter(filter.value)
                   setExpandedId(null)
+                  setActivePage(0)
+                  setInactivePage(0)
                 }}
                 aria-pressed={typeFilter === filter.value}
                 className={
@@ -443,88 +461,36 @@ function BackgroundRuns() {
             description="A refresh that finds new or changed listings creates one, and so does a reconciliation. Interrupted runs appear here with a Resume action."
           />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Progress</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Last heartbeat</TableHead>
-                <TableHead>Last error</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((run) => (
-                <Fragment key={run.id}>
-                  <TableRow>
-                    <TableCell className="font-mono text-xs">
-                      {run.id.slice(0, 12)}
-                    </TableCell>
-                    <TableCell>{run.job_type}</TableCell>
-                    <TableCell className={runStatusCopy(run.status).tone}>
-                      {runStatusCopy(run.status).label}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {run.progress_percent}% ({run.completed_items}/
-                      {run.total_items})
-                    </TableCell>
-                    <TableCell>{formatDateTime(run.created_at)}</TableCell>
-                    <TableCell>{formatDateTime(run.heartbeat_at)}</TableCell>
-                    <TableCell className="max-w-56 truncate text-xs text-muted-foreground">
-                      {run.last_error ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          aria-expanded={expandedId === run.id}
-                          onClick={() =>
-                            setExpandedId(expandedId === run.id ? null : run.id)
-                          }
-                        >
-                          {expandedId === run.id ? "Hide" : "Progress"}
-                        </Button>
-                        {run.resumable ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setConfirming(run)}
-                          >
-                            Resume
-                          </Button>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  {expandedId === run.id ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="bg-muted/30">
-                        {detail.isPending ? (
-                          <ProgressState title="Reading the run" />
-                        ) : detail.isError ? (
-                          <ErrorNotice
-                            error={detail.error}
-                            onRetry={() => detail.refetch()}
-                            verbose
-                          />
-                        ) : detail.data ? (
-                          <RunProgress
-                            run={detail.data.run}
-                            events={detail.data.run.events}
-                            verbose
-                          />
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="space-y-8">
+            <RunGroup
+              title="Active"
+              description="Work the machine can still change: queued, running, retrying, or interrupted and waiting for an administrator."
+              runs={active}
+              emptyText="Nothing is running or waiting. Every run below has finished."
+              page={activePage}
+              onPageChange={setActivePage}
+              expandedId={expandedId}
+              onToggleExpand={(id) =>
+                setExpandedId(expandedId === id ? null : id)
+              }
+              onResume={setConfirming}
+              detail={detail}
+            />
+            <RunGroup
+              title="Inactive"
+              description="Runs that have settled: finished, failed, cancelled. Kept for the record; nothing here changes on its own."
+              runs={inactive}
+              emptyText="No run has finished yet."
+              page={inactivePage}
+              onPageChange={setInactivePage}
+              expandedId={expandedId}
+              onToggleExpand={(id) =>
+                setExpandedId(expandedId === id ? null : id)
+              }
+              onResume={setConfirming}
+              detail={detail}
+            />
+          </div>
         )}
 
         <Dialog
@@ -579,6 +545,203 @@ function BackgroundRuns() {
         </Dialog>
       </div>
     </Section>
+  )
+}
+
+/** Rows per group page — five, so a group never becomes a long scroll. */
+const RUNS_PER_PAGE = 5
+
+/**
+ * One group of runs: a heading, at most five rows, and its own page control.
+ *
+ * Active and inactive work are separated because they are read for different
+ * reasons, and each group pages on its own so paging through history does not
+ * move what is running. The backend returns the list in one call (the console
+ * pages what it has); the day it outgrows that, only this slice changes.
+ */
+function RunGroup({
+  title,
+  description,
+  runs,
+  emptyText,
+  page,
+  onPageChange,
+  expandedId,
+  onToggleExpand,
+  onResume,
+  detail,
+}: {
+  title: string
+  description: string
+  runs: RunSummary[]
+  emptyText: string
+  page: number
+  onPageChange: (page: number) => void
+  expandedId: string | null
+  onToggleExpand: (id: string) => void
+  onResume: (run: RunSummary) => void
+  detail: UseQueryResult<RunDetailResponse, Error>
+}) {
+  const pages = Math.max(1, Math.ceil(runs.length / RUNS_PER_PAGE))
+  // Clamp rather than trust: a poll can shrink the list under a page the
+  // operator is standing on, and an out-of-range slice would render empty.
+  const current = Math.min(page, pages - 1)
+  const visible = runs.slice(
+    current * RUNS_PER_PAGE,
+    current * RUNS_PER_PAGE + RUNS_PER_PAGE
+  )
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="text-sm font-semibold text-foreground">
+          {title}
+          <span className="ml-2 font-normal text-muted-foreground tabular-nums">
+            {runs.length}
+          </span>
+        </h3>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+
+      {runs.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+          {emptyText}
+        </p>
+      ) : (
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Run</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Progress</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Heartbeat</TableHead>
+                <TableHead>Last error</TableHead>
+                {/* The action column is pinned twice over: `w-px` holds it at
+                    the buttons' own width so a long neighbour cannot squeeze
+                    it, and `sticky right-0` keeps it on screen while the
+                    table scrolls. Sticky needs an opaque background, and it
+                    must be the **page's** surface (`bg-background`), not the
+                    card's: the table sits directly on the ivory page, so
+                    `bg-card` painted a permanently lighter paper strip down
+                    the right edge that read as a detached panel. The table
+                    row is a `group`, so the pinned cells tint with the row on
+                    hover instead of staying flat. */}
+                <TableHead className="sticky right-0 z-10 w-px bg-background text-right">
+                  Actions
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.map((run) => (
+                <Fragment key={run.id}>
+                  <TableRow className="group">
+                    <TableCell
+                      className="cursor-help font-mono text-xs"
+                      title={run.id}
+                    >
+                      {run.id.slice(0, 8)}
+                    </TableCell>
+                    <TableCell>{run.job_type}</TableCell>
+                    {/* The status prose is informative and gets room — but a bounded
+                        amount, and it clips rather than spills: a table cell is
+                        `whitespace-nowrap`, so a long label would otherwise
+                        paint over the Progress column beside it. The full text
+                        is one hover (or one row expansion) away. */}
+                    <TableCell
+                      className={`max-w-52 truncate ${runStatusCopy(run.status).tone}`}
+                      title={runStatusCopy(run.status).label}
+                    >
+                      {runStatusCopy(run.status).label}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {run.progress_percent}% ({run.completed_items}/
+                      {run.total_items})
+                    </TableCell>
+                    {/* Relative, with the exact timestamp in the tooltip: an
+                        operator reads "37s ago" for liveness, and the two
+                        absolute timestamps cost 316px of a table that does
+                        not fit its container. */}
+                    <TableCell>
+                      <RelativeTime value={run.created_at} />
+                    </TableCell>
+                    <TableCell>
+                      <RelativeTime value={run.heartbeat_at} />
+                    </TableCell>
+                    {/* The error text is unbounded (a Node double reports
+                        megabytes of it), so it is clamped to one line of a
+                        capped block: max-width on a table cell is only a
+                        hint, and the cell would otherwise widen the whole
+                        table. The full text stays reachable on hover and in
+                        the run's own panel. */}
+                    <TableCell className="text-xs text-muted-foreground">
+                      {run.last_error ? (
+                        <div className="max-w-48 truncate" title={run.last_error}>
+                          {run.last_error}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="sticky right-0 z-10 w-px bg-background text-right group-hover:bg-muted">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-expanded={expandedId === run.id}
+                          onClick={() => onToggleExpand(run.id)}
+                        >
+                          {expandedId === run.id ? "Hide" : "Progress"}
+                        </Button>
+                        {run.resumable ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onResume(run)}
+                          >
+                            Resume
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {expandedId === run.id ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="bg-muted/30">
+                        {detail.isPending ? (
+                          <ProgressState title="Reading the run" />
+                        ) : detail.isError ? (
+                          <ErrorNotice
+                            error={detail.error}
+                            onRetry={() => detail.refetch()}
+                            verbose
+                          />
+                        ) : detail.data ? (
+                          <RunProgress
+                            run={detail.data.run}
+                            events={detail.data.run.events}
+                            verbose
+                          />
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+          <Pagination
+            page={current}
+            pageSize={RUNS_PER_PAGE}
+            total={runs.length}
+            onPageChange={onPageChange}
+            label="runs"
+          />
+        </>
+      )}
+    </section>
   )
 }
 
