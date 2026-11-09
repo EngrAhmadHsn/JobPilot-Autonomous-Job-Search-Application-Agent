@@ -585,10 +585,16 @@ def _settle(
         worker_id=worker_id,
         session_factory=session_factory,
         event=EVENT_BATCH_COMPLETED,
+        # A batch that settled nothing needs to say *why*, in the operator's
+        # own view: the item-level error is only visible for items that
+        # reached the attempt cap, and the run's own message is overwritten by
+        # the reaper when a worker dies (the 2026-11-07 crash loop reported
+        # "Worker stopped heartbeating" for a batch that was failing on ONNX
+        # memory allocations, and the cause was nowhere on screen).
         message=(
             f"Batch settled: {result.completed} completed, "
             f"{result.retry_scheduled} retrying, {result.failed} failed, "
-            f"{result.skipped} skipped"
+            f"{result.skipped} skipped" + (f" — {result.error}" if result.error else "")
         ),
         metadata={
             "completed": result.completed,
@@ -597,6 +603,7 @@ def _settle(
             "skipped": result.skipped,
             "cache_hits": result.cache_hits,
             "cache_misses": result.cache_misses,
+            "error": result.error,
         },
         now=moment,
     )

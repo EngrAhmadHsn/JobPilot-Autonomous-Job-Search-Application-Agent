@@ -163,9 +163,7 @@ def test_a_crash_before_the_first_batch_loses_nothing(factory, store):
 
     with factory() as session:
         events = list(
-            session.execute(
-                select(JobRunEventDB).where(JobRunEventDB.run_id == run_id)
-            ).scalars()
+            session.execute(select(JobRunEventDB).where(JobRunEventDB.run_id == run_id)).scalars()
         )
     batches = [event for event in events if event.event == "batch.completed"]
     assert batches
@@ -464,6 +462,49 @@ def test_the_worker_renews_the_batch_lease_and_its_own_heartbeat(factory, tmp_pa
     assert set(leases) == {item.id for item in _items(factory, run_id)}
     assert lease_seconds == 10  # the worker's own lease length
     assert _run(factory, run_id).status == RUN_COMPLETED
+
+
+# -- a failed batch has to say why --------------------------------------------
+
+
+class AlwaysOutOfMemoryEmbedding(FakeEmbeddingFn):
+    """The shape of the live failure: a whole call refused for memory."""
+
+    def embed_documents(self, texts, *, on_progress=None):
+        raise RuntimeError(
+            "RuntimeException: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero "
+            "status code returned while running MatMulNBits node. Status Message: "
+            "bad allocation"
+        )
+
+
+def test_a_batch_that_settled_nothing_names_its_cause(factory, tmp_path):
+    """2026-11-07: 3,700 items retried on ONNX memory failures and the console
+    showed only "Worker stopped heartbeating" — the cause was on no screen an
+    operator could reach. The batch event now carries it, in the same panel the
+    run's lifecycle is read from."""
+    from src.db.runs import JobRunEventDB
+
+    listings = _seed(factory, count=2)
+    store = make_store(tmp_path / "chroma-oom", AlwaysOutOfMemoryEmbedding())
+    run_id = _enqueue_embedding(factory, listings, store)
+
+    assert _worker(factory, store).run_once() > 0
+
+    with factory() as session:
+        events = list(
+            session.execute(select(JobRunEventDB).where(JobRunEventDB.run_id == run_id)).scalars()
+        )
+    batches = [event for event in events if event.event == "batch.completed"]
+    assert batches
+    message = batches[-1].message
+    assert "0 completed" in message
+    assert "bad allocation" in message
+    assert "bad allocation" in str(batches[-1].extra_metadata["error"])
+    # Retryable, not permanent: memory pressure is usually transient, and the
+    # attempt cap is what stops it, not the classification.
+    assert all(item.status == "RETRY_WAIT" for item in _items(factory, run_id))
+    assert all(item.attempt_count == 1 for item in _items(factory, run_id))
 
 
 # -- quota --------------------------------------------------------------------
