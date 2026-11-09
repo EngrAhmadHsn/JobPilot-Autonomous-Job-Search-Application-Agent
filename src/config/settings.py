@@ -137,6 +137,15 @@ class Settings:
         self.embedding_rpm_limit = int(os.getenv("EMBEDDING_RPM_LIMIT", "5"))
         self.embedding_rpd_limit = int(os.getenv("EMBEDDING_RPD_LIMIT", "20"))
         self.chroma_dir = os.getenv("CHROMA_DIR", "./data/chroma")
+        # How many documents one local embedding call may carry (WS-18
+        # follow-up). The int8 EmbeddingGemma graph dequantizes its MatMulNBits
+        # weights per inference, so peak memory scales with batch × tokens, and
+        # at the 8000-char input cap a batch of 8 is already gigabytes of
+        # arena. The local embedder treats this as the *ceiling* it starts
+        # from and halves it when the runtime cannot allocate: lower it on a
+        # memory-tight machine, raise it on a roomy one. 8 is what the FU-7
+        # gap-fill verified with ~9 GiB free.
+        self.embedding_batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "8"))
         self.match_weights = self._parse_match_weights(os.getenv("MATCH_WEIGHTS"))
 
         # -- Durable execution (WS-18) -------------------------------------

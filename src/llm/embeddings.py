@@ -71,6 +71,7 @@ from src.llm.client import (
     LLMUnavailable,
     classify_provider_error,
 )
+from src.llm.errors import EmbeddingResourceExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,34 @@ FASTEMBED_VARIANT_FILES: dict[str, tuple[str, list[str]]] = {
     "fp32": ("onnx/model.onnx", ["onnx/model.onnx_data"]),
 }
 FASTEMBED_DIMENSION = 768
+
+class _AllocationFailure(RuntimeError):
+    """ONNX Runtime refused an allocation and the embedder is out of ways to shrink."""
+
+
+# What ONNX Runtime says when the host cannot give it the memory a node asked
+# for. The messages come from the C++ layer and vary by node type, so the
+# predicate is deliberately about the *failure to allocate*, never about the
+# node; a Python-level MemoryError counts the same way.
+_ALLOCATION_FAILURE_MARKERS = (
+    "bad allocation",
+    "failed to allocate",
+    "allocateRawInternal".casefold(),
+    "bfcarena",
+    "out of memory",
+    "insufficient memory",
+)
+
+
+def _is_allocation_failure(exc: BaseException) -> bool:
+    """Whether *exc* is the host refusing memory (rather than a model fault)."""
+    if isinstance(exc, MemoryError):
+        return True
+    if isinstance(exc, EmbeddingResourceExhausted):
+        return True
+    text = str(exc).casefold()
+    return any(marker.casefold() in text for marker in _ALLOCATION_FAILURE_MARKERS)
+
 
 # Open-item finding (FU-7, verified live 2026-10-11): the ONNX export ships
 # transformers' "unknown" sentinel as model_max_length (1e30-ish), and
@@ -311,7 +340,9 @@ class FastembedEmbedding:
     # (live-verified: ~2.4 GB single buffer); the int8 graph's MatMulNBits
     # dequantization buffers still exhaust 9 GiB free at 16 (live-verified), so
     # 8 is the largest verified-safe batch. Local CPU embed cost is dominated
-    # by per-document compute, so the small batch costs nothing.
+    # by per-document compute, so the small batch costs nothing. Settings may
+    # lower the ceiling (``EMBEDDING_BATCH_SIZE``) and the embedder lowers it
+    # further by itself when the runtime cannot allocate — see :meth:`_embed_chunk`.
     FASTEMBED_BATCH_SIZE = 8
 
     def __init__(
@@ -322,6 +353,7 @@ class FastembedEmbedding:
         cache_dir: str | None = None,
         text_embedding: Any = None,
         cache_path: str | Path | None = None,
+        batch_size: int | None = None,
     ) -> None:
         settings = get_settings()
         self.model = model or settings.embedding_model
@@ -329,6 +361,17 @@ class FastembedEmbedding:
         self._cache_dir = cache_dir or fastembed_cache_dir(settings)
         self._injected_model = text_embedding
         self._model: Any = None
+        # The ceiling one inference call may start from. It is not a constant
+        # of the model but a property of the machine's free memory at the
+        # moment the call runs, which is why it can also shrink at runtime.
+        self._batch_size = max(
+            1,
+            int(
+                batch_size
+                if batch_size is not None
+                else getattr(settings, "embedding_batch_size", self.FASTEMBED_BATCH_SIZE)
+            ),
+        )
         # The same content-hash cache the Gemini path uses. The local provider
         # makes no API calls, but the cache is what keeps the daily refresh
         # (FU-1) incremental: without it every refresh would re-embed the
@@ -373,6 +416,15 @@ class FastembedEmbedding:
             model_name=registration_name,
             cache_dir=self._cache_dir,
             providers=["CPUExecutionProvider"],
+            # ONNX Runtime's CPU arena allocates in slabs and never returns
+            # them to the OS: a long-lived process (the API server, a worker
+            # between batches) accumulates gigabytes of arena over thousands
+            # of calls, and then the *next* allocation fails with
+            # "BFCArena::AllocateRawInternal Failed to allocate memory" — the
+            # 2026-11-07 worker crash-loop was exactly this, one process at
+            # 4.7 GB. Without the arena the runtime allocates and frees per
+            # node: a little slower, and it gives the memory back.
+            enable_cpu_mem_arena=False,
         )
         # The fused graph needs multimodal feature inputs fastembed never feeds
         # (verified live): wrap the onnxruntime session (TextEmbedding.model is
@@ -462,29 +514,107 @@ class FastembedEmbedding:
                     f"({self._work_limit()} documents/day); "
                     "stopping cleanly — resume after the daily reset"
                 )
-            fresh = self._embed_local([text for _, text in misses])
-            if len(fresh) != len(misses):
+            self._embed_misses(misses, vectors)
+            self._cache.prune_if_needed(self._cache_limit())
+        return [vectors[index] for index in range(len(texts))]
+
+    def _embed_misses(
+        self,
+        misses: list[tuple[int, str]],
+        vectors: dict[int, list[float]],
+    ) -> None:
+        """Embed the documents that missed the cache, one sub-batch at a time.
+
+        The cache is written **per sub-batch**, not once at the end. A local
+        embedding of a 2,000-token job document costs seconds of CPU, so
+        losing a call's completed work because its last sub-batch could not
+        allocate would throw away minutes; the daily work counter is likewise
+        incremented as the work is actually done.
+        """
+        index = 0
+        while index < len(misses):
+            size = max(1, min(self._batch_size, len(misses) - index))
+            chunk = misses[index : index + size]
+            fresh = self._embed_local([text for _, text in chunk])
+            if len(fresh) != len(chunk):
                 raise LLMError(
-                    f"Local embedder returned {len(fresh)} vectors for {len(misses)} inputs; "
+                    f"Local embedder returned {len(fresh)} vectors for {len(chunk)} inputs; "
                     "refusing to misalign results"
                 )
-            for (index, text), vector in zip(misses, fresh):
-                vectors[index] = vector
+            for (position, text), vector in zip(chunk, fresh):
+                vectors[position] = vector
                 self._cache.put(
                     EmbeddingCache.key(self.model, self.dimensionality, text),
                     self.model,
                     self.dimensionality,
                     vector,
                 )
-            # The work is counted only once it has actually been done.
-            self._cache.record_work(len(misses))
-            self._cache.prune_if_needed(self._cache_limit())
-        return [vectors[index] for index in range(len(texts))]
+            self._cache.record_work(len(chunk))
+            index += size
 
     def _embed_local(self, texts: list[str]) -> list[list[float]]:
-        """Run the local model over texts that missed the cache."""
-        raw = self._ensure_model().embed(texts, batch_size=self.FASTEMBED_BATCH_SIZE)
-        return [[float(value) for value in vector] for vector in raw]
+        """Run the local model over texts that missed the cache, one
+        sub-batch at a time, halving a sub-batch the runtime cannot allocate."""
+        vectors: list[list[float]] = []
+        index = 0
+        while index < len(texts):
+            size = max(1, min(self._batch_size, len(texts) - index))
+            chunk = texts[index : index + size]
+            try:
+                vectors.extend(self._embed_chunk(chunk))
+            except _AllocationFailure as failure:
+                raise EmbeddingResourceExhausted(
+                    f"The local embedding model could not allocate memory for a "
+                    f"document after reducing the batch to {len(chunk)} input(s) "
+                    f"({failure}); free memory, or set EMBEDDING_BATCH_SIZE=1",
+                    batch_size=len(chunk),
+                ) from failure
+            index += size
+        return vectors
+
+    def _embed_chunk(self, texts: list[str]) -> list[list[float]]:
+        """Embed one sub-batch, halving it when the runtime cannot allocate.
+
+        ONNX Runtime does not degrade on a failed allocation — the whole
+        inference call raises — so a batch that is one document too large for
+        the machine's free memory used to fail *entirely*, and the queue
+        retried the same oversized batch until its attempts ran out (the
+        2026-11-07 crash loop: 3,700 items, none embedded). Halving needs no
+        knowledge of how much memory a document costs and turns "this batch
+        does not fit" into "this batch takes longer"; the reduced size is
+        remembered for the rest of the process, so the cost is paid once.
+        """
+        while True:
+            try:
+                # fastembed's embed() is a *generator*: the inference — and any
+                # allocation failure — happens while it is consumed, not when it
+                # is called. Materialising it here is what puts the failure
+                # inside this try; a bare `embed(...)` assignment would let the
+                # exception escape unhandled (2026-11-08: it did, and the batch
+                # still failed whole).
+                raw = list(self._ensure_model().embed(texts, batch_size=len(texts)))
+            except Exception as exc:  # re-raised unless it is an allocation failure
+                if not _is_allocation_failure(exc):
+                    raise
+                if len(texts) == 1:
+                    raise _AllocationFailure(str(exc)) from exc
+                half = max(1, len(texts) // 2)
+                self._note_batch_downshift(failed=len(texts), size=half, exc=exc)
+                left = self._embed_chunk(texts[:half])
+                right = self._embed_chunk(texts[half:])
+                return list(left) + list(right)
+            return [[float(value) for value in vector] for vector in raw]
+
+    def _note_batch_downshift(self, *, failed: int, size: int, exc: BaseException) -> None:
+        """Remember — and report — a smaller safe batch size for the process."""
+        self._batch_size = min(self._batch_size, size)
+        logger.warning(
+            "Local embedder could not allocate memory for %d input(s) (%s); "
+            "continuing with %d at a time",
+            failed,
+            str(exc)[:200],
+            self._batch_size,
+        )
 
     def embed_query(self, text: str) -> list[float]:
         """Embed one query, and **never cache it** (WS-14 · Phase G).
@@ -908,27 +1038,27 @@ class GeminiEmbedding:
         if misses:
             fresh: list[list[float]] = []
             for start in range(0, len(misses), self.API_BATCH_SIZE):
-                fresh.extend(
-                    self._embed_with_quota(
-                        [text for _, text in misses[start : start + self.API_BATCH_SIZE]]
+                batch = misses[start : start + self.API_BATCH_SIZE]
+                fresh.extend(self._embed_with_quota([text for _, text in batch]))
+                # Persist each batch as it arrives: a quota or transport
+                # failure later in the call must not discard vectors that were
+                # already paid for with API requests.
+                for (index, text), vector in zip(batch, fresh[-len(batch) :], strict=True):
+                    vectors[index] = vector
+                    self._cache.put(
+                        EmbeddingCache.key(self.model, self.dimensionality, text),
+                        self.model,
+                        self.dimensionality,
+                        vector,
                     )
-                )
+                # WS-15: the work is counted only once it has actually been
+                # done, and the count is the documents, not the batches.
+                self._cache.record_work(len(batch))
             if len(fresh) != len(misses):
                 raise LLMError(
                     f"Embedding API returned {len(fresh)} vectors for "
                     f"{len(misses)} inputs; refusing to misalign results"
                 )
-            for (index, text), vector in zip(misses, fresh):
-                vectors[index] = vector
-                self._cache.put(
-                    EmbeddingCache.key(self.model, self.dimensionality, text),
-                    self.model,
-                    self.dimensionality,
-                    vector,
-                )
-            # WS-15: the work is counted only once it has actually been
-            # done, and the count is the documents, not the batches.
-            self._cache.record_work(len(misses))
             self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 

@@ -113,6 +113,8 @@ SETTINGS_VAR_TO_ATTR = {
     "EMBEDDING_DIMENSIONALITY": "embedding_dimensionality",
     "EMBEDDING_RPM_LIMIT": "embedding_rpm_limit",
     "EMBEDDING_RPD_LIMIT": "embedding_rpd_limit",
+    # WS-18 follow-up: the local model's inference batch ceiling.
+    "EMBEDDING_BATCH_SIZE": "embedding_batch_size",
     "CHROMA_DIR": "chroma_dir",
     "MATCH_WEIGHTS": "match_weights",
     "SUBMISSION_POLICY": "submission_policy",

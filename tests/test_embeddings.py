@@ -401,9 +401,10 @@ def test_injected_clients_are_never_paced_or_gated(tmp_path):
 class FakeTextEmbedding:
     """Duck-typed fastembed ``TextEmbedding`` double: records inputs.
 
-    Returns a fixed vector per call so float conversion, alignment, and
-    verbatim-text passing are directly assertable — no model download, no
-    fastembed import on the embed path.
+    **A generator**, like the real thing: ``fastembed``'s ``embed()`` yields, so
+    the inference — and any failure it raises — happens while the result is
+    consumed, not when it is called. A double that returns a list would let a
+    caller's ``except`` miss the failure entirely (2026-11-08: it did).
     """
 
     def __init__(self, vector: list[float] | None = None, error: Exception | None = None):
@@ -415,7 +416,8 @@ class FakeTextEmbedding:
         self.embedded.append(list(texts))
         if self.error is not None:
             raise self.error
-        return [self.vector for _ in texts]
+        for _ in texts:
+            yield list(self.vector)
 
 
 def make_fastembed(tmp_path, double=None, **kwargs):
@@ -539,6 +541,103 @@ def test_fastembed_cache_keeps_provider_spaces_separate(tmp_path):
     fp32.embed_documents(["same text"])
 
     assert len(double.embedded) == 2  # two identities, two embeds
+
+
+class MemoryTightTextEmbedding(FakeTextEmbedding):
+    """A double that refuses any inference call larger than *limit* inputs.
+
+    ONNX Runtime's failure mode on a machine without the memory for a node's
+    buffers: the whole call raises (``bad allocation`` / ``BFCArena::
+    AllocateRawInternal``), it does not degrade. Reproduced here so the
+    embedder's own answer to it is testable without a 2,000-token corpus.
+    """
+
+    def __init__(self, limit: int, *, vector: list[float] | None = None):
+        super().__init__(vector=vector)
+        self.limit = limit
+        self.refusals = 0
+
+    def embed(self, texts, **kwargs):
+        if len(texts) > self.limit:
+            self.embedded.append(list(texts))
+            self.refusals += 1
+            raise RuntimeError(
+                "Fail: [ONNXRuntimeError] : 1 : FAIL : Non-zero status code returned "
+                "while running MatMulNBits node. Name:'/model/ple/per_layer_model_"
+                "projection/MatMul_Quant' Status Message: bfc_arena.cc:360 "
+                "onnxruntime::BFCArena::AllocateRawInternal Failed to allocate memory "
+                "for requested buffer of size 584712192"
+            )
+        yield from super().embed(texts, **kwargs)
+
+
+def test_fastembed_halves_its_batch_instead_of_failing_the_call(tmp_path):
+    """The 2026-11-07 crash loop: a batch one document too large for free memory
+    failed *entirely*, and the queue retried the same oversized batch until its
+    attempts ran out — 3,700 items, none embedded. Halving turns "this batch
+    does not fit" into "this batch takes longer"."""
+    double = MemoryTightTextEmbedding(limit=2)
+    embedding = make_fastembed(tmp_path, double, batch_size=4)
+    texts = [f"title: Dev {index} | text: Builds APIs" for index in range(6)]
+
+    vectors = embedding.embed_documents(texts)
+
+    assert len(vectors) == 6  # every document still came back, in order
+    assert [len(batch) for batch in double.embedded] == [4, 2, 2, 2]
+    assert double.refusals == 1  # one refused call, then the smaller size stuck
+    # The reduced size is remembered for the rest of the process, so the
+    # refusal is paid once rather than once per chunk.
+    assert embedding._batch_size == 2
+
+
+def test_fastembed_keeps_the_work_it_finished_before_an_out_of_memory(tmp_path):
+    """Embedding a 2,000-token document costs seconds of CPU, so a failure later
+    in a call must not throw the finished work away. The cache is written per
+    sub-batch: the documents that succeeded stay cached, and the next attempt
+    pays only for what is still missing."""
+    from src.llm.embeddings import EmbeddingCache
+    from src.llm.errors import EmbeddingResourceExhausted
+
+    class PoisonedSecondChunk(FakeTextEmbedding):
+        """Every call carrying ``doc 2`` fails to allocate."""
+
+        def embed(self, texts, **kwargs):
+            if "doc 2" in texts:
+                raise RuntimeError(
+                    "RuntimeException: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : bad allocation"
+                )
+            yield from super().embed(texts, **kwargs)
+
+    double = PoisonedSecondChunk()
+    embedding = make_fastembed(tmp_path, double, batch_size=2)
+
+    with pytest.raises(EmbeddingResourceExhausted):
+        embedding.embed_documents(["doc 0", "doc 1", "doc 2", "doc 3"])
+
+    cached = {
+        text: embedding._cache.get(
+            EmbeddingCache.key(embedding.model, embedding.dimensionality, text)
+        )
+        for text in ("doc 0", "doc 1", "doc 2", "doc 3")
+    }
+    assert cached["doc 0"] is not None and cached["doc 1"] is not None
+    assert cached["doc 2"] is None and cached["doc 3"] is None
+
+
+def test_fastembed_one_document_that_does_not_fit_is_a_resource_error(tmp_path):
+    """When even a single document cannot be allocated the embedder has run out
+    of ways to shrink: it raises the typed resource error (retryable, bounded by
+    the queue's attempt cap) rather than an opaque ONNX string."""
+    from src.llm.errors import EmbeddingResourceExhausted
+
+    double = MemoryTightTextEmbedding(limit=0)
+    embedding = make_fastembed(tmp_path, double, batch_size=4)
+
+    with pytest.raises(EmbeddingResourceExhausted) as caught:
+        embedding.embed_documents(["title: Dev | text: Builds APIs"])
+
+    assert caught.value.batch_size == 1
+    assert "EMBEDDING_BATCH_SIZE" in str(caught.value)
 
 
 def test_parse_gemma_identity_variants():

@@ -24,6 +24,7 @@ working for the rest of the repository.
 from __future__ import annotations
 
 __all__ = [
+    "EmbeddingResourceExhausted",
     "LLMCircuitOpen",
     "LLMConfigError",
     "LLMCredentialError",
@@ -90,6 +91,25 @@ class LLMCircuitOpen(LLMUnavailable):
 
 class LLMInvalidOutput(LLMError):
     """Provider returned output violating the contract (e.g. bad JSON)."""
+
+
+class EmbeddingResourceExhausted(LLMUnavailable):
+    """The **local** model could not allocate memory for one document.
+
+    ONNX Runtime does not degrade when its arena is full — it raises, and the
+    whole inference call dies with it. The local embedder therefore retries a
+    failing call in halves, down to a single document, before it raises this;
+    reaching it means one document did not fit, not that the batch was large.
+    Retryable like the other unavailability errors, and bounded by the queue's
+    attempt cap: the pressure that caused it is usually transient, and a
+    permanent verdict would fail work the machine can do a minute later.
+    """
+
+    def __init__(self, *args: object, batch_size: int | None = None) -> None:
+        super().__init__(*args)
+        #: The sub-batch size the embedder had been reduced to. The operator's
+        #: console shows the message; the number is what makes it actionable.
+        self.batch_size = batch_size
 
 
 # Tokens identifying retryable provider failures. HTTP status codes surface in
