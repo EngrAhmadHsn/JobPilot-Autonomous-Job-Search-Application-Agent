@@ -252,3 +252,134 @@ absent, so the retry is safe.
 The scope was deliberately kept to the brief: one database-backed queue, one supervised
 worker, one recovery path. No Redis, no Celery, no distributed transaction, no event
 sourcing.
+
+---
+
+## 7. Follow-up (2026-11-08) — the local embedder's memory ceiling, and the lease under a slow batch
+
+A day of live running produced the failure the unit suite could not: the queue never
+emptied. Three runs of 2,000 embedding items sat at 0–20% for 29 hours, every batch
+settling `0 completed, 100 retrying`, and the console showed only "Worker stopped
+heartbeating; the run is recoverable".
+
+### What the evidence said
+
+| Observation | Evidence |
+|---|---|
+| Every batch failed *whole*, with a memory error | 3,700 item errors reading `Fail: [ONNXRuntimeError] … BFCArena::AllocateRawInternal Failed to allocate memory for requested buffer of size 584712192`, and `RuntimeException … bad allocation` |
+| The failures were retried identically, forever | 54 batch failures in one worker log, each "100 item(s) to retry"; **no item ever reached the attempt cap** (0 `FAILED` rows), because the admin's own resume resets `attempt_count`, and a crash mid-batch leaves it to the lease reaper |
+| The machine, not the model, was the limit | One worker process held **4.76 GB and was still growing** (5.65 GB forty minutes later); a `pytest` run and a `vitest` run on the same host both died with allocation failures of 84 KB |
+| A long batch lost its lease | `job_work_items.lease_expires_at` (900 s from claim) passed mid-batch: 121 items requeued as "Worker lease expired; work requeued" and a `lost the lease while failing an item` traceback — the batch's work was discarded |
+| The console showed "no worker" while a worker was working | the worker row is written only at the *start and end* of `run_once`; a 9–17 minute batch left it stale past `WORKER_STALE_SECONDS=60` (and `WORKER_HEARTBEAT_SECONDS` was read by nothing) |
+| The cause was on no screen | the batch's failure was recorded per item (only `FAILED` items are sampled for display) and the run's `last_error` was overwritten by the reaper's heartbeat message |
+
+### Root causes
+
+1. **ONNX Runtime's CPU arena grows and never shrinks.** A long-lived process accumulates
+   arena slabs across thousands of inferences until the next allocation cannot be
+   satisfied. The embedder also does not degrade — the *whole* inference call raises — so a
+   batch one document too large for the free memory failed entirely, and the queue retried
+   the same oversized batch.
+2. **fastembed's `embed()` is a generator.** The inference — and therefore the allocation
+   failure — happens when the result is *consumed*, not when it is called. The first
+   version of the adaptive-batching fix kept its `try` around the call and the exception
+   escaped anyway; only materialising the generator inside the `try` catches it.
+3. **A batch's lease was never renewed.** `WORKER_LEASE_SECONDS=900` was sized for a 100-item
+   batch at 4 s/document, and nothing extended it when a batch ran longer.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The CPU arena is off (`enable_cpu_mem_arena=False`): the runtime allocates and frees per node, so memory is given back | `src/llm/embeddings.py` (model load) |
+| The local embedder **halves its inference batch** on an allocation failure, down to one document, and remembers the smaller size for the process; a single document that still cannot be allocated raises the typed `EmbeddingResourceExhausted` | `src/llm/embeddings.py::_embed_chunk`, `src/llm/errors.py` |
+| Vectors are cached **per sub-batch**, so a failure late in a large call keeps the minutes of CPU already spent (incremented daily work counter included) | `src/llm/embeddings.py::_embed_misses` |
+| A new provider hook (`on_progress`) is called as sub-batches finish, threaded through the store to the worker, which **renews the batch's lease and its own heartbeat** from inside the batch | `src/llm/embeddings.py`, `src/rag/chroma_store.py`, `src/runs/embedding.py`, `src/runs/queue.py::renew_lease`, `src/runs/worker.py` |
+| A batch that settled nothing now names its cause in the `batch.completed` event (and its metadata) | `src/runs/embedding.py::_settle` |
+| `EMBEDDING_BATCH_SIZE` (default 8) is the ceiling the embedder starts from — a documented knob instead of a class constant | `src/config/settings.py`, `.env.example`, README |
+| The admin runs table clamps the unbounded `last_error` to one line of a capped block and pins the action column, so a long error can no longer push the Resume/Progress buttons out of view | `frontend/src/screens/admin-screen.tsx` |
+
+### The corpus, measured (2026-11-08, developer database)
+
+| Quantity | Value |
+|---|---|
+| Listings in the corpus | 6,696 |
+| Vectors in the store (`job_listings`) | 6,089 |
+| …attributed to `google/embeddinggemma-2@int8` (their document is in the content-hash cache) | 5,438 |
+| …still from the retired `gemini-embedding-2` space (should be re-embedded) | 34 |
+| …unattributed (no cache record: written through a different cache or before it existed) | 617 |
+| Cached vectors by model | gemma 5,730 · gemini 817 |
+| Outstanding queue items / distinct listings behind them | 5,700 / 3,346 |
+| …of those, already cached (the model must not run again) | 308 |
+
+Two honesty notes the numbers force: **Chroma records the embedding model at collection
+level, not per vector**, so per-vector attribution is an inference from the cache key, not
+a stored fact — the 617 unattributed vectors are exactly the ones that assumption cannot
+reach. And a run in the retired Gemini space cannot simply be resumed: the resume guard
+refuses a model mismatch, so those vectors want a re-embed, not a retry.
+
+### Verified live
+
+A worker started with the fixed code (`--worker-id DESKTOP-090OH77-fix2`) against the stuck
+run: batches complete (`400` items done, up from `100`), the run's `lease_expires_at` tracks
+15 minutes ahead of a heartbeat refreshed every few documents (`heartbeat_at` 11 s old while
+the batch was still embedding), and the process settles around 2.4 GB instead of climbing
+past 5 GB. New tests: `tests/test_embeddings.py` (halving, per-sub-batch cache, typed
+resource error, the progress hook — with a **generator** double so the lazy-exception trap
+stays caught) and `tests/test_worker_recovery.py` (renewal survives the original expiry,
+a reclaimed batch raises `LeaseLost`, the worker renews what it claims, a settled-nothing
+batch names its cause).
+
+Left open, deliberately: the API process (which embeds search queries) needs a restart to
+pick up the same arena and batching changes, and the SQLite database has no WAL or
+`busy_timeout` configured — with the worker now writing an extra lease renewal per few
+documents, a "database is locked" is possible under API write load. It is logged and
+retried at the next sub-batch rather than fatal, but the pragma is the real fix.
+
+---
+
+## 8. Follow-up (2026-11-09) — a dead worker reported "running", and the runs table
+
+### The worker status was wrong, and the reason was structural
+
+The console's worker list printed `worker.status` straight from the heartbeat row, and that
+row said **running** for workers that had been dead for hours. The row is written `running`
+at registration and flipped to `stopped` only by the worker's own `shutdown()` — and a
+process that is killed (a crash, `taskkill /F`, a lost machine) never reaches `shutdown()`.
+Nothing else ever wrote the row, so the lie was permanent.
+
+The fix is at the read, not the display:
+
+| Piece | Change |
+|---|---|
+| Effective status | `queue.worker_health` derives `crashed` for a row that still says `running`/`stopping` but whose heartbeat is older than `WORKER_STALE_SECONDS`, and reports the raw value beside it as `reported_status` (with `stale`) |
+| Persisted verdict | `reap_expired_leases` now also writes those rows to `crashed` (with `stopped_at`), so every other consumer of the table sees the truth, not just this endpoint. Its window is `WORKER_STALE_SECONDS`, deliberately **not** `run_stale_seconds`: a run waits 30 minutes (it must outlast a long batch), a worker is gone after one |
+| Presentation | a new `src/lib/worker-status.ts` gives each status a label, a tone and a next step; the console renders "Stopped responding" and never the raw string, and the Worker card separates live rows from a dashed "Not running" section |
+
+Tests: `tests/test_health_workers.py` (a stale row reports `crashed` with
+`reported_status: "running"`, a fresh row still reports `running`, a clean stop is never
+reclassified), `tests/test_durable_queue.py` (the reaper persists the crash, leaves a fresh
+worker alone, never touches a cleanly stopped one), and the admin screen test that a
+`running`-in-the-row worker is not printed as running.
+
+### The runs table, rebuilt
+
+- **Active / Inactive groups.** The single flat list mixed "what the machine is doing" with
+  "what it did", so a 30-row queue read as noise. Runs are split on `isRunTerminal`;
+  `RECOVERABLE` is deliberately in **Active** (it is unfinished work, and its Resume button
+  belongs with the work), and each group carries its own count and description.
+- **Five rows per group, paged independently.** A `RunGroup` slices `RUNS_PER_PAGE = 5` and
+  owns a `Pagination`; paging history never moves the active rows. The slice is clamped, so
+  a poll that shrinks the list under the operator's page cannot render an empty table.
+- **Polish and a real defect.** The status column's `runStatusCopy().tone` used
+  `text-terracotta` — the pale **fill** intended to sit *behind* text, which painted an
+  unreadable peach on the ivory surface (every other use in the repo pairs it with
+  `terracotta-foreground`). Now `text-terracotta-foreground`, bounded with `max-w-52
+  truncate` so a long label clips instead of overpainting the next column. Re-measured in a
+  real browser: the table's `scrollWidth` equals its `clientWidth` (0 overflow) against a
+  pathological 300-character error, with the full text on hover.
+
+Verified in a browser (built bundle, `vite preview`, stubbed API): 3 active rows and 5
+inactive rows, the inactive pager moving 5→2 without disturbing the 3 active rows, and a
+worker whose row says `running` with an hour-old heartbeat rendering as
+"Stopped responding" under "Not running".

@@ -411,6 +411,7 @@ code ever disagree. The settings you are most likely to change:
 | `GREENHOUSE_BOARDS`, `LEVER_COMPANIES`, `ASHBY_ORGS` | The boards to watch, comma separated | empty (a curated list is in the example file) |
 | `EMBEDDING_PROVIDER` | `fastembed` (local, no quota) or `gemini` (API) | `fastembed` |
 | `EMBEDDING_MODEL` | The embedding model; its identity is persisted with the vectors | `google/embeddinggemma-2@int8` |
+| `EMBEDDING_BATCH_SIZE` | Documents per local embedding call — the memory ceiling the embedder starts from (it halves this itself when ONNX Runtime cannot allocate) | `8` |
 | `FASTEMBED_CACHE_PATH`, `CHROMA_DIR` | Model weights and vector store | `./data/fastembed`, `./data/chroma` |
 | `MATCH_WEIGHTS` | JSON override for the eight match weights, summing to 1.0 | the built-in weights |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` for any chat-completions endpoint) | unset |
@@ -443,8 +444,8 @@ executes it:
 ```bash
 python scripts/run_worker.py            # supervised process (systemd / container / service)
 python scripts/refresh_jobs.py --enqueue   # a schedule that only queues the work
-```
 python scripts/embedding_census.py      # how much of the corpus is embedded, and in which space
+```
 
 Progress comes from the database, so closing the browser, reloading the console or
 restarting the API loses nothing. Work items are claimed atomically and carry a lease; a
