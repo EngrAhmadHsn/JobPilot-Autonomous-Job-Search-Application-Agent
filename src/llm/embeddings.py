@@ -57,6 +57,7 @@ import os
 import sqlite3
 import time
 from array import array
+from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -98,6 +99,14 @@ FASTEMBED_VARIANT_FILES: dict[str, tuple[str, list[str]]] = {
     "fp32": ("onnx/model.onnx", ["onnx/model.onnx_data"]),
 }
 FASTEMBED_DIMENSION = 768
+
+# A hook an embedding provider calls as documents are embedded, with the
+# number of documents finished so far in the current call. The durable queue
+# uses it to renew the work item's lease and the worker's heartbeat *inside* a
+# long batch: without it, a batch that outlives its lease is reclaimed by the
+# reaper and its results are refused as stale (WS-18 follow-up).
+ProgressHook = Callable[[int], None]
+
 
 class _AllocationFailure(RuntimeError):
     """ONNX Runtime refused an allocation and the embedder is out of ways to shrink."""
@@ -482,13 +491,18 @@ class FastembedEmbedding:
 
         return get_limits().max_embed_work_per_day
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(
+        self, texts: list[str], *, on_progress: ProgressHook | None = None
+    ) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
         Cache hits never reach the model: the shared content-hash cache
         (``sha256(model|dim|text)``) makes a repeat corpus embedding free and
         keeps the daily refresh incremental. The cache key carries the model
         identity, so the local (``@int8``) and Gemini spaces can never mix.
+
+        ``on_progress`` is called as the work proceeds (see
+        :meth:`_embed_local`); callers that must keep a lease alive pass one.
         """
         if not texts:
             return []
@@ -514,7 +528,7 @@ class FastembedEmbedding:
                     f"({self._work_limit()} documents/day); "
                     "stopping cleanly — resume after the daily reset"
                 )
-            self._embed_misses(misses, vectors)
+            self._embed_misses(misses, vectors, on_progress=on_progress)
             self._cache.prune_if_needed(self._cache_limit())
         return [vectors[index] for index in range(len(texts))]
 
@@ -522,6 +536,8 @@ class FastembedEmbedding:
         self,
         misses: list[tuple[int, str]],
         vectors: dict[int, list[float]],
+        *,
+        on_progress: ProgressHook | None = None,
     ) -> None:
         """Embed the documents that missed the cache, one sub-batch at a time.
 
@@ -535,7 +551,11 @@ class FastembedEmbedding:
         while index < len(misses):
             size = max(1, min(self._batch_size, len(misses) - index))
             chunk = misses[index : index + size]
-            fresh = self._embed_local([text for _, text in chunk])
+            fresh = self._embed_local(
+                [text for _, text in chunk],
+                on_progress=on_progress,
+                offset=index,
+            )
             if len(fresh) != len(chunk):
                 raise LLMError(
                     f"Local embedder returned {len(fresh)} vectors for {len(chunk)} inputs; "
@@ -552,9 +572,23 @@ class FastembedEmbedding:
             self._cache.record_work(len(chunk))
             index += size
 
-    def _embed_local(self, texts: list[str]) -> list[list[float]]:
-        """Run the local model over texts that missed the cache, one
-        sub-batch at a time, halving a sub-batch the runtime cannot allocate."""
+    def _embed_local(
+        self,
+        texts: list[str],
+        *,
+        on_progress: ProgressHook | None = None,
+        offset: int = 0,
+    ) -> list[list[float]]:
+        """Run the local model over texts that missed the cache.
+
+        Each sub-batch is one ONNX call, and ``on_progress`` is called after
+        every one of them with the number of documents embedded so far —
+        ``offset`` plus what this call has finished, so a caller that embeds in
+        several chunks still sees one monotonic count. The worker uses that
+        hook to renew its lease and heartbeat mid-batch: a batch whose lease
+        expires is not merely slow — the reaper hands its items to another
+        claim and the worker's own settle is refused.
+        """
         vectors: list[list[float]] = []
         index = 0
         while index < len(texts):
@@ -570,6 +604,8 @@ class FastembedEmbedding:
                     batch_size=len(chunk),
                 ) from failure
             index += size
+            if on_progress is not None:
+                on_progress(offset + index)
         return vectors
 
     def _embed_chunk(self, texts: list[str]) -> list[list[float]]:
@@ -680,7 +716,9 @@ def build_query_text(text: str) -> str:
 class EmbeddingFn(Protocol):
     """Protocol for embedding providers (GeminiEmbedding is the default impl)."""
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
+    def embed_documents(
+        self, texts: list[str], *, on_progress: ProgressHook | None = None
+    ) -> list[list[float]]: ...
 
     def embed_query(self, text: str) -> list[float]: ...
 
@@ -1014,7 +1052,9 @@ class GeminiEmbedding:
         """
         return max(0, self._work_limit() - self._cache.work_today())
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(
+        self, texts: list[str], *, on_progress: ProgressHook | None = None
+    ) -> list[list[float]]:
         """Embed N documents, returning exactly N vectors in input order.
 
         Cache hits never touch the API; only misses are sent, each as its own
@@ -1022,6 +1062,10 @@ class GeminiEmbedding:
         back as a single blended vector). Misses are sent in batches of
         ``API_BATCH_SIZE`` — the live API caps a batch at 100 requests and
         rejects larger calls outright (found live at 4,314-job scale).
+
+        ``on_progress`` is called after every batch request, with the number of
+        documents embedded so far, so a caller that must keep a lease alive can
+        do it from inside a long call.
         """
         if not texts:
             return []
@@ -1054,6 +1098,8 @@ class GeminiEmbedding:
                 # WS-15: the work is counted only once it has actually been
                 # done, and the count is the documents, not the batches.
                 self._cache.record_work(len(batch))
+                if on_progress is not None:
+                    on_progress(len(fresh))
             if len(fresh) != len(misses):
                 raise LLMError(
                     f"Embedding API returned {len(fresh)} vectors for "

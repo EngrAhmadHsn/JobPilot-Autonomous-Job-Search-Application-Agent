@@ -417,7 +417,7 @@ def test_result_invariants_hold():
 class HashEmbeddingFn:
     """Fixed-vector embedding double: md5-seeded, no state, fully deterministic."""
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(self, texts: list[str], *, on_progress=None) -> list[list[float]]:
         return [self._vector(text) for text in texts]
 
     def embed_query(self, text: str) -> list[float]:

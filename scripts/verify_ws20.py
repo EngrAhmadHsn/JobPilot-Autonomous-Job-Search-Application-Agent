@@ -108,7 +108,7 @@ def _token_vector(text: str) -> list[float]:
 
 
 class FakeEmbeddingFn:
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(self, texts: list[str], *, on_progress=None) -> list[list[float]]:
         return [_token_vector(text) for text in texts]
 
     def embed_query(self, text: str) -> list[float]:

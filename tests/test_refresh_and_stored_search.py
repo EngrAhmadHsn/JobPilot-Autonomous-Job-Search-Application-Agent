@@ -71,7 +71,7 @@ class QuotaExhaustedEmbedding:
     def remaining_daily_budget(self):
         return 0
 
-    def embed_documents(self, texts):
+    def embed_documents(self, texts, *, on_progress=None):
         raise LLMDailyQuotaExhausted("daily budget spent")
 
     def embed_query(self, text):
@@ -81,7 +81,7 @@ class QuotaExhaustedEmbedding:
 class LocalProviderEmbedding:
     """FU-7 double: budget-less local provider (no accounting hooks at all)."""
 
-    def embed_documents(self, texts):
+    def embed_documents(self, texts, *, on_progress=None):
         return [[0.0] * 8 for _ in texts]
 
     def embed_query(self, text):
@@ -334,7 +334,7 @@ class PartialQuotaEmbedding(FakeEmbeddingFn):
         super().__init__()
         self.budget = 20
 
-    def embed_documents(self, texts):
+    def embed_documents(self, texts, *, on_progress=None):
         if self.document_calls >= 2:
             raise LLMDailyQuotaExhausted("daily budget spent")
         self.budget -= 1

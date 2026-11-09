@@ -379,6 +379,7 @@ def process_embedding_items(
     session_factory: sessionmaker | None = None,
     now=None,
     max_attempts: int | None = None,
+    on_progress=None,
 ) -> EmbeddingBatchResult:
     """Embed, upsert, verify and settle one claimed batch.
 
@@ -387,6 +388,12 @@ def process_embedding_items(
     → record the event. No database transaction is held open across the
     embedding call: the claim is already committed by
     :func:`src.runs.queue.claim_work_items`.
+
+    ``on_progress`` (WS-18 follow-up) is called by the embedding provider as
+    its sub-batches complete. The worker passes a hook that renews the batch's
+    lease and its own heartbeat: a batch of 100 two-thousand-token documents
+    takes longer than the lease, and a lease that expires under a healthy
+    worker hands its items to another claim and discards the work.
     """
     from src.config.settings import get_settings
 
@@ -453,8 +460,16 @@ def process_embedding_items(
         result.cache_hits = sum(1 for flag in flags if flag)
         result.cache_misses = len(flags) - result.cache_hits
         try:
-            store.upsert_jobs(listings)
+            if on_progress is None:
+                store.upsert_jobs(listings)
+            else:
+                store.upsert_jobs(listings, on_progress=on_progress)
             verified = store.verify_listings(listings, hashes)
+        except queue.LeaseLost:
+            # The batch was reclaimed while it was being embedded (the lease
+            # ran out). The worker owns that decision — and no verdict of ours
+            # may be recorded for items that are no longer ours.
+            raise
         except LLMDailyQuotaExhausted as exc:
             _requeue_and_pause(
                 run_id=run_id,

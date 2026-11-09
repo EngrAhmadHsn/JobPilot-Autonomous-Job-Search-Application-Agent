@@ -26,12 +26,12 @@ import logging
 import os
 import socket
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, func, or_, select, tuple_, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.runs import JobRunDB, JobRunEventDB, JobWorkItemDB, WorkerHeartbeatDB
@@ -97,6 +97,7 @@ __all__ = [
     "reap_expired_leases",
     "record_event",
     "register_worker",
+    "renew_lease",
     "requeue_item",
     "resume_run",
     "settle_work_items",
@@ -727,6 +728,62 @@ def settle_work_items(
             )
         session.commit()
     return progress
+
+
+def renew_lease(
+    *,
+    run_id: str,
+    leases: Mapping[str, str],
+    lease_seconds: float,
+    session_factory: sessionmaker | None = None,
+    now: datetime | None = None,
+) -> int:
+    """Extend the lease on a batch that is still being worked, and its run.
+
+    A batch that outlives its own lease is not merely slow: the reaper hands
+    its items to the next claim, and the worker's settle is then refused as
+    stale — so minutes of embedding are thrown away and the run's counters
+    never move. The worker therefore renews from *inside* the batch (the local
+    embedder calls back every few documents), which is the only place that
+    knows the work is still progressing.
+
+    ``leases`` maps work-item id → the lease token it was claimed under. The
+    token is the guard: if any item no longer carries it, the batch has been
+    reclaimed and :class:`LeaseLost` tells the worker to stop spending CPU on
+    work that can no longer be recorded.
+    """
+    if not leases:
+        return 0
+    moment = _now(now)
+    expires = moment + timedelta(seconds=lease_seconds)
+    factory = _factory(session_factory)
+    with factory() as session:
+        result = session.execute(
+            update(JobWorkItemDB)
+            .where(
+                tuple_(JobWorkItemDB.id, JobWorkItemDB.lease_token).in_(
+                    [(item_id, token) for item_id, token in leases.items()]
+                ),
+                JobWorkItemDB.status == WORK_RUNNING,
+            )
+            .values(lease_expires_at=expires)
+            .execution_options(synchronize_session=False)
+        )
+        renewed = int(result.rowcount or 0)
+        if renewed != len(leases):
+            session.rollback()
+            raise LeaseLost(
+                f"Run {run_id!r} no longer holds {len(leases) - renewed} of its "
+                f"{len(leases)} item lease(s); the batch was reclaimed."
+            )
+        session.execute(
+            update(JobRunDB)
+            .where(JobRunDB.id == run_id, JobRunDB.status == RUN_RUNNING)
+            .values(heartbeat_at=moment, lease_expires_at=expires)
+            .execution_options(synchronize_session=False)
+        )
+        session.commit()
+    return renewed
 
 
 def requeue_item(

@@ -312,6 +312,160 @@ def test_a_stale_worker_cannot_complete_after_its_lease_was_reclaimed(factory, s
     assert item.lease_token == live.lease_token
 
 
+# -- the lease must outlive a slow batch --------------------------------------
+
+
+def test_a_renewed_lease_survives_its_original_expiry(factory, store):
+    """A batch that outlives its lease is not merely slow: the reaper hands its
+    items to the next claim and the worker's settle is refused as stale. The
+    renewal is what keeps a nine-minute batch of 100 documents safe."""
+    listings = _seed(factory, count=1)
+    run_id = _enqueue_embedding(factory, listings, store)
+    moment = utcnow()
+    claimed = queue.claim_work_items(
+        worker_id="worker-renew",
+        limit=1,
+        lease_seconds=10,
+        session_factory=factory,
+        now=moment,
+        run_ids=[run_id],
+    )
+    assert len(claimed) == 1
+
+    renewed = queue.renew_lease(
+        run_id=run_id,
+        leases={claimed[0].id: claimed[0].lease_token},
+        lease_seconds=10,
+        session_factory=factory,
+        now=moment + timedelta(seconds=9),
+    )
+
+    assert renewed == 1
+    # One second past the *original* expiry, with the renewal nine seconds old:
+    # the batch is still ours, and so is the run (its heartbeat moved too, or
+    # the reaper would call a healthy worker's run interrupted).
+    reaped = queue.reap_expired_leases(
+        session_factory=factory,
+        now=moment + timedelta(seconds=11),
+        run_stale_seconds=5,
+        max_attempts=3,
+    )
+    assert reaped["items"] == 0
+    assert reaped["runs"] == 0
+    with factory() as session:
+        item = session.get(JobWorkItemDB, claimed[0].id)
+        assert item is not None
+        assert item.status == "RUNNING"
+        assert item.lease_token == claimed[0].lease_token
+        run = session.get(JobRunDB, run_id)
+        assert run is not None
+        assert run.status == "RUNNING"
+
+
+def test_renewing_a_reclaimed_batch_is_lease_lost(factory, store):
+    """The token is the guard: once another worker holds the items, renewing
+    with the old one must stop the worker instead of extending a lease it lost."""
+    listings = _seed(factory, count=1)
+    run_id = _enqueue_embedding(factory, listings, store)
+    moment = utcnow()
+    old = queue.claim_work_items(
+        worker_id="worker-old",
+        limit=1,
+        lease_seconds=10,
+        session_factory=factory,
+        now=moment,
+        run_ids=[run_id],
+    )[0]
+    queue.reap_expired_leases(
+        session_factory=factory,
+        now=moment + timedelta(seconds=11),
+        run_stale_seconds=5,
+        max_attempts=3,
+    )
+    # The reaper marked the run recoverable (its worker went silent), and a
+    # recoverable run takes an attributable resume before anyone may claim its
+    # items again.
+    with factory() as session:
+        queue.resume_run(
+            session,
+            run_id=run_id,
+            actor="user:admin",
+            expected_model=store.embedding_model,
+            expected_dimension=store.dimension,
+            now=moment + timedelta(seconds=12),
+        )
+        session.commit()
+    fresh = queue.claim_work_items(
+        worker_id="worker-new",
+        limit=1,
+        lease_seconds=10,
+        session_factory=factory,
+        now=moment + timedelta(seconds=12),
+        run_ids=[run_id],
+    )[0]
+    assert fresh.lease_token != old.lease_token
+
+    with pytest.raises(LeaseLost):
+        queue.renew_lease(
+            run_id=run_id,
+            leases={old.id: old.lease_token},
+            lease_seconds=10,
+            session_factory=factory,
+            now=moment + timedelta(seconds=13),
+        )
+
+
+class ProgressReportingEmbedding(FakeEmbeddingFn):
+    """A provider that reports progress the way the real one does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.progress_calls = 0
+
+    def embed_documents(self, texts, *, on_progress=None):
+        self.progress_calls += 1
+        if on_progress is not None:
+            on_progress(len(texts))
+        return super().embed_documents(texts)
+
+
+def test_the_worker_renews_the_batch_lease_and_its_own_heartbeat(factory, tmp_path, monkeypatch):
+    """The worker passes the renewal hook down through the store to the
+    provider, so the lease and the worker heartbeat are refreshed from inside
+    the batch — the console's "no worker is running" banner and the reaper's
+    reclaim both key off timestamps a long batch would otherwise leave stale."""
+    listings = _seed(factory, count=2)
+    embedding = ProgressReportingEmbedding()
+    store = make_store(tmp_path / "chroma-renew", embedding)
+    run_id = _enqueue_embedding(factory, listings, store)
+
+    calls: list[tuple[str, dict[str, str], float]] = []
+    real = queue.renew_lease
+
+    def spy(*, run_id, leases, lease_seconds, session_factory=None, now=None):
+        calls.append((run_id, dict(leases), lease_seconds))
+        return real(
+            run_id=run_id,
+            leases=leases,
+            lease_seconds=lease_seconds,
+            session_factory=session_factory,
+            now=now,
+        )
+
+    monkeypatch.setattr(queue, "renew_lease", spy)
+
+    worker = _worker(factory, store)
+    assert worker.run_once() > 0
+
+    assert embedding.progress_calls >= 1, "the provider never reported progress"
+    assert calls, "the worker never renewed the batch it was working"
+    renewed_run_id, leases, lease_seconds = calls[0]
+    assert renewed_run_id == run_id
+    assert set(leases) == {item.id for item in _items(factory, run_id)}
+    assert lease_seconds == 10  # the worker's own lease length
+    assert _run(factory, run_id).status == RUN_COMPLETED
+
+
 # -- quota --------------------------------------------------------------------
 
 
@@ -322,7 +476,7 @@ class QuotaOnceEmbedding(FakeEmbeddingFn):
         super().__init__()
         self.exhausted = True
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(self, texts: list[str], *, on_progress=None) -> list[list[float]]:
         if self.exhausted:
             raise LLMDailyQuotaExhausted("daily embedding budget spent")
         return super().embed_documents(texts)

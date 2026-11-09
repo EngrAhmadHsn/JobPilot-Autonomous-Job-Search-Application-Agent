@@ -209,7 +209,7 @@ def test_degraded_mode_when_embedding_fails_mid_run(profile, tmp_session_factory
     """A store whose embed call raises degrades the report, not the search."""
 
     class ExplodingEmbedding(FakeEmbeddingFn):
-        def embed_documents(self, texts):
+        def embed_documents(self, texts, *, on_progress=None):
             raise RuntimeError("429 RESOURCE_EXHAUSTED")
 
     store = make_store(tmp_path / "chroma", embedding_fn=ExplodingEmbedding())

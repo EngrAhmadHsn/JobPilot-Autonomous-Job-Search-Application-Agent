@@ -86,7 +86,7 @@ class _CachingEmbedding(FakeEmbeddingFn):
     def remaining_work_budget(self) -> int:
         return 10_000
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(self, texts: list[str], *, on_progress=None) -> list[list[float]]:
         for text in texts:
             if text not in self.embedded:
                 self.embedded.add(text)

@@ -42,7 +42,7 @@ class FakeEmbeddingFn:
         self.document_calls = 0
         self.query_calls = 0
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(self, texts: list[str], *, on_progress=None) -> list[list[float]]:
         self.document_calls += 1
         return [token_vector(text) for text in texts]
 

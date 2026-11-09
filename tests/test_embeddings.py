@@ -640,6 +640,17 @@ def test_fastembed_one_document_that_does_not_fit_is_a_resource_error(tmp_path):
     assert "EMBEDDING_BATCH_SIZE" in str(caught.value)
 
 
+def test_fastembed_calls_the_progress_hook_per_sub_batch(tmp_path):
+    """The hook is what lets the durable worker renew its lease mid-batch."""
+    double = FakeTextEmbedding()
+    embedding = make_fastembed(tmp_path, double, batch_size=2)
+    seen: list[int] = []
+
+    embedding.embed_documents(["a", "b", "c", "d", "e"], on_progress=seen.append)
+
+    assert seen == [2, 4, 5]
+
+
 def test_parse_gemma_identity_variants():
     from src.llm.embeddings import parse_gemma_identity
 

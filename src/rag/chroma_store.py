@@ -34,6 +34,7 @@ from src.config.settings import Settings, ensure_dir, get_settings
 from src.jobs.contracts import JobListing
 from src.llm.embeddings import (
     EmbeddingFn,
+    ProgressHook,
     build_document_text,
     build_embedding_fn,
     build_query_text,
@@ -195,13 +196,20 @@ class ChromaVectorStore:
             "content_hash": content_hash,
         }
 
-    def upsert_jobs(self, listings: list[JobListing]) -> int:
+    def upsert_jobs(
+        self, listings: list[JobListing], *, on_progress: ProgressHook | None = None
+    ) -> int:
         """Embed and upsert listings (id-stable); returns the number written.
 
         Embedding and upserting proceed in ``EMBED_BATCH_SIZE`` chunks so a
         daily-quota stop (FU-4) mid-corpus leaves every completed chunk in the
         store — the next run re-embeds the rest from cache hits and only pays
         for the remainder. One fully-missed chunk costs one API batch request.
+
+        ``on_progress`` is handed to the embedding provider, which calls it as
+        its own sub-batches complete (the durable worker renews its lease from
+        there). It is forwarded only when it is set, so a store built around a
+        caller's own embedding function needs no knowledge of it.
         """
         if not listings:
             return 0
@@ -209,7 +217,10 @@ class ChromaVectorStore:
         for start in range(0, len(listings), EMBED_BATCH_SIZE):
             chunk = listings[start : start + EMBED_BATCH_SIZE]
             documents = [self.document_text(job) for job in chunk]
-            vectors = self._embedding_fn.embed_documents(documents)
+            if on_progress is None:
+                vectors = self._embedding_fn.embed_documents(documents)
+            else:
+                vectors = self._embedding_fn.embed_documents(documents, on_progress=on_progress)
             self._collection.upsert(
                 ids=[job.id for job in chunk],
                 embeddings=vectors,

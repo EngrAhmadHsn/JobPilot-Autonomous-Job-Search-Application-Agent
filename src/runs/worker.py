@@ -232,6 +232,37 @@ class Worker:
 
     # -- execution ----------------------------------------------------------
 
+    def _renew_batch(self, run_id: str, items: Sequence[queue.ClaimedWork]) -> None:
+        """Keep a batch's lease — and this worker's heartbeat — alive mid-work.
+
+        Called from inside the embedding loop, every few documents. Both
+        halves matter and they are one call for a reason: the lease is what
+        stops the reaper from giving the batch to another worker, and the
+        heartbeat is what stops the console from reporting "no worker is
+        running" (and offering to start a *second* local model) while this one
+        is nine minutes into a batch. A stop request is picked up here too, so
+        an operator's stop lands between sub-batches instead of after the run.
+        """
+        from src.db.session import SessionLocal
+
+        factory = self._session_factory or SessionLocal
+        try:
+            queue.renew_lease(
+                run_id=run_id,
+                leases={item.id: item.lease_token for item in items},
+                lease_seconds=self._lease_seconds,
+                session_factory=factory,
+                now=self._now(),
+            )
+        except queue.LeaseLost:
+            raise
+        except Exception:
+            # A missed renewal is not worth abandoning a batch that is still
+            # producing vectors: the next call tries again, and if the lease
+            # really is gone, the settle refuses the result anyway.
+            logger.exception("Renewing the lease on run %s failed", run_id)
+        self._heartbeat()
+
     def _execute(self, items: Sequence[queue.ClaimedWork]) -> None:
         embed_items = [item for item in items if item.work_type == EMBED_WORK_TYPE]
         run_items = [item for item in items if item.work_type != EMBED_WORK_TYPE]
@@ -261,6 +292,9 @@ class Worker:
         return self._store
 
     def _execute_embedding(self, run_id: str, items: list[queue.ClaimedWork]) -> None:
+        def renew(_embedded: int) -> None:
+            self._renew_batch(run_id, items)
+
         try:
             store = self._embedding_store()
             result = process_embedding_items(
@@ -270,6 +304,7 @@ class Worker:
                 store=store,
                 session_factory=self._session_factory,
                 now=self._now(),
+                on_progress=renew,
             )
         except queue.LeaseLost:
             logger.warning(
