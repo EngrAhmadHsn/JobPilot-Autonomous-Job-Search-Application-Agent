@@ -444,6 +444,7 @@ executes it:
 python scripts/run_worker.py            # supervised process (systemd / container / service)
 python scripts/refresh_jobs.py --enqueue   # a schedule that only queues the work
 ```
+python scripts/embedding_census.py      # how much of the corpus is embedded, and in which space
 
 Progress comes from the database, so closing the browser, reloading the console or
 restarting the API loses nothing. Work items are claimed atomically and carry a lease; a
