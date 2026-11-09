@@ -356,7 +356,16 @@ export interface RunActionResponse {
 
 export interface WorkerHealthEntry {
   worker_id: string
+  /**
+   * The **effective** status: a worker whose row still says `running` but
+   * whose heartbeat has aged past the stale window is reported `crashed`,
+   * because a killed process cannot write its own epitaph.
+   */
   status: string
+  /** What the heartbeat row literally stores, before the age check. */
+  reported_status: string
+  /** Whether the heartbeat has aged past the server's stale window. */
+  stale: boolean
   hostname: string
   pid: number | null
   heartbeat_age_seconds: number

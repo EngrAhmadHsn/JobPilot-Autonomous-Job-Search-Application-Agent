@@ -64,6 +64,9 @@ from src.runs.state import (
     WORK_QUEUED,
     WORK_RETRY_WAIT,
     WORK_RUNNING,
+    WORKER_CRASHED,
+    WORKER_RUNNING,
+    WORKER_STOPPED,
     WORKER_STOPPING,
     IllegalTransition,
     LeaseLost,
@@ -855,19 +858,25 @@ def reap_expired_leases(
     run_stale_seconds: float | None = None,
     max_attempts: int | None = None,
 ) -> dict[str, int]:
-    """Requeue abandoned work and mark interrupted runs recoverable.
+    """Requeue abandoned work, mark interrupted runs recoverable, and record
+    workers that have gone silent.
 
-    Returns ``{"items": n, "runs": n, "exhausted": n}`` for the log line and
-    the metrics endpoint.
+    Returns ``{"items": n, "runs": n, "exhausted": n, "workers_crashed": n}``
+    for the log line and the metrics endpoint. The worker window is
+    ``WORKER_STALE_SECONDS``, deliberately *not* ``run_stale_seconds``: a run
+    waits 30 minutes before it is called recoverable (it must outlast a long
+    batch), while a worker is gone after a minute of silence.
     """
     moment = _now(now)
     settings = _settings()
     stale = run_stale_seconds if run_stale_seconds is not None else settings.run_stale_seconds
+    worker_stale = settings.worker_stale_seconds
     attempt_cap = max_attempts if max_attempts is not None else settings.worker_max_attempts
     factory = _factory(session_factory)
     expired_items = 0
     exhausted = 0
     expired_runs = 0
+    crashed_workers = 0
 
     with factory() as session:
         affected_runs = {
@@ -969,6 +978,27 @@ def reap_expired_leases(
                 expired_runs += 1
             else:
                 checkpoint_run(session, run.id, now=moment)
+        # A worker row that still claims to be running but has gone silent is
+        # a process that died without a chance to say so. The reaper is the
+        # one component that runs reliably after the fact, so it records the
+        # verdict: without this, the stored status stays "running" forever and
+        # only the read-side derivation keeps the console honest.
+        crashed_result = session.execute(
+            update(WorkerHeartbeatDB)
+            .where(
+                WorkerHeartbeatDB.status.in_((WORKER_RUNNING, WORKER_STOPPING)),
+                WorkerHeartbeatDB.last_heartbeat_at < moment - timedelta(seconds=worker_stale),
+            )
+            .values(status=WORKER_CRASHED, stopped_at=moment)
+            .execution_options(synchronize_session=False)
+        )
+        crashed_workers = int(crashed_result.rowcount or 0)
+        if crashed_workers:
+            logger.warning(
+                "Lease reaper: marked %d worker row(s) crashed after %s seconds of silence",
+                crashed_workers,
+                worker_stale,
+            )
         session.commit()
 
     if expired_items or exhausted or expired_runs:
@@ -979,7 +1009,12 @@ def reap_expired_leases(
             exhausted,
             expired_runs,
         )
-    return {"items": expired_items, "runs": expired_runs, "exhausted": exhausted}
+    return {
+        "items": expired_items,
+        "runs": expired_runs,
+        "exhausted": exhausted,
+        "workers_crashed": crashed_workers,
+    }
 
 
 # -- recovery -----------------------------------------------------------------
@@ -1366,7 +1401,7 @@ def request_worker_stop(session: Session, *, worker_id: str, now: datetime | Non
         update(WorkerHeartbeatDB)
         .where(
             WorkerHeartbeatDB.worker_id == worker_id,
-            WorkerHeartbeatDB.status.notin_((WORKER_STOPPING, "stopped", "crashed")),
+            WorkerHeartbeatDB.status.notin_((WORKER_STOPPING, WORKER_STOPPED, WORKER_CRASHED)),
         )
         .values(status=WORKER_STOPPING)
         .execution_options(synchronize_session=False)
@@ -1376,7 +1411,7 @@ def request_worker_stop(session: Session, *, worker_id: str, now: datetime | Non
 
 
 def mark_worker_stopped(
-    session: Session, *, worker_id: str, status: str = "stopped", now: datetime | None = None
+    session: Session, *, worker_id: str, status: str = WORKER_STOPPED, now: datetime | None = None
 ) -> None:
     session.execute(
         update(WorkerHeartbeatDB)
@@ -1390,7 +1425,17 @@ def mark_worker_stopped(
 def worker_health(
     session: Session, *, stale_after_seconds: float | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
-    """Whether a background worker is alive, which the API cannot infer."""
+    """Whether a background worker is alive, which the API cannot infer.
+
+    The ``status`` reported here is the **effective** one, not the raw stored
+    value, and the difference is the whole point. A worker process is the only
+    writer of its own terminal state, and a process that is killed (a crash,
+    ``taskkill /F``, a lost machine) writes nothing at all — so its row stays
+    ``running`` forever while its heartbeat ages. Reporting that row's stored
+    ``status`` verbatim told the console a dead worker was "running"; the
+    stored value is kept as ``reported_status`` for the operator who wants to
+    see what the row actually says.
+    """
     moment = _now(now)
     stale_after = (
         stale_after_seconds if stale_after_seconds is not None else _settings().worker_stale_seconds
@@ -1404,13 +1449,24 @@ def worker_health(
     healthy = 0
     for worker in workers:
         age = (moment - worker.last_heartbeat_at).total_seconds()
-        is_healthy = worker.status == "running" and age <= stale_after
+        reported = worker.status
+        stale = age > stale_after
+        # A row that still claims to be running (or stopping) but has not
+        # heartbeated within the window is a worker that is gone.
+        effective = (
+            WORKER_CRASHED if reported in (WORKER_RUNNING, WORKER_STOPPING) and stale else reported
+        )
+        is_healthy = effective == WORKER_RUNNING
         elapsed_minutes = max((moment - worker.started_at).total_seconds() / 60.0, 1.0 / 60.0)
         healthy += 1 if is_healthy else 0
         entries.append(
             {
                 "worker_id": worker.worker_id,
-                "status": worker.status,
+                "status": effective,
+                # What the heartbeat row literally holds, before the effective
+                # status is derived from its age.
+                "reported_status": reported,
+                "stale": stale,
                 "hostname": worker.hostname,
                 "pid": worker.pid,
                 "heartbeat_age_seconds": round(max(0.0, age), 3),

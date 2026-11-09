@@ -35,6 +35,7 @@ import { api } from "@/lib/api/endpoints"
 import type {
   AdminOverview,
   RunSummary,
+  WorkerHealthEntry,
   WorkerHealthResponse,
 } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
@@ -44,6 +45,10 @@ import {
   WORKER_HEALTH_POLL_MS,
 } from "@/lib/polling"
 import { describeStatus } from "@/lib/status"
+import {
+  describeWorkerStatus,
+  workerStatusToneClass,
+} from "@/lib/worker-status"
 
 /**
  * The administration screen.
@@ -621,6 +626,11 @@ function WorkerControl({
   const control = health?.control
   const workers = state?.workers ?? []
   const running = state?.healthy ?? 0
+  // Rows that are not alive are kept apart from the live ones: a dead
+  // worker's heartbeat row is history, and listing it beside a running
+  // process is what made "running" and "stopped" read as the same thing.
+  const live = workers.filter((worker) => worker.healthy)
+  const departed = workers.filter((worker) => !worker.healthy)
   const atLimit = control ? running >= control.max_concurrent : false
   const canStart = Boolean(control?.enabled) && !atLimit
 
@@ -633,6 +643,9 @@ function WorkerControl({
               {running === 0
                 ? "No worker is running"
                 : `${running} worker${running === 1 ? "" : "s"} running`}
+              {departed.length > 0
+                ? ` · ${departed.length} not running`
+                : ""}
             </h3>
             <p className="text-sm text-muted-foreground">
               {running === 0
@@ -670,41 +683,41 @@ function WorkerControl({
           </p>
         ) : null}
 
-        {workers.length > 0 ? (
+        {live.length > 0 ? (
           <ul className="divide-y divide-border rounded-lg border border-border">
-            {workers.map((worker) => (
-              <li
+            {live.map((worker) => (
+              <WorkerRow
                 key={worker.worker_id}
-                className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0 space-y-0.5">
-                  <p className="truncate font-mono text-xs text-foreground">
-                    {worker.worker_id}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {worker.status}
-                    {worker.pid ? ` · pid ${worker.pid}` : ""} · heartbeat{" "}
-                    {Math.round(worker.heartbeat_age_seconds)}s ago ·{" "}
-                    {worker.processed_items} done
-                    {worker.failed_items > 0
-                      ? `, ${worker.failed_items} failed`
-                      : ""}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!worker.stoppable || stop.isPending}
-                  onClick={() => {
+                worker={worker}
+                stopping={stop.isPending}
+                onStop={() => {
+                  setNotice(null)
+                  stop.mutate(worker.worker_id)
+                }}
+              />
+            ))}
+          </ul>
+        ) : null}
+
+        {departed.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Not running
+            </p>
+            <ul className="divide-y divide-border rounded-lg border border-dashed border-border">
+              {departed.map((worker) => (
+                <WorkerRow
+                  key={worker.worker_id}
+                  worker={worker}
+                  stopping={stop.isPending}
+                  onStop={() => {
                     setNotice(null)
                     stop.mutate(worker.worker_id)
                   }}
-                >
-                  Stop
-                </Button>
-              </li>
-            ))}
-          </ul>
+                />
+              ))}
+            </ul>
+          </div>
         ) : null}
 
         {notice ? (
@@ -716,5 +729,68 @@ function WorkerControl({
         {stop.isError ? <ErrorNotice error={stop.error} verbose /> : null}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * One worker's row.
+ *
+ * The status is rendered through `describeWorkerStatus`, never as the raw
+ * value: the raw value is the database's word ("running"), and the whole
+ * point of this row is to say something a person can act on. A worker that
+ * has stopped responding still shows its last heartbeat age, so "stopped
+ * responding 40m ago" and "stopped responding 3s ago" are distinguishable.
+ */
+function WorkerRow({
+  worker,
+  stopping,
+  onStop,
+}: {
+  worker: WorkerHealthEntry
+  stopping: boolean
+  onStop: () => void
+}) {
+  const status = describeWorkerStatus(worker)
+  const ageSeconds = Math.round(worker.heartbeat_age_seconds)
+  const lastSeen =
+    ageSeconds < 60
+      ? `${ageSeconds}s ago`
+      : ageSeconds < 3600
+        ? `${Math.round(ageSeconds / 60)}m ago`
+        : `${Math.round(ageSeconds / 3600)}h ago`
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-block size-2 shrink-0 rounded-full ${
+              worker.healthy ? "bg-forest" : "bg-muted-foreground/40"
+            }`}
+            aria-hidden="true"
+          />
+          <p className="truncate font-mono text-xs text-foreground">
+            {worker.worker_id}
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          <span className={workerStatusToneClass(status.tone)}>
+            {status.label}
+          </span>
+          {worker.pid ? ` · pid ${worker.pid}` : ""} · heartbeat {lastSeen} ·{" "}
+          {worker.processed_items} done
+          {worker.failed_items > 0 ? `, ${worker.failed_items} failed` : ""}
+        </p>
+        <p className="text-xs text-muted-foreground/80">{status.note}</p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!worker.stoppable || stopping}
+        onClick={onStop}
+      >
+        Stop
+      </Button>
+    </li>
   )
 }

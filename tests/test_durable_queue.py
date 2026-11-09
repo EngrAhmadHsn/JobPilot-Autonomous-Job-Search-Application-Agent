@@ -465,3 +465,70 @@ def test_registering_again_counts_the_restart(factory):
         queue.register_worker(session, worker_id="worker-a")
         row = session.get(WorkerHeartbeatDB, "worker-a")
         assert row.starts == 2
+
+
+def test_the_reaper_persists_a_crash_for_a_silent_worker(factory):
+    """The read-side derivation is not enough on its own: the stored row is
+    what every other consumer sees, and a killed process cannot write it. The
+    reaper is the component that runs after the fact, so it records the
+    verdict."""
+    moment = utcnow()
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-killed", now=moment)
+        # Registered a long time ago and silent since — the shape of a crash.
+        row = session.get(WorkerHeartbeatDB, "worker-killed")
+        row.last_heartbeat_at = moment - timedelta(hours=1)
+        session.commit()
+
+    result = queue.reap_expired_leases(
+        session_factory=factory,
+        now=moment,
+        run_stale_seconds=1800,
+        max_attempts=3,
+    )
+
+    assert result["workers_crashed"] == 1
+    with factory() as session:
+        row = session.get(WorkerHeartbeatDB, "worker-killed")
+        assert row.status == "crashed"
+        assert row.stopped_at is not None
+
+
+def test_the_reaper_leaves_a_live_worker_alone(factory):
+    """The reaper must not crash a worker merely because a batch is long: the
+    worker-shaped window is its own, and a fresh heartbeat is inside it."""
+    moment = utcnow()
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-live", now=moment)
+        queue.heartbeat_worker(session, worker_id="worker-live", now=moment)
+
+    result = queue.reap_expired_leases(
+        session_factory=factory,
+        now=moment + timedelta(seconds=30),
+        run_stale_seconds=1800,
+        max_attempts=3,
+    )
+
+    assert result["workers_crashed"] == 0
+    with factory() as session:
+        assert session.get(WorkerHeartbeatDB, "worker-live").status == "running"
+
+
+def test_a_cleanly_stopped_worker_is_never_reclassified(factory):
+    """A worker that exited on purpose said so; silence afterwards is not a
+    crash."""
+    moment = utcnow()
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-done", now=moment)
+        queue.mark_worker_stopped(session, worker_id="worker-done", now=moment)
+
+    result = queue.reap_expired_leases(
+        session_factory=factory,
+        now=moment + timedelta(hours=2),
+        run_stale_seconds=1800,
+        max_attempts=3,
+    )
+
+    assert result["workers_crashed"] == 0
+    with factory() as session:
+        assert session.get(WorkerHeartbeatDB, "worker-done").status == "stopped"

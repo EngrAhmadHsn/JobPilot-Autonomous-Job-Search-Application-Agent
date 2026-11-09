@@ -114,6 +114,70 @@ def test_the_worker_health_goes_stale(api):
     assert stale["workers"]["workers"][0]["healthy"] is False
 
 
+def test_a_stale_running_row_reports_as_crashed_not_running(api):
+    """A worker killed without a chance to exit leaves its row at "running".
+
+    The console read that raw value and told the operator a dead process was
+    running — the reported defect. The effective status is derived from the
+    heartbeat age, and the raw value is kept beside it so nothing is hidden.
+    """
+    client, factory = api
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-killed")
+        row = session.get(WorkerHeartbeatDB, "worker-killed")
+        row.last_heartbeat_at = utcnow() - timedelta(minutes=30)
+        # The row literally still claims to be running: the process died
+        # before it could write anything else.
+        row.status = "running"
+        session.commit()
+
+    app.dependency_overrides[current_active_user] = _admin
+    body = client.get("/api/admin/health/workers").json()
+    entry = body["workers"]["workers"][0]
+
+    assert entry["status"] == "crashed"
+    assert entry["reported_status"] == "running"
+    assert entry["stale"] is True
+    assert entry["healthy"] is False
+    assert body["workers"]["healthy"] == 0
+
+
+def test_a_fresh_running_row_reports_as_running(api):
+    """The derivation must not cry crash on a worker that is merely working:
+    a batch can go minutes without a heartbeat update."""
+    client, factory = api
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-live")
+        row = session.get(WorkerHeartbeatDB, "worker-live")
+        row.last_heartbeat_at = utcnow() - timedelta(seconds=5)
+        session.commit()
+
+    app.dependency_overrides[current_active_user] = _admin
+    entry = client.get("/api/admin/health/workers").json()["workers"]["workers"][0]
+
+    assert entry["status"] == "running"
+    assert entry["reported_status"] == "running"
+    assert entry["stale"] is False
+    assert entry["healthy"] is True
+
+
+def test_a_clean_stop_is_not_reclassified(api):
+    """A worker that exited cleanly said so; age does not override its word."""
+    client, factory = api
+    with factory() as session:
+        queue.register_worker(session, worker_id="worker-done")
+        row = session.get(WorkerHeartbeatDB, "worker-done")
+        row.status = "stopped"
+        row.last_heartbeat_at = utcnow() - timedelta(hours=2)
+        session.commit()
+
+    app.dependency_overrides[current_active_user] = _admin
+    entry = client.get("/api/admin/health/workers").json()["workers"]["workers"][0]
+
+    assert entry["status"] == "stopped"
+    assert entry["healthy"] is False
+
+
 def test_worker_health_is_administrator_only(api):
     client, _factory = api
     ordinary = UserDB(

@@ -34,7 +34,12 @@ function workersResponse(healthy: number, total = healthy) {
       stale_after_seconds: 60,
       workers: Array.from({ length: total }, (_, index) => ({
         worker_id: `worker-${index + 1}`,
-        status: healthy > index ? "running" : "stopped",
+        // The server reports the *effective* status; `reported_status` is the
+        // raw row. A stale live worker comes back as "crashed" with
+        // `reported_status: "running"` — the defect this pins down.
+        status: healthy > index ? "running" : "crashed",
+        reported_status: healthy > index ? "running" : "running",
+        stale: healthy <= index,
         hostname: "dev-machine",
         pid: 100 + index,
         heartbeat_age_seconds: healthy > index ? 3 : 900,
@@ -415,5 +420,32 @@ describe("the administration screen", () => {
     expect(
       screen.queryByRole("button", { name: "Resume" })
     ).not.toBeInTheDocument()
+  })
+  it("labels a worker that stopped responding instead of printing its row", async () => {
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ ...identityResponse(), is_superuser: true })
+      ),
+      http.get(`${BASE}/api/admin/overview`, () =>
+        HttpResponse.json(adminOverviewResponse())
+      ),
+      http.get(`${BASE}/api/admin/health/workers`, () =>
+        HttpResponse.json(workersResponse(0, 1))
+      ),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(runsResponse([]))
+      )
+    )
+
+    renderApp({ route: "/app/admin" })
+
+    expect(await screen.findByText("No worker is running")).toBeInTheDocument()
+    // The worker list is inside the runs section, which settles its query
+    // first; wait for that to land before asserting the rows.
+    await screen.findByText("No runs of this type")
+    // The stored row says "running"; the console must not repeat it.
+    expect(screen.queryByText(/^running$/)).not.toBeInTheDocument()
+    expect(screen.getByText("Stopped responding")).toBeInTheDocument()
+    expect(screen.getByText(/Not running/)).toBeInTheDocument()
   })
 })
