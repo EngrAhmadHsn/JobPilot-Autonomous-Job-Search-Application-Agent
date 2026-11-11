@@ -302,6 +302,7 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/profiles/{profile_id}/eeo` | Read the voluntary EEO selections (isolated, never used for ranking) | WS-20 |
 | `PUT /api/profiles/{profile_id}/eeo` | Upsert the voluntary EEO selections (requires opt-in) | WS-20 |
 | `DELETE /api/profiles/{profile_id}/eeo` | Delete the EEO selections outright | WS-20 |
+| `GET /api/profiles/{profile_id}/question-gaps` | The questions the boards actually ask that this profile cannot answer, ranked by frequency | WS-25b |
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |

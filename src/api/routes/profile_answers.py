@@ -73,6 +73,89 @@ def _require_profile(db: Session, scope: UserScope, profile_id: str):
     return row
 
 
+class QuestionGapResponse(BaseModel):
+    """One question the boards ask, and whether the profile answers it."""
+
+    label: str
+    times_seen: int
+    boards: int
+    required: bool
+    category: str
+    block: str
+    #: ``unclassified``, ``not_in_profile``, ``answered`` or
+    #: ``never_autofill``.
+    coverage: str
+
+
+class QuestionGapsResponse(BaseModel):
+    """The measured question gaps for one profile."""
+
+    profile_id: str
+    #: How many distinct questions the measurement has seen.
+    total_observed: int
+    #: The ranked gaps — most-asked first, excluding what the profile
+    #: already answers and excluding consent/EEO (which is never the
+    #: agent's to answer).
+    questions: list[QuestionGapResponse] = Field(default_factory=list)
+
+
+@router.get("/{profile_id}/question-gaps", response_model=QuestionGapsResponse)
+def get_question_gaps(
+    profile_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+    limit: int = 20,
+) -> QuestionGapsResponse:
+    """The questions the boards actually ask, that this profile cannot answer.
+
+    WS-25b. The profile screen used to show a **guessed** set of fields.
+    This returns the **measured** set — the labels the boards publish in
+    their own application forms — ranked by how often they are asked, and
+    filtered to the ones the profile does not already answer.
+
+    The consent and demographic questions are excluded: they are never
+    the agent's to answer, so asking the user to fill a profile field for
+    them would be wrong. They are surfaced at approval time instead.
+
+    Args:
+        profile_id: The profile to check coverage against.
+        limit: How many questions to return (1..100).
+
+    Returns:
+        The ranked gaps, with the reason each is listed.
+
+    Raises:
+        HTTPException 404: The profile is unknown, or belongs to another
+            account (the two answers are indistinguishable).
+    """
+    from src.db.form_questions import FormQuestionDB
+    from src.db.form_questions import question_gaps as read_gaps
+    from src.db.profiles import profile_from_row
+
+    row = _require_profile(db, scope, profile_id)
+    profile = profile_from_row(row)
+
+    total = db.query(FormQuestionDB).count()
+    gaps = read_gaps(profile, limit=max(1, min(limit, 100)))
+
+    return QuestionGapsResponse(
+        profile_id=profile_id,
+        total_observed=total,
+        questions=[
+            QuestionGapResponse(
+                label=gap.label,
+                times_seen=gap.times_seen,
+                boards=gap.boards,
+                required=gap.required,
+                category=gap.category,
+                block=gap.block,
+                coverage=gap.coverage,
+            )
+            for gap in gaps
+        ],
+    )
+
+
 @router.get("/{profile_id}/application-profile", response_model=ApplicationProfileResponse)
 def get_application_profile(
     profile_id: str,

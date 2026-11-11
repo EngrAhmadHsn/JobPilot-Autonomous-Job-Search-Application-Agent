@@ -63,10 +63,23 @@ class QuestionCategory(StrEnum):
     """Canonical application-question categories."""
 
     CANDIDATE_NAME = "candidate_name"
+    #: WS-25b: the split name. Greenhouse asks "First Name" and "Last
+    #: Name" as separate required questions on **142 of 142** sampled
+    #: listings — the most-asked labels after Email/Phone/Resume — and
+    #: the profile stores one ``name`` string. They are separate
+    #: categories because they need a different *answer source* (a split
+    #: of the stored name), not merely a different label match.
+    CANDIDATE_FIRST_NAME = "candidate_first_name"
+    CANDIDATE_LAST_NAME = "candidate_last_name"
     EMAIL = "email"
     PHONE = "phone"
     LOCATION = "location"
     COUNTRY = "country"
+    #: WS-25b: the location's coordinates. Greenhouse requires
+    #: ``location``, ``latitude`` and ``longitude`` together — if the
+    #: coordinates are omitted the location is ignored entirely.
+    LOCATION_LATITUDE = "location_latitude"
+    LOCATION_LONGITUDE = "location_longitude"
 
     TOTAL_EXPERIENCE = "total_experience"
     SKILL_EXPERIENCE = "skill_experience"
@@ -161,7 +174,17 @@ RULES: tuple[QuestionRule, ...] = (
     QuestionRule(
         category=QuestionCategory.EEO_VETERAN,
         answer_type=AnswerType.CHOICE,
-        patterns=(r"\bveteran\b|\bmilitary service\b|\bprotected veteran\b",),
+        patterns=(
+            r"\bveteran\b|\bmilitary service\b|\bprotected veteran\b",
+            # WS-25b: Greenhouse publishes the label as "VeteranStatus" —
+            # no word boundary before "veteran", so the pattern above
+            # missed it and the question classified as ``unknown``. The
+            # *outcome* is the same (left to a human), but the *reason*
+            # is not: an EEO question must be recognized as one, or the
+            # console cannot tell "we must not answer this" from "we do
+            # not know what this is".
+            r"\bveteranstatus\b",
+        ),
         confidence=0.95,
     ),
     QuestionRule(
@@ -313,6 +336,25 @@ RULES: tuple[QuestionRule, ...] = (
         confidence=0.8,
     ),
     # -- simple identity --------------------------------------------------
+    # WS-25b: the **split** name first, so "First Name" is not swallowed
+    # by the generic rule. Greenhouse asks these two as separate required
+    # questions on every sampled listing, and the profile stores one
+    # name — so they classify here and the answer source splits it.
+    QuestionRule(
+        category=QuestionCategory.CANDIDATE_FIRST_NAME,
+        answer_type=AnswerType.TEXT,
+        patterns=(r"\bfirst ?name\b|\bgiven name\b|\bforename\b|\bpreferred (first )?name\b",),
+        # "Preferred First Name" is not the legal first name; it is still
+        # a first name, and it is the only first name the profile can
+        # offer, so it classifies here rather than falling through.
+        confidence=0.95,
+    ),
+    QuestionRule(
+        category=QuestionCategory.CANDIDATE_LAST_NAME,
+        answer_type=AnswerType.TEXT,
+        patterns=(r"\blast ?name\b|\bsurname\b|\bfamily name\b",),
+        confidence=0.95,
+    ),
     QuestionRule(
         category=QuestionCategory.CANDIDATE_NAME,
         answer_type=AnswerType.TEXT,
@@ -355,16 +397,60 @@ RULES: tuple[QuestionRule, ...] = (
         patterns=(r"\b(current )?location\b|\bcity\b|\bwhere are you based\b",),
         confidence=0.8,
     ),
+    # -- documents (WS-25b) -----------------------------------------------
+    # The categories existed but had **no rules**, so the two
+    # highest-frequency document questions on Greenhouse — "Resume/CV"
+    # (142 of 142 sampled listings) and "Cover Letter" (118) —
+    # classified as ``unknown``. The slash in "Resume/CV" is why a
+    # ``\bresume\b`` pattern would not have matched on its own.
+    QuestionRule(
+        category=QuestionCategory.RESUME,
+        answer_type=AnswerType.TEXT,
+        patterns=(
+            r"\bresume\b|\bresume/cv\b|\bcurriculum vitae\b|\bcv\b|\bupload (your )?(resume|cv)\b",
+        ),
+        confidence=0.95,
+    ),
+    QuestionRule(
+        category=QuestionCategory.COVER_LETTER,
+        answer_type=AnswerType.TEXT,
+        patterns=(r"\bcover letter\b|\bletter of motivation\b|\bmotivation letter\b",),
+        confidence=0.95,
+    ),
+    # -- the location's coordinates (WS-25b) ------------------------------
+    # Greenhouse requires ``location``, ``latitude`` and ``longitude``
+    # together; if the coordinates are omitted the location is ignored
+    # entirely. They arrive as separate hidden questions, so they get
+    # their own categories rather than being read as a location.
+    QuestionRule(
+        category=QuestionCategory.LOCATION_LATITUDE,
+        answer_type=AnswerType.NUMBER,
+        patterns=(r"\blatitude\b|\blat\b",),
+        confidence=0.95,
+    ),
+    QuestionRule(
+        category=QuestionCategory.LOCATION_LONGITUDE,
+        answer_type=AnswerType.NUMBER,
+        patterns=(r"\blongitude\b|\blng\b|\blon\b",),
+        confidence=0.95,
+    ),
 )
 
 
 #: The fact keys each category reads, in the order they are tried.
 CATEGORY_FACT_KEYS: dict[QuestionCategory, tuple[str, ...]] = {
     QuestionCategory.CANDIDATE_NAME: ("candidate_name", "name"),
+    # WS-25b: the split name reads the stored full name; the split
+    # happens in the answer, not in the fact lookup, so a profile with
+    # only a full name still answers both questions.
+    QuestionCategory.CANDIDATE_FIRST_NAME: ("first_name", "candidate_name", "name"),
+    QuestionCategory.CANDIDATE_LAST_NAME: ("last_name", "candidate_name", "name"),
     QuestionCategory.EMAIL: ("email",),
     QuestionCategory.PHONE: ("phone",),
     QuestionCategory.LOCATION: ("location",),
     QuestionCategory.COUNTRY: ("country",),
+    QuestionCategory.LOCATION_LATITUDE: ("latitude",),
+    QuestionCategory.LOCATION_LONGITUDE: ("longitude",),
     QuestionCategory.TOTAL_EXPERIENCE: ("total_experience_years", "years_of_experience"),
     QuestionCategory.SKILL_EXPERIENCE: ("skill_experience_years",),
     QuestionCategory.SENIORITY_LEVEL: ("seniority_level",),
