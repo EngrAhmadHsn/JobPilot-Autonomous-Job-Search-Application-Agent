@@ -540,7 +540,15 @@ async def test_remotive_normalizes_real_fixture(remotive_payload):
 
 @pytest.mark.asyncio
 async def test_remotive_field_mapping(remotive_payload):
-    raw = remotive_payload["jobs"][0]
+    # WS-23: the Remotive endpoint ignores its query parameters (the live
+    # endpoint serves a static file), so the filter is client-side. The
+    # listing the query actually matches is the one whose title or
+    # description mentions "python" — not simply the first in the file.
+    raw = next(
+        job
+        for job in remotive_payload["jobs"]
+        if "python" in f"{job.get('title', '')} {job.get('description', '')}".lower()
+    )
     async with _mock_client(remotive=remotive_payload) as client:
         listings = await RemotiveJobAdapter(client=client).search("python")
 
@@ -549,7 +557,12 @@ async def test_remotive_field_mapping(remotive_payload):
     assert listing.title == raw["title"]
     assert listing.company == raw["company_name"]
     assert listing.location == raw["candidate_required_location"]
-    assert listing.salary == raw["salary"]
+    # WS-23: the free-text salary is parsed into a range and a currency,
+    # and the raw text is kept in the metadata so the console can show
+    # what the board actually said.
+    assert listing.salary is not None
+    assert listing.currency == "USD"
+    assert listing.metadata.get("salary_text") == raw["salary"]
     assert listing.application_url == raw["url"]
     # Board tags kept verbatim, in order, at the front of required_skills.
     tags = [tag.strip() for tag in raw["tags"]]

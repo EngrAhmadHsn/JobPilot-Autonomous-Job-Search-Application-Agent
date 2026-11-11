@@ -143,9 +143,7 @@ def test_metadata_persisted(tmp_path):
         "source": "greenhouse",
         # WS-18: the content version the vector was built from, so a later
         # refresh can tell "already embedded" from "embedded from stale text".
-        "content_hash": ChromaVectorStore.content_hash(
-            ChromaVectorStore.document_text(PYTHON_JOB)
-        ),
+        "content_hash": ChromaVectorStore.content_hash(ChromaVectorStore.document_text(PYTHON_JOB)),
     }
 
 
@@ -159,7 +157,12 @@ def test_document_text_format(tmp_path):
 def test_long_description_truncated_before_embedding(tmp_path):
     job = make_job("long-1", "Title", "word " * 3_000)  # ~15k chars
     text = ChromaVectorStore.document_text(job)
-    assert len(text) < 8_400  # prefix + skills + 8k description cap
+    # WS-24: the embedded cap was 8,000 characters, which truncated
+    # four-fifths of what the local model could read — the model accepts
+    # 8,192 **tokens**, roughly 32,000 characters of English prose. The
+    # cap is now 16,000 characters, so a 15k description is no longer
+    # truncated at all.
+    assert len(text) < 16_400  # prefix + skills + the 16k description cap
 
 
 def test_empty_store_query_returns_empty(tmp_path):

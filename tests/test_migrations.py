@@ -49,6 +49,13 @@ JOBS_COLUMNS = {
     # WS-15: the eviction clock — the sighting that decides which
     # listings go when the corpus is full.
     "last_seen_at",
+    # WS-24: the content digest the corpus cache fingerprint reads. A
+    # sighting does not move it; a changed description does.
+    "content_version",
+    # WS-23b: the mined experience bar (an inference, kept separate from
+    # the board's own `experience_requirements`) and the first sighting.
+    "required_years",
+    "first_seen_at",
 }
 
 EVIDENCE_COLUMNS = {
@@ -120,6 +127,9 @@ APPROVAL_REQUESTS_COLUMNS = {
     "decided_at",
     "result",
     "owner_id",
+    # WS-25: the approval's window, and the profile digest it is bound to.
+    "expires_at",
+    "profile_version",
 }
 
 AUDIT_EVENTS_COLUMNS = {

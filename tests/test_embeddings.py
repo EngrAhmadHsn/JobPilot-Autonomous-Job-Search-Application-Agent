@@ -134,13 +134,32 @@ def test_cache_hit_miss_accounting(tmp_path):
 def test_long_input_truncated_with_warning(tmp_path, caplog):
     api = FakeEmbeddingsAPI()
     embedding = make_embedding(tmp_path, api)
-    long_text = "x" * 10_000
+    # WS-24: the cap was 8,000 characters and is now 16,000, so the
+    # input has to be longer than the *current* cap to be truncated.
+    long_text = "x" * (GeminiEmbedding.MAX_TEXT_CHARS + 1_000)
 
     with caplog.at_level("WARNING", logger="src.llm.embeddings"):
         embedding.embed_documents([long_text])
 
     assert api.calls[0]["contents"] == ["x" * GeminiEmbedding.MAX_TEXT_CHARS]
     assert any("truncated" in record.message for record in caplog.records)
+
+
+def test_text_under_the_cap_is_not_truncated(tmp_path):
+    """WS-24: the cap was raised to 16,000 characters.
+
+    A document of 10,000 characters used to be truncated to 8,000 and
+    the model saw four-fifths of it. The local model was measured to
+    read the tail at 16,000 characters and beyond (2026-11-10), so the
+    truncation was self-inflicted.
+    """
+    api = FakeEmbeddingsAPI()
+    embedding = make_embedding(tmp_path, api)
+    text = "x" * 10_000
+
+    embedding.embed_documents([text])
+
+    assert api.calls[0]["contents"] == [text]
 
 
 def test_rate_limit_error_maps_to_llm_rate_limited(tmp_path):

@@ -171,6 +171,8 @@ LIMITS_VAR_TO_ATTR = {
     "MAX_NEW_LISTINGS_PER_REFRESH": "max_new_listings_per_refresh",
     "MAX_CORPUS_LISTINGS": "max_corpus_listings",
     "MAX_CORPUS_EVICTIONS_PER_REFRESH": "max_corpus_evictions_per_refresh",
+    # WS-23b: the admission age bound.
+    "MAX_JOB_AGE_DAYS": "max_job_age_days",
     "MAX_EMBED_PER_REFRESH": "max_embed_per_refresh",
     "MAX_EMBED_WORK_PER_DAY": "max_embed_work_per_day",
     "MAX_CACHE_ENTRIES": "max_cache_entries",
@@ -206,6 +208,10 @@ SPECIAL_DEFAULTS = {
     # cache above.
     "AUTH_TOKEN_MAILBOX_DIR",
     "EMBEDDING_MODEL",  # provider-dependent; documented as a commented example
+    # WS-25: read by src/db/approval.py rather than by Settings — the
+    # approval window is a policy of the approval store, and it has its
+    # own default (168 hours) with a fallback for a bad value.
+    "APPROVAL_TTL_HOURS",
 }
 
 

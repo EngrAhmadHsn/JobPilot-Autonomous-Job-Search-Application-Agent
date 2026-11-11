@@ -78,6 +78,11 @@ KNOWN_MODELS: frozenset[str] = frozenset(USER_SCOPED_MODELS) | {
     # authorization boundary, so a route may not name them directly either.
     "JobWorkItemDB",
     "JobRunEventDB",
+    # WS-25b: the questions the boards ask. **Shared**, like ``jobs`` —
+    # a question is a property of a board, not of a user; the per-user
+    # part is the *gap*, computed against the profile at read time.
+    "FormQuestionDB",
+    "BoardDB",
 }
 
 #: The session methods that read a table.
@@ -327,9 +332,7 @@ class TestTheEndpointsTheSuiteCovers:
     anything.
     """
 
-    def test_the_match_history_of_another_profile_is_not_readable(
-        self, api: TestClient
-    ) -> None:
+    def test_the_match_history_of_another_profile_is_not_readable(self, api: TestClient) -> None:
         _register(api, ALICE)
         _register(api, BOB)
         alice_token = _token(api, ALICE)
@@ -338,21 +341,15 @@ class TestTheEndpointsTheSuiteCovers:
         profile_id = _seed_profile(api, alice_token, "alice")
 
         assert (
-            api.get(
-                f"/api/profiles/{profile_id}/matches", headers=_as(alice_token)
-            ).status_code
+            api.get(f"/api/profiles/{profile_id}/matches", headers=_as(alice_token)).status_code
             == 200
         )
         assert (
-            api.get(
-                f"/api/profiles/{profile_id}/matches", headers=_as(bob_token)
-            ).status_code
+            api.get(f"/api/profiles/{profile_id}/matches", headers=_as(bob_token)).status_code
             == 404
         )
 
-    def test_the_evidence_of_another_application_is_not_readable(
-        self, api: TestClient
-    ) -> None:
+    def test_the_evidence_of_another_application_is_not_readable(self, api: TestClient) -> None:
         _register(api, ALICE)
         _register(api, BOB)
         alice_token = _token(api, ALICE)
@@ -481,8 +478,7 @@ class TestTheWritersRecordTheOwner:
                 company_name="Acme",
             )
             assert row.owner_id == "alice", (
-                "the tracked application was not owned by the account that "
-                "prepared it"
+                "the tracked application was not owned by the account that prepared it"
             )
 
     def test_an_evidence_record_is_owned_by_the_account(self, api: TestClient) -> None:
@@ -525,14 +521,8 @@ class TestDurableRunsAreOwnerScoped:
 
         # The owner reads it; the other account gets the same 404 as for a
         # run that never existed.
-        assert (
-            api.get(f"/api/runs/{accepted.run_id}", headers=_as(alice_token)).status_code
-            == 200
-        )
-        assert (
-            api.get(f"/api/runs/{accepted.run_id}", headers=_as(bob_token)).status_code
-            == 404
-        )
+        assert api.get(f"/api/runs/{accepted.run_id}", headers=_as(alice_token)).status_code == 200
+        assert api.get(f"/api/runs/{accepted.run_id}", headers=_as(bob_token)).status_code == 404
 
         # The listing is scoped too: Alice sees the run, Bob does not.
         alice_runs = api.get("/api/runs", headers=_as(alice_token)).json()
@@ -615,8 +605,7 @@ class TestNoDirectRouteQueries:
             return
         if name in USER_SCOPED_MODELS:
             offenders.append(
-                f"{path.name}:{node.lineno}: {call}({name}) "
-                "reaches a user-scoped table directly"
+                f"{path.name}:{node.lineno}: {call}({name}) reaches a user-scoped table directly"
             )
         elif name not in KNOWN_MODELS:
             offenders.append(

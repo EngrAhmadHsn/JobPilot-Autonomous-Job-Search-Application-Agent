@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.db.base import Base
-from src.db.jobs import JobDB
+from src.db.jobs import JobDB, content_version_for, listing_from_row
 from src.jobs.contracts import JobListing
 from src.matching.corpus_cache import (
     clear_corpus_cache,
@@ -88,14 +88,41 @@ def test_a_new_listing_moves_the_fingerprint(factory):
     assert len(after.jobs) == 2
 
 
-def test_a_re_seen_listing_moves_the_fingerprint(factory):
-    """A refresh that touches rows without adding any must still invalidate."""
+def test_a_re_seen_listing_does_not_move_the_fingerprint(factory):
+    """A refresh that re-serves unchanged listings keeps the cache.
+
+    WS-24: the fingerprint used to include ``max(last_seen_at)`` — a
+    *sighting* time. A refresh that re-sees unchanged listings moved it
+    for every listing, so every refresh invalidated the whole artifacts
+    cache and the first search afterwards paid the full rebuild again
+    (32.56 s measured on the 6,696-listing corpus; ~4 minutes projected
+    at the 50,000 cap).
+
+    The fingerprint now hashes the corpus's **content**, so a sighting
+    does not move it and a changed description does.
+    """
     add_job(factory)
     before = corpus_fingerprint(factory)
     before_artifacts = get_corpus_artifacts(session_factory=factory)
     with factory() as session:
         row = session.get(JobDB, "job-1")
         row.last_seen_at = datetime(2026, 11, 8, 12, 0, 0, tzinfo=UTC)
+        session.commit()
+    assert corpus_fingerprint(factory) == before
+    assert get_corpus_artifacts(session_factory=factory) is before_artifacts
+
+
+def test_a_changed_description_moves_the_fingerprint(factory):
+    """A content change does invalidate the cache — that is the point."""
+    add_job(factory)
+    before = corpus_fingerprint(factory)
+    before_artifacts = get_corpus_artifacts(session_factory=factory)
+    with factory() as session:
+        row = session.get(JobDB, "job-1")
+        row.description = "A different description entirely."
+        # The digest is what the fingerprint reads, so it is recomputed
+        # the way the write path computes it.
+        row.content_version = content_version_for(listing_from_row(row))
         session.commit()
     assert corpus_fingerprint(factory) != before
     assert get_corpus_artifacts(session_factory=factory) is not before_artifacts
