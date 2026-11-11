@@ -236,6 +236,45 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
     return persisted
 
 
+def touch_jobs(
+    session_factory: sessionmaker | None = None,
+    *,
+    job_ids: Iterable[str],
+    seen_at: datetime | None = None,
+) -> int:
+    """Record a sighting for listings that were re-served but did not change.
+
+    WS-23, Phase 4. The delta refresh fetches the **content** only for the
+    listings whose change stamp moved. The listings the board still serves
+    unchanged are not fetched — but they *were* seen, and the eviction
+    orders by sighting time, so they must be stamped or they would age out
+    and be deleted while the board is happily serving them.
+
+    This is the step that makes the delta refresh safe. Without it, a
+    refresh would **shrink** the corpus: every unchanged listing would
+    look stale, and the eviction would remove the ones it had not
+    re-fetched.
+
+    Only the sighting is written. The content columns are untouched, so
+    the corpus cache fingerprint (which hashes the content) does not move.
+    """
+    from src.db.session import SessionLocal
+
+    ids = [job_id for job_id in job_ids if job_id]
+    if not ids:
+        return 0
+    factory = session_factory or SessionLocal
+    moment = seen_at or datetime.now(UTC)
+    with factory() as session:
+        touched = (
+            session.query(JobDB)
+            .filter(JobDB.id.in_(ids))
+            .update({JobDB.last_seen_at: moment}, synchronize_session=False)
+        )
+        session.commit()
+    return int(touched or 0)
+
+
 def prune_stale_jobs(
     session_factory: sessionmaker | None = None,
     *,

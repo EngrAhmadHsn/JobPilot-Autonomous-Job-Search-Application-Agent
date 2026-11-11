@@ -145,3 +145,20 @@ class JobSource(Protocol):
     async def search(self, query: str, location: str | None = None) -> list[JobListing]: ...
 
     async def get_job(self, job_id: str) -> JobListing | None: ...
+
+
+class DeltaJobSource(JobSource, Protocol):
+    """A source that can report only what changed since the last refresh.
+
+    WS-23. A source that publishes a per-listing change stamp (Greenhouse
+    publishes ``updated_at``) can answer "what is new or different?"
+    without re-fetching every listing. That matters because the refresh
+    used to fetch every board whole, and a board whose response exceeded
+    the size cap was **dropped entirely** — three live boards were
+    invisible for that reason.
+
+    A source that cannot do this simply does not implement it, and the
+    refresh falls back to the full fetch for that source.
+    """
+
+    async def fetch_changed(self, known_updates: dict[str, str]) -> list[JobListing]: ...

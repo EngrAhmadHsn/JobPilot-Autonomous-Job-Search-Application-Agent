@@ -87,6 +87,93 @@ async def search_all_detailed(
     return await _fan_out(queries, active_sources)
 
 
+async def fetch_changed_all(
+    sources: Mapping[str, JobSource] | None = None,
+    *,
+    session_factory=None,
+) -> tuple[list[JobListing], dict[str, str]]:
+    """The listings that changed since the last refresh (WS-23, Phase 4).
+
+    A source that implements :class:`~src.jobs.contracts.DeltaJobSource`
+    is asked only for what changed; every other source is fetched whole.
+
+    The reason this matters is not speed — it is **completeness**. The
+    refresh used to fetch each board in one request with
+    ``?content=true``. A board whose response exceeded the size cap
+    raised ``SourceError`` and the whole board vanished: three live boards
+    (9.83, 9.58 and 13.58 MiB) were silently dropped by the 8 MiB cap,
+    taking 1,696 listings with them. The delta path fetches the *light*
+    list instead — 91 KB to 792 KB for every board in the registry — and
+    then fetches content only for the listings that changed, so the
+    oversized-board cliff does not exist.
+
+    The stored change stamps live in ``jobs.extra_metadata["updated_at"]``,
+    which is where the adapter writes them.
+
+    Returns:
+        The changed listings, and a ``source -> error`` map for the
+        sources that failed. A source that fails contributes nothing and
+        is reported; the others still refresh.
+    """
+    active_sources = sources if sources is not None else SOURCES
+    known = _stored_update_stamps(session_factory)
+
+    listings: list[JobListing] = []
+    errors: dict[str, str] = {}
+
+    for name, adapter in active_sources.items():
+        fetch_changed = getattr(adapter, "fetch_changed", None)
+        if fetch_changed is None:
+            # The source cannot report deltas; fetch it whole.
+            try:
+                full = await adapter.search("")
+            except Exception as exc:  # noqa: BLE001 - a source degrades, never fails
+                logger.warning("Job source %s failed and was skipped: %s", name, exc)
+                errors[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            listings.extend(full)
+            continue
+        try:
+            changed = await fetch_changed(known.get(name, {}))
+        except Exception as exc:  # noqa: BLE001 - a source degrades, never fails
+            logger.warning("Job source %s failed its delta refresh: %s", name, exc)
+            errors[name] = f"{type(exc).__name__}: {exc}"
+            continue
+        listings.extend(changed)
+
+    return listings, errors
+
+
+def _stored_update_stamps(session_factory=None) -> dict[str, dict[str, str]]:
+    """The stored change stamp for every listing, grouped by source.
+
+    The stamp is the adapter's own ``updated_at`` value, kept in
+    ``extra_metadata`` so the delta can be computed without adding a
+    column per source.
+    """
+    from sqlalchemy import select
+
+    from src.db.jobs import JobDB
+    from src.db.session import SessionLocal
+
+    factory = session_factory or SessionLocal
+    stamps: dict[str, dict[str, str]] = {}
+    try:
+        with factory() as session:
+            rows = session.execute(select(JobDB.id, JobDB.source, JobDB.extra_metadata)).all()
+    except Exception:
+        logger.exception("Could not read the stored change stamps; every listing is treated as new")
+        return stamps
+    for job_id, source, metadata in rows:
+        if not isinstance(metadata, dict):
+            continue
+        stamp = metadata.get("updated_at")
+        if not isinstance(stamp, str) or not stamp:
+            continue
+        stamps.setdefault(source, {})[job_id] = stamp
+    return stamps
+
+
 async def search_all(
     queries: Sequence[SourceQuery],
     sources: Mapping[str, JobSource] | None = None,

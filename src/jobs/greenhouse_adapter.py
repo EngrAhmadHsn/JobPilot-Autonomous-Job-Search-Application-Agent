@@ -255,6 +255,116 @@ class GreenhouseJobAdapter:
             return await self._search_single_pass(client, tokens)
         return await self._search_two_pass(client, tokens)
 
+    async def fetch_changed(
+        self,
+        known_updates: dict[str, str],
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> list[JobListing]:
+        """The listings whose content changed since the last refresh.
+
+        WS-23, Phase 4. This is the **delta refresh**, and it is what
+        removes the oversized-board cliff.
+
+        The problem it solves: the refresh fetched every board with
+        ``?content=true`` in one request. A board whose response exceeded
+        the size cap raised ``SourceError`` and the **whole board**
+        disappeared — three live boards (9.83, 9.58 and 13.58 MiB) were
+        silently dropped by the 8 MiB cap, taking 1,696 listings with
+        them.
+
+        The fix is that the **light** list carries ``updated_at`` for every
+        job and is an order of magnitude smaller (measured live: 91 KB to
+        792 KB for every board in the registry). So the refresh:
+
+        1. fetches the light list for each board;
+        2. compares each job's ``updated_at`` against the value stored
+           for it last time;
+        3. fetches the per-job content **only** for the jobs whose
+           ``updated_at`` changed.
+
+        The refresh therefore costs O(changed jobs) requests, not
+        O(all jobs) — which is what actually dissolves the one-second
+        pacing problem, more effectively than any title filter — and the
+        light list is never anywhere near the response cap.
+
+        It is also more **correct** than filtering the light list by
+        title: a title filter can drop a listing whose description changed
+        but whose title did not, and on the refresh path (an empty query)
+        it has nothing to filter on at all.
+
+        Args:
+            known_updates: The ``updated_at`` value stored for each job
+                id, keyed by the canonical ``"greenhouse:{token}:{id}"``.
+                A job absent from the map is treated as new and fetched.
+            client: An optional client (the tests supply a mock).
+
+        Returns:
+            The listings whose content changed, plus the listings that are
+            new. A board that fails yields no listings and no exception —
+            one board must not sink the refresh.
+        """
+        if client is not None:
+            return await self._fetch_changed_with(client, known_updates)
+        async with create_client() as owned:
+            return await self._fetch_changed_with(owned, known_updates)
+
+    async def _fetch_changed_with(
+        self, client: httpx.AsyncClient, known_updates: dict[str, str]
+    ) -> list[JobListing]:
+        changed: list[JobListing] = []
+        for token in self._resolve_boards():
+            if not _is_valid_board_token(token):
+                logger.warning("Skipping invalid Greenhouse board token %r", token)
+                continue
+            try:
+                response = await guarded_get(client, self._board_url(token, content=False))
+                payload = response.json()
+            except (SourceError, ValueError) as exc:
+                # One bad board must not sink the refresh. Its listings are
+                # simply not updated this pass — and the WS-23 eviction
+                # excludes a failing source, so its coverage survives.
+                logger.warning("Greenhouse board %r unavailable: %s", token, exc)
+                record_failure("greenhouse", token, exc)
+                continue
+
+            jobs = job_records(payload)
+            stale: list[dict[str, Any]] = []
+            for job in jobs:
+                job_id = job.get("id")
+                if job_id is None:
+                    continue
+                canonical = f"greenhouse:{token}:{job_id}"
+                board_updated = (job.get("updated_at") or "").strip()
+                previous = known_updates.get(canonical)
+                if previous is None or board_updated != previous:
+                    stale.append(job)
+
+            logger.info(
+                "Greenhouse board %r: %d jobs -> %d changed -> content fetch",
+                token,
+                len(jobs),
+                len(stale),
+            )
+            record_success("greenhouse", token, len(jobs))
+            for job in stale:
+                job_id = job.get("id")
+                if job_id is None:
+                    continue
+                source_job_id = str(job_id)
+                try:
+                    detail = await guarded_get(client, self._job_url(token, source_job_id))
+                    listing = self._normalize(detail.json(), token)
+                except (SourceError, ValueError) as exc:
+                    # A survivor whose content fetch fails degrades alone.
+                    logger.warning(
+                        "Greenhouse content fetch failed for %s:%s: %s", token, source_job_id, exc
+                    )
+                    continue
+                if listing is not None:
+                    changed.append(listing)
+        return changed
+
     async def _search_single_pass(
         self, client: httpx.AsyncClient, tokens: list[str]
     ) -> list[JobListing]:

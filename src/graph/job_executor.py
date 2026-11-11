@@ -492,6 +492,64 @@ def _plan_without_store(listings: list[JobListing], *, budget: int):
     )
 
 
+def _touch_unchanged(
+    session_factory: sessionmaker | None,
+    sources: dict[str, JobSource],
+    changed: list,
+) -> int:
+    """Stamp the listings the delta refresh did not re-fetch as seen.
+
+    WS-23, Phase 4. The delta refresh fetches the content only for the
+    listings whose change stamp moved, but the board **did** serve every
+    other listing — it simply served the same version. The eviction
+    orders by sighting time, so those listings must be stamped, or they
+    would age out and be deleted while the board was serving them.
+
+    Without this step the delta refresh would **shrink** the corpus: every
+    unchanged listing would look stale, and the eviction would remove the
+    ones it had not re-fetched. That is a bug this step exists to prevent.
+
+    Only the sighting is written. The content columns are untouched, so
+    the corpus cache fingerprint does not move either.
+    """
+    from src.db.jobs import touch_jobs
+
+    changed_ids = {getattr(listing, "id", None) for listing in changed}
+    try:
+        with (session_factory or _default_session_factory())() as session:
+            from sqlalchemy import select
+
+            from src.db.jobs import JobDB
+
+            rows = session.execute(select(JobDB.id, JobDB.source)).all()
+    except Exception:
+        logger.exception("Could not read the corpus for the sighting refresh")
+        return 0
+
+    delta_sources = {name for name, adapter in sources.items() if hasattr(adapter, "fetch_changed")}
+    if not delta_sources:
+        return 0
+
+    untouched = [
+        job_id for job_id, source in rows if source in delta_sources and job_id not in changed_ids
+    ]
+    if not untouched:
+        return 0
+    try:
+        touched = touch_jobs(session_factory, job_ids=untouched)
+    except Exception:
+        logger.exception("Stamping the unchanged listings as seen failed")
+        return 0
+    logger.info("Stamped %d unchanged listings as seen", touched)
+    return touched
+
+
+def _default_session_factory():
+    from src.db.session import SessionLocal
+
+    return SessionLocal
+
+
 def fetch_and_persist(
     *,
     sources: dict[str, JobSource] | None = None,
@@ -501,6 +559,7 @@ def fetch_and_persist(
     owner_id: str | None = None,
     parent_run_id: str | None = None,
     raise_on_persist_error: bool = False,
+    delta: bool = True,
 ) -> RefreshStageResult:
     """Fetch the boards, admit the listings, persist them **and** their work.
 
@@ -509,11 +568,21 @@ def fetch_and_persist(
     so a crash cannot leave a listing that needs a vector with no record of
     that obligation. The returned run id is the durable handle the worker (or
     the synchronous caller) drains.
+
+    WS-23: ``delta`` selects the **delta refresh**. A source that publishes
+    a per-listing change stamp is asked only for what changed, and the
+    listings it still serves unchanged are stamped as seen without being
+    re-fetched. This is what removes the oversized-board cliff: the light
+    list is two orders of magnitude smaller than the content list, so no
+    board is dropped for being too large.
+
+    Set ``delta=False`` to force the full fetch — which is what a first
+    run against an empty corpus wants, and what the recovery path uses.
     """
     from src.runs.embedding import persist_refresh_batch, plan_outstanding
 
     workflow_id = uuid.uuid4().hex
-    from src.jobs.registry import SOURCES, search_all_detailed
+    from src.jobs.registry import SOURCES, fetch_changed_all, search_all_detailed
     from src.jobs.search_planner import SourceQuery
 
     active_sources = sources if sources is not None else SOURCES
@@ -523,7 +592,26 @@ def fetch_and_persist(
         extra={"workflow_id": workflow_id, "sources": sorted(active_sources)},
     )
 
-    listings, source_errors = asyncio.run(search_all_detailed(queries, active_sources))
+    # WS-23, Phase 5: seed the board registry from the environment lists
+    # before anything reads it. Seeding is additive, so it never
+    # overwrites the registry's own health.
+    if sources is None:
+        from src.jobs.board_health import seed_registry
+
+        seed_registry(session_factory)
+
+    if delta:
+        # WS-23, Phase 4: the delta refresh. A source that publishes a
+        # change stamp is asked only for what changed; the rest are
+        # fetched whole. The delta path is what removes the oversized-board
+        # cliff — the light list is never near the response cap, and the
+        # content is fetched only for the listings that moved.
+        listings, source_errors = asyncio.run(
+            fetch_changed_all(active_sources, session_factory=session_factory)
+        )
+        _touch_unchanged(session_factory, active_sources, listings)
+    else:
+        listings, source_errors = asyncio.run(search_all_detailed(queries, active_sources))
     kept, dropped = _filter_complete(listings)
     from src.jobs.deduplicate import deduplicate
 
