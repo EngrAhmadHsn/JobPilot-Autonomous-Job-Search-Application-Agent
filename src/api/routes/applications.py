@@ -52,6 +52,7 @@ from src.db.approval import (
     ApprovalRequestDB,
     ApprovalStatus,
     build_approval_row,
+    profile_version_for,
 )
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
@@ -146,9 +147,22 @@ class ApplicationPrepareResponse(BaseModel):
     approval_id: str = Field(..., description="Id of the approval request")
     workflow_id: str = Field(..., description="Unique workflow execution ID")
     adapter_name: str = Field(..., description="Name of the adapter used")
-    status: str = Field(..., description="awaiting_approval")
+    status: str = Field(..., description="awaiting_approval or blocked_human_review")
     prepared_summary: PreparedSummary
     application_id: str | None = Field(None, description="Id of the tracked application (WS-07)")
+    #: WS-25b: the board's **own** application form, question by question,
+    #: with what the agent may do with each. Empty when the board publishes
+    #: no schema or could not be reached.
+    form_questions: list[dict] = Field(
+        default_factory=list,
+        description="The board's form, with the agent's verdict per question",
+    )
+    #: WS-25b: the required questions the agent cannot answer. When this
+    #: is non-empty the status is ``blocked_human_review``.
+    blocking_questions: list[str] = Field(
+        default_factory=list,
+        description="Required questions the profile does not answer",
+    )
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -227,6 +241,125 @@ def _load_approval(approval_id: str, db: Session, scope: UserScope) -> ApprovalR
     if row is None:
         raise HTTPException(status_code=404, detail="Approval request not found")
     return row
+
+
+def _build_form_plans(adapter, job_url: str, facts: dict[str, str]) -> list:
+    """Read the board's form and decide what the agent may answer.
+
+    WS-25b. Returns an empty list when the adapter publishes no schema
+    (Lever, Ashby, Remotive), when the board is unreachable, or when the
+    schema is malformed. **Every** failure path here degrades to the
+    previous behaviour — the prepare still succeeds — because a form
+    schema is an enhancement, and a board being slow must not stop an
+    operator from preparing an application.
+
+    The fetch is bounded by the same timeout the rest of the outbound
+    HTTP uses (``JOB_SOURCE_TIMEOUT``), so a hanging board cannot hang
+    the route.
+    """
+    fetch = getattr(adapter, "fetch_form_schema", None)
+    if fetch is None:
+        return []
+    try:
+        import asyncio
+
+        schema = asyncio.run(fetch(job_url))
+    except Exception:
+        # A schema we cannot read is not a reason to fail a prepare.
+        logger.warning("Could not read the application form for %s", job_url, exc_info=True)
+        return []
+    if schema is None:
+        return []
+    try:
+        from src.applications.form_plan import build_question_plan
+
+        return build_question_plan(schema, facts)
+    except Exception:
+        logger.warning("Could not build the question plan for %s", job_url, exc_info=True)
+        return []
+
+
+def _job_liveness(row: ApprovalRequestDB) -> tuple[bool, str]:
+    """Whether the job this approval names is **gone**, and why.
+
+    WS-25b §9.2. Returns ``(True, reason)`` only when the board answers
+    that the job is not open — a 404, or a deadline that has passed. It
+    returns ``(False, reason)`` when the job is live **and** when the
+    board could not be reached.
+
+    That last case is the whole design. A transport failure is not
+    evidence that a job closed, and treating it as one would turn a
+    flaky board into a way to block every approval. The operator sees
+    "could not verify" in the audit trail and decides.
+
+    A provider that publishes no liveness endpoint (Lever, Ashby,
+    Remotive — the check is Greenhouse-only for now) also returns
+    ``(False, …)``: the absence of a check is not a reason to block.
+    """
+    adapter = _adapter_for_url(row.job_url)
+    check = getattr(adapter, "check_job_is_live", None) if adapter is not None else None
+    if check is None:
+        return False, "the provider publishes no liveness check"
+
+    try:
+        import asyncio
+
+        is_live, reason = asyncio.run(check(row.job_url))
+    except Exception as exc:  # noqa: BLE001 - an unreachable board is not a closed job
+        logger.warning("Could not check the liveness of %s: %s", row.job_url, exc)
+        return False, f"could not verify: {type(exc).__name__}"
+
+    if is_live:
+        return False, reason
+    # Only a *definitive* answer blocks: the 404 and the passed deadline.
+    # "Could not be checked" comes back as ``False, "the job could not be
+    # checked: …"`` from the adapter, and must not block.
+    if "could not be checked" in reason or "not a Greenhouse" in reason:
+        return False, reason
+    return True, reason
+
+
+def _adapter_for_url(job_url: str):
+    """The application adapter that claims a URL, or ``None``."""
+    try:
+        return select_adapter_for_url(job_url)
+    except Exception:  # noqa: BLE001 - no adapter is a valid answer here
+        return None
+
+
+def _expire_if_stale(row: ApprovalRequestDB, db: Session) -> bool:
+    """Mark an approval **expired** when its window has closed.
+
+    WS-25. An approval had no clock: ``ApprovalStatus`` had no
+    ``EXPIRED`` state and there was no expiry timestamp, so an approval
+    granted on Monday would still authorize a submission on Friday —
+    against a résumé tailored with Monday's profile, for a job that may
+    have closed in between.
+
+    The state is written, not merely reported, so the operator's view
+    shows what happened. The expiry is measured from **creation**, so a
+    request that sat pending for a week does not get a fresh week when
+    it is approved.
+
+    An approval with no expiry is never expired: the column is nullable
+    because a row created before WS-25 has none, and refusing to
+    execute it on that basis would strand the existing approvals.
+
+    Returns:
+        True when the approval was expired by this call.
+    """
+    if row.expires_at is None:
+        return False
+    expiry = row.expires_at
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=UTC)
+    if expiry > datetime.now(UTC):
+        return False
+    row.status = ApprovalStatus.EXPIRED
+    row.decided_at = datetime.now(UTC)
+    row.decision_reason = f"the approval window closed at {expiry.isoformat()}; it was not executed"
+    db.commit()
+    return True
 
 
 @router.post("/prepare", response_model=ApplicationPrepareResponse)
@@ -342,11 +475,30 @@ def prepare_application(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
+    # WS-25b §9.1: read the board's **own** application form, and decide
+    # what the agent may do with every question on it.
+    #
+    # The fetch is bounded and fail-soft on purpose. The prepare route
+    # made no network call before this, and adding one changes its
+    # failure modes: a board that is slow or down must degrade to the
+    # fixed field map, not fail a prepare. A required question the agent
+    # cannot answer stops the flow with a named reason instead of being
+    # discovered at submission time.
+    form_plans = _build_form_plans(adapter, req.job_url, app_request.profile_facts)
+    from src.applications.form_plan import blocking_questions, plan_as_dicts
+
+    blockers = blocking_questions(form_plans)
+
     row = build_approval_row(
         owner_id=scope.user_id,
         workflow_id=workflow_id,
         adapter_name=adapter.name,
         prepared=prepared,
+        # WS-25: the approval is bound to the profile it was built from.
+        # If the candidate edits their profile afterwards, the payload
+        # the human reviewed is no longer the payload that would be
+        # submitted.
+        profile_version=profile_version_for(prepared.profile_facts),
     )
     db.add(row)
     db.commit()
@@ -381,7 +533,12 @@ def prepare_application(
         approval_id=row.id,
         workflow_id=workflow_id,
         adapter_name=adapter.name,
-        status="awaiting_approval",
+        # WS-25b: a required question the agent cannot answer stops the
+        # flow with a named reason, instead of the gap being discovered
+        # at submission time. The approval row still exists — the
+        # operator can read the form, answer the profile, and prepare
+        # again — but its state says a human must look.
+        status="blocked_human_review" if blockers else "awaiting_approval",
         prepared_summary=PreparedSummary(
             job_title=prepared.request.job_title,
             company_name=prepared.request.company_name,
@@ -393,6 +550,8 @@ def prepare_application(
             requires_manual_review=prepared.requires_manual_review,
         ),
         application_id=application_id,
+        form_questions=plan_as_dicts(form_plans),
+        blocking_questions=[plan.label for plan in blockers],
     )
 
 
@@ -599,6 +758,54 @@ def approve_application(
         raise HTTPException(
             status_code=409,
             detail=f"Approval request {approval_id!r} was already decided ({row.status})",
+        )
+
+    # WS-25: an expired approval is not executable. The state is written
+    # so the operator sees why, and the audit records the refusal.
+    if _expire_if_stale(row, db):
+        record_audit(
+            ACTION_APPROVE,
+            actor=Actor.user(scope.user_id),
+            resource=approval_id,
+            outcome=OUTCOME_DENIED,
+            owner_id=scope.user_id,
+            metadata={
+                "reason": "the approval had expired",
+                "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+            },
+            workflow_id=row.workflow_id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Approval request {approval_id!r} has expired. "
+                "Prepare the application again to get a fresh review."
+            ),
+        )
+
+    # WS-25b §9.2: is the job still open? The corpus has no expiry signal
+    # (WS-23 §11.2), so a posting that closed months ago is still ranked
+    # and still has a valid URL — this is the check that stops the
+    # application.
+    #
+    # The distinction that matters: a job that is **gone** blocks (409),
+    # while a board that **cannot be reached** does not. A transport
+    # failure must not become a way to block every approval during an
+    # outage; it degrades to "cannot verify", which the audit records.
+    gone, reason = _job_liveness(row)
+    if gone:
+        record_audit(
+            ACTION_APPROVE,
+            actor=Actor.user(scope.user_id),
+            resource=approval_id,
+            outcome=OUTCOME_DENIED,
+            owner_id=scope.user_id,
+            metadata={"reason": "the job is no longer open", "detail": reason},
+            workflow_id=row.workflow_id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=f"The job is no longer open ({reason}). Nothing was submitted.",
         )
 
     # WS-14 · A2 (T2): the approver is the **authenticated principal**.
