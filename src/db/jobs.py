@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, String
+from sqlalchemy import JSON, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
@@ -51,6 +53,44 @@ class JobDB(Base):
     # longest is the one that goes, so a listing the boards keep serving
     # stays and a flood's rows age out.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # WS-24: a digest of the fields the search artifacts are derived from
+    # (title, description, the two skill lists, the two requirement
+    # strings). It is computed once, here, at write time.
+    #
+    # The corpus cache fingerprint used to be keyed on ``max(last_seen_at)``
+    # — a *sighting* time. A refresh that re-sees unchanged listings moves
+    # it, so every refresh invalidated the whole cache and the first search
+    # afterwards paid the full rebuild again (32.56 s measured on the
+    # 6,696-listing corpus). Hashing the content instead means a refresh
+    # that changed nothing keeps the cache.
+    #
+    # Storing the digest rather than hashing the text at search time is
+    # what makes the check cheap: hashing 6,696 rows of full description
+    # text cost ~1 s per search; hashing the stored 64-character digests
+    # costs milliseconds and scales with the corpus, not with its text.
+    content_version: Mapped[str | None] = mapped_column(
+        String(length=64), nullable=True, index=True
+    )
+    #: The experience bar the description states, mined once at write time.
+    #:
+    #: WS-23b. ``experience_requirements`` is what the **board** stated, and
+    #: it is 0% populated because most boards publish nothing. This column
+    #: is what the system **inferred** from the description, by the same
+    #: ``required_years`` function the search used to run per listing — at
+    #: 9.5 s of the 32.56 s artifacts rebuild, the most expensive
+    #: per-listing item.
+    #:
+    #: It is a **separate** column on purpose: collapsing it into
+    #: ``experience_requirements`` would make an inference
+    #: indistinguishable from a published fact, and the score states exist
+    #: to keep exactly that distinction honest.
+    required_years: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: When the system first saw this listing (WS-23b).
+    #:
+    #: ``last_seen_at`` says when it was last seen. The corpus could not
+    #: distinguish "seen for three months" from "seen once", and could
+    #: compute no age at all for the rows whose ``posted_at`` is missing.
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
 
 def listing_from_row(row: JobDB) -> JobListing:
@@ -77,6 +117,50 @@ def listing_from_row(row: JobDB) -> JobListing:
         posted_at=row.posted_at,
         metadata=dict(row.extra_metadata or {}),
     )
+
+
+def content_version_for(listing: JobListing) -> str:
+    """The digest of the fields the search artifacts depend on (WS-24).
+
+    The corpus cache is keyed on this, so it must change when — and only
+    when — the content that the BM25 index, the important terms and the
+    experience bar are derived from changes. A sighting (the refresh
+    re-serving an unchanged listing) must **not** change it.
+
+    The two skill lists are serialized with sorted keys so the digest does
+    not depend on the order the adapter happened to produce them in.
+    """
+    skills = json.dumps(list(listing.required_skills or []), sort_keys=True)
+    preferred = json.dumps(list(listing.preferred_skills or []), sort_keys=True)
+    parts = [
+        listing.title or "",
+        listing.description or "",
+        skills,
+        preferred,
+        listing.experience_requirements or "",
+        listing.education_requirements or "",
+    ]
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8", errors="replace")).hexdigest()
+
+
+def _mined_required_years(listing: JobListing) -> float | None:
+    """The experience bar the listing states, mined once at write time.
+
+    WS-23b. Uses the board's own ``experience_requirements`` when it
+    states one, and otherwise mines the description — the same function
+    the matching layer calls, moved from read time to write time.
+
+    A failure here must not lose the listing: the bar is derived data,
+    and a listing without it simply scores with the component unknown,
+    which is a state the engine already understands.
+    """
+    try:
+        from src.matching.experience import required_years
+
+        return required_years(listing)
+    except Exception:
+        logger.debug("Could not mine the experience bar for %s", listing.id, exc_info=True)
+        return None
 
 
 def merge_jobs(

@@ -49,7 +49,23 @@ DEFAULT_COLLECTION_NAME = "job_listings"
 # missed chunk is exactly one batch request (FU-1 resumability, FU-4 budget).
 EMBED_BATCH_SIZE = 100
 
-MAX_DESCRIPTION_CHARS = 8_000
+#: How many characters of the description go into the embedded document.
+#:
+#: WS-24: this was 8,000, which was the binding constraint on what the local
+#: embedding model saw — not the model. EmbeddingGemma-2 accepts 8,192
+#: **tokens**, which is roughly 32,000 characters of English prose, so the
+#: 8,000-character cap truncated four-fifths of what the model could read.
+#: The cap now sits at 16,000 characters, comfortably inside the model's
+#: token budget and still bounded.
+#:
+#: It matches the provider's own ``MAX_TEXT_CHARS`` (also 16,000), so
+#: there is exactly one place where the limit is expressed and no
+#: second, quieter truncation underneath it.
+#:
+#: The contract cap (``max_description_chars``, default 20,000) is separate
+#: and unchanged: it bounds the **stored** description, this bounds the
+#: **embedded** text.
+MAX_DESCRIPTION_CHARS = 16_000
 
 #: How many vectors are loaded per page in the full-corpus similarity scan.
 #: The scan is bounded so the peak memory is this, not the corpus size.

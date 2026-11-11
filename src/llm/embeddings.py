@@ -79,9 +79,25 @@ logger = logging.getLogger(__name__)
 MODEL_PREFIX_DOC = "title: {title} | text: {body}"
 MODEL_PREFIX_QUERY = "task: search result | query: {text}"
 
-# The local EmbeddingGemma-2 model has an 8,192-token context window;
-# ~8,000 characters of description stays comfortably within ~2,000 tokens.
-MAX_TEXT_CHARS = 8_000
+# The maximum characters of a document that go into one embedding.
+#
+# WS-24: this was 8,000, and the reason given was the model's 8,192-
+# **token** context window — the assumption being that 8,000 characters
+# is "comfortably within ~2,000 tokens". That was the binding constraint
+# by a factor of four, not the model: 8,192 tokens is roughly 32,000
+# characters of English prose.
+#
+# The limit was measured rather than assumed (2026-11-10): a document
+# with a unique marker appended was embedded, and the vector was
+# compared with the vector of the document without it. The tail is read
+# at 8,000, 12,000, 16,000, 24,000 and 32,000 characters — the cosine
+# similarity between the two variants stays below 1.0 at every one of
+# them, so the model is genuinely seeing the end of the text. The old
+# cap was truncating four-fifths of what the model could read.
+#
+# 16,000 characters is the new cap: it doubles what the model sees, it
+# sits comfortably inside the token budget, and it is still a bound.
+MAX_TEXT_CHARS = 16_000
 
 # -- FU-7: local provider (fastembed + EmbeddingGemma-2, text-only) -------------
 

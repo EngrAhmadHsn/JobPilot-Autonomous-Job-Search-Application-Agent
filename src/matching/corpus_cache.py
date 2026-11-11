@@ -4,26 +4,31 @@ A search re-derives, from scratch on every request, things that do not depend
 on the candidate at all: the corpus rows mapped to ``JobListing``, the BM25
 index over their text, the weighted important terms of every posting, and
 every posting's stated experience bar. Measured on 6,696 listings that is
-roughly 40 seconds of the request — pure recomputation.
+roughly 32 seconds of the request — pure recomputation.
 
 The cache is keyed by a **fingerprint the corpus maintains itself**: the
-database identity, the row count, and the newest ``last_seen_at`` (the column
-WS-15 added for corpus eviction, which a refresh moves for every listing it
-sees). A refresh therefore invalidates the cache without any explicit call,
-and a stale entry can never outlive a corpus change. It holds at most two
-entries, and a benign race under the API's thread pool may build an entry
-twice — never serve a wrong fingerprint.
+database identity, the row count, and a hash of the corpus's **content**
+(WS-24). The third component used to be the newest ``last_seen_at``, which
+is a *sighting* time rather than a content time — a refresh that re-sees
+unchanged listings moved it for every listing, so every refresh invalidated
+the cache and the first search after each refresh paid the full rebuild
+again. The fingerprint now hashes the fields the artifacts are actually
+derived from, so a refresh that changed nothing keeps the cache, and a
+refresh that changed a description does not. It holds at most two entries,
+and a benign race under the API's thread pool may build an entry twice —
+never serve a wrong fingerprint.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from src.db.jobs import JobDB, listing_from_row
 from src.jobs.contracts import JobListing
 from src.matching.experience import required_years
-from src.matching.lexical import Bm25Index, _important_terms
+from src.matching.lexical import Bm25Index, _important_terms, _required_phrases
 
 __all__ = [
     "CorpusArtifacts",
@@ -41,13 +46,40 @@ _MAX_ENTRIES = 2
 class CorpusArtifacts:
     """Everything a search re-uses across requests (candidate-independent)."""
 
-    fingerprint: tuple[str, int, str | None]
+    fingerprint: tuple[str, int, str]
     jobs: list[JobListing] = field(default_factory=list)
     index: Bm25Index | None = None
     #: Weighted important terms per job id (the lexical coverage channel).
     lexical_terms: dict[str, list[tuple[str, float]]] = field(default_factory=dict)
     #: The stated experience bar per job id (``None`` = not stated).
     required_years: dict[str, float | None] = field(default_factory=dict)
+    #: The occupational-role classification per job id.
+    #:
+    #: WS-24. The classifier has an ``lru_cache`` of 8,192 entries, but
+    #: the corpus now holds 8,558 listings — so the cache **thrashes**:
+    #: every search evicted the entries it was about to need and
+    #: re-classified all of them. The taxonomy scan is the most
+    #: expensive part of the per-listing work (measured: 4.9 million
+    #: pattern matches and 9.6 s of a warm search at 8,558 listings).
+    #:
+    #: The classification depends only on the listing, so it belongs
+    #: here, with the listing's other derived artifacts. It is computed
+    #: once when the corpus is read and re-used by every search until
+    #: the content changes.
+    role_classifications: dict[str, object] = field(default_factory=dict)
+    #: The weight total per job id — ``sum(weight for _t, weight in terms)``.
+    #:
+    #: WS-24b. The coverage channel divides the matched weight by this
+    #: total, and it depends only on the listing's terms — which are
+    #: already cached one line up. It was being summed for every listing
+    #: on every search (8,558 additions per request).
+    lexical_weight_totals: dict[str, float] = field(default_factory=dict)
+    #: The multi-word required phrases per job id (``_required_phrases``).
+    #:
+    #: WS-24b. It re-split ``required_skills`` for every listing on every
+    #: search. The phrases depend only on the listing, so they are cached
+    #: with its other derived artifacts.
+    required_phrases: dict[str, list[str]] = field(default_factory=dict)
 
 
 _CACHE: OrderedDict[tuple[str, int, str | None], CorpusArtifacts] = OrderedDict()
@@ -65,15 +97,41 @@ def _database_identity(session_factory) -> str:
     return str(url) if url is not None else "unknown"
 
 
-def corpus_fingerprint(session_factory) -> tuple[str, int, str | None]:
-    """The corpus's own bookkeeping: database, row count, newest last-seen."""
-    from sqlalchemy import func, select
+def corpus_fingerprint(session_factory) -> tuple[str, int, str]:
+    """The corpus's **content** version: database, row count, content hash.
+
+    WS-24: this used to be ``(database, row count, max(last_seen_at))``, and
+    the third component was the bug. ``last_seen_at`` is a **sighting**
+    time, not a content time: a refresh that re-sees unchanged listings
+    moves it for every one of them, so every refresh changed the
+    fingerprint, so the whole artifacts cache was discarded and the 32.56 s
+    rebuild was paid again by the first search after every morning's
+    refresh (measured on the 6,696-listing corpus; ~4 minutes projected at
+    the 50,000 cap).
+
+    The artifacts depend on exactly the fields hashed here — the title, the
+    description, the skill lists and the requirement strings — so a corpus
+    whose *content* is unchanged has an unchanged fingerprint, and the
+    cache survives a refresh that changed nothing.
+
+    The cost is one pass over the corpus reading the stored per-row
+    ``content_version`` digest — 64 characters per listing, rather than
+    its full description text — which is cheap enough to do on every
+    search (hashing the raw text instead cost ~1 s per search at 6,696
+    rows, because the corpus carries ~43 MB of descriptions).
+    """
+    from sqlalchemy import select
 
     with session_factory() as session:
-        row = session.execute(select(func.count(JobDB.id), func.max(JobDB.last_seen_at))).one()
-    count = int(row[0] or 0)
-    newest = str(row[1]) if row[1] is not None else None
-    return (_database_identity(session_factory), count, newest)
+        rows = session.execute(select(JobDB.id, JobDB.content_version)).all()
+
+    digest = hashlib.sha256()
+    for job_id, content_version in rows:
+        digest.update((job_id or "").encode("utf-8", errors="replace"))
+        digest.update(b"\x1f")
+        digest.update((content_version or "").encode("utf-8", errors="replace"))
+        digest.update(b"\x1e")
+    return (_database_identity(session_factory), len(rows), digest.hexdigest())
 
 
 def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> CorpusArtifacts:
@@ -101,13 +159,42 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
             statement = statement.limit(limit)
         rows = statement.all()
     jobs = [listing_from_row(row) for row in rows]
+    # WS-23b: the bar is mined once at **write** time and stored, so the
+    # rebuild reads a column instead of re-mining every description. The
+    # mining was 9.5 s of the 32.56 s rebuild — the most expensive
+    # per-listing item — and it produced the same answer every time.
+    stored_years: dict[str, float | None] = {row.id: row.required_years for row in rows}
 
+    # WS-24: the role classification is derived from the listing alone,
+    # so it is computed here, with the listing's other derived
+    # artifacts, and re-used by every search until the content changes.
+    from src.matching.roles import classify_job_role
+
+    lexical_terms = {job.id: _important_terms(job) for job in jobs}
     artifacts = CorpusArtifacts(
         fingerprint=fingerprint,
         jobs=jobs,
         index=Bm25Index(jobs),
-        lexical_terms={job.id: _important_terms(job) for job in jobs},
-        required_years={job.id: required_years(job) for job in jobs},
+        lexical_terms=lexical_terms,
+        # A row written before WS-23b has no stored bar; fall back to
+        # mining it, so an un-migrated corpus still scores correctly.
+        required_years={
+            job.id: (
+                stored_years.get(job.id)
+                if stored_years.get(job.id) is not None
+                else required_years(job)
+            )
+            for job in jobs
+        },
+        role_classifications={job.id: classify_job_role(job) for job in jobs},
+        # WS-24b: the sum over the terms just computed, cached beside
+        # them — it depends only on the listing.
+        lexical_weight_totals={
+            job_id: sum(weight for _term, weight in terms)
+            for job_id, terms in lexical_terms.items()
+        },
+        # WS-24b: the multi-word required phrases, split once.
+        required_phrases={job.id: _required_phrases(job) for job in jobs},
     )
     _CACHE[fingerprint] = artifacts
     while len(_CACHE) > _MAX_ENTRIES:
