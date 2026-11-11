@@ -193,7 +193,16 @@ def _build() -> SecurityLimits:
         ),
         max_zip_entries=_int_env("MAX_ZIP_ENTRIES", 2_000, minimum=1),
         # A hostile board returning a 2 GB JSON body must not be buffered.
-        max_response_bytes=_int_env("MAX_RESPONSE_BYTES", 8 * 1024 * 1024, minimum=1024),
+        #
+        # WS-24: this was 8 MiB, and three live boards were **above** it —
+        # greenhouse/anthropic (9.83 MiB), greenhouse/databricks (9.58 MiB)
+        # and ashby/openai (13.58 MiB), measured 2026-11-09. A board over
+        # the cap raises ``SourceError``, the adapter logs it as "board
+        # unavailable", and the whole board disappears silently. 16 MiB
+        # clears every board in the current registry with headroom, and the
+        # cap stays a cap: the assertion in ``src/jobs/http_client.py`` is
+        # unchanged.
+        max_response_bytes=_int_env("MAX_RESPONSE_BYTES", 16 * 1024 * 1024, minimum=1024),
         max_custom_fields=_int_env("MAX_CUSTOM_FIELDS", 50, minimum=0),
         max_custom_field_chars=_int_env("MAX_CUSTOM_FIELD_CHARS", 2_000, minimum=1),
         # 20,000 characters of description: far beyond a real posting, and
