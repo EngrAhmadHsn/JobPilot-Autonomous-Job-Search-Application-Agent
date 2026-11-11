@@ -21,9 +21,19 @@ from typing import Any
 import httpx
 
 from src.config.settings import get_settings
+from src.jobs.board_health import record_failure, record_success
+from src.jobs.board_metadata import (
+    _EMPLOYMENT_ALIASES,
+    GREENHOUSE_BOARD_METADATA,
+    BoardMetadataMap,
+    metadata_value,
+    remote_policy_from_metadata,
+)
 from src.jobs.contracts import JobListing
 from src.jobs.http_client import SourceError, create_client, guarded_get
 from src.jobs.normalize import html_to_text, job_records
+from src.jobs.salary import salary_from_greenhouse_pay_ranges
+from src.jobs.seniority import classify_seniority
 from src.jobs.skills import split_required_preferred
 
 logger = logging.getLogger(__name__)
@@ -68,25 +78,31 @@ def _matches_query(listing: JobListing, tokens: list[str]) -> bool:
     return any(token in haystack for token in tokens)
 
 
-def _employment_type_from_metadata(metadata: Any) -> str | None:
+def _employment_type_from_metadata(metadata: Any, board: str | None = None) -> str | None:
     """Extract employment type from Greenhouse ``metadata[]`` key/value pairs.
 
-    Greenhouse metadata entries appear as ``{"name"|"key": ..., "value": ...}``;
-    the key naming is not standardized across boards, so both are checked
-    case-insensitively against "employment type" / "employmenttype". Nothing
-    is invented when the key is absent.
+    Greenhouse metadata entries appear as ``{"name"|"key": ..., "value": ...}``,
+    and **the key naming is not standardized across boards**. The adapter
+    used to look for a key called ``"employmentType"`` — which appears
+    **zero** times across the 11 boards and 4,406 jobs in the registry
+    (measured live, 2026-11-09). The board that publishes it calls it
+    ``"Employee Type"`` (block), and the others publish nothing.
+
+    WS-23: the lookup is now per-board, with a small alias fallback. The
+    board's own key wins; the aliases are only tried when the board has
+    no explicit entry. Nothing is invented when no key is present — an
+    employment type that is not stated stays unknown, because the
+    preference component treats an unknown as unknown rather than as a
+    match.
     """
-    if not isinstance(metadata, list):
-        return None
-    for entry in metadata:
-        if not isinstance(entry, dict):
-            continue
-        label = entry.get("key") or entry.get("name") or ""
-        if isinstance(label, str) and label.replace(" ", "").lower() == "employmenttype":
-            value = entry.get("value")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return None
+    board_map = GREENHOUSE_BOARD_METADATA.get(board or "", BoardMetadataMap())
+    keys: list[str] = []
+    if board_map.employment_type_key:
+        keys.append(board_map.employment_type_key)
+    keys.extend(board_map.employment_type_aliases)
+    if not keys:
+        keys.extend(_EMPLOYMENT_ALIASES)
+    return metadata_value(metadata, tuple(dict.fromkeys(keys)))
 
 
 class GreenhouseJobAdapter:
@@ -103,16 +119,52 @@ class GreenhouseJobAdapter:
         self._boards = boards
 
     def _resolve_boards(self) -> list[str]:
+        """The boards this adapter watches.
+
+        WS-23, Phase 5: the **registry** is the source of truth, and the
+        environment list is the seed. The registry is what carries the
+        per-board health, so an adapter that only read the env list
+        could not know which boards were failing — and a board the
+        operator disabled would keep being fetched.
+
+        The env list is still the fallback for a database that is not
+        ready, so a fresh checkout with no registry still works.
+        """
         if self._boards is not None:
             return self._boards
+        from src.jobs.board_health import registry_slugs
+
+        registered = registry_slugs("greenhouse")
+        if registered:
+            return registered
         return get_settings().greenhouse_boards
 
     def _board_url(self, token: str, *, content: bool = True) -> str:
-        """Board listing URL. ``content=False`` gives the ~11x lighter listing
-        payload (verified live 2026-10-11: 7,512 B -> 666 B per job on stripe):
-        same jobs, ``title``/``location``/``absolute_url`` survive, only the
-        ``content`` HTML body is omitted."""
-        return f"{GREENHOUSE_BASE_URL}/{token}/jobs" + ("?content=true" if content else "")
+        """Board listing URL.
+
+        ``content=False`` gives the ~11x lighter listing payload (verified
+        live 2026-10-11: 7,512 B -> 666 B per job on stripe): same jobs,
+        ``title``/``location``/``absolute_url``/``metadata`` survive, only
+        the ``content`` HTML body is omitted.
+
+        ``pay_transparency=true`` adds ``pay_input_ranges[]`` — the only
+        structured pay the board publishes (measured live: dropbox
+        publishes ranges; stripe, lyft and block return an empty list).
+        The parameter is **not** a filter: it does not change which jobs
+        are returned, only what each one carries.
+
+        The parameter is added only to the **content** fetch. The light
+        list is the delta refresh's payload (WS-23, Phase 4) and it is
+        fetched for every board on every refresh, so it stays as small as
+        possible; the pay structure is read from the per-job content
+        fetch that a changed listing triggers anyway.
+
+        The light list carries ``updated_at`` for every job, which is what
+        makes a refresh cost O(changed jobs) instead of O(all jobs).
+        """
+        if content:
+            return f"{GREENHOUSE_BASE_URL}/{token}/jobs?content=true&pay_transparency=true"
+        return f"{GREENHOUSE_BASE_URL}/{token}/jobs"
 
     def _job_url(self, token: str, job_id: str) -> str:
         # WS-15: the job id is board-supplied, and it is interpolated into
@@ -123,7 +175,9 @@ class GreenhouseJobAdapter:
         # built: a path segment and nothing else.
         if not _is_valid_job_id(job_id):
             raise ValueError(f"Refusing a Greenhouse URL for a malformed job id: {job_id!r}")
-        return f"{GREENHOUSE_BASE_URL}/{token}/jobs/{job_id}?content=true"
+        # WS-23: the pay structure is only published when the parameter is
+        # asked for, and the per-job detail fetch is where it is read.
+        return f"{GREENHOUSE_BASE_URL}/{token}/jobs/{job_id}?content=true&pay_transparency=true"
 
     def _normalize(self, payload: dict[str, Any], token: str) -> JobListing | None:
         job_id = payload.get("id")
@@ -145,6 +199,26 @@ class GreenhouseJobAdapter:
                 company_name = (company.get("name") or "").strip()
         if not company_name:
             company_name = token.replace("-", " ").replace("_", " ").title()
+
+        metadata = payload.get("metadata")
+        salary, currency = salary_from_greenhouse_pay_ranges(payload.get("pay_input_ranges"))
+        board_map = GREENHOUSE_BOARD_METADATA.get(token, BoardMetadataMap())
+        department = metadata_value(
+            metadata, (board_map.department_key,) if board_map.department_key else ()
+        )
+
+        extra_metadata: dict[str, Any] = {}
+        if department:
+            extra_metadata["department"] = department
+        # The board's own ``updated_at`` is stored so the delta refresh can
+        # tell a changed listing from an unchanged one (WS-23, Phase 4).
+        updated_at = (payload.get("updated_at") or "").strip()
+        if updated_at:
+            extra_metadata["updated_at"] = updated_at
+        first_published = (payload.get("first_published") or "").strip()
+        if first_published:
+            extra_metadata["first_published"] = first_published
+
         return JobListing(
             id=f"greenhouse:{token}:{job_id}",
             source=self.name,
@@ -154,10 +228,16 @@ class GreenhouseJobAdapter:
             description=description or None,
             location=(location.get("name") or "").strip() if isinstance(location, dict) else None,
             application_url=(payload.get("absolute_url") or "").strip() or None,
-            posted_at=(payload.get("updated_at") or "").strip() or None,
-            employment_type=_employment_type_from_metadata(payload.get("metadata")),
+            posted_at=updated_at or None,
+            # WS-23: the fields that were 0% populated across the corpus.
+            remote_policy=remote_policy_from_metadata(metadata, token),
+            employment_type=_employment_type_from_metadata(metadata, token),
+            salary=salary,
+            currency=currency,
+            seniority=classify_seniority(title),
             required_skills=required_skills,
             preferred_skills=preferred_skills,
+            metadata=extra_metadata,
         )
 
     async def search(self, query: str, location: str | None = None) -> list[JobListing]:

@@ -19,10 +19,56 @@ from typing import Any
 import httpx
 
 from src.config.settings import get_settings
+from src.jobs.board_health import record_failure, record_success
 from src.jobs.contracts import JobListing
 from src.jobs.http_client import SourceError, create_client, guarded_get
-from src.jobs.normalize import ms_epoch_to_iso
+from src.jobs.normalize import html_to_text, ms_epoch_to_iso
+from src.jobs.salary import salary_from_lever_range
+from src.jobs.seniority import classify_seniority
 from src.jobs.skills import split_required_preferred
+
+
+def _text_from_lists(lists: Any) -> str:
+    """The plain text of Lever's ``lists[]`` requirements blocks.
+
+    Each entry is ``{"text": NAME, "content": "<li>…</li><li>…</li>"}`` —
+    a bare sequence of ``<li>`` elements with no wrapping ``<ul>``. The
+    content is therefore wrapped in a ``<ul>`` before it is converted to
+    text, so the bullets come out one per line instead of running
+    together.
+    """
+    if not isinstance(lists, list):
+        return ""
+    chunks: list[str] = []
+    for entry in lists:
+        if not isinstance(entry, dict):
+            continue
+        label = entry.get("text")
+        content = entry.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        heading = label.strip() if isinstance(label, str) and label.strip() else ""
+        wrapped = content.strip()
+        if "<li" in wrapped.lower() and "<ul" not in wrapped.lower():
+            wrapped = f"<ul>{wrapped}</ul>"
+        body = html_to_text(wrapped)
+        if body:
+            chunks.append(f"{heading}\n{body}" if heading else body)
+    return "\n".join(chunks)
+
+
+def _merge_skills(existing: list[str], extra: list[str]) -> list[str]:
+    """Two skill lists, without duplicates, preserving order."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for skill in [*existing, *extra]:
+        key = skill.strip().casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(skill.strip())
+    return merged
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +114,18 @@ class LeverJobAdapter:
         self._companies = companies
 
     def _resolve_companies(self) -> list[str]:
+        """The boards this adapter watches (WS-23, Phase 5).
+
+        The registry is the source of truth; the environment list is the
+        seed and the fallback for a database that is not ready.
+        """
         if self._companies is not None:
             return self._companies
+        from src.jobs.board_health import registry_slugs
+
+        registered = registry_slugs("lever")
+        if registered:
+            return registered
         return get_settings().lever_companies
 
     def _postings_url(self, company: str) -> str:
@@ -88,6 +144,48 @@ class LeverJobAdapter:
         categories = payload.get("categories") or {}
         required_skills, preferred_skills = split_required_preferred(description)
         commitment = (categories.get("commitment") or "").strip()
+
+        # WS-23: Lever's ``lists[]`` is where the requirements bullets
+        # live — ``{"text": "Skill Set:", "content": "<li>3+ years of
+        # …</li><li>…</li>"}``. The content is a bare sequence of ``<li>``
+        # elements with no wrapping ``<ul>``, so it is wrapped before it is
+        # parsed. This is the best structured requirements source of the
+        # four providers, and it was being discarded entirely.
+        list_text = _text_from_lists(payload.get("lists"))
+        if list_text:
+            list_required, list_preferred = split_required_preferred(list_text)
+            required_skills = _merge_skills(required_skills, list_required)
+            preferred_skills = _merge_skills(preferred_skills, list_preferred)
+
+        # ``workplaceType`` is Lever's own work-mode statement: "hybrid",
+        # "onsite", "remote" or "unspecified" (verified live). It is
+        # authoritative, and it is what the location component needs —
+        # the adapter previously left ``remote_policy`` unset for every
+        # Lever listing, which put all 350 of them through the
+        # location component's fallback branch.
+        workplace_type = (payload.get("workplaceType") or "").strip().casefold()
+        remote_policy = workplace_type if workplace_type in {"hybrid", "onsite", "remote"} else None
+
+        salary, currency = salary_from_lever_range(
+            payload.get("salaryRange"), payload.get("salaryDescription")
+        )
+
+        extra_metadata: dict[str, Any] = {}
+        team = (categories.get("team") or "").strip()
+        if team:
+            extra_metadata["team"] = team
+        department = (categories.get("department") or "").strip()
+        if department:
+            extra_metadata["department"] = department
+        all_locations = categories.get("allLocations")
+        if isinstance(all_locations, list) and all_locations:
+            extra_metadata["all_locations"] = [
+                str(loc).strip() for loc in all_locations if str(loc).strip()
+            ]
+        country = (payload.get("country") or "").strip()
+        if country:
+            extra_metadata["country"] = country.upper()
+
         return JobListing(
             # Canonical id embeds the company slug because Lever posting ids
             # are only unique per company; get_job parses it back.
@@ -100,12 +198,17 @@ class LeverJobAdapter:
             company=company.replace("-", " ").replace("_", " ").title(),
             description=description or None,
             location=(categories.get("location") or "").strip() or None,
+            remote_policy=remote_policy,
             employment_type=commitment or None,
+            salary=salary,
+            currency=currency,
+            seniority=classify_seniority(title),
             application_url=(payload.get("applyUrl") or "").strip() or None,
             company_url=(payload.get("hostedUrl") or "").strip() or None,
             posted_at=ms_epoch_to_iso(payload.get("createdAt")),
             required_skills=required_skills,
             preferred_skills=preferred_skills,
+            metadata=extra_metadata,
         )
 
     async def search(self, query: str, location: str | None = None) -> list[JobListing]:
@@ -128,10 +231,13 @@ class LeverJobAdapter:
             except (SourceError, ValueError) as exc:
                 # One unavailable company must not sink the search.
                 logger.warning("Lever postings for %r unavailable: %s", company, exc)
+                record_failure("lever", company, exc)
                 continue
             if not isinstance(payload, list):
                 logger.warning("Lever postings for %r returned unexpected payload", company)
+                record_failure("lever", company, "unexpected payload")
                 continue
+            record_success("lever", company, len(payload))
             for posting in payload:
                 listing = self._normalize(posting, company)
                 if listing is not None and _matches_query(listing, tokens):
