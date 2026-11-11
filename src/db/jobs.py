@@ -157,6 +157,8 @@ def prune_stale_jobs(
     *,
     keep: int,
     limit: int,
+    protected_sources: Iterable[str] | None = None,
+    protected_job_ids: Iterable[str] | None = None,
 ) -> list[str]:
     """Delete the listings that have not been seen for the longest.
 
@@ -166,9 +168,34 @@ def prune_stale_jobs(
     five refreshes and no way back.
 
     The corpus now evicts. The listing that has not been seen on a board
-    for the longest goes first (a row that has never been seen goes before
-    one that has, because there is no evidence it is still live), so a
-    listing the boards keep serving stays and a flood's rows age out.
+    for the longest goes first, so a listing the boards keep serving stays
+    and a flood's rows age out.
+
+    WS-23: three rules make the eviction safe. Before, the ordering was
+    ``last_seen_at ASC`` and SQLite sorts NULL **first**, so the rows the
+    eviction picked first were exactly the rows that had *never been
+    successfully re-fetched* — the rows whose board was too large to
+    fetch, or whose board was failing. Measured on the live corpus on
+    2026-11-09: 3,042 of 6,696 rows (45.4%) carried a NULL sighting, and
+    the first 5,000 eviction candidates included **all 1,069 Ashby rows**
+    and 3,864 Greenhouse rows. The policy was selecting for the data it
+    was supposed to protect.
+
+    The three rules:
+
+    1. **A row with no sighting is never evicted.** A NULL means "we have
+       no evidence this listing is live" — an argument for investigating,
+       not for deleting. It is also the state a board's rows fall into
+       when the board stops responding.
+    2. **A row belonging to a failing source is not evicted.** A board
+       that starts returning 403 must not age out its own coverage; the
+       rows are unknown, not dead. The caller passes the failing sources
+       (``protected_sources``).
+    3. **A row that something references is never evicted.** There is no
+       foreign key from ``applications`` to ``jobs`` (``PRAGMA
+       foreign_key_list`` is empty for all three referencing tables), so
+       an application can point at a listing that no longer exists. The
+       caller passes the referenced ids (``protected_job_ids``).
 
     Args:
         session_factory: Sessionmaker override (tests bind this to a tmp
@@ -176,6 +203,10 @@ def prune_stale_jobs(
         keep: How many listings to keep, at the very least.
         limit: The most rows this call may delete. The eviction is bounded
             so one refresh cannot turn into a mass delete.
+        protected_sources: Sources whose rows are not eviction candidates
+            this pass — the sources that are currently failing.
+        protected_job_ids: Job ids that are not eviction candidates this
+            pass — the rows an application, match or approval refers to.
 
     Returns:
         The ids of the deleted rows, so the caller can drop their vectors.
@@ -185,24 +216,59 @@ def prune_stale_jobs(
     if keep < 0 or limit < 1:
         return []
     factory = session_factory or SessionLocal
+    protected_source_set = {s for s in (protected_sources or []) if s}
+    protected_id_set = {j for j in (protected_job_ids or []) if j}
+
     with factory() as session:
         total = int(session.query(JobDB).count())
-        excess = total - keep
-        if excess <= 0:
+        if total <= keep:
             return []
-        excess = min(excess, limit)
-        # The oldest sighting first; a row that was never seen has no
-        # sighting at all, and NULL sorts first.
-        stale = (
+
+        # The candidate set is the rows that **may** be evicted. The
+        # excess is measured against it, not against the whole corpus: a
+        # protected row is not "excess" that must be freed, it is a row
+        # that stays. Counting it as excess would evict a healthy
+        # source's row to make room for a protected one.
+        statement = session.query(JobDB.id).filter(JobDB.last_seen_at.is_not(None))
+        if protected_source_set:
+            statement = statement.filter(JobDB.source.notin_(protected_source_set))
+        if protected_id_set:
+            statement = statement.filter(JobDB.id.notin_(protected_id_set))
+
+        eligible_total = int(
             session.query(JobDB.id)
-            .order_by(JobDB.last_seen_at.asc(), JobDB.id.asc())
-            .limit(excess)
-            .all()
+            .filter(JobDB.last_seen_at.is_not(None))
+            .filter(JobDB.source.notin_(protected_source_set) if protected_source_set else True)
+            .filter(JobDB.id.notin_(protected_id_set) if protected_id_set else True)
+            .count()
         )
+        excess = min(eligible_total - keep, limit)
+        if excess <= 0:
+            logger.info(
+                "Eviction had no eligible candidates (keep %d, %d eligible of %d rows)",
+                keep,
+                eligible_total,
+                total,
+            )
+            return []
+
+        # The oldest sighting first. A row with no sighting is excluded
+        # above, so NULL no longer sorts to the front of the queue.
+        stale = statement.order_by(JobDB.last_seen_at.asc(), JobDB.id.asc()).limit(excess).all()
         removed = [row[0] for row in stale]
         if not removed:
+            logger.info(
+                "Eviction had no eligible candidates (keep %d, %d rows not evictable)",
+                keep,
+                total,
+            )
             return []
         session.query(JobDB).filter(JobDB.id.in_(removed)).delete(synchronize_session=False)
         session.commit()
-    logger.info("Evicted %d stale listings from the corpus (keep %d)", len(removed), keep)
+    logger.info(
+        "Evicted %d stale listings from the corpus (keep %d, %d protected sources)",
+        len(removed),
+        keep,
+        len(protected_source_set),
+    )
     return removed

@@ -312,6 +312,99 @@ def _select_for_embedding(
     return to_embed, len(misses), work_exhausted
 
 
+#: The host whose breaker governs each source's board fetches. These are
+#: the same constants the adapters build their URLs from, so the breaker
+#: name the HTTP client uses and the one the eviction reads are identical.
+_SOURCE_HOSTS: dict[str, str] = {
+    "greenhouse": "boards-api.greenhouse.io",
+    "lever": "api.lever.co",
+    "ashby": "api.ashbyhq.com",
+    "remotive": "remotive.com",
+}
+
+
+def _failing_sources(session_factory: sessionmaker | None) -> list[str]:
+    """The sources whose boards are currently failing.
+
+    WS-23: a source that is failing must not age out its own coverage. The
+    eviction is global by design, so without this the rows of a board that
+    started returning 403 would be the *oldest* sightings in the corpus and
+    would be deleted wholesale — the failure would destroy the very data
+    it is about.
+
+    A source is failing when the circuit breaker for its host is open. The
+    breaker is the honest signal: it opens after repeated failures and
+    closes again after a recovery probe succeeds, so a single transient
+    blip does not protect a dead source forever.
+    """
+    from src.llm.resilience import get_breaker
+
+    failing: set[str] = set()
+    for source, host in _SOURCE_HOSTS.items():
+        try:
+            breaker = get_breaker(f"jobboard:{host}")
+            if breaker.state == "OPEN":
+                failing.add(source)
+        except Exception:
+            logger.debug("Could not read the breaker for source %s", source, exc_info=True)
+    if failing:
+        logger.warning(
+            "These sources are failing and are excluded from eviction: %s",
+            ", ".join(sorted(failing)),
+        )
+    return sorted(failing)
+
+
+def _referenced_job_ids(session_factory: sessionmaker | None) -> list[str]:
+    """The job ids an application, match or approval still refers to.
+
+    WS-23: there is no foreign key from ``applications`` to ``jobs`` — the
+    referencing tables have none — so a listing can be evicted while an
+    application still points at it. The single ``manual:`` stub row in the
+    live corpus is referenced by 39 applications, and it is exactly the
+    kind of row the eviction would pick (it has no sighting).
+    """
+    from sqlalchemy import select
+
+    from src.db.applications import ApplicationDB
+    from src.db.approval import ApprovalRequestDB
+    from src.db.jobs import JobDB
+    from src.db.matches import JobMatchDB
+    from src.db.session import SessionLocal
+
+    factory = session_factory or SessionLocal
+    referenced: set[str] = set()
+    try:
+        with factory() as session:
+            for column in (
+                ApplicationDB.job_id,
+                JobMatchDB.job_id,
+            ):
+                try:
+                    rows = session.execute(select(column).distinct()).all()
+                except Exception:
+                    logger.debug("Could not read the referenced ids from %s", column, exc_info=True)
+                    continue
+                referenced.update(row[0] for row in rows if row[0])
+
+            # An approval names the job by URL, not by id, so the listing it
+            # refers to is found through the URL.
+            try:
+                approval_urls = session.execute(select(ApprovalRequestDB.job_url).distinct()).all()
+                urls = [row[0] for row in approval_urls if row[0]]
+                if urls:
+                    rows = session.execute(
+                        select(JobDB.id).where(JobDB.application_url.in_(urls))
+                    ).all()
+                    referenced.update(row[0] for row in rows if row[0])
+            except Exception:
+                logger.debug("Could not read the approval job urls", exc_info=True)
+    except Exception:
+        logger.exception("Could not read the referenced job ids; the eviction protects none")
+        return []
+    return sorted(referenced)
+
+
 def _evict_stale_listings(
     session_factory: sessionmaker | None,
     limits: SecurityLimits,
@@ -324,17 +417,25 @@ def _evict_stale_listings(
     that have not been seen on a board for the longest, so the listings
     the boards keep serving stay.
 
+    WS-23: the eviction now also protects the rows that must not be
+    deleted — the sources that are currently failing, and the listings an
+    application, match or approval still refers to.
+
     Returns:
         The ids of the evicted listings (so their vectors can go too).
     """
     from src.db.jobs import prune_stale_jobs
 
     keep = max(0, limits.max_corpus_listings - limits.max_corpus_evictions_per_refresh)
+    protected_sources = _failing_sources(session_factory)
+    protected_ids = _referenced_job_ids(session_factory)
     try:
         removed = prune_stale_jobs(
             session_factory,
             keep=keep,
             limit=limits.max_corpus_evictions_per_refresh,
+            protected_sources=protected_sources,
+            protected_job_ids=protected_ids,
         )
     except Exception:
         logger.exception("Evicting the stale listings failed; the corpus cap still applies")
