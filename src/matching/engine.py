@@ -355,9 +355,34 @@ def _location_component(job: JobListing, profile: CandidateProfile) -> Component
         )
     if policy == "hybrid":
         value = 55.0
-    else:
+        return ComponentScore(name="location", value=value, state=measured_state(value))
+
+    # WS-23: the fallback used to assert ``value = 40.0`` — a **measured**
+    # PARTIAL_MATCH — when the listing stated neither a policy nor a
+    # matching location. Under a fixed denominator that is not a neutral
+    # default: it is a 5.4-point penalty (weight 0.09 x (100 - 40))
+    # applied to every listing whose source does not publish a work mode.
+    # Measured before this change: 78.5% of the corpus (all 5,255
+    # Greenhouse rows and all 350 Lever rows) took this branch, including
+    # listings that were fully remote.
+    #
+    # The honest reading of "the listing states no location or work mode"
+    # is **unknown**, and unknown has a meaning in this engine: it
+    # contributes zero to the numerator and keeps its weight in the
+    # denominator, so it lowers the score and shows up in
+    # ``evidence_coverage``. The 40 was a hidden subsidy for sparse rows
+    # dressed up as a measurement.
+    #
+    # A listing that DOES state a location, but one the candidate did not
+    # name, is still a measurement: it is a location that does not match.
+    if job_location:
         value = 40.0
-    return ComponentScore(name="location", value=value, state=measured_state(value))
+        return ComponentScore(name="location", value=value, state=measured_state(value))
+    return ComponentScore(
+        name="location",
+        state=ScoreState.JOB_REQUIREMENT_MISSING,
+        reason="the listing states no location or work mode",
+    )
 
 
 def _preference_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
