@@ -56,6 +56,8 @@ class AdmissionReport:
     corpus_size: int | None = None
     #: How many listings were dropped because the corpus was full.
     corpus_capped: int = 0
+    #: How many listings were dropped for being older than the age bound.
+    age_capped: int = 0
     #: The reasons recorded for the screened-out listings.
     reasons: list[str] = field(default_factory=list)
 
@@ -67,7 +69,69 @@ class AdmissionReport:
             + self.per_source_capped
             + self.per_refresh_capped
             + self.corpus_capped
+            + self.age_capped
         )
+
+
+def _drop_too_old(
+    listings: list[JobListing],
+    max_age_days: int,
+    report: AdmissionReport,
+) -> list[JobListing]:
+    """Drop listings whose ``posted_at`` is older than the age bound.
+
+    WS-23b. Uses ``posted_at`` — which every adapter already populates —
+    so it costs no extra request. A listing that states **no** date is
+    kept: refusing it would be guessing that it is old, and a listing
+    with no date is not evidence of an old listing.
+
+    ``max_age_days <= 0`` disables the bound, which is what a first run
+    against a historical archive would want.
+    """
+    if max_age_days <= 0 or not listings:
+        return listings
+
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+    kept: list[JobListing] = []
+    for listing in listings:
+        posted = _parse_posted_at(listing.posted_at)
+        if posted is not None and posted < cutoff:
+            report.age_capped += 1
+            continue
+        kept.append(listing)
+
+    if report.age_capped:
+        logger.warning(
+            "Age bound (%d days) dropped %d listings that were posted before %s",
+            max_age_days,
+            report.age_capped,
+            cutoff.date().isoformat(),
+        )
+    return kept
+
+
+def _parse_posted_at(value: str | None):
+    """A listing's ``posted_at`` as an aware datetime, or ``None``.
+
+    The adapters normalize to ISO-8601 strings of varying shapes (Lever
+    is a millisecond epoch converted at ingest, Ashby is offset-aware,
+    Remotive is naive local). An unparsable value is ``None`` — kept,
+    not dropped, because an unreadable date is not evidence of age.
+    """
+    from datetime import UTC, datetime
+
+    if not value or not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def admit_listings(
@@ -90,6 +154,17 @@ def admit_listings(
     """
     active = limits or get_limits()
     report = AdmissionReport()
+
+    # -- the age bound (WS-23b) --------------------------------------------
+    # A posting from six months ago is not a job anyone should apply to.
+    # The corpus had no age signal at all, so a listing closed months ago
+    # was still admitted, still ranked, and still carried a valid
+    # application URL.
+    #
+    # This runs **first** so it does not consume any of the other
+    # budgets: a washed-out listing should not take a per-source slot or
+    # an embedding budget slot from a live one.
+    listings = _drop_too_old(listings, active.max_job_age_days, report)
 
     # -- per source ---------------------------------------------------------
     per_source: dict[str, int] = {}

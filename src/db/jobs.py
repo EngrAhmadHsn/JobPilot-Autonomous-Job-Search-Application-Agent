@@ -180,6 +180,17 @@ def merge_jobs(
     moment = seen_at or datetime.now(UTC)
     persisted = 0
     for listing in listings:
+        # WS-23b: the mined experience bar, computed once here instead of
+        # per listing per search. ``required_years`` reads the board's own
+        # ``experience_requirements`` when it states one and otherwise
+        # mines the description.
+        mined_years = _mined_required_years(listing)
+        # ``first_seen_at`` must survive a re-sighting, and ``merge``
+        # writes every column — so an existing row's first sighting is
+        # looked up and carried forward. A listing that has never been
+        # seen is first seen now.
+        existing = session.get(JobDB, listing.id)
+        first_seen = existing.first_seen_at if existing is not None else moment
         row = JobDB(
             id=listing.id,
             source=listing.source,
@@ -202,6 +213,9 @@ def merge_jobs(
             posted_at=listing.posted_at,
             extra_metadata=dict(listing.metadata),
             last_seen_at=moment,
+            content_version=content_version_for(listing),
+            required_years=mined_years,
+            first_seen_at=first_seen or moment,
         )
         session.merge(row)
         persisted += 1

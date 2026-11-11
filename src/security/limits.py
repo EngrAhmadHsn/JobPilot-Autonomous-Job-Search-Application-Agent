@@ -70,6 +70,8 @@ class SecurityLimits:
     max_new_listings_per_refresh: int
     max_corpus_listings: int
     max_corpus_evictions_per_refresh: int
+    #: How old a posting may be and still be admitted (WS-23b). 0 disables.
+    max_job_age_days: int
 
     # -- embedding ---------------------------------------------------------
     max_embed_per_refresh: int
@@ -167,6 +169,18 @@ def _build() -> SecurityLimits:
         max_corpus_evictions_per_refresh=_int_env(
             "MAX_CORPUS_EVICTIONS_PER_REFRESH", 5_000, minimum=1
         ),
+        # WS-23b: how old a posting may be and still be admitted, in days.
+        #
+        # The corpus had no age signal at all, so a posting closed months
+        # ago was still admitted, still ranked, and still carried a valid
+        # application URL. This uses ``posted_at`` — which every adapter
+        # already populates — so it costs no extra request, and it runs
+        # before the other admission caps so a washed-out listing does not
+        # consume a live one's slot or embedding budget.
+        #
+        # 0 disables the bound. A listing with **no** posted date is kept:
+        # an absent date is not evidence of an old listing.
+        max_job_age_days=_int_env("MAX_JOB_AGE_DAYS", 120, minimum=0),
         # Embedding work per refresh, counted in **cache misses** — the
         # embeddings that actually cost something. This is the knob that
         # stops a flood of unique fake listings from spending the
