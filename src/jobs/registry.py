@@ -3,8 +3,15 @@
 ``SOURCES`` maps source names to adapter singletons. ``search_all`` fans a
 list of planned queries out to the requested sources concurrently, skips a
 source whose adapter raised (plan §35: "job source unavailable → try
-another"), deduplicates across sources, persists the survivors, and returns
+another"), deduplicates the results, persists the survivors, and returns
 them. A failing source degrades to a warning, never a failed search.
+
+**The dedup is per source, not across sources.** ``src/jobs/deduplicate.py``
+keys include ``job.source``, so the same posting on Greenhouse and on
+Ashby is **two rows**. This docstring used to say "deduplicates across
+sources", which the code has never done — a docstring that overclaims is
+worse than a missing one, because a reader relies on it instead of
+reading the code. Cross-source merging is WS-26 Phase 2 / WS-23b §12.3.
 """
 
 from __future__ import annotations
