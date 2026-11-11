@@ -777,7 +777,66 @@ def resolve_candidate_targets(profile: CandidateProfile) -> CandidateTargets:
     3. the confirmed ``current_title``;
     4. the résumé headline;
     5. the three most recent experience titles.
+
+    WS-24: this depends only on the **profile**, and it was being
+    recomputed for every listing — the candidate's target roles are
+    classified against the taxonomy once per listing instead of once per
+    search. It is cached on the profile's content, so an edited profile
+    is a different key.
     """
+    key = _profile_target_key(profile)
+    cached = _TARGETS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    resolved = _resolve_candidate_targets(profile)
+    if len(_TARGETS_CACHE) >= 8:
+        _TARGETS_CACHE.clear()
+    _TARGETS_CACHE[key] = resolved
+    return resolved
+
+
+#: The resolved targets, keyed by the profile's target-relevant fields.
+#:
+#: It is a plain dict rather than an ``lru_cache`` because the profile
+#: is not hashable (it is a pydantic model with mutable fields), and
+#: ``lru_cache`` hashes **every** argument it is given.
+_TARGETS_CACHE: dict[tuple, CandidateTargets] = {}
+
+
+def _profile_target_key(profile: CandidateProfile) -> tuple:
+    """A hashable cache key that changes when the profile's targets change.
+
+    The profile itself is not hashable (it is a pydantic model with
+    mutable fields), so the key is built from **every** field the
+    resolution reads. Missing one is not a performance problem, it is a
+    correctness one: two profiles that differ only in a field the key
+    omits would share an entry, and the second would be answered with
+    the first one's targets.
+
+    The fields are: the confirmed-field set, the stated target roles,
+    the confirmed current title, the résumé headline, and the three most
+    recent experience titles.
+    """
+    app = getattr(profile, "application_profile", None)
+    prefs = getattr(app, "preferences", None) if app is not None else None
+    confirmed = tuple(sorted(getattr(app, "confirmed_fields", []) or [])) if app else ()
+    targets = tuple(getattr(prefs, "target_roles", []) or []) if prefs else ()
+    current_title = ""
+    professional = getattr(app, "professional", None) if app is not None else None
+    if professional is not None:
+        current_title = getattr(professional, "current_title", "") or ""
+    info = profile.personal_information
+    return (
+        confirmed,
+        targets,
+        current_title,
+        info.title or "",
+        tuple(entry.title for entry in profile.experience[:3]),
+    )
+
+
+def _resolve_candidate_targets(profile: CandidateProfile) -> CandidateTargets:
+    """Resolve the candidate's target families (the uncached body)."""
     app = getattr(profile, "application_profile", None)
     prefs = getattr(app, "preferences", None) if app is not None else None
     confirmed = set(getattr(app, "confirmed_fields", []) or []) if app is not None else set()
@@ -819,9 +878,26 @@ def resolve_candidate_targets(profile: CandidateProfile) -> CandidateTargets:
     return CandidateTargets(families=families, source="inferred", raw=raw, track=track)
 
 
-def role_relevance(profile: CandidateProfile, job: JobListing) -> RoleRelevance:
-    """Compare the candidate's target roles with the listing's role."""
-    classification = classify_job_role(job)
+def role_relevance(
+    profile: CandidateProfile,
+    job: JobListing,
+    *,
+    classification: RoleClassification | None = None,
+) -> RoleRelevance:
+    """Compare the candidate's target roles with the listing's role.
+
+    WS-24: the listing's classification may be supplied by the caller.
+    The taxonomy scan is the most expensive part of the per-listing work
+    (4.9 million pattern matches over an 8,558-listing corpus), and the
+    classifier's own ``lru_cache`` of 8,192 entries is **smaller than the
+    corpus** — so it thrashed and every search re-classified every
+    listing. The corpus cache holds the classification per listing
+    instead, and it is valid until the content changes.
+    """
+    if classification is None:
+        classification = classify_job_role(job)
+    # WS-24: the target resolution is memoized on the profile's content,
+    # so it is computed once per search rather than once per listing.
     targets = resolve_candidate_targets(profile)
 
     if targets.source == "none":
