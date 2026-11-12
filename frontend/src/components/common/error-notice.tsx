@@ -50,7 +50,7 @@ export function ErrorNotice({
         </p>
       ) : null}
       {described.details.length > 0 ? (
-        <ul className="mt-1 list-disc pl-5">
+        <ul className="mt-1 list-disc ps-5">
           {described.details.map((detail, index) => (
             <li key={`${detail}-${index}`}>{detail}</li>
           ))}

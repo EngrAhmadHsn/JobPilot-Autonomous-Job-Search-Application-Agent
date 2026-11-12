@@ -280,7 +280,7 @@ function RefreshReport({ metadata }: { metadata: Record<string, unknown> }) {
         ]}
       />
       {Object.keys(errors).length > 0 ? (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+        <ul className="list-disc space-y-1 ps-5 text-sm text-muted-foreground">
           {Object.entries(errors).map(([source, message]) => (
             <li key={source}>
               <span className="font-medium text-foreground">{source}</span>:{" "}

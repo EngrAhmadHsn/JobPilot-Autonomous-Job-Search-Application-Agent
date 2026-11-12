@@ -53,7 +53,9 @@ function actorWord(event: AuditEvent): string {
  */
 export function EventList({ events }: { events: AuditEvent[] }) {
   return (
-    <ol className="relative space-y-1 border-l border-border pl-0">
+    // The rail and its content indent are logical, so the whole timeline
+    // mirrors under RTL instead of staying pinned to the left edge.
+    <ol className="relative space-y-1 border-s border-border ps-0">
       {events.map((event, index) => (
         <EventRow key={event.id} event={event} index={index} />
       ))}
@@ -74,13 +76,18 @@ export function EventRow({
 
   return (
     <li
-      className="enter-up relative py-2.5 pl-6"
+      className="enter-up relative py-2.5 ps-6"
       style={{ "--i": Math.min(index, 12) } as CSSProperties}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-4 left-[-4.5px] size-2 rounded-full ring-4 ring-background",
+          /*
+            The dot sits on the rail. `left-[-4.5px]` is physical, so under
+            RTL it would stay on the left while the rail moved to the right;
+            `start-[-4.5px]` follows the rail.
+          */
+          "absolute start-[-4.5px] top-4 size-2 rounded-full ring-4 ring-background",
           DOT[tone]
         )}
       />

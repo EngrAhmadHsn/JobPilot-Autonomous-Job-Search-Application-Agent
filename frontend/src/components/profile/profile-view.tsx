@@ -93,7 +93,7 @@ export function ProfileView({ profile }: { profile: CandidateProfile }) {
                   ([category, skills]) => (
                     <div
                       key={category}
-                      className="grid grid-cols-[10rem_1fr] gap-2"
+                      className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] gap-2"
                     >
                       <dt className="text-muted-foreground">{category}</dt>
                       <dd>{skills.join(", ") || "—"}</dd>

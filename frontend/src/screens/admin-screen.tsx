@@ -393,10 +393,20 @@ function BackgroundRuns() {
         />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
+          {/*
+            The strip wraps; it must not be a single unbreakable row.
+
+            It is an `inline-flex`, so without `flex-wrap` the four labels form
+            one line: "Reconciliations" alone is ~116 px and the row measured
+            ~360 px against a 327 px content box at 375 px (the container is
+            375 minus two 24 px insets). The parent's `flex-wrap` cannot shrink
+            an inline child, so the strip pushed the **whole page** sideways.
+            Wrapping keeps every filter reachable at viewport width.
+          */}
           <div
             role="group"
             aria-label="Filter by run type"
-            className="inline-flex rounded-lg border border-border bg-card p-0.5"
+            className="inline-flex flex-wrap rounded-lg border border-border bg-card p-0.5"
           >
             {RUN_TYPE_FILTERS.map((filter) => (
               <button
@@ -508,10 +518,18 @@ function BackgroundRuns() {
                 audited against your account.
               </DialogDescription>
             </DialogHeader>
+            {/*
+              `minmax(0,...)` on both tracks, and `break-words` on the two
+              values that can be long. A grid item's default `min-width: auto`
+              lets an unbreakable string — a 36-character run id, or a provider
+              error containing a path or URL — widen its own column past the
+              dialog's `max-w-[calc(100%-2rem)]` and push the whole dialog off
+              the viewport edge.
+            */}
             {confirming ? (
-              <dl className="grid grid-cols-2 gap-2 text-sm">
+              <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-2 text-sm">
                 <dt className="text-muted-foreground">Run</dt>
-                <dd className="font-mono text-xs">{confirming.id}</dd>
+                <dd className="font-mono text-xs break-all">{confirming.id}</dd>
                 <dt className="text-muted-foreground">Status</dt>
                 <dd>{runStatusCopy(confirming.status).label}</dd>
                 <dt className="text-muted-foreground">Progress</dt>
@@ -525,7 +543,9 @@ function BackgroundRuns() {
                   {confirming.embedding_dimension ?? "—"}-dimensional)
                 </dd>
                 <dt className="text-muted-foreground">Last error</dt>
-                <dd className="text-xs">{confirming.last_error ?? "—"}</dd>
+                <dd className="text-xs wrap-anywhere">
+                  {confirming.last_error ?? "—"}
+                </dd>
               </dl>
             ) : null}
             <DialogFooter>
@@ -678,7 +698,10 @@ function RunGroup({
                         the run's own panel. */}
                     <TableCell className="text-xs text-muted-foreground">
                       {run.last_error ? (
-                        <div className="max-w-48 truncate" title={run.last_error}>
+                        <div
+                          className="max-w-48 truncate"
+                          title={run.last_error}
+                        >
                           {run.last_error}
                         </div>
                       ) : (
@@ -806,9 +829,7 @@ function WorkerControl({
               {running === 0
                 ? "No worker is running"
                 : `${running} worker${running === 1 ? "" : "s"} running`}
-              {departed.length > 0
-                ? ` · ${departed.length} not running`
-                : ""}
+              {departed.length > 0 ? ` · ${departed.length} not running` : ""}
             </h3>
             <p className="text-sm text-muted-foreground">
               {running === 0
@@ -833,9 +854,18 @@ function WorkerControl({
         {control && !control.enabled ? (
           <p className="text-xs text-muted-foreground">
             This deployment manages its workers outside the app. Start one with{" "}
-            <span className="font-mono">
+            {/*
+              The command must break. Backslashes are not line-break
+              opportunities, the string is ~45 characters (~320 px at this
+              size), the card clips its overflow, and there was no `title` —
+              so on a phone the instruction the operator is told to follow was
+              cut off with no ellipsis and no way to read the rest. `break-all`
+              (not `break-words`) is right for a path: it is one token, and
+              wrapping at any character is better than clipping.
+            */}
+            <code className="font-mono break-all">
               {"env\\Scripts\\python.exe scripts\\run_worker.py"}
-            </span>
+            </code>
             .
           </p>
         ) : control ? (
@@ -864,7 +894,7 @@ function WorkerControl({
 
         {departed.length > 0 ? (
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Not running
             </p>
             <ul className="divide-y divide-border rounded-lg border border-dashed border-border">

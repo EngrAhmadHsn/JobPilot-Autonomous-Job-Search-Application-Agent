@@ -673,7 +673,16 @@ export function ApprovalsScreen() {
                         </Button>
                       </div>
 
-                      <p className="text-xs leading-relaxed text-forest/70">
+                      {/*
+                        The URL is the one thing here that can be long without
+                        a space, and this sentence sits in a 320 px column. A
+                        Greenhouse URL with query parameters pushed past the
+                        card's edge. `wrap-anywhere`, not `break-words`: a URL
+                        is a single token, and `break-word` only breaks inside
+                        a box that has already sized itself to that token's
+                        full width.
+                      */}
+                      <p className="text-xs leading-relaxed wrap-anywhere text-forest/70">
                         Approving fills the form in a real browser and submits
                         it to {prepared.prepared_summary.job_url}. It cannot be
                         taken back.

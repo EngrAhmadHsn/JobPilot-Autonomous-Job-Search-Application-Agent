@@ -127,8 +127,23 @@ function MatchCard({
     >
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="font-heading text-base">
+          {/*
+            `min-w-0 flex-1` lets this column shrink, and `wrap-anywhere` lets
+            a long company or location break instead of being clipped. `Card`
+            is `overflow-hidden`, and the title is the *link* to the job, so a
+            clipped title is half a destination that silently disappears.
+
+            `break-words` is NOT enough here, and a browser check proved it:
+            it maps to `overflow-wrap: break-word`, which breaks the text
+            *after* the box has already sized itself to the longest token. A
+            69-character unbreakable title measured 425 px inside a 311 px
+            card and was clipped exactly as before the fix. Tailwind's
+            `wrap-anywhere` (`overflow-wrap: anywhere`) is the one that also
+            affects min-content sizing, so the box shrinks to its container
+            and the token breaks inside it.
+          */}
+          <div className="min-w-0 flex-1">
+            <CardTitle className="font-heading text-base wrap-anywhere">
               <Link
                 to={`/app/matches/${encodeURIComponent(job.id)}`}
                 className="underline-offset-4 hover:underline"
@@ -136,7 +151,7 @@ function MatchCard({
                 {job.title}
               </Link>
             </CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm wrap-anywhere text-muted-foreground">
               {job.company}
               {job.location ? ` · ${job.location}` : ""}
               {job.remote_policy ? ` · ${job.remote_policy}` : ""}

@@ -98,12 +98,24 @@ export function QueryCombobox({
         onKeyDown={onKeyDown}
       />
 
+      {/*
+        The panel is anchored to the field, not to a fixed 320 px.
+
+        `min-w-[20rem]` was a hard 320 px floor regardless of the field's own
+        width. Inside the Matches search card the field is ~295 px at 375 px
+        and ~272 px at 320 px, so the panel overrode its anchor and — being
+        pinned to the trailing edge — threw the surplus off the leading edge,
+        past the viewport. `w-full` follows the field at every width; the
+        20 rem floor is kept only from `sm` up, where there is room for it.
+        `end-0` rather than `right-0` so the panel mirrors with the field
+        under RTL.
+      */}
       {visible ? (
         <ul
           id={listId}
           role="listbox"
           aria-label="Suggested roles from your listings"
-          className="suggest-panel absolute right-0 top-full z-50 mt-[15px] max-h-80 w-full min-w-[20rem] overflow-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          className="suggest-panel absolute end-0 top-full z-50 mt-[15px] max-h-80 w-full overflow-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg sm:min-w-[20rem]"
         >
           {items.map((item, index) => {
             const arrival = stagger(index)
@@ -134,7 +146,7 @@ export function QueryCombobox({
           })}
           <li
             aria-hidden="true"
-            className="px-3 pb-1 pt-2 text-[11px] text-muted-foreground"
+            className="px-3 pt-2 pb-1 text-[11px] text-muted-foreground"
           >
             {items.length} suggestion{items.length === 1 ? "" : "s"} from your
             saved listings

@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { Skeleton } from "@/components/ui/skeleton"
 import { FieldList } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
@@ -176,34 +177,55 @@ export function TrackerScreen() {
                 />
               ) : (
                 <Table>
+                  {/*
+                    Five columns, all `whitespace-nowrap`, in a ~295 px card is
+                    a horizontal-scroll island where the identifying column
+                    scrolls out of view — and the only way into a record is
+                    the Job link in that column.
+
+                    So the table gets shorter rather than wider below `md`.
+                    The two timestamps are already shown in full on the record
+                    screen this table links to (`tracker/:id`, "Created" and
+                    "Submitted" in the detail fields), which is the "short view
+                    that links deeper" the layout rules ask for; nothing is
+                    lost, and the Job and Company columns carry the identity.
+                    The `hidden md:table-cell` pairs on head and body keep the
+                    header and the cells in step at both widths.
+                  */}
                   <TableHeader>
                     <TableRow>
                       <TableHead>Job</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Submitted</TableHead>
+                      <TableHead className="hidden md:table-cell">
+                        Created
+                      </TableHead>
+                      <TableHead className="hidden md:table-cell">
+                        Submitted
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {items.map((application, index) => (
                       <TableRow key={application.id} {...stagger(index)}>
-                        <TableCell>
+                        <TableCell className="whitespace-normal">
                           <Link
                             to={`/app/tracker/${encodeURIComponent(application.id)}`}
-                            className="font-medium underline-offset-4 hover:underline"
+                            className="font-medium wrap-anywhere underline-offset-4 hover:underline"
                           >
                             {application.job_title}
                           </Link>
                         </TableCell>
-                        <TableCell>{application.company_name}</TableCell>
+                        <TableCell className="whitespace-normal">
+                          {application.company_name}
+                        </TableCell>
                         <TableCell>
                           <StatusBadge status={application.status} />
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           {formatDateTime(application.created_at)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           {formatDateTime(application.submitted_at)}
                         </TableCell>
                       </TableRow>
@@ -359,7 +381,15 @@ export function TrackerDetailScreen() {
         </CardHeader>
         <CardContent className="space-y-3">
           {evidence.isPending ? (
-            <ProgressState key="evidence" title="Loading the evidence" />
+            /*
+              A read inside a card that already has its heading, so the bones
+              fill the card rather than replacing it with a progress panel.
+            */
+            <div className="space-y-2.5" aria-busy="true">
+              <Skeleton className="h-4 w-[min(24rem,78%)]" />
+              <Skeleton className="h-4 w-[min(18rem,52%)]" />
+              <Skeleton className="h-4 w-[min(14rem,40%)]" />
+            </div>
           ) : null}
 
           {records.length === 0 && !evidence.isPending ? (
