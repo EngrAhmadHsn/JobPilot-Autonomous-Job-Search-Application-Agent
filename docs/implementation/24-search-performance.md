@@ -912,3 +912,111 @@ Persisting it to disk was measured and rejected (§11.5).
 An operator restarting the server still waits ~42 s before it serves. That is
 a deliberate trade: the alternative is serving requests that race a rebuild,
 which produces two rebuilds and a cache miss under load.
+
+### 11.11 — Where the 11.5 s actually goes, to the millisecond
+
+The §11.7 result left a question: the route logged 4.3 s while the browser
+observed 11.5 s. Measured at every boundary, the answer is that **there is no
+frontend delay at all** — the browser is waiting on the server, and the
+handler's own log is not measuring the whole request.
+
+Breakdown of a first search on a freshly warmed server, 8,558 listings,
+`top_n=30`, one real profile:
+
+| Boundary | Time |
+|---|---|
+| Click → response **headers** received (browser) | **11.7 s** |
+| Headers → body fully read | **4.8 ms** |
+| Body → `JSON.parse` | **2.4 ms** |
+| Parse → first result card painted | ~0.6 s |
+| **Click → card visible** | **12.3 s** |
+| Response body | 417 KB |
+
+The 417 KB response is read in 4.8 ms and parsed in 2.4 ms. Serialising it and
+writing the last-search cache to `localStorage` costs 3.6 ms and 2.5 ms. That
+is **under 20 ms of client work**; nothing the console does can explain a
+multi-second wait. (A warm repeat search paints in 5.0 s, of which 4.74 s is
+again waiting for headers.)
+
+#### Server side
+
+The route's log line `Job search complete` is emitted **before** the response
+is serialised and sent, so `4.3 s` is the handler's work, not the request. The
+remainder is the response build. Inside the handler:
+
+| Phase | Time |
+|---|---|
+| **Query embedding (ONNX, 4,584 chars)** | **6.6–9.7 s** |
+| Fetch every vector from Chroma (47 MB, 7,666 vectors) | 0.8 s |
+| Fetch the id list | 0.25 s |
+| `BM25.score_all` | 0.63 s |
+| `lexical_score` × 8,558 | 0.92 s |
+| `calculate_match` × 8,558 | 2.0 s |
+| `embedding_status_for_jobs` (one SQL `IN`) | 0.09 s |
+| Sort + slice | 0.01 s |
+
+The embedding is **half to two-thirds of the whole wait**, and it is the only
+item that varies run to run (6.6 s to 9.7 s measured on the same input).
+
+#### Why the embedding costs seconds, not milliseconds
+
+The cost is proportional to the input length, and the candidate query is long:
+
+| Input | Time |
+|---|---|
+| 500 chars | 0.60 s |
+| 2,000 chars | 1.19 s |
+| 4,584 chars (this candidate) | 2.09 s |
+| 8,000 chars | 3.69 s |
+| 16,000 chars (`MAX_TEXT_CHARS`) | 7.28 s |
+
+Those figures are for a **warm model in a quiet process**. Inside the server the
+same 4,584-char query measures 6.6–9.7 s, because the request runs on the same
+CPU as the vector fetch and the per-listing scoring. The scaling is the same
+either way: roughly **0.45 ms per character**, and the candidate text is
+`candidate_query_text` (`src/rag/chroma_store.py`), which WS-20 deliberately
+widened to the whole professional record.
+
+The startup warm does not help here. It embeds the seven-character string
+`"warmup"`, which exercises the model load but not the long-sequence path:
+warming with a short string still leaves the first **long** embed at 8.9 s, and
+the second at 8.7 s — it is per-call compute, not a one-time initialisation.
+
+#### The second-largest item, and why it is unavoidable today
+
+Fetching 47 MB of vectors costs 0.8 s, and only **7,666 of 8,558** listings have
+a vector — the remaining 892 are `EMBEDDING_PENDING` or failed. That is why the
+executor logs `Semantic coverage 7666/8558`: 10.4% of the corpus scores without
+a semantic component. Closing the gap would raise coverage, not lower the scan
+cost.
+
+#### What this means for the "why does the frontend render after 11 s" question
+
+It does not. The console renders as soon as the response exists, and the
+response does not exist for 11.7 s because the server is computing. Any
+apparent frontend slowness is the browser's network panel showing a request
+that has not been answered yet.
+
+The only real frontend cost found is **the 417 KB payload** — larger than it
+needs to be, because `JobMatchPair` carries the full `JobListing` (including
+its description) for all 30 results. It costs ~10 ms to handle, so it is not a
+latency problem, but it is 417 KB of mostly-unread description text per search.
+
+#### Where the next second of improvement actually is
+
+Ranked by measured size, not by guess:
+
+1. **The query embedding (6.6–9.7 s).** The candidate text is 4,584 chars and
+   the model costs ~0.45 ms/char. Shortening what is embedded — the summary and
+   titles rather than the entire professional record — would cut this
+   proportionally, but it changes what semantic similarity *means*, so it is a
+   ranking-quality decision, not a performance one, and needs the evaluation
+   harness (§9) to say whether it is acceptable.
+2. **`calculate_match` + `lexical_score` (2.9 s combined).** Already the
+   subject of WS-24c; the remaining cost is the 8,558 discarded
+   `JobMatchResult` objects (§10.4).
+3. Everything else is sub-second.
+
+Recorded here rather than acted on: (1) trades ranking quality for latency, and
+that trade is the owner's to make. The measured facts are now on the page for
+whoever makes it.
