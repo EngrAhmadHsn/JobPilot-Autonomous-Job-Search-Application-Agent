@@ -185,7 +185,13 @@
       clean because they are opaque.
     */
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
-    background-attachment: fixed;
+    /*
+      The grain scrolls with the page on a touch device. `fixed` forces a
+      repaint of the texture on every scroll frame in mobile Safari and Chrome,
+      which is a visible jank on every screen in the console. Desktop has the
+      headroom for the effect, so it is scoped there rather than deleted.
+    */
+    background-attachment: scroll;
     font-feature-settings: "cv11", "ss01";
     font-variant-ligatures: contextual;
     -webkit-font-smoothing: antialiased;
@@ -194,6 +200,31 @@
 
   html {
     @apply font-sans;
+    /*
+      No anchored target lands under sticky chrome.
+
+      Both surfaces have a `sticky top-0` header, and both link to in-page
+      anchors: the landing page's "How it works" / "What it does" / "Trust",
+      and the demo's own `#demo`. A browser scrolls an anchor to the very top
+      of the scrollport, which put the section's heading *behind* the header —
+      the visitor clicked a link and arrived at a paragraph with its title
+      missing. The offset is set here, once, rather than as a `scroll-mt-*`
+      guess on each section, so a new anchor cannot forget it. The console
+      publishes its measured header height as `--header-height`; the landing
+      header has a fixed 3.5 rem row, so 5rem is the safe value for both.
+    */
+    scroll-padding-block-start: calc(var(--header-height, 4rem) + 1rem);
+  }
+
+  /*
+    Desktop keeps the fixed grain. A pointer-driven desktop compositor handles
+    it without the per-frame repaint cost a phone pays, so the effect is worth
+    keeping where it is free.
+  */
+  @media (min-width: 768px) and (hover: hover) {
+    body {
+      background-attachment: fixed;
+    }
   }
 
   /* One focus treatment for the whole console: a visible ring, always. */

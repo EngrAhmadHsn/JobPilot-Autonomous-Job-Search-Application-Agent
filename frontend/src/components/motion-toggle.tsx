@@ -43,9 +43,7 @@ export function MotionToggle({
       aria-label="Motion"
       className={cn(
         "inline-flex items-center gap-0.5 rounded-lg border p-0.5",
-        night
-          ? "border-night-line bg-night-soft/70"
-          : "border-border bg-card",
+        night ? "border-night-line bg-night-soft/70" : "border-border bg-card",
         className
       )}
     >
@@ -59,7 +57,13 @@ export function MotionToggle({
             aria-pressed={active}
             onClick={() => setMotionPreference(option.value)}
             className={cn(
-              "rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150",
+              /*
+                `min-h-9` (36px) rather than the old `py-1` (~20px). The
+                footer control below `sm` is the only motion setting on the
+                landing page, because the header hides its copy at that width,
+                so it has to be a real target.
+              */
+              "min-h-9 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-150",
               active
                 ? night
                   ? "bg-lime text-lime-foreground"

@@ -29,9 +29,14 @@ export function NavDrawer({ showAdmin = false }: { showAdmin?: boolean }) {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
+      {/*
+        `size-11` is 44px. Below `lg` this button is the console's only
+        navigation, because `app-shell.tsx` hides the desktop bar, so a thumb
+        that misses it has no way to reach any other screen. It was `size-9`.
+      */}
       <SheetTrigger
         aria-label="Open the navigation menu"
-        className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors duration-150 hover:bg-accent/60 lg:hidden"
+        className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors duration-150 hover:bg-accent/60 lg:hidden"
       >
         <Menu className="size-4" strokeWidth={1.8} aria-hidden="true" />
       </SheetTrigger>

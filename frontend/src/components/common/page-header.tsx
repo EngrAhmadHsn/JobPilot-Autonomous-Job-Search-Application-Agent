@@ -15,6 +15,9 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
  * single document, so without this every route kept the title `index.html`
  * shipped with and a screen reader heard the same name after every navigation
  * (WCAG 2.4.2 Page Titled).
+ *
+ * Sizes come from the scale (`text-3xl` is 30px) rather than `text-[28px]`, so
+ * a reader who raises the browser font size actually gets larger headings.
  */
 export function PageHeader({
   title,
@@ -32,11 +35,11 @@ export function PageHeader({
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div className="console-reading">
-        <h1 className="font-heading text-[28px] leading-tight font-semibold tracking-tight text-balance text-foreground sm:text-[32px]">
+        <h1 className="font-heading text-3xl leading-[1.15] font-semibold tracking-tight text-balance text-foreground">
           {title}
         </h1>
         {description ? (
-          <div className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+          <div className="mt-2 text-base leading-relaxed text-muted-foreground">
             {description}
           </div>
         ) : null}

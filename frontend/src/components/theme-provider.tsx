@@ -144,7 +144,17 @@ export function ThemeProvider({
         return
       }
 
-      if (event.metaKey || event.ctrlKey || event.altKey) {
+      /*
+        The theme shortcut needs a modifier.
+
+        It used to be a bare `d`, which meant any single-letter command a
+        future feature wants (`d` for delete, `d` for "done") would collide with
+        it, and it fired on a stray keystroke in a page the visitor was reading.
+        Shift is required alongside it so it reads as an explicit chord rather
+        than a letter someone happened to type. The account menu carries the
+        same control for anyone who never learns the shortcut.
+      */
+      if (!(event.shiftKey && (event.metaKey || event.ctrlKey))) {
         return
       }
 
@@ -155,6 +165,8 @@ export function ThemeProvider({
       if (event.key.toLowerCase() !== "d") {
         return
       }
+
+      event.preventDefault()
 
       setThemeState((currentTheme) => {
         const nextTheme =

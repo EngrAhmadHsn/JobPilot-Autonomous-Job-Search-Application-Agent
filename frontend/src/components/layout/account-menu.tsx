@@ -50,8 +50,13 @@ export function AccountMenu() {
 
   return (
     <DropdownMenu>
+      {/*
+        `h-11` is 44px. This trigger is the only path to sign out, the theme
+        switch and the motion control, so it has to be easy to hit with a
+        thumb. It was `h-9`.
+      */}
       <DropdownMenuTrigger
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm transition-colors duration-150 hover:bg-accent/60"
+        className="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm transition-colors duration-150 hover:bg-accent/60"
         aria-label="Account and display settings"
       >
         <span
@@ -120,7 +125,9 @@ export function AccountMenu() {
           <DropdownMenuRadioItem value="system">
             Follow the system
           </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="full">Full motion</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="full">
+            Full motion
+          </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="reduced">
             Reduced motion
           </DropdownMenuRadioItem>
