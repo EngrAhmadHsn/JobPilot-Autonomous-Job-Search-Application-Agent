@@ -13,6 +13,35 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
 
+    <!--
+      **The pre-paint theme.**
+
+      This runs before the first paint, so a visitor who chose dark never sees
+      the light canvas flash. `theme-provider.tsx` still owns the class
+      afterwards; this only wins the race to the first frame, which is the same
+      pattern `main.tsx` already uses for the motion preference.
+
+      `vite.config.ts` owns the CSP and describes how this script is allowed:
+      the built policy carries its SHA-256 hash in `script-src`, so no
+      `'unsafe-inline'` is needed in production. Changing one byte of this
+      script changes the hash, and the policy recomputes it at build time — the
+      hash is derived from the emitted HTML, so the two cannot drift.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem("theme")
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches)
+          document.documentElement.classList.add(dark ? "dark" : "light")
+        } catch (e) {
+          document.documentElement.classList.add("light")
+        }
+      })()
+    </script>
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
     <link rel="canonical" href="https://jobpilot.example.com/" />

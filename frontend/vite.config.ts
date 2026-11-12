@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import tailwindcss from "@tailwindcss/vite"
@@ -36,20 +38,46 @@ const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8000"
  *
  * Two variants, and the difference is the dev server's fault:
  *
- * - **The build** gets the strict policy. Vite's production build emits
- *   no inline script (the modulepreload polyfill is not injected any
- *   more), so `script-src 'self'` holds with no exception.
- * - **The dev server** needs `'unsafe-inline'`, because the React
- *   Fast Refresh runtime is an inline module script. That is a
- *   development-only concession; the built bundle is what ships.
+ * - **The build** gets the strict policy. Vite's production build emits no
+ *   module script inline, so `script-src 'self'` holds — plus one hash, for
+ *   the single inline script the document carries (see below).
+ * - **The dev server** needs `'unsafe-inline'`, because the React Fast Refresh
+ *   runtime is an inline module script. That is a development-only concession;
+ *   the built bundle is what ships.
  *
- * `style-src` keeps `'unsafe-inline'` in both, because React writes
- * inline styles (the score panel's width). A style attribute cannot
- * execute script, so the concession is about layout, not execution.
+ * **The one inline script: the pre-paint theme.**
+ *
+ * `index.html` runs a few lines before the first paint to set the theme class,
+ * so a visitor who chose dark never sees the light canvas flash. In a strict
+ * policy that is blocked unless the policy allows it. `'unsafe-inline'` would
+ * be the wrong answer, because it would allow *every* inline script. Instead
+ * the policy carries a SHA-256 hash of that exact script, computed from the
+ * HTML the build actually emitted, so:
+ *
+ * - the script runs;
+ * - any other inline script the page might ever gain does not;
+ * - and editing the script cannot silently break it, because the hash is
+ *   derived from the emitted markup rather than hard-coded.
+ *
+ * `'unsafe-hashes'` is not needed: the hash covers the whole `<script>`
+ * element, not an event-handler attribute.
+ *
+ * `style-src` keeps `'unsafe-inline'` in both, because React writes inline
+ * styles (the score panel's width). A style attribute cannot execute script, so
+ * the concession is about layout, not execution.
  */
 function contentSecurityPolicy(
   apiBaseUrl: string,
-  { development, meta = false }: { development: boolean; meta?: boolean }
+  {
+    development,
+    meta = false,
+    scriptHashes = [],
+  }: {
+    development: boolean
+    meta?: boolean
+    /** SHA-256 hashes of the inline scripts the document is allowed to run. */
+    scriptHashes?: string[]
+  }
 ): string {
   const connect = new Set(["'self'"])
   if (apiBaseUrl) {
@@ -70,7 +98,7 @@ function contentSecurityPolicy(
   }
   const scriptSrc = development
     ? "'self' 'unsafe-inline' 'unsafe-eval'"
-    : "'self'"
+    : ["'self'", ...scriptHashes].join(" ")
   const directives = [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
@@ -121,12 +149,35 @@ const SECURITY_HEADERS = {
  * carry (see `contentSecurityPolicy`). A host that *does* set the header gets
  * the full policy as well, which is harmless — the browser applies the
  * intersection.
+ *
+ * The hash is computed here, from the HTML Vite actually emitted, rather than
+ * from the source `index.html`. That is deliberate: a build-time transform
+ * could rewrite the script body, and a hard-coded hash would then block it.
+ * Hashing the output means the policy always matches what ships.
  */
-function contentSecurityPolicyPlugin(policy: string) {
+function contentSecurityPolicyPlugin(
+  buildPolicy: (scriptHashes: string[]) => string
+) {
   return {
     name: "aja-content-security-policy",
     apply: "build" as const,
     transformIndexHtml(html: string) {
+      /*
+        Every inline `<script>` in the emitted document, hashed. The build
+        emits exactly one (the theme bootstrap); the regex is written to find
+        all of them so a second one added later is allowed only if the policy
+        is regenerated, rather than silently breaking the page.
+      */
+      const inlineScripts = [
+        ...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi),
+      ].map((match) => match[1] ?? "")
+      const scriptHashes = inlineScripts
+        .filter((body) => body.trim().length > 0)
+        .map(
+          (body) =>
+            `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`
+        )
+
       return {
         html,
         tags: [
@@ -134,7 +185,7 @@ function contentSecurityPolicyPlugin(policy: string) {
             tag: "meta",
             attrs: {
               "http-equiv": "Content-Security-Policy",
-              content: policy,
+              content: buildPolicy(scriptHashes),
             },
             injectTo: "head-prepend" as const,
           },
@@ -147,25 +198,78 @@ function contentSecurityPolicyPlugin(policy: string) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const apiBaseUrl = env.VITE_API_BASE_URL ?? ""
-  // The **header** policy is the full one; the **meta** policy is the same
-  // minus the directives a `<meta>` tag cannot carry.
-  const productionPolicy = contentSecurityPolicy(apiBaseUrl, {
-    development: false,
-  })
-  const productionMetaPolicy = contentSecurityPolicy(apiBaseUrl, {
-    development: false,
-    meta: true,
-  })
+  // The **header** policies carry the full directive set, including
+  // `frame-ancestors`, which a `<meta>` policy cannot express. The meta policy
+  // is built per document by `contentSecurityPolicyPlugin`, because its
+  // `script-src` needs the hash of the inline theme script.
   const developmentPolicy = contentSecurityPolicy(apiBaseUrl, {
     development: true,
+  })
+
+  /*
+    The theme script is inline in `index.html`, so the preview server's
+    **header** policy has to allow that one script too — otherwise the header
+    and the meta tag disagree, the browser applies the intersection, and the
+    script is blocked. Reading the source document here is correct for the
+    header case: Vite copies `index.html` verbatim except for injected tags, so
+    the script body a preview serves is the one on disk. The meta policy is
+    still hashed from the emitted output, which is the one that must track any
+    build-time rewrite.
+  */
+  const sourceHtml = readFileSync(
+    resolve(import.meta.dirname, "index.html"),
+    "utf8"
+  )
+  const themeScriptHashes = [
+    ...sourceHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi),
+  ]
+    .map((match) => match[1] ?? "")
+    .filter((body) => body.trim().length > 0)
+    .map(
+      (body) =>
+        `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`
+    )
+  const productionHeaderPolicy = contentSecurityPolicy(apiBaseUrl, {
+    development: false,
+    scriptHashes: themeScriptHashes,
   })
 
   return {
     plugins: [
       react(),
       tailwindcss(),
-      contentSecurityPolicyPlugin(productionMetaPolicy),
+      // The meta policy is rebuilt per document, because its `script-src`
+      // carries a hash computed from the emitted inline scripts.
+      contentSecurityPolicyPlugin((scriptHashes) =>
+        contentSecurityPolicy(apiBaseUrl, {
+          development: false,
+          meta: true,
+          scriptHashes,
+        })
+      ),
     ],
+    build: {
+      /*
+        The vendors are their own chunk.
+
+        Every route is lazy now, so the framework and the router are the only
+        code every page needs. Splitting them means they are fetched once, cached
+        across a deploy, and never re-downloaded when a screen changes — and it
+        keeps the router's own code out of the chunk that changes most often.
+      */
+      rolldownOptions: {
+        output: {
+          advancedChunks: {
+            groups: [
+              {
+                name: "vendor",
+                test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|@tanstack|scheduler)[\\/]/,
+              },
+            ],
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         "@": resolve(import.meta.dirname, "./src"),
@@ -192,7 +296,7 @@ export default defineConfig(({ mode }) => {
       port: 4173,
       headers: {
         ...SECURITY_HEADERS,
-        "Content-Security-Policy": productionPolicy,
+        "Content-Security-Policy": productionHeaderPolicy,
       },
       proxy: {
         "/api": {
