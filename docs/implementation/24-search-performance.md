@@ -982,6 +982,35 @@ The startup warm does not help here. It embeds the seven-character string
 warming with a short string still leaves the first **long** embed at 8.9 s, and
 the second at 8.7 s — it is per-call compute, not a one-time initialisation.
 
+**Corrected (2026-11-13).** The paragraph above is wrong, and the error was in
+what it measured. The 8.9 s figure came from a **16,000-character** input, not
+from the candidate's 4,584-char query. Measured properly, one fresh process per
+variant:
+
+| Warm variant | First query embed | Steady state |
+|---|---|---|
+| none (lazy model load inside the request) | **5.78 s** | 1.86–1.99 s |
+| `"warmup"` (7 chars — what the lifespan does) | **1.95 s** | 1.92–1.95 s |
+| the real 4,584 chars | 1.88 s | 1.89–1.96 s |
+| 16,000 chars | 1.84 s | 1.86–1.95 s |
+
+The warm removes **~3.8 s** from the first request, and the warm input's
+length is irrelevant beyond the first inference: warming with the real query
+buys nothing over `"warmup"`, so the existing call is correct and needs no
+change. (A 16,000-char embed costs ~8.5 s *every* call, warm or cold — that is
+per-call compute at that length, and no warm can remove it. It is also not this
+candidate's length, which is why the earlier conclusion did not apply.)
+
+End to end, one fresh process per variant, the artifacts warm in both:
+
+| | Search |
+|---|---|
+| No embedding warm | **11.12 s** |
+| `"warmup"` first | **7.78 s** |
+
+Cost of that warm: **+271 MB** resident (126 → 393 MB, before the artifacts add
+~1.1 GB).
+
 #### The second-largest item, and why it is unavoidable today
 
 Fetching 47 MB of vectors costs 0.8 s, and only **7,666 of 8,558** listings have
@@ -1020,3 +1049,154 @@ Ranked by measured size, not by guess:
 Recorded here rather than acted on: (1) trades ranking quality for latency, and
 that trade is the owner's to make. The measured facts are now on the page for
 whoever makes it.
+
+### 11.12 — The optimization survey: what would actually move the number
+
+Measured 2026-11-13 on the live 8,558-listing corpus, 12 cores, one fresh
+process per experiment. Every figure below is a measurement, not a projection;
+several contradict what §11.11 guessed.
+
+#### The corrected baseline
+
+A full `search_stored_jobs` with the startup warm in place, phase by phase:
+
+| Phase | Time |
+|---|---|
+| Open the store (per request: Chroma client + embedder + SQLite cache) | 0.05 s |
+| `candidate_query_text` | 0.00 s |
+| **Embed the query** | **1.9–3.3 s** |
+| `similarities_for_all` — memo miss (47 MB fetch, 24 MB float32) | 3.4–4.5 s |
+| `similarities_for_all` — memo hit | 0.025 s |
+| `calculate_match` + `lexical_score` × 8,558 | 2.9 s |
+
+`similarities_for_all` on a memo hit is 0.025 s, not zero: the memo key includes
+the covered-id count, which is only known after `collection.get(include=[])`
+fetches all 7,666 ids (0.023 s). That is one of the levers below.
+
+#### Lever 1 — Query text length. **The only large lever.** Not recommended alone.
+
+The candidate text is 4,555 chars and the model costs ~0.4–0.5 ms/char in
+steady state:
+
+| Input | Embed |
+|---|---|
+| 1,138 chars | 0.72 s |
+| 2,277 chars | 1.04 s |
+| 4,555 chars (this candidate) | **1.80 s** |
+| 8,000 chars | 3.51 s |
+| 16,000 chars | 8.51 s |
+
+What the text is actually made of, on this profile:
+
+| Section | Chars |
+|---|---|
+| project bullets | **2,278** |
+| summary | 657 |
+| project tech | 515 |
+| certifications | 465 |
+| project names | 284 |
+| achievements | 148 |
+| skills | 136 |
+| title | 36 |
+| education degrees | 28 |
+| experience titles and bullets | **0** |
+
+Three things follow. First, **half the query is project bullets**, which is the
+least job-relevant part of a professional record. Second, this candidate has no
+experience entries at all — the semantic signal is coming almost entirely from
+projects, so a rule that trimmed "experience bullets" would change nothing here
+and everything for another candidate. Third, any trim is a **ranking-quality
+decision**: `candidate_lexical_text` feeds both the semantic query and the
+lexical/BM25 channel, so shortening it moves both scores. It needs the
+evaluation harness (§9), and this document does not make that call.
+
+A semantic-only trim (a separate function for the embed) would avoid touching
+the lexical channel, at the cost of one more text to keep in sync.
+
+#### Lever 2 — Keep the vector matrix resident. **~1.0 s per memo miss.**
+
+The fetch is 1.04 s for 47 MB, and the decoded matrix is only **24 MB** as
+float32. The matvec against a resident matrix is **0.001 s**. So holding the
+normalized matrix in the process converts a 1.04 s fetch into a 1 ms dot
+product, and drops the memo-hit path to a dict read (lever 3).
+
+Memory: +24 MB of matrix, against the ~1.5 GB the process already holds.
+Invalidation is the work: the matrix must be rebuilt when the collection
+changes, and today the only signal is the id count plus the 120 s TTL. A
+content digest over the stored vector hashes would make it exact, at the cost
+of reading 7,666 short strings per rebuild.
+
+This is the best risk-adjusted lever: it is ~1 s of the ~4 s memo-miss path,
+it needs no ranking change, and 24 MB is noise beside the artifacts.
+
+#### Lever 3 — Move the memo check before the id fetch. **~0.02 s.**
+
+`similarities_for_all` calls `count()`, `get(include=[])` and computes
+`remaining` before `_recall_scan`. Keying on `collection.count()` instead of the
+fetched id count makes a memo hit a pure dict read. The saving is small (0.023 s)
+but the change is trivial and it makes the hit path honest. The correctness
+trade: a same-size corpus whose contents changed would hit a stale entry for up
+to the TTL — which is already true of the current key.
+
+#### Lever 4 — Overlap the embed and the vector fetch. **Saves nothing.**
+
+Measured, interleaved, three trials each:
+
+| | Time |
+|---|---|
+| serial: embed → fetch | 2.95–3.22 s |
+| overlapped: embed ‖ fetch | 3.03–3.33 s |
+
+No gain. The two are dominated by the same resource (memory bandwidth and the
+CPU the ONNX session already saturates), so running them concurrently does not
+shorten the critical path. Recorded so nobody tries it again on the theory that
+it must help.
+
+#### Lever 5 — ONNX thread count. **Does not save memory; costs latency to cap.**
+
+`threads=` is accepted by fastembed and never passed (`src/llm/embeddings.py`,
+`TextEmbedding(...)`), so ORT uses all physical cores. Measured by restricting
+affinity (equivalent to what the session would do):
+
+| Cores | Embed (4,584 chars) | RSS |
+|---|---|---|
+| 12 (default) | **2.0 s** | 348 MB |
+| 6 | 2.5 s | 348 MB |
+| 4 | 7.4 s | 347 MB |
+| 2 | 16.4 s | 348 MB |
+
+Two findings. Thread scaling is **not** flat — the repo's own note
+(`docs/implementation/04-pipeline-and-api.md`) says it is, and for this
+single-query workload it is not: below 6 cores the cost more than triples. And
+**capping threads saves no memory at all** (348 MB regardless), so there is no
+trade to make. Leave the default; it is already optimal.
+
+#### Lever 6 — A process-wide store. **0.05 s.**
+
+`ChromaVectorStore()` is constructed per request (a new Chroma client, a new
+`FastembedEmbedding` wrapper, a new SQLite connection, and a tokenizer-config
+re-read). Measured: **0.053 s**. The ONNX session itself is already shared
+(`_fastembed_loaded_models`), which is why this is small. Worth doing for
+tidiness, not for latency.
+
+#### Lever 7 — The 892 unembedded listings. **Coverage, not latency.**
+
+Live queue state: `COMPLETED 3700, FAILED 300, QUEUED 721, RETRY_WAIT 3279`, and
+~558 listings have no work item at all. Filling them moves `semantic_coverage`
+from 89.6% to 100% and changes rankings, but does not reduce the scan — the
+vectors are already fetched in one pass. It is a quality task, not a speed one.
+
+#### Summary of what to do, in order
+
+| Lever | Saves | Risk |
+|---|---|---|
+| Resident vector matrix | ~1.0 s per miss; memo hit → ~0 s | low; +24 MB, invalidation work |
+| Memo key off `count()` | ~0.02 s | trivial |
+| Process-wide store | ~0.05 s | trivial |
+| Query text trim | up to ~1.2 s | **ranking quality — needs §9** |
+| Overlap embed/fetch | **0** | don't |
+| Thread cap | **negative** | don't |
+
+Two levers together take a memo-miss search from ~7.8 s to ~6.7 s with no
+ranking change. The query trim is the only way to reach ~5.5 s, and it is the
+owner's call.
