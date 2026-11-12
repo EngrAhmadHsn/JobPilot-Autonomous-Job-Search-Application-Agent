@@ -58,6 +58,67 @@ _TECH_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: Nouns that describe a **domain** a candidate works in, not a technology they
+#: operate. A bar stated against one of these is the total bar: "7+ years of
+#: sales experience" asks for seven years of being a salesperson, while
+#: "3 years with Python" is a bar on one tool.
+#:
+#: WS-28. The technology rule used to fire on any noun, so it swallowed these
+#: and reported "the listing states no bar" for 1,145 listings that plainly
+#: state one (measured on the 8,558-listing corpus). The rule's own purpose —
+#: skipping a *tool*-specific bar — is unchanged.
+_GENERIC_DOMAIN_NOUNS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "any",
+        "this",
+        "that",
+        "experience",
+        "work",
+        "working",
+        "sales",
+        "support",
+        "software",
+        "engineering",
+        "operations",
+        "client",
+        "clients",
+        "customer",
+        "customers",
+        "account",
+        "accounts",
+        "product",
+        "products",
+        "project",
+        "projects",
+        "program",
+        "programs",
+        "people",
+        "team",
+        "teams",
+        "management",
+        "leadership",
+        "industry",
+        "professional",
+        "related",
+        "relevant",
+        "similar",
+        "prior",
+        "full",
+        "general",
+        "business",
+        "technical",
+        "commercial",
+        "solution",
+        "solutions",
+        "service",
+        "services",
+        "field",
+    }
+)
+
 # A sentence offering degree-alternative bars ("BS with 4+ or MS with 2+
 # years"). In this construction the *highest* alternative is the bar — the
 # candidate without the stronger degree must beat it — and a bare "N+" means
@@ -154,8 +215,12 @@ def _extract_required_years(text: str) -> float | None:
         if years is None:
             continue
         # Skip a technology-specific bar: it is not the total requirement.
-        if _TECH_CONTEXT_RE.search(sentence):
-            continue
+        # A domain noun is not a technology — see _GENERIC_DOMAIN_NOUNS.
+        tech_bar = _TECH_CONTEXT_RE.search(sentence)
+        if tech_bar:
+            noun = tech_bar.group("tech").strip().casefold()
+            if noun not in _GENERIC_DOMAIN_NOUNS:
+                continue
         general.append(years)
     if not general:
         return None
