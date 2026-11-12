@@ -1,11 +1,20 @@
 import type { ReactNode } from "react"
 
+import { useDocumentTitle } from "@/hooks/use-document-title"
+
 /**
  * The heading of a screen.
  *
  * One rhythm for every screen: a display-set title, a line of prose that
  * says what the screen is for, and room for the screen's own actions.
  * The prose is capped at a readable width — the header is not a billboard.
+ *
+ * **It also names the tab.** Every console screen renders this component with
+ * the screen's own title, so setting `document.title` here covers all of them
+ * from one place rather than at eleven call sites. A client-rendered app has a
+ * single document, so without this every route kept the title `index.html`
+ * shipped with and a screen reader heard the same name after every navigation
+ * (WCAG 2.4.2 Page Titled).
  */
 export function PageHeader({
   title,
@@ -18,6 +27,8 @@ export function PageHeader({
   actions?: ReactNode
   children?: ReactNode
 }) {
+  useDocumentTitle(title)
+
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div className="console-reading">

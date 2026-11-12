@@ -7,6 +7,7 @@ import { useHeaderHeight } from "@/hooks/use-header-height"
 import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 
+import { SkipToContent } from "@/components/common/skip-to-content"
 import { SignInScreen } from "@/screens/sign-in-screen"
 
 import { AccountMenu } from "./account-menu"
@@ -77,6 +78,13 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/*
+        First in the tab order, before the header's nav row, the account menu
+        and the profile chip. `#main-content` is on the `<main>` below, and its
+        `scroll-mt` clears the sticky header so the jump lands on visible
+        content.
+      */}
+      <SkipToContent />
       <header
         ref={headerRef}
         className="console-header sticky top-0 z-40 border-b border-border bg-card"
@@ -127,7 +135,10 @@ export function AppShell() {
         </div>
       </header>
 
-      <main className="console-container py-8">
+      <main
+        id="main-content"
+        className="console-container scroll-mt-[calc(var(--header-height,4rem)+1rem)] py-8"
+      >
         <Outlet />
       </main>
     </div>
