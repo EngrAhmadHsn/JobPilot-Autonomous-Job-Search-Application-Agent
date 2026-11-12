@@ -10,7 +10,13 @@ import { approvalDecision } from "@/test/factories"
 const BASE = "http://api.test"
 
 async function fillPrepareForm(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("Job title"), "AI Engineer")
+  /*
+    Every console screen is lazily loaded now, so the form arrives a microtask
+    after the route mounts. Waiting for the first field is what makes this
+    helper work for every caller: once it resolves, the chunk has loaded and
+    the remaining fields are present synchronously.
+  */
+  await user.type(await screen.findByLabelText("Job title"), "AI Engineer")
   await user.type(screen.getByLabelText("Company"), "Acme")
   await user.type(
     screen.getByLabelText("Job URL"),
