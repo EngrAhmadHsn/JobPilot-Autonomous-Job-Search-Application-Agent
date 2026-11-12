@@ -78,12 +78,33 @@ _SENIORITY_RANKS: tuple[tuple[str, int], ...] = (
 
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 
+#: The same ladder, compiled once. WS-24c: the ladder used to build a regex
+#: with ``re.search`` per keyword per call — 19 of them for every title on
+#: every search (18,345 calls per search on the 8,558-listing corpus, since
+#: the component tries ``seniority`` and then ``title``). ``re``'s internal
+#: cache hid the compilation, but not the per-call matching work.
+_SENIORITY_PATTERNS: tuple[tuple[str, int, re.Pattern[str]], ...] = tuple(
+    (keyword, rank, re.compile(rf"\b{re.escape(keyword)}\b")) for keyword, rank in _SENIORITY_RANKS
+)
+
+
 def _seniority_rank(text: str | None) -> int | None:
+    """The seniority rank a text states, or ``None`` when it states none.
+
+    The ladder is tried from the most senior keyword down and the first match
+    wins, so "Senior Staff Engineer" is staff and "Lead Data Scientist" is
+    lead. WS-24c keeps that order exactly and adds a **substring prefilter**:
+    a word-boundary regex can only match if the bare keyword occurs at all, so
+    the 19 regex matches per title become 19 ``in`` checks that escalate to a
+    regex only on a hit. The regex is still the arbiter — "international"
+    contains "intern" but does not word-boundary-match it — so the answer is
+    unchanged by construction.
+    """
     if not text or not text.strip():
         return None
     lowered = text.casefold()
-    for keyword, rank in _SENIORITY_RANKS:
-        if re.search(rf"\b{re.escape(keyword)}\b", lowered):
+    for keyword, rank, pattern in _SENIORITY_PATTERNS:
+        if keyword in lowered and pattern.search(lowered) is not None:
             return rank
     return None
 
@@ -315,15 +336,18 @@ def _seniority_component(
     job: JobListing,
     profile: CandidateProfile,
     *,
+    job_rank: int | None | object = _UNCACHED,
     candidate_rank: int | None | object = _UNCACHED,
 ) -> ComponentScore:
     """The seniority comparison.
 
-    WS-24c: the candidate's rank is a pure function of the profile, so the
-    context carries it. It used to walk every dated experience entry on
-    every listing.
+    WS-24c: both ranks are precomputable — the job's from the listing (the
+    corpus artifacts carry it), the candidate's from the profile (the
+    context carries it). Each was being derived per listing; the candidate's
+    in particular walked every dated experience entry on every one.
     """
-    job_rank = _seniority_rank(job.seniority) or _seniority_rank(job.title)
+    if job_rank is _UNCACHED:
+        job_rank = _seniority_rank(job.seniority) or _seniority_rank(job.title)
     if job_rank is None:
         return ComponentScore(
             name="seniority",
@@ -704,6 +728,12 @@ def calculate_match(
     cached_requirement: float | None | object = (
         artifacts.required_years.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
     )
+    # WS-24c: the job's seniority rank is cached beside the listing's other
+    # derived artifacts, so the title ladder is not re-walked per search.
+    cached_rank: int | None | object = (
+        artifacts.seniority_ranks.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
+    )
+
     components: dict[str, ComponentScore] = {
         "semantic": _semantic_component(job, semantic_score, semantic_state),
         "lexical": _lexical_component(
@@ -719,7 +749,7 @@ def calculate_match(
             job, profile, requirement=cached_requirement, context=context
         ),
         "seniority": _seniority_component(
-            job, profile, candidate_rank=context.candidate_rank
+            job, profile, job_rank=cached_rank, candidate_rank=context.candidate_rank
         ),
         "location": _location_component(job, profile, context=context),
         "preference": _preference_component(job, profile, context=context),

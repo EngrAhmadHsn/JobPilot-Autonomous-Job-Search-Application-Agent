@@ -120,12 +120,19 @@ def listing_from_row(row: JobDB) -> JobListing:
 
 
 def content_version_for(listing: JobListing) -> str:
-    """The digest of the fields the search artifacts depend on (WS-24).
+    """The digest of the fields the search artifacts depend on (WS-24, WS-24c).
 
     The corpus cache is keyed on this, so it must change when — and only
-    when — the content that the BM25 index, the important terms and the
-    experience bar are derived from changes. A sighting (the refresh
-    re-serving an unchanged listing) must **not** change it.
+    when — the content that the BM25 index, the important terms, the
+    experience bar and the seniority rank are derived from changes. A
+    sighting (the refresh re-serving an unchanged listing) must **not**
+    change it.
+
+    WS-24c added ``seniority``. Every artifact field before it was derived
+    from the fields already hashed here, but the cached seniority rank reads
+    ``job.seniority`` (then falls back to the title), so without this a
+    refresh that changed only the seniority column would keep the
+    fingerprint and serve a stale rank.
 
     The two skill lists are serialized with sorted keys so the digest does
     not depend on the order the adapter happened to produce them in.
@@ -139,6 +146,7 @@ def content_version_for(listing: JobListing) -> str:
         preferred,
         listing.experience_requirements or "",
         listing.education_requirements or "",
+        listing.seniority or "",
     ]
     return hashlib.sha256("\x1f".join(parts).encode("utf-8", errors="replace")).hexdigest()
 

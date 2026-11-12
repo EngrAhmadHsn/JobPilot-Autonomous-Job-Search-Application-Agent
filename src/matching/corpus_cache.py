@@ -41,6 +41,19 @@ __all__ = [
 #: a search was running" without letting the cache grow with every edit.
 _MAX_ENTRIES = 2
 
+#: The shape of :class:`CorpusArtifacts`, as a version in the fingerprint.
+#:
+#: WS-24c. The fingerprint hashes the corpus *content* it can see, so it moves
+#: when a field the artifacts are derived from changes. It cannot see when the
+#: **set of derived fields** changes — adding ``seniority_ranks`` to the
+#: dataclass leaves every stored row identical, so without this a process that
+#: had already cached the previous shape would keep serving it, with the new
+#: field silently empty. Bumping this constant forces exactly one rebuild.
+#:
+#: 1 — WS-24/24b artifacts (terms, bars, classifications, phrase lists).
+#: 2 — WS-24c: adds ``seniority_ranks``, and hashes ``seniority``.
+_ARTIFACTS_VERSION = 2
+
 
 @dataclass
 class CorpusArtifacts:
@@ -80,6 +93,18 @@ class CorpusArtifacts:
     #: search. The phrases depend only on the listing, so they are cached
     #: with its other derived artifacts.
     required_phrases: dict[str, list[str]] = field(default_factory=dict)
+    #: The seniority rank stated by each listing (``None`` = not stated).
+    #:
+    #: WS-24c. ``_seniority_component`` derives the rank from
+    #: ``job.seniority`` and then from ``job.title``, walking a 19-keyword
+    #: ladder with a word-boundary regex on each step. The rank depends only
+    #: on the listing, so it belongs here with the other derived artifacts.
+    #:
+    #: This field is why ``content_version_for`` hashes ``seniority``: the
+    #: rank reads that column, so a refresh that changed only the seniority
+    #: must move the fingerprint or a stale rank would be served. See the
+    #: ``_ARTIFACTS_VERSION`` note on the fingerprint for the general rule.
+    seniority_ranks: dict[str, int | None] = field(default_factory=dict)
 
 
 _CACHE: OrderedDict[tuple[str, int, str | None], CorpusArtifacts] = OrderedDict()
@@ -126,6 +151,9 @@ def corpus_fingerprint(session_factory) -> tuple[str, int, str]:
         rows = session.execute(select(JobDB.id, JobDB.content_version)).all()
 
     digest = hashlib.sha256()
+    # The artifacts' own shape, so adding a derived field invalidates once.
+    digest.update(f"artifacts-v{_ARTIFACTS_VERSION}".encode())
+    digest.update(b"\x1d")
     for job_id, content_version in rows:
         digest.update((job_id or "").encode("utf-8", errors="replace"))
         digest.update(b"\x1f")
@@ -165,9 +193,13 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
     # per-listing item — and it produced the same answer every time.
     stored_years: dict[str, float | None] = {row.id: row.required_years for row in rows}
 
-    # WS-24: the role classification is derived from the listing alone,
-    # so it is computed here, with the listing's other derived
-    # artifacts, and re-used by every search until the content changes.
+    # WS-24c: the seniority ladder is imported here rather than at module
+    # scope because ``engine`` imports this module (``CorpusArtifacts``), so a
+    # top-level import would be circular. WS-24: the role classification is
+    # derived from the listing alone, so it is computed below with the
+    # listing's other derived artifacts and re-used by every search until the
+    # content changes.
+    from src.matching.engine import _seniority_rank
     from src.matching.roles import classify_job_role
 
     lexical_terms = {job.id: _important_terms(job) for job in jobs}
@@ -195,6 +227,10 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
         },
         # WS-24b: the multi-word required phrases, split once.
         required_phrases={job.id: _required_phrases(job) for job in jobs},
+        # WS-24c: the seniority rank the listing states, resolved once.
+        seniority_ranks={
+            job.id: _seniority_rank(job.seniority) or _seniority_rank(job.title) for job in jobs
+        },
     )
     _CACHE[fingerprint] = artifacts
     while len(_CACHE) > _MAX_ENTRIES:
