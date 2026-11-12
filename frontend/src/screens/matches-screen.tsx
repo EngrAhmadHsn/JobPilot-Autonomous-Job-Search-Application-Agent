@@ -6,10 +6,14 @@ import { Banner } from "@/components/common/banner"
 import { Disclosure } from "@/components/common/disclosure"
 import { SectionTitle } from "@/components/common/field-list"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { MatchGapChips, SponsorBadge } from "@/components/common/match-gap-chips"
+import {
+  MatchGapChips,
+  SponsorBadge,
+} from "@/components/common/match-gap-chips"
+import { MatchListSkeleton } from "@/components/common/match-list-skeleton"
 import { Pagination } from "@/components/common/pagination"
 import { QueryCombobox } from "@/components/common/query-combobox"
-import { EmptyState, ProgressState } from "@/components/common/progress-state"
+import { EmptyState } from "@/components/common/progress-state"
 import { PlainText } from "@/components/common/plain-text"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
@@ -380,19 +384,29 @@ export function MatchesScreen() {
             </Button>
           </form>
 
-          {search.isPending ? (
-            <ProgressState
-              key="search"
-              title="Ranking your saved jobs"
-              description="This takes a few seconds."
-            />
-          ) : null}
-
           {search.isError ? <ErrorNotice error={search.error} /> : null}
         </CardContent>
       </Card>
 
-      {data ? (
+      {/*
+        A running search shows the **shape** of the answer, not a stopwatch.
+        The elapsed clock was honest but it was the only thing on screen
+        moving, and it answered a question the operator already knew the
+        answer to. The skeleton reserves the space, so the list does not jump
+        when the ranking lands.
+
+        `search.isPending` wins over `data`: a re-search must not stack a
+        placeholder over the previous ranking, which would read as "these are
+        last time's numbers, still updating".
+      */}
+      {search.isPending ? (
+        <Section
+          title="Ranking your saved jobs"
+          description="Scoring every listing against your profile."
+        >
+          <MatchListSkeleton />
+        </Section>
+      ) : data ? (
         <Section
           title={`${data.results.length} match${data.results.length === 1 ? "" : "es"}`}
           description={describeSearch(data, query, location)}

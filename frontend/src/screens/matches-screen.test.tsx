@@ -251,3 +251,132 @@ describe("the job detail screen", () => {
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()
   })
 })
+
+/*
+  WS-24c: a running search shows the shape of the answer, not a stopwatch.
+
+  The screen used to render a ProgressState with a ticking "{n}s elapsed"
+  counter. It was honest, but it was the only thing on screen moving, and it
+  told the operator something they already knew. The skeleton reserves the
+  space the ranking will fill, and there are two properties that matter:
+  the placeholder is visible **while** the request is in flight (so it is not
+  a decoration that only appears after the wait), and it is gone afterwards
+  (so it is not a permanent fixture that happens to look like loading).
+*/
+describe("the matches screen while a search is running", () => {
+  /** A search that stays pending until the test releases it. */
+  function deferredSearch() {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, async () => {
+        await gate
+        return HttpResponse.json(jobSearchResponse())
+      })
+    )
+    return () => release?.()
+  }
+
+  it("shows the ranked-list skeleton while the search is in flight", async () => {
+    withProfile()
+    const release = deferredSearch()
+    const user = userEvent.setup()
+    const { container } = renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    // The placeholder is on screen, and the region says it is busy.
+    await waitFor(() => {
+      expect(
+        container.querySelector('[aria-busy="true"]')
+      ).toBeInTheDocument()
+    })
+    expect(
+      container.querySelectorAll('[data-slot="skeleton"]').length
+    ).toBeGreaterThan(0)
+
+    release()
+    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+
+    // ...and it is gone once the ranking lands.
+    await waitFor(() => {
+      expect(
+        container.querySelector('[aria-busy="true"]')
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("does not show an elapsed-seconds counter", async () => {
+    /*
+      The counter is what this change removed. Asserting its absence is the
+      only way to keep it from creeping back: nothing else on the screen
+      mentions time, so a re-added ProgressState would otherwise pass.
+    */
+    withProfile()
+    const release = deferredSearch()
+    const user = userEvent.setup()
+    const { container } = renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    await waitFor(() => {
+      expect(
+        container.querySelector('[aria-busy="true"]')
+      ).toBeInTheDocument()
+    })
+    expect(container.textContent).not.toMatch(/\d+s elapsed/)
+    expect(screen.queryByText("This takes a few seconds.")).not.toBeInTheDocument()
+
+    release()
+    await screen.findByText("AI Engineer")
+  })
+
+  it("says what it is doing instead of waiting silently", async () => {
+    /*
+      A screenful of aria-hidden boxes is silent to a screen reader, and
+      silence is indistinguishable from a hang. The heading is the
+      announcement, so it has to be a real heading with the words in it.
+    */
+    withProfile()
+    const release = deferredSearch()
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    expect(
+      await screen.findByRole("heading", { name: "Ranking your saved jobs" })
+    ).toBeInTheDocument()
+
+    release()
+    await screen.findByText("AI Engineer")
+  })
+
+  it("replaces the previous ranking rather than stacking on it", async () => {
+    /*
+      Old results stay in the query cache between searches. If the skeleton
+      were additive, a second search would show placeholders above last
+      time's numbers — which reads as "these are still updating" instead of
+      "these are the old ones, the new ones are coming".
+    */
+    withProfile()
+    const user = userEvent.setup()
+    const { container } = renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+
+    const release = deferredSearch()
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    await waitFor(() => {
+      expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
+    })
+    expect(screen.queryByText("AI Engineer")).not.toBeInTheDocument()
+    expect(screen.queryByText("82.5")).not.toBeInTheDocument()
+
+    release()
+    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+  })
+})
