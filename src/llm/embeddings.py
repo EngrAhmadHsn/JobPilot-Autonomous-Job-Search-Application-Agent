@@ -683,8 +683,17 @@ class FastembedEmbedding:
           about.
 
         So the query is embedded fresh every time and never written to
-        the disk. The cost is one embedding call per search, which for
-        the local provider is milliseconds.
+        the disk.
+
+        **Where the line is (WS-24c).** Both harms above are properties of a
+        *shared, persistent* cache. A process-local memo is neither: it is not
+        shared across tenants (a hit requires an identical text in the same
+        process, which is the same exposure as holding the profile in memory),
+        and it is not durable (nothing reaches the disk or a log, and it dies
+        with the process). ``ChromaVectorStore.similarities_for_all`` therefore
+        memoizes the **similarity map** it derives — keyed by a digest of the
+        query text — without ever caching the vector itself. This provider
+        still does no caching of its own, at either level.
         """
         return self._embed_local([self._truncate(text)])[0]
 

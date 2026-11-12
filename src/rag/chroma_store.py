@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
+from collections import OrderedDict
 from collections.abc import Iterable
 
 import chromadb
@@ -70,6 +72,68 @@ MAX_DESCRIPTION_CHARS = 16_000
 #: How many vectors are loaded per page in the full-corpus similarity scan.
 #: The scan is bounded so the peak memory is this, not the corpus size.
 SCAN_PAGE_SIZE = 500
+
+#: How many corpus scans to memoize **in this process** (WS-24c).
+_PROCESS_SCAN_ENTRIES = 4
+
+#: How long a memoized scan may be served, in seconds (WS-24c).
+#:
+#: The memo is cleared when *this* process writes a vector, but the embedding
+#: worker is a separate process: it can upsert or evict vectors while the API
+#: holds a scan. Without a bound, such a write would stay invisible until the
+#: API restarted. Two minutes is long enough that an operator narrowing
+#: filters (which do not change the semantic query) keeps hitting the memo,
+#: and short enough that a background refresh surfaces promptly.
+_PROCESS_SCAN_TTL_SECONDS = 120.0
+
+#: The in-process memo of full-corpus scans, keyed by the query text and the
+#: collection state the scan was computed against.
+#:
+#: This is **not** the persistent cache WS-14 · Phase G forbids. That rule
+#: names two harms, and both are properties of a *shared, durable* cache:
+#:
+#: - a hit on identical profile text would tell a second tenant that somebody
+#:   else had submitted the same text, and
+#: - the stored vector is a fingerprint of the candidate, and a vector can be
+#:   inverted far enough to say what the text was about.
+#:
+#: A process-local dictionary is neither shared across tenants nor durable:
+#: nothing is written to disk, nothing is logged, and the entry dies with the
+#: process. Two tenants cannot collide here for the same reason they cannot
+#: collide in ``CandidateContext`` — the key is derived from the text itself,
+#: so an identical match requires an identical text, and a tenant holding the
+#: db cannot read another's key.
+#:
+#: The value is a *similarity map*, not a vector, so it is not invertible into
+#: the candidate's prose at all. The key carries only a digest of the text for
+#: the same reason.
+_PROCESS_SCAN: OrderedDict[tuple[str, str, int], tuple[float, dict[str, float]]] = OrderedDict()
+
+
+def _remember_scan(key: tuple[str, str, int], scores: dict[str, float]) -> None:
+    """Store one scan, bounding the memo (WS-24c)."""
+    _PROCESS_SCAN[key] = (time.monotonic(), dict(scores))
+    _PROCESS_SCAN.move_to_end(key)
+    while len(_PROCESS_SCAN) > _PROCESS_SCAN_ENTRIES:
+        _PROCESS_SCAN.popitem(last=False)
+
+
+def _recall_scan(key: tuple[str, str, int]) -> dict[str, float] | None:
+    """The memoized scan for ``key``, or ``None`` when absent or expired."""
+    entry = _PROCESS_SCAN.get(key)
+    if entry is None:
+        return None
+    stored_at, scores = entry
+    if time.monotonic() - stored_at > _PROCESS_SCAN_TTL_SECONDS:
+        _PROCESS_SCAN.pop(key, None)
+        return None
+    _PROCESS_SCAN.move_to_end(key)
+    return dict(scores)
+
+
+def clear_process_scan_cache() -> None:
+    """Drop every memoized scan (tests; operational use)."""
+    _PROCESS_SCAN.clear()
 
 
 class VectorStoreMismatch(RuntimeError):
@@ -126,9 +190,12 @@ class ChromaVectorStore:
             self._embedding_fn, "dimensionality", settings.embedding_dimensionality
         )
 
-        self._client = chromadb.PersistentClient(
-            path=str(ensure_dir(persist_dir or settings.chroma_dir))
-        )
+        # WS-24c: remembered for the scan-memo key. Two stores can share a
+        # collection *name* while pointing at different directories (the
+        # tests build one per tmp_path), and a shared scan between them
+        # would be a wrong answer, not a slow one.
+        self._persist_dir = str(ensure_dir(persist_dir or settings.chroma_dir))
+        self._client = chromadb.PersistentClient(path=self._persist_dir)
         self._collection = self._open_collection()
 
     # -- setup ---------------------------------------------------------------
@@ -257,6 +324,10 @@ class ChromaVectorStore:
         logger.info(
             "Upserted %d jobs into Chroma collection %s", len(listings), self.collection_name
         )
+        # WS-24c: a re-embedded listing changes its score without changing
+        # the row count, so the count in the scan key is not enough — any
+        # write drops the memoized scans outright.
+        clear_process_scan_cache()
         return written
 
     # -- read path -----------------------------------------------------------
@@ -273,6 +344,8 @@ class ChromaVectorStore:
         if not job_ids:
             return 0
         self._collection.delete(ids=list(job_ids))
+        # WS-24c: the memoized scans are no longer the corpus.
+        clear_process_scan_cache()
         logger.info(
             "Deleted %d vectors from Chroma collection %s", len(job_ids), self.collection_name
         )
@@ -296,6 +369,24 @@ class ChromaVectorStore:
 
     def count(self) -> int:
         return self._collection.count()
+
+    def _scan_key(self, query_text: str, covered: int) -> tuple[str, str, int]:
+        """The memo key for one full-corpus scan (WS-24c).
+
+        Each part closes a way the memo could be wrong:
+
+        - the **collection name and directory**, so two stores in one process
+          — the tests build one per tmp directory — never share a scan;
+        - a **digest** of the query text, so the raw candidate text is never
+          held as a key and two different texts never collide; and
+        - the number of **ids the scan covers**, so a corpus that grew or
+          shrank cannot be served a stale map. A write also clears the memo
+          outright (see :meth:`upsert_jobs` / :meth:`delete_jobs`), because a
+          re-embedded listing changes a score without changing the count.
+        """
+        digest = hashlib.sha256(query_text.encode("utf-8", errors="replace")).hexdigest()
+        scope = f"{self._persist_dir}\x1f{self.collection_name}"
+        return (scope, digest, covered)
 
     def stored_ids(self) -> set[str]:
         """Ids of every listing that has a vector in the collection."""
@@ -395,7 +486,6 @@ class ChromaVectorStore:
         """
         if self._collection.count() == 0:
             return {}
-        vector = self._embedding_fn.embed_query(build_query_text(query_text))
 
         from src.security.limits import get_limits
 
@@ -409,6 +499,20 @@ class ChromaVectorStore:
         # than the limit is really *cut* at the limit rather than merely
         # warned about.
         remaining = min(len(all_ids), limit)
+
+        # WS-24c: the whole scan is memoized **in this process**, keyed by
+        # the query text and the collection state it was computed against.
+        # A repeat search by an unchanged profile is then a dictionary read
+        # instead of a 3.2 s ONNX embed plus a 1.1 s vector fetch. See
+        # ``_process_scan`` for why this is not the persistent cache WS-14
+        # Phase G forbids.
+        memo_key = self._scan_key(query_text, remaining)
+        cached_scan = _recall_scan(memo_key)
+        if cached_scan is not None:
+            return cached_scan
+
+        vector = self._embedding_fn.embed_query(build_query_text(query_text))
+
         for start in range(0, remaining, SCAN_PAGE_SIZE):
             page_ids = all_ids[start : min(start + SCAN_PAGE_SIZE, remaining)]
             result = self._collection.get(ids=page_ids, include=["embeddings"])
@@ -419,6 +523,8 @@ class ChromaVectorStore:
             if not ids:
                 continue
             scores.update(self._similarities_for_page(ids, embeddings, vector))
+
+        _remember_scan(memo_key, scores)
 
         if len(all_ids) > limit:
             logger.warning(
