@@ -55,6 +55,9 @@ JOBS_COLUMNS = {
     # WS-23b: the mined experience bar (an inference, kept separate from
     # the board's own `experience_requirements`) and the first sighting.
     "required_years",
+    # WS-28: whether the bar was decided. NULL alone cannot distinguish
+    # "never mined" from "mined, states no bar".
+    "required_years_mined",
     "first_seen_at",
 }
 

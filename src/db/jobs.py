@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Float, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, String, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
@@ -85,6 +85,21 @@ class JobDB(Base):
     #: indistinguishable from a published fact, and the score states exist
     #: to keep exactly that distinction honest.
     required_years: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Whether ``required_years`` has been **decided** for this row (WS-28).
+    #:
+    #: ``required_years`` is NULL in two different situations: the row was
+    #: written before WS-23b (nothing was ever mined), or it was mined and the
+    #: listing states no bar. The read path treated both as "never mined" and
+    #: re-mined them, which cost 20.6 s of every cold start on the
+    #: 8,558-listing corpus — and a re-mine of those rows yields 0 values, so
+    #: the work could never produce a different answer.
+    #:
+    #: This marker makes the two distinguishable, so a decided row is decided
+    #: once. It defaults false because that is the truth for every existing
+    #: row: written before the marker existed, with no recorded decision.
+    required_years_mined: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     #: When the system first saw this listing (WS-23b).
     #:
     #: ``last_seen_at`` says when it was last seen. The corpus could not
@@ -223,6 +238,9 @@ def merge_jobs(
             last_seen_at=moment,
             content_version=content_version_for(listing),
             required_years=mined_years,
+            # WS-28: the mining decision is recorded even when it decides
+            # "no bar", so the read path never re-mines this row.
+            required_years_mined=True,
             first_seen_at=first_seen or moment,
         )
         session.merge(row)

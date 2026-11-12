@@ -192,6 +192,12 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
     # mining was 9.5 s of the 32.56 s rebuild — the most expensive
     # per-listing item — and it produced the same answer every time.
     stored_years: dict[str, float | None] = {row.id: row.required_years for row in rows}
+    # WS-28: and whether that value was **decided**. NULL alone cannot say:
+    # it means "never mined" for a row from before the WS-23b write path, and
+    # "mined, the listing states no bar" for a row written after it. Re-mining
+    # the second kind yields the same NULL every time — measured at 20.6 s of
+    # every cold start across 6,741 such rows, for an answer that cannot change.
+    mined_flags: dict[str, bool] = {row.id: bool(row.required_years_mined) for row in rows}
 
     # WS-24c: the seniority ladder is imported here rather than at module
     # scope because ``engine`` imports this module (``CorpusArtifacts``), so a
@@ -208,14 +214,12 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
         jobs=jobs,
         index=Bm25Index(jobs),
         lexical_terms=lexical_terms,
-        # A row written before WS-23b has no stored bar; fall back to
-        # mining it, so an un-migrated corpus still scores correctly.
+        # WS-28: a decided row is not re-mined — including one whose correct
+        # answer is "no bar". A row from before the marker (``required_years
+        # _mined`` false) is still mined, so an un-migrated corpus scores
+        # correctly without a backfill having run.
         required_years={
-            job.id: (
-                stored_years.get(job.id)
-                if stored_years.get(job.id) is not None
-                else required_years(job)
-            )
+            job.id: (stored_years.get(job.id) if mined_flags.get(job.id) else required_years(job))
             for job in jobs
         },
         role_classifications={job.id: classify_job_role(job) for job in jobs},
