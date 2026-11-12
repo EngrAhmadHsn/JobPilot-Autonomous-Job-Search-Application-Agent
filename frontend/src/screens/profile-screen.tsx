@@ -9,29 +9,54 @@ import { LinkButton } from "@/components/ui/link-button"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
 
 /**
- * Profile (WS-20).
+ * Profile (WS-20, reordered WS-27).
  *
- * The order is the order of work: the answers you can give come first, and
- * the résumé — which you cannot change here — sits below, folded up. Only the
- * summary is open; the full extraction is a click away, so the page reads as
- * two short cards rather than one long document.
+ * The order is the order of work, and it is now strictly **yours first, then
+ * your résumé's**:
  *
- * The two halves stay visibly separate: what your résumé says, and what you
- * confirm. The matcher reads both, and the answers are the questions a résumé
- * does not carry.
+ * 1. the answers you can give (preferences, application answers, EEO);
+ * 2. your model credential — an account setting, not a profile field;
+ * 3. your résumé, which you cannot change here, folded away at the bottom.
+ *
+ * WS-27 moved the credential card up here and gave it a `Section`. It used to
+ * sit as a bare `<Card>` *after* the résumé block — the only orphan card in
+ * the console, visually last on a page about profile answers, and outside the
+ * heading outline (`CardTitle` is a `div`). Its own docstring calls it an
+ * account setting, so it belongs with the settings-shaped blocks, not below
+ * résumé-derived content it has nothing to do with.
+ *
+ * The two halves of the profile stay visibly separate: what your résumé says,
+ * and what you confirm. The matcher reads both, and the answers are the
+ * questions a résumé does not carry.
  */
 export function ProfileScreen() {
-  const { profile: storedProfile, missing: profileMissing } = useProfileWithFallback()
+  const {
+    profile: storedProfile,
+    missing: profileMissing,
+    profileId,
+    documents,
+  } = useProfileWithFallback()
 
-  if (!storedProfile.data && !storedProfile.isPending && !profileMissing) {
-    return (
-      <EmptyState
-        title="No profile yet"
-        description="A profile is built from a résumé. Add one, then come back to answer the questions it does not cover."
-        action={<LinkButton to="/app/resume">Add a résumé</LinkButton>}
-      />
-    )
-  }
+  /*
+    WS-27: three states, and they must not be confused.
+
+    ``profileId`` (not ``isPending``) is what says whether a profile exists:
+    with no stored id and no fallback document, the hook's query is
+    *disabled*, and a disabled React Query reports ``isPending: true``
+    forever. Keying the empty state on ``isPending`` therefore showed
+    "Loading…" indefinitely on a fresh account — the old early return only
+    appeared to work because it ran before the pending flag was consulted.
+
+    - ``profileId`` null while the document list is still loading: loading;
+    - ``profileId`` null once the list has resolved: no profile, offer upload;
+    - ``profileId`` set: the answers and the résumé.
+
+    The credential card renders in **all three** states. It is an account
+    setting, and a deployment in `required` mode must be able to take a key
+    before the first résumé exists.
+  */
+  const resolving = documents.isPending && !profileId
+  const needsResume = !profileId && documents.isSuccess
 
   return (
     <div className="space-y-6">
@@ -40,7 +65,7 @@ export function ProfileScreen() {
         description="Answer once here, and the agent can answer for you. Your résumé supplies the rest."
       />
 
-      {storedProfile.isPending ? (
+      {resolving || (storedProfile.isPending && profileId) ? (
         <div className="space-y-2">
           <p className="text-sm text-foreground">Loading…</p>
           <div className="agent-progress h-1.5 w-full rounded-full" />
@@ -51,29 +76,49 @@ export function ProfileScreen() {
         <ErrorNotice error={storedProfile.error} onRetry={() => storedProfile.refetch()} />
       ) : null}
 
-      {storedProfile.data ? (
-        <>
-          <ApplicationProfilePanel profileId={storedProfile.data.profile_id} />
+      {needsResume ? (
+        <EmptyState
+          title="No profile yet"
+          description="A profile is built from a résumé. Add one, then come back to answer the questions it does not cover."
+          action={<LinkButton to="/app/resume">Add a résumé</LinkButton>}
+        />
+      ) : null}
 
-          <Section title="From your résumé">
-            <Disclosure
-              summary="See the full résumé profile"
-              hint={`${storedProfile.data.profile.skills.length} skills · ${
-                storedProfile.data.profile.projects.length
-              } projects`}
-            >
-              <ProfileView profile={storedProfile.data.profile} />
-            </Disclosure>
-          </Section>
-        </>
+      {storedProfile.data ? (
+        <ApplicationProfilePanel profileId={storedProfile.data.profile_id} />
       ) : null}
 
       {/*
-        WS-22: the credential is an account setting, not a profile field, so
-        it renders whether or not a résumé exists yet — a deployment in
-        `required` mode must be able to take a key before the first résumé.
+        WS-22/WS-27: an account setting, so it sits with the answer cards and
+        above the résumé — which is reference material, not something you edit
+        here. Rendered whether or not a résumé exists.
+
+        The Section is named for the *concern* ("Your model", i.e. whose AI
+        runs your tailoring), not for the widget, following the "What you want
+        next" / Work preferences precedent on the Résumé screen — otherwise
+        the section heading and the card title would say the same words twice.
       */}
-      <ModelCredentialsCard />
+      <Section
+        title="Your model"
+        description="Optional. Use your own AI provider key and your calls run on your quota and your bill."
+      >
+        <div className="max-w-3xl">
+          <ModelCredentialsCard />
+        </div>
+      </Section>
+
+      {storedProfile.data ? (
+        <Section title="From your résumé">
+          <Disclosure
+            summary="See the full résumé profile"
+            hint={`${storedProfile.data.profile.skills.length} skills · ${
+              storedProfile.data.profile.projects.length
+            } projects`}
+          >
+            <ProfileView profile={storedProfile.data.profile} />
+          </Disclosure>
+        </Section>
+      ) : null}
     </div>
   )
 }
