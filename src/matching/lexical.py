@@ -67,6 +67,14 @@ BM25_HALF_SATURATION = 6.0
 BM25_WEIGHT = 0.6
 COVERAGE_WEIGHT = 0.4
 
+#: How many matched / missing keywords the result carries (WS-24c).
+#:
+#: The result truncates to this many on the way out, and only the top-N
+#: listings are ever returned to a caller — so building the full lists was
+#: work for evidence nobody reads. The loop caps as it goes instead of
+#: truncating at the end.
+EVIDENCE_LIMIT = 25
+
 #: Token multiplicity per field (field-aware weighting by repetition).
 FIELD_WEIGHTS: dict[str, int] = {
     "title": 3,
@@ -490,11 +498,17 @@ def lexical_score(
     matched_weight = 0.0
     matched: list[str] = []
     missing: list[str] = []
+    # WS-24c: the result keeps the first ``EVIDENCE_LIMIT`` of each list,
+    # so the loop stops appending once it has them. The **weight** still
+    # accumulates over every term — that is what the coverage divides — so
+    # this changes no score, only how much list a search builds. At 8,558
+    # listings the untruncated lists were 3.4 M appends per search.
     for term, weight in terms:
         if term in candidate_set:
-            matched.append(term)
+            if len(matched) < EVIDENCE_LIMIT:
+                matched.append(term)
             matched_weight += weight
-        else:
+        elif len(missing) < EVIDENCE_LIMIT:
             missing.append(term)
     coverage = (matched_weight / total_weight * 100.0) if total_weight else 0.0
 
@@ -515,8 +529,8 @@ def lexical_score(
         score=max(0.0, min(100.0, score)),
         bm25_score=bm25,
         keyword_coverage=coverage,
-        matched_keywords=matched[:25],
-        missing_keywords=missing[:25],
+        matched_keywords=matched,
+        missing_keywords=missing,
         matched_phrases=matched_phrases,
         missing_phrases=missing_phrases,
     )
