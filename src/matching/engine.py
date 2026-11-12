@@ -26,7 +26,6 @@ from src.config.settings import get_settings
 from src.jobs.contracts import JobListing
 from src.matching.contracts import JobMatchResult
 from src.matching.corpus_cache import CorpusArtifacts
-from src.matching.experience import experience_score
 from src.matching.lexical import (
     Bm25Index,
     LexicalResult,
@@ -78,7 +77,6 @@ _SENIORITY_RANKS: tuple[tuple[str, int], ...] = (
 )
 
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
-
 
 def _seniority_rank(text: str | None) -> int | None:
     if not text or not text.strip():
@@ -249,10 +247,11 @@ def _experience_component(
     profile: CandidateProfile,
     *,
     requirement: float | None | object = _UNCACHED,
+    context: CandidateContext | None = None,
 ) -> ComponentScore:
-    from src.matching.experience import required_years, years_of_experience
-
     if requirement is _UNCACHED:
+        from src.matching.experience import required_years
+
         requirement = required_years(job)
     if requirement is None:
         return ComponentScore(
@@ -260,7 +259,12 @@ def _experience_component(
             state=ScoreState.JOB_REQUIREMENT_MISSING,
             reason="the listing states no experience requirement",
         )
-    actual = years_of_experience(profile)
+    # WS-24c: the candidate's total experience is derived once per search,
+    # not twice per listing. It used to be computed here AND again inside
+    # ``experience_score``, each a union over every dated entry.
+    if context is None:
+        context = CandidateContext.for_profile(profile)
+    actual = context.years_of_experience
     if actual is None:
         return ComponentScore(
             name="experience",
@@ -270,7 +274,9 @@ def _experience_component(
                 "profile has no dated experience"
             ),
         )
-    value = experience_score(job, profile, requirement=requirement) or 0.0
+    # The same arithmetic ``experience_score`` performs, on the two values
+    # already resolved above — so the second date-range union is not paid.
+    value = max(0.0, min(100.0, 100.0 - 25.0 * max(0.0, requirement - actual)))
     state = measured_state(value)
     reason = ""
     if state is ScoreState.MISMATCH:
@@ -305,7 +311,18 @@ def _candidate_rank(profile: CandidateProfile) -> int | None:
     return max(ranks) if ranks else None
 
 
-def _seniority_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
+def _seniority_component(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    candidate_rank: int | None | object = _UNCACHED,
+) -> ComponentScore:
+    """The seniority comparison.
+
+    WS-24c: the candidate's rank is a pure function of the profile, so the
+    context carries it. It used to walk every dated experience entry on
+    every listing.
+    """
     job_rank = _seniority_rank(job.seniority) or _seniority_rank(job.title)
     if job_rank is None:
         return ComponentScore(
@@ -313,7 +330,8 @@ def _seniority_component(job: JobListing, profile: CandidateProfile) -> Componen
             state=ScoreState.JOB_REQUIREMENT_MISSING,
             reason="the listing states no seniority level",
         )
-    candidate_rank = _candidate_rank(profile)
+    if candidate_rank is _UNCACHED:
+        candidate_rank = _candidate_rank(profile)
     if candidate_rank is None:
         return ComponentScore(
             name="seniority",
@@ -324,11 +342,18 @@ def _seniority_component(job: JobListing, profile: CandidateProfile) -> Componen
     return ComponentScore(name="seniority", value=value, state=measured_state(value))
 
 
-def _location_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
-    prefs = _effective_preferences(profile)
+def _location_component(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    context: CandidateContext | None = None,
+) -> ComponentScore:
+    if context is None:
+        context = CandidateContext.for_profile(profile)
+    prefs = context.effective_preferences
     policy = (job.remote_policy or "").casefold().replace("-", "").replace(" ", "")
     job_location = (job.location or "").casefold()
-    preferred = [loc.strip().casefold() for loc in prefs.preferred_locations if loc.strip()]
+    preferred = context.preferred_locations
 
     if policy == "remote":
         return ComponentScore(name="location", value=100.0, state=ScoreState.MATCHED)
@@ -389,23 +414,25 @@ def _location_component(job: JobListing, profile: CandidateProfile) -> Component
     )
 
 
-def _preference_component(job: JobListing, profile: CandidateProfile) -> ComponentScore:
-    prefs = _effective_preferences(profile)
+def _preference_component(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    context: CandidateContext | None = None,
+) -> ComponentScore:
+    if context is None:
+        context = CandidateContext.for_profile(profile)
     subscores: list[float] = []
     job_has_signal = False
 
-    employment_pref = [
-        normalized
-        for normalized in (_normalize_employment_type(t) for t in prefs.employment_types)
-        if normalized
-    ]
+    employment_pref = context.employment_types
     job_employment = _normalize_employment_type(job.employment_type)
     if job_employment:
         job_has_signal = True
     if employment_pref and job_employment:
         subscores.append(100.0 if job_employment in employment_pref else 40.0)
 
-    candidate_min = _parse_salary(prefs.min_salary)
+    candidate_min = context.parsed_min_salary
     job_salary = _parse_salary(job.salary)
     if job_salary is not None:
         job_has_signal = True
@@ -522,7 +549,20 @@ class CandidateContext:
     safe.
     """
 
-    __slots__ = ("lowered_text", "profile", "skill_set", "text", "token_set", "tokens")
+    __slots__ = (
+        "candidate_rank",
+        "effective_preferences",
+        "employment_types",
+        "lowered_text",
+        "parsed_min_salary",
+        "preferred_locations",
+        "profile",
+        "skill_set",
+        "text",
+        "token_set",
+        "tokens",
+        "years_of_experience",
+    )
 
     def __init__(
         self,
@@ -551,6 +591,40 @@ class CandidateContext:
         #: The phrase check lowercased the whole candidate text for every
         #: listing: 8,558 lowerings of the same string per search.
         self.lowered_text = text.lower()
+
+        # -- WS-24c: the rest of the per-listing candidate recomputation ----
+        #
+        # Every value below is a pure function of the profile, and the
+        # profile does not change while a search runs. Each was computed
+        # inside a component builder, so a search paid for it once per
+        # listing: the preferences merge alone deep-copied the whole
+        # ``WorkPreferences`` model twice per listing (17,116 copies per
+        # search on the 8,558-listing corpus), and the candidate's years of
+        # experience were re-derived from an entry-by-entry date-range union
+        # twice per listing.
+        self.effective_preferences = _effective_preferences(profile)
+        self.candidate_rank = _candidate_rank(profile)
+        from src.matching.experience import years_of_experience as _years_of_experience
+
+        self.years_of_experience = _years_of_experience(profile)
+        #: The preferred locations, stripped and lowercased once — the
+        #: location component rebuilt this list for every listing.
+        self.preferred_locations = tuple(
+            location.strip().casefold()
+            for location in self.effective_preferences.preferred_locations
+            if location.strip()
+        )
+        #: The employment types the candidate accepts, normalized once.
+        self.employment_types = tuple(
+            normalized
+            for normalized in (
+                _normalize_employment_type(value)
+                for value in self.effective_preferences.employment_types
+            )
+            if normalized
+        )
+        #: The candidate's salary floor, parsed once from its free-form text.
+        self.parsed_min_salary = _parse_salary(self.effective_preferences.min_salary)
 
     @classmethod
     def for_profile(cls, profile: CandidateProfile) -> CandidateContext:
@@ -630,7 +704,6 @@ def calculate_match(
     cached_requirement: float | None | object = (
         artifacts.required_years.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
     )
-
     components: dict[str, ComponentScore] = {
         "semantic": _semantic_component(job, semantic_score, semantic_state),
         "lexical": _lexical_component(
@@ -642,10 +715,14 @@ def calculate_match(
             context=context,
         ),
         "skill": _skill_component(job, profile, context=context),
-        "experience": _experience_component(job, profile, requirement=cached_requirement),
-        "seniority": _seniority_component(job, profile),
-        "location": _location_component(job, profile),
-        "preference": _preference_component(job, profile),
+        "experience": _experience_component(
+            job, profile, requirement=cached_requirement, context=context
+        ),
+        "seniority": _seniority_component(
+            job, profile, candidate_rank=context.candidate_rank
+        ),
+        "location": _location_component(job, profile, context=context),
+        "preference": _preference_component(job, profile, context=context),
         "role": _role_component(relevance),
     }
     blended = blend(effective_weights, components)
@@ -708,7 +785,11 @@ def calculate_match(
     if notes:
         explanation += " Notes: " + "; ".join(notes) + "."
 
-    logger.info("Match calculated for %s at %s: %.1f", job.title, job.company, overall)
+    # WS-24c: this ran at INFO for every listing — 8,558 log records per
+    # search, each through the PII-masking filter. The search's own summary
+    # (in ``search_stored_jobs``) is the record an operator reads; a
+    # per-listing line belongs at DEBUG.
+    logger.debug("Match calculated for %s at %s: %.1f", job.title, job.company, overall)
 
     return JobMatchResult(
         overall_score=overall,
