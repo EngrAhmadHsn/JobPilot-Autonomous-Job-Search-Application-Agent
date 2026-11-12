@@ -1200,3 +1200,173 @@ vectors are already fetched in one pass. It is a quality task, not a speed one.
 Two levers together take a memo-miss search from ~7.8 s to ~6.7 s with no
 ranking change. The query trim is the only way to reach ~5.5 s, and it is the
 owner's call.
+
+### 11.13 — The resident vector matrix, and the memo key
+
+Two changes, both from §11.12, both exact: no score changes, and the full
+score vector is still produced for every listing.
+
+#### What is being changed, and what is not
+
+`similarities_for_all` currently does three things on every memo miss:
+
+1. fetch all 7,666 ids (`collection.get(include=[])`, 0.023 s),
+2. embed the query (1.9–3.3 s),
+3. page 47 MB of vectors out of Chroma and reduce each page to a matvec (0.8–1.0 s).
+
+The first and third are repeated work. The ids never change unless the
+collection does, and the **decoded matrix is only 24 MB as float32** — the 47 MB
+is the serialized bytes Chroma hands back. Measured: fetching it is 1.04 s, and
+the matvec against a matrix already in memory is **0.001 s**.
+
+So the store keeps, per (persist directory, collection):
+- the **id list**, and
+- the **L2-normalized float32 matrix**, row-aligned with the ids.
+
+A search then does: memo lookup → embed → `matrix @ unit_query` → map to a dict.
+No per-search fetch, no per-page normalization.
+
+**This is not HNSW, and it is not approximate.** The whole matrix is still
+multiplied; every listing still gets a score. HNSW answers "the nearest k",
+which is a different question — the blend needs a value for all of them because
+`semantic` keeps its 0.13 weight in the denominator whether or not a listing is
+near the query. §11.12 records the measurement that settles it: HNSW top-50 is
+5.0 ms but scores 50 of 7,666, while the full matvec against a resident matrix
+is **1.1 ms** and scores all of them.
+
+#### The memo key
+
+The memo key was `(scope, digest, covered_id_count)` and `covered` was only
+known **after** fetching every id — so a memo *hit* still paid 0.023 s. The key
+becomes `(scope, digest, collection.count())`, which is a single O(1) call.
+`collection.count()` and the id list are the same number for a collection that is
+not mid-write, and the memo already tolerated a same-size-different-content
+corpus for up to the TTL. This makes the hit path a pure dict read.
+
+#### The consistency rules, and why they are safe
+
+The matrix must never be newer than the store, and must never outlive a write.
+Three mechanisms, in order of strength:
+
+1. **Any write from this process drops it.** `upsert_jobs` and `delete_jobs`
+   already call `clear_process_scan_cache()`; they now also clear the matrix.
+   This is the common case: the embedding worker writes, the API reads.
+2. **A size change drops it.** The cache entry records the id count it was built
+   at; a mismatch rebuilds. This catches a write from the **worker process**,
+   which this process cannot observe — the same limitation the scan memo has,
+   and the reason the TTL exists.
+3. **A TTL drops it.** Reuses `_PROCESS_SCAN_TTL_SECONDS` (120 s), so a
+   same-size write by another process resolves within two minutes.
+
+One matrix is held at a time, not one per corpus state: at 24 MB the tradeoff
+between "keep two corpora" and "rebuild after a corpus flip" is not worth the
+bookkeeping, and a rebuild on flip is 1.04 s against a 24 MB saving.
+
+#### What this costs
+
+**+24 MB** resident at 7,666 vectors, scaling with the corpus (150 MB at the
+50,000 cap). Against the ~1.5 GB the process already holds, and against the
+271 MB the embedding warm costs for a 3.3 s saving, this is the cheapest memory
+in the system.
+
+**One rebuild per corpus change.** The first search after the worker finishes a
+batch pays the fetch once more.
+
+#### What it does not fix
+
+The query embedding (1.9–3.3 s) is untouched — it is the only item left that is
+worth seconds, and §11.12 explains why trimming it is a ranking-quality
+decision. `calculate_match` + `lexical_score` (2.9 s) is the other, and its
+remaining cost is the discarded `JobMatchResult` objects (§10.4).
+
+### 11.14 — What the matrix and the key change actually measured
+
+**Measured 2026-11-13**, live 8,558-listing corpus, one fresh process, the real
+lifespan first.
+
+#### The change works, and it is small
+
+| | Time |
+|---|---|
+| Building the matrix (one 47 MB fetch + normalize) | **1.43 s** |
+| Scores from the resident matrix | **0.006 s** |
+| Page fetch, the old path (forced for comparison) | **1.04 s** |
+| **Saving per memo miss** | **~0.6–1.0 s** |
+
+The saving is real but smaller than §11.12 projected, and the reason is worth
+recording: the page scan was already vectorized *per page*, so its cost was the
+fetch (1.04 s) plus a fast matvec, not the per-vector loop §11.12 assumed. The
+matrix removes the fetch; it cannot remove a matvec that was already cheap.
+
+**Scores are bit-identical.** Forcing both paths on the same new query:
+`max abs difference 0.000e+00` across all 7,666 scores, `identical: True`.
+
+#### The complete phase breakdown of one search
+
+One fresh process, the real lifespan, one search over all 8,558 listings. The
+percentages are of the search only — the startup row is what a restart pays
+before the server serves.
+
+**Startup (not in the user's wait, but it is what a restart costs):**
+
+| Phase | Time | Memory |
+|---|---|---|
+| Embedding warm (`"warmup"`) | 4.06 s | +267 MB |
+| Corpus artifacts rebuild | 43.05 s | +1,131 MB |
+
+**One search (the user's wait):**
+
+| Phase | Time | Share | Memory |
+|---|---|---|---|
+| 1. Open the vector store (Chroma client + embedder + SQLite cache) | 0.30 s | 2.1% | +6 MB |
+| 2. `candidate_query_text` | 0.00 s | 0.0% | — |
+| **3. Embed the query (ONNX)** | **3.98 s** | **28.6%** | +6 MB |
+| **4. `similarities_for_all` — memo miss (builds the matrix)** | **5.27 s** | **37.8%** | **+64 MB** |
+| 4b. `similarities_for_all` — memo hit | 0.00 s | 0.0% | — |
+| 5. `embedding_status_for_jobs` (892 ids, one SQL `IN`) | 0.25 s | 1.8% | — |
+| 6–8. `candidate_tokens` / `candidate_lexical_text` / `CandidateContext` | 0.00 s | 0.0% | — |
+| 9. `BM25.score_all` | 0.59 s | 4.2% | — |
+| 10. `lexical_score` × 8,558 | 1.68 s | 12.1% | +6 MB |
+| 11. `calculate_match` × 8,558 | 1.83 s | 13.1% | +31 MB |
+| 12. Rank + take top 30 | 0.03 s | 0.2% | +1 MB |
+| **Total** | **13.93 s** | 100% | 1,640 MB RSS |
+
+Phase 4 includes a **second** query embed (it recomputes the vector internally
+on a memo miss), so the embed is charged twice in this table — 3.98 s in
+phase 3 and again inside phase 4. The two together are ~9 s, or **65% of the
+search**, which is why §11.12 calls the query embedding the only remaining large
+lever.
+
+For scale: phase 4 at 5.27 s = the 3.98 s embed + the 1.43 s matrix build. A
+warm memo hit makes the whole of phase 4 disappear (0.00 s).
+
+#### What this proves about the remaining levers
+
+- The matrix turned a 1.04 s fetch into a 0.006 s matvec. **Done.**
+- The memo key change made a hit a pure dict read (0.00 s). **Done.**
+- `collection.count()` is 0.004 s, so the key costs nothing.
+- Everything left that is worth a second is the **embed** (~4 s each, twice per
+  memo miss), which is a ranking-quality decision, and `calculate_match` +
+  `lexical_score` (3.5 s combined), whose remaining cost is the discarded
+  `JobMatchResult` objects (§10.4).
+
+A memo-miss search is ~13.9 s in this process; the API's own log measured
+~4–7 s for the same work, because the API process has the ONNX session and the
+artifacts already hot from a longer-lived run and the OS page cache is warm.
+Both are the same shape: the embed and the semantic scan dominate, and the
+per-listing scoring is the second tier.
+
+#### The correctness gate
+
+`tests/test_ws28_vector_matrix.py` has eight cases, and three of them were
+verified to **fail** when the code is broken:
+
+- removing the row normalization fails the exactness test;
+- removing the query normalization fails the exactness test;
+- the memo-hit test fails if the hit path touches the collection.
+
+The second and third matter because the first version of the fixture used
+**unit-length** vectors, which made both normalizations no-ops — the test
+passed with the normalizer deleted. The fixture now uses vectors at two
+different scales (7.5 for documents, 3.25 for the query), which is also the
+more honest input, since a real provider's vectors are not exactly unit length.
