@@ -28,7 +28,7 @@ from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.db.tailored import build_tailored_row, stored_from_row
 from src.llm.client import LLMError
-from src.llm.errors import LLMCredentialError
+from src.llm.errors import LLMConfigError, LLMCredentialError
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
 from src.resume.pipeline import run_tailoring
@@ -123,6 +123,32 @@ def tailor_resume_endpoint(
         # configuration error the caller can fix from the console.
         logger.warning("Tailoring refused: the caller's model credential is unusable")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LLMConfigError as exc:
+        # WS-27: the model is misconfigured — no provider selected, or the
+        # deployment's key is missing or was rejected. This is not an outage
+        # and waiting will not fix it, so it must not be reported as one.
+        #
+        # "Not set" and "rejected" are separated because they are different
+        # repairs: one is a blank or absent setting, the other is a key that
+        # exists and the provider refuses. The provider's own body (which
+        # carries the 403 text) stays in the log, where the operator who owns
+        # the key can read it, and never reaches the caller.
+        message = str(exc)
+        if "not set" in message:
+            detail = (
+                "The language model is not configured: no API key is set. "
+                "An operator needs to set LLM_API_KEY (and LLM_PROVIDER). "
+                "Retrying will not help."
+            )
+        else:
+            detail = (
+                "The language model is not configured correctly: the provider "
+                "rejected the deployment's API key. An operator needs to check "
+                "LLM_API_KEY and LLM_PROVIDER. Retrying will not help."
+            )
+        logger.warning("Tailoring refused: the model is misconfigured (%s)", type(exc).__name__)
+        logger.debug("Tailoring configuration detail: %s", message)
+        raise HTTPException(status_code=503, detail=detail) from exc
     except LLMError as exc:
         # The message never carries request content or the API key.
         logger.warning("Tailoring failed: LLM unavailable (%s)", type(exc).__name__)

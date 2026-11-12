@@ -240,7 +240,11 @@ class LLMClient:
         if self._provider_instance is not None:
             self._provider = self._provider_instance
             return self._provider
-        if not self._api_key:
+        # WS-27: ``strip()`` before the check. A whitespace-only key is
+        # truthy but means "not configured"; sending it makes the provider
+        # answer 403 "unregistered callers", which reads as an auth bug
+        # rather than a missing setting.
+        if not (self._api_key or "").strip():
             raise LLMConfigError("LLM_API_KEY is not set; configure it in .env (never commit it)")
         self._provider = build_provider(
             self.provider,

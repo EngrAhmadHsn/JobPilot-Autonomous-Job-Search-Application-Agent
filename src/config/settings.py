@@ -39,7 +39,13 @@ class Settings:
 
         # LLM "brain" called from LangGraph nodes (never logged)
         self.llm_provider = os.getenv("LLM_PROVIDER", "")
-        self.llm_api_key = os.getenv("LLM_API_KEY", "")
+        # WS-27: stripped at the boundary. A value of ``"   "`` (a copy-paste
+        # artefact, or a template that was never filled in) is truthy, so a
+        # bare ``if not key`` guard passes it through to the provider — which
+        # receives an empty header and answers 403 "Method doesn't allow
+        # unregistered callers". Stripping here makes "not configured" mean
+        # one thing, everywhere.
+        self.llm_api_key = (os.getenv("LLM_API_KEY", "") or "").strip()
         self.llm_model = os.getenv("LLM_MODEL", "")
         self.llm_base_url = os.getenv("LLM_BASE_URL", "") or None
         self.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))

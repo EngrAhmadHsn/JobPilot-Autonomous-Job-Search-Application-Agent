@@ -183,7 +183,9 @@ class GeminiProvider:
     def _ensure_client(self) -> Any:
         if self._client is not None:
             return self._client
-        if not self._api_key:
+        # WS-27: strip before the check — a whitespace-only key is "not
+        # configured", not a key the provider should be asked to accept.
+        if not (self._api_key or "").strip():
             raise LLMConfigError("LLM_API_KEY is not set; configure it in .env (never commit it)")
         try:
             from google import genai

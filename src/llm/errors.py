@@ -140,6 +140,25 @@ _UNAVAILABLE_TOKENS = (
     "connection",
     "internal",
 )
+#: A rejected credential. Checked **before** the retryable tokens above (WS-27).
+#:
+#: Google's answer to a request with no usable API key is a 403 whose body
+#: says "Method doesn't allow unregistered callers" — it contains neither
+#: "401" nor "403" as a token, so it used to fall through to the generic
+#: ``LLMError`` and then be reported to the user as "the language model is
+#: unavailable; try again later". Retrying cannot fix a wrong or missing key,
+#: and telling the operator to wait hides the one thing they can act on.
+_AUTH_TOKENS = (
+    "401",
+    "403",
+    "unauthenticated",
+    "permission_denied",
+    "unregistered caller",
+    "api key not valid",
+    "invalid api key",
+    "incorrect api key",
+    "invalid_api_key",
+)
 
 
 def scrub_secret(text: str, secret: str | None) -> str:
@@ -178,6 +197,12 @@ def classify_provider_error(exc: Exception, *, secret: str | None = None) -> LLM
         return LLMRateLimited(f"LLM rate limited: {text}")
     if any(token in lowered for token in _TIMEOUT_TOKENS):
         return LLMTimeout(f"LLM call timed out: {text}")
+    # WS-27: a rejected key is a configuration error, not an outage, and the
+    # check must come before the availability tokens — Google's 403 body for
+    # a missing key contains "unregistered callers", and its retryable-looking
+    # text used to win the race and turn a fixable setting into "try later".
+    if any(token in lowered for token in _AUTH_TOKENS):
+        return LLMConfigError(f"LLM rejected the API key: {text}")
     if any(token in lowered for token in _UNAVAILABLE_TOKENS):
         return LLMUnavailable(f"LLM unavailable: {text}")
     return LLMError(f"LLM call failed: {text}")

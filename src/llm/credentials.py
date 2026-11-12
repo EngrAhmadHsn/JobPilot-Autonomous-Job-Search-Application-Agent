@@ -156,9 +156,24 @@ class LlmCredentialInput(BaseModel):
             )
         return name
 
-    @field_validator("model", "api_key")
+    @field_validator("model", "api_key", mode="before")
     @classmethod
-    def _stripped(cls, value: str) -> str:
+    def _stripped(cls, value: object) -> object:
+        """Strip **before** the length checks run (WS-27).
+
+        Pydantic validates ``min_length`` before an ``after`` validator, so
+        eight spaces used to satisfy ``_MIN_KEY_CHARS`` and then be stored as
+        the empty string. Every later ``if not key`` guard then passed it
+        through to the provider, which answered 403 "unregistered callers".
+        A stripped-empty key must fail here, where the user can see it.
+        """
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("api_key")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("The API key cannot be blank.")
         return value.strip()
 
 
