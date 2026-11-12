@@ -2,9 +2,53 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agentic Job Applier — Operator console</title>
+
+    <!--
+      The viewport allows safe-area insets, so a future fixed element can pad
+      against a notch. No maximum-scale or user-scalable: text must stay
+      zoomable to 200% (WCAG 1.4.4).
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+    <link rel="canonical" href="https://jobpilot.example.com/" />
+
+    <title>JobPilot — job search that waits for you</title>
+    <meta
+      name="description"
+      content="JobPilot ranks job openings against your résumé, shows what you match and what you miss, and prepares each application. Nothing is sent until you approve it."
+    />
+    <meta name="theme-color" content="#0e1a16" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- A shared link renders as a card rather than a bare URL. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="JobPilot" />
+    <meta
+      property="og:title"
+      content="JobPilot — job search that waits for you"
+    />
+    <meta
+      property="og:description"
+      content="Ranks openings against your résumé, shows the gaps, prepares the application. You approve what gets sent."
+    />
+    <meta property="og:url" content="https://jobpilot.example.com/" />
+    <meta property="og:image" content="https://jobpilot.example.com/og.png" />
+    <meta property="og:image:alt" content="JobPilot on a dark green canvas" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="JobPilot — job search that waits for you"
+    />
+    <meta
+      name="twitter:description"
+      content="Ranks openings against your résumé, shows the gaps, prepares the application. You approve what gets sent."
+    />
+    <meta name="twitter:image" content="https://jobpilot.example.com/og.png" />
   </head>
   <body>
     <div id="root"></div>

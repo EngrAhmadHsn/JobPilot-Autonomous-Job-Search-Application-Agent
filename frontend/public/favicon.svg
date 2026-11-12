@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    The JobPilot mark: a lime tile with an ivory page on it, and the forest
+    line that stands for the marked line on a résumé. The same shapes the
+    landing page's header draws, drawn at favicon scale.
+  -->
+  <rect width="32" height="32" rx="8" fill="#d9f36a" />
+  <path
+    d="M9.5 6.5h9.5L23 10.5V25.5H9.5z"
+    fill="#f7f5ef"
+    stroke="#173d32"
+    stroke-width="1.8"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M13 14h6"
+    stroke="#173d32"
+    stroke-width="2.6"
+    stroke-linecap="round"
+  />
+</svg>

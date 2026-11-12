@@ -1,0 +1,15 @@
+# The console is behind a session and has nothing to index. The landing page
+# is the public surface. Nothing here is a secret: a path a crawler cannot
+# authenticate to is already invisible to it.
+User-agent: *
+Allow: /$
+Allow: /favicon.svg
+Allow: /apple-touch-icon.svg
+
+# The console, its API and the sign-in form are not content.
+Disallow: /app
+Disallow: /app/
+Disallow: /sign-in
+Disallow: /api/
+
+Sitemap: https://jobpilot.example.com/sitemap.xml
