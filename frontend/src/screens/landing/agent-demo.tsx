@@ -2,6 +2,7 @@ import { Check, CircleSlash, Pause, Play } from "lucide-react"
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { useEffectiveReducedMotion } from "@/lib/motion"
 import { cn } from "cn"
 
@@ -10,20 +11,20 @@ import { DEMO_NOTICE, DEMO_STAGES, type DemoPanel } from "./demo-data"
 /**
  * The interactive product demonstration.
  *
- * A miniature JobPilot that a visitor drives: pick a workflow stage on the
- * left and the panel shows what the agent does there, what it reports, and
- * what comes out. It is a working interface, not a slideshow — but it is
- * **isolated**: the data is a fixture (`demo-data.ts`), no request is ever
- * made, and the demo says so, on screen, at all times.
+ * A miniature JobPilot that a visitor drives: pick a workflow stage and the
+ * panel shows what the agent does there, what it reports, and what comes out.
+ * It is a working interface rather than a slideshow, and it is **isolated**:
+ * the data is a fixture (`demo-data.ts`), no request is ever made, and the
+ * demo says so on screen at all times.
  *
  * Behaviour:
  *
- * - **Manual by default, with an optional walkthrough.** The visitor can
- *   step through the stages by hand; an automatic walkthrough can run, but
- *   it pauses the instant the visitor takes over, and there is an explicit
- *   play/pause control.
- * - **It only runs while it is on screen** (an `IntersectionObserver`),
- *   and not at all under `prefers-reduced-motion`.
+ * - **Manual by default, with an optional walkthrough.** The visitor can step
+ *   through the stages by hand; an automatic walkthrough can run, but it
+ *   pauses the moment the visitor takes over, and the play/pause control is
+ *   explicit.
+ * - **It only runs while it is on screen** (an `IntersectionObserver`), and
+ *   not at all under `prefers-reduced-motion`.
  * - **It is fully keyboard-operable**: the stage list is a `tablist` with
  *   arrow-key navigation, `Home`/`End`, and a roving focus.
  */
@@ -34,6 +35,13 @@ export function AgentDemo() {
   const reduced = useEffectiveReducedMotion()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  /*
+    The tablist runs horizontally below `lg` and vertically above it, so its
+    `aria-orientation` has to change with the layout. It used to be a
+    hardcoded "vertical", which a screen reader announced at every width
+    while a sighted visitor was scrolling the tabs sideways.
+  */
+  const verticalTabs = useMediaQuery("(min-width: 64rem)")
 
   // The walkthrough only advances while the demo is actually in view, and
   // never under reduced-motion. Stepping by hand always works.
@@ -114,13 +122,21 @@ export function AgentDemo() {
         </span>
       </div>
 
-      <div className="grid gap-0 lg:grid-cols-[240px_1fr]">
-        {/* The stages, as a tablist. Arrow keys move between them. */}
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+        {/*
+          The stages, as a tablist. Arrow keys move between them.
+
+          On a narrow screen the row scrolls horizontally, so the tabs that
+          do not fit are off-screen with nothing to say so — the row ended
+          flush against the card edge and read as complete. A fade on the
+          trailing edge is the cue, and `lg` drops it because the column
+          does not scroll.
+        */}
         <div
           role="tablist"
           aria-label="Workflow stages"
-          aria-orientation="vertical"
-          className="flex gap-1 overflow-x-auto border-b border-night-line p-2 lg:flex-col lg:overflow-visible lg:border-r lg:border-b-0"
+          aria-orientation={verticalTabs ? "vertical" : "horizontal"}
+          className="relative flex gap-1 overflow-x-auto border-b border-night-line [mask-image:linear-gradient(to_right,black_82%,transparent)] p-2 lg:flex-col lg:overflow-visible lg:border-r lg:border-b-0 lg:[mask-image:none]"
         >
           {DEMO_STAGES.map((item, index) => {
             const selected = index === active
@@ -170,14 +186,15 @@ export function AgentDemo() {
           tabIndex={0}
           className="enter-up min-w-0 p-5 sm:p-7"
         >
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="rounded-full border border-ivory/15 px-2 py-0.5 text-[11px] font-medium tracking-wide text-night-muted uppercase">
-              {stage.phase}
-            </span>
-            <h3 className="font-heading text-xl font-semibold text-ivory">
-              {stage.label}
-            </h3>
-          </div>
+          {/*
+            The phase pill ("Perceive", "Reason", "Act") is gone. Those are the
+            agent framework's own vocabulary, and a visitor reading a demo does
+            not need to learn it to understand what came out. The stage name is
+            the heading; the phase survives in the fixture, unrendered.
+          */}
+          <h3 className="font-heading text-xl font-semibold text-ivory">
+            {stage.label}
+          </h3>
           <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-night-muted">
             {stage.summary}
           </p>
@@ -190,7 +207,10 @@ export function AgentDemo() {
                 className="enter-up flex items-center gap-2 text-sm text-ivory/90"
                 style={{ "--i": index } as CSSProperties}
               >
-                <Check className="size-3.5 shrink-0 text-lime" aria-hidden="true" />
+                <Check
+                  className="size-3.5 shrink-0 text-lime"
+                  aria-hidden="true"
+                />
                 {line}
               </li>
             ))}
@@ -209,27 +229,35 @@ export function AgentDemo() {
             <span
               key={item.id}
               className={cn(
-                "h-1 rounded-full transition-all duration-300",
+                "h-1 rounded-full transition-[width,background-color] duration-300",
                 index === active ? "w-5 bg-lime" : "w-1.5 bg-ivory/20"
               )}
             />
           ))}
         </div>
         <div className="flex items-center gap-3">
+          {/*
+            The status line says what the walkthrough is doing in plain words.
+            It used to read "Walkthrough playing · fades only", which is a
+            description of the CSS rather than of the demo, and "(off screen)"
+            was a second internal detail exposed to the reader.
+          */}
           <span className="text-xs text-night-muted" aria-live="polite">
             {paused
               ? "Walkthrough paused"
               : visible
                 ? reduced
-                  ? "Walkthrough playing · fades only"
-                  : "Walkthrough playing"
-                : "Walkthrough paused (off screen)"}
+                  ? "Advancing without motion"
+                  : "Advancing on its own"
+                : "Paused while off screen"}
           </span>
           <button
             type="button"
             onClick={() => setPaused((value) => !value)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-night-line px-3 py-1.5 text-xs font-medium text-ivory transition-colors duration-150 hover:bg-ivory/8"
-            aria-label={paused ? "Play the walkthrough" : "Pause the walkthrough"}
+            aria-label={
+              paused ? "Play the walkthrough" : "Pause the walkthrough"
+            }
           >
             {paused ? (
               <Play className="size-3.5" aria-hidden="true" />
@@ -280,6 +308,12 @@ function DemoPanelView({ panel }: { panel: DemoPanel }) {
     case "discovery":
       return (
         <Card>
+          {/*
+            No source badge. Which board a listing came from is our plumbing,
+            and the visitor is deciding whether the product finds good roles,
+            not which vendor feeds it. The rows keep `source` in the fixture
+            because the real system tracks it, but the demo does not show it.
+          */}
           <ul className="divide-y divide-night-line">
             {panel.rows.map((row) => (
               <li
@@ -292,9 +326,6 @@ function DemoPanelView({ panel }: { panel: DemoPanel }) {
                     {row.company} · {row.location}
                   </p>
                 </div>
-                <span className="rounded-full border border-night-line px-2 py-0.5 font-mono text-[11px] text-night-muted">
-                  {row.source}
-                </span>
               </li>
             ))}
           </ul>
@@ -376,9 +407,14 @@ function DemoPanelView({ panel }: { panel: DemoPanel }) {
                       : "bg-terracotta/15 text-terracotta"
                   )}
                 >
+                  {/*
+                    "Tightened, not invented" was a contrast the reader never
+                    asked about: it argued with an accusation nobody made. Each
+                    label now names what the validator decided.
+                  */}
                   {bullet.verdict === "grounded"
-                    ? "Grounded in the profile"
-                    : "Tightened, not invented"}
+                    ? "Supported by the profile"
+                    : "Rephrased from the profile"}
                 </span>
               </li>
             ))}
@@ -421,9 +457,6 @@ function DemoPanelView({ panel }: { panel: DemoPanel }) {
               <p className="mt-1 text-sm text-night-muted">
                 {panel.jobTitle} · {panel.company}
               </p>
-              <p className="mt-1 text-xs text-night-muted">
-                Target: {panel.adapter}
-              </p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -449,7 +482,7 @@ function DemoPanelView({ panel }: { panel: DemoPanel }) {
           </p>
           <div className="mt-3 rounded-lg border border-night-line bg-night/60 p-3">
             <p className="text-xs text-night-muted">Confirmation page</p>
-            <p className="mt-1 text-sm text-ivory">“{panel.confirmation}”</p>
+            <p className="mt-1 text-sm text-ivory">"{panel.confirmation}"</p>
           </div>
           <ul className="mt-4 space-y-1.5 text-xs text-night-muted">
             <li className="flex items-center gap-2">

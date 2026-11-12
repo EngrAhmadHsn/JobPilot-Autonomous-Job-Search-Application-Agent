@@ -4,13 +4,16 @@
  * **This module is a fixture, and nothing else.** Every value here is
  * invented for the demonstration; none of it is fetched, and no part of the
  * demo touches the API. The demo is labelled as a demo on screen, and the
- * data is shaped to match the **real** system — the real job sources
- * (Greenhouse, Lever, Remotive), the real tailoring vocabulary (factuality
- * verdicts, keyword coverage), the real approval and evidence concepts — so
- * that what a visitor learns from it is true of the product.
+ * data is shaped to match the **real** system (the real job sources:
+ * Greenhouse, Lever and Remotive; the real tailoring verdicts and keyword
+ * coverage; the real approval and evidence concepts), so that what a visitor
+ * learns from it is true of the product.
  *
  * The person is fictional. The jobs are fictional. No outcome shown here is
  * a claim about a real submission.
+ *
+ * Copy rules: state what happens and what the reader gets. No sentence may
+ * only restate the one before it, and no claim may exceed what the code does.
  */
 
 export interface DiscoveryRow {
@@ -69,7 +72,6 @@ export type DemoPanel =
       kind: "approval"
       jobTitle: string
       company: string
-      adapter: string
       note: string
     }
   | {
@@ -83,7 +85,7 @@ export type DemoPanel =
 
 export interface DemoStage {
   id: string
-  /** The loop phase: perceive → reason → act → observe → evaluate. */
+  /** The loop phase: perceive, reason, act, observe, evaluate. */
   phase: string
   label: string
   summary: string
@@ -96,33 +98,31 @@ export const DEMO_STAGES: DemoStage[] = [
   {
     id: "resume",
     phase: "Perceive",
-    label: "Resume analysis",
-    summary:
-      "The agent reads an uploaded résumé into a structured candidate profile — skills, experience, education — without inventing a single fact.",
+    label: "Résumé analysis",
+    summary: "Your résumé, read into a profile.",
     agent: [
-      "Parsing the uploaded document",
+      "Reading the document",
       "Extracting skills, roles and dates",
-      "Building the candidate profile",
+      "Building your profile",
     ],
     panel: {
       kind: "resume",
       name: "Sam Rivera",
-      headline: "Backend engineer · 6 years",
+      headline: "Backend engineer, 6 years",
       skills: ["Python", "FastAPI", "PostgreSQL", "AWS", "Docker"],
       experience: 3,
-      note: "Every field is extracted from the document. The parser never adds a skill the résumé does not contain.",
+      note: "Nothing is added that the résumé does not say.",
     },
   },
   {
     id: "discovery",
     phase: "Perceive",
     label: "Job discovery",
-    summary:
-      "It searches the job boards it is allowed to search, normalizes what it finds, drops duplicates and screens out the obvious mismatches.",
+    summary: "It searches the boards you pick and removes duplicates.",
     agent: [
-      "Searching Greenhouse listings",
-      "Searching Lever and Remotive",
-      "Normalizing and de-duplicating 42 listings",
+      "Searching your boards",
+      "Collecting 42 listings",
+      "Removing duplicates",
     ],
     panel: {
       kind: "discovery",
@@ -152,19 +152,18 @@ export const DEMO_STAGES: DemoStage[] = [
           location: "Remote (worldwide)",
         },
       ],
-      note: "Four of the forty-two listings, shown for the demonstration. Only listings from configured sources appear here.",
+      note: "Four of the forty-two found.",
     },
   },
   {
     id: "matching",
     phase: "Reason",
-    label: "Matching & relevance",
-    summary:
-      "It scores each listing against the profile and explains the score: what the candidate has, and what is genuinely missing.",
+    label: "Matching and relevance",
+    summary: "Every opening scored against you, with the reasons.",
     agent: [
-      "Evaluating 42 job descriptions",
-      "Comparing technical requirements against your profile",
-      "Ranking the strongest matches",
+      "Reading 42 job descriptions",
+      "Comparing against your profile",
+      "Ranking the best matches",
     ],
     panel: {
       kind: "matching",
@@ -174,22 +173,27 @@ export const DEMO_STAGES: DemoStage[] = [
       reasons: [
         { text: "Python and FastAPI are central to the role", have: true },
         { text: "PostgreSQL experience matches the stack", have: true },
-        { text: "The role asks for Kubernetes, which is not on the profile", have: false },
-        { text: "Six years of backend work meets the seniority bar", have: true },
+        {
+          text: "The role asks for Kubernetes, which is not on your profile",
+          have: false,
+        },
+        {
+          text: "Six years of backend work meets the seniority bar",
+          have: true,
+        },
       ],
-      note: "The score is a hybrid of lexical and semantic similarity. The explanation is generated from the same signals, not written afterwards.",
+      note: "The reasons come from the same signals as the score.",
     },
   },
   {
     id: "tailoring",
     phase: "Act",
-    label: "Resume tailoring",
-    summary:
-      "For a chosen job it rewrites the résumé toward the role — and a validator checks every line against the original. Nothing may be claimed that is not already true.",
+    label: "Résumé tailoring",
+    summary: "Your résumé, rewritten for one job.",
     agent: [
       "Tailoring the résumé for Northwind",
-      "Validating every claim against the profile",
-      "Resume tailoring completed",
+      "Checking every line against your profile",
+      "Tailoring complete",
     ],
     panel: {
       kind: "tailoring",
@@ -198,12 +202,14 @@ export const DEMO_STAGES: DemoStage[] = [
       bullets: [
         {
           before: "Worked on backend services.",
-          after: "Built and operated Python/FastAPI backend services handling production traffic.",
+          after:
+            "Built and operated Python/FastAPI backend services handling production traffic.",
           verdict: "grounded",
         },
         {
           before: "Helped with the database.",
-          after: "Designed PostgreSQL schemas and queries for the services the team ran.",
+          after:
+            "Designed PostgreSQL schemas and queries for the services the team ran.",
           verdict: "grounded",
         },
         {
@@ -212,73 +218,67 @@ export const DEMO_STAGES: DemoStage[] = [
           verdict: "tightened",
         },
       ],
-      note: "“Tightened” means the wording was sharpened but the underlying fact already existed. A claim with no support in the profile is dropped, not written.",
+      note: "A claim your résumé cannot support is dropped.",
     },
   },
   {
     id: "preparation",
     phase: "Act",
     label: "Application preparation",
-    summary:
-      "It fills the application form's fields from the profile and the tailored résumé, and records exactly where every value came from.",
+    summary: "The application form, filled in for you.",
     agent: [
-      "Mapping the form's fields to the profile",
+      "Filling the form from your profile",
       "Attaching the tailored résumé",
-      "Preparing the application for review",
+      "Ready for your review",
     ],
     panel: {
       kind: "preparation",
       fields: [
-        { field: "Full name", source: "Candidate profile · personal information" },
-        { field: "Email", source: "Candidate profile · personal information" },
-        { field: "Phone", source: "Candidate profile · personal information" },
-        { field: "Résumé", source: "Tailored résumé for Northwind" },
-        { field: "Cover note", source: "Prepared paragraphs, checked for factual support" },
+        {
+          field: "Full name",
+          source: "Your profile",
+        },
+        { field: "Email", source: "Your profile" },
+        { field: "Phone", source: "Your profile" },
+        { field: "Résumé", source: "Tailored for Northwind" },
+        {
+          field: "Cover note",
+          source: "Written from your experience",
+        },
       ],
-      note: "A field the profile cannot answer is left for a human. The agent never guesses a value.",
+      note: "A field it cannot answer is left for you. Nothing is guessed.",
     },
   },
   {
     id: "approval",
     phase: "Evaluate",
-    label: "Human review & approval",
-    summary:
-      "Nothing is submitted until a person approves it. The prepared application waits for an explicit decision, and the agent stops.",
-    agent: [
-      "Prepared application is ready",
-      "Waiting for your approval",
-      "No submission has happened",
-    ],
+    label: "Human review and approval",
+    summary: "It waits here for you.",
+    agent: ["Application ready", "Waiting for you", "Nothing sent yet"],
     panel: {
       kind: "approval",
       jobTitle: "Senior Backend Engineer",
       company: "Northwind",
-      adapter: "Controlled test target",
-      note: "Approving runs the prepared payload against the configured adapter. Rejecting submits nothing. Either way, the decision is recorded against the account.",
+      note: "Approve sends it. Reject sends nothing. Either way, it is on your record.",
     },
   },
   {
     id: "verification",
     phase: "Observe",
-    label: "Submission & verification",
-    summary:
-      "After an approved submission, the agent records the evidence: what the page said, the URL it landed on, and a screenshot — and reports only what the evidence shows.",
-    agent: [
-      "Submitting the approved payload",
-      "Reading the confirmation page",
-      "Recording the evidence",
-    ],
+    label: "Submission and verification",
+    summary: "After you approve, it records what came back.",
+    agent: ["Submitting", "Reading the confirmation", "Recording the evidence"],
     panel: {
       kind: "verification",
       jobTitle: "Senior Backend Engineer",
       company: "Northwind",
-      confirmation: "Thank you — your application has been received.",
+      confirmation: "Thank you. Your application has been received.",
       jobUrl: "https://boards.example.test/northwind/jobs/4821",
-      note: "“Verified” is claimed only when the confirmation is found. A submission with no readable confirmation is recorded as submitted-but-unverified, never as success.",
+      note: "Verified only if the confirmation was found. Otherwise it says unverified.",
     },
   },
 ]
 
 /** The label the demo wears everywhere, so it is never mistaken for live data. */
 export const DEMO_NOTICE =
-  "Demo · sample data · this never contacts a real job board or your account"
+  "Sample data. This never contacts a real job board or your account."

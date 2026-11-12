@@ -17,9 +17,9 @@ describe("the agent demonstration", () => {
     renderScreen(<AgentDemo />)
 
     expect(
-      await screen.findByRole("tab", { name: /resume analysis/i })
+      await screen.findByRole("tab", { name: /résumé analysis/i })
     ).toHaveAttribute("aria-selected", "true")
-    expect(await screen.findByText(/parsing the uploaded document/i)).toBeInTheDocument()
+    expect(await screen.findByText(/reading the document/i)).toBeInTheDocument()
   })
 
   it("switches stages when a visitor clicks one", async () => {
@@ -28,11 +28,12 @@ describe("the agent demonstration", () => {
 
     await user.click(screen.getByRole("tab", { name: /job discovery/i }))
 
+    expect(screen.getByRole("tab", { name: /job discovery/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
     expect(
-      screen.getByRole("tab", { name: /job discovery/i })
-    ).toHaveAttribute("aria-selected", "true")
-    expect(
-      await screen.findByText(/searching greenhouse listings/i)
+      await screen.findByText(/searching your boards/i)
     ).toBeInTheDocument()
   })
 
@@ -40,13 +41,14 @@ describe("the agent demonstration", () => {
     const user = userEvent.setup()
     renderScreen(<AgentDemo />)
 
-    const first = screen.getByRole("tab", { name: /resume analysis/i })
+    const first = screen.getByRole("tab", { name: /résumé analysis/i })
     first.focus()
     await user.keyboard("{ArrowRight}")
 
-    expect(
-      screen.getByRole("tab", { name: /job discovery/i })
-    ).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", { name: /job discovery/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
   })
 
   it("says, on the interface itself, that it is a demo", async () => {

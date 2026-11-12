@@ -6,9 +6,11 @@ import { renderApp } from "@/test/render"
 /**
  * The public landing page.
  *
- * The page is the front door, and two properties matter most: it renders
- * for a visitor with no session (it must not touch the API), and its claims
- * are the product's real ones — no live auto-submission to real boards.
+ * The page is the front door, and three properties matter most: it renders
+ * for a visitor with no session (it must not touch the API), its claims are
+ * the product's real ones (no live auto-submission to real boards), and its
+ * primary call to action asks for an account in the form a new visitor can
+ * actually complete.
  */
 describe("the landing page", () => {
   it("renders for a visitor with no session", async () => {
@@ -16,7 +18,7 @@ describe("the landing page", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: /your job search runs itself/i,
+        name: /jobpilot finds the roles/i,
       })
     ).toBeInTheDocument()
   })
@@ -25,42 +27,45 @@ describe("the landing page", () => {
     renderApp({ route: "/" })
 
     const links = await screen.findAllByRole("link", {
-      name: /open the console|create your account/i,
+      name: /create your account|open the console/i,
     })
     expect(links.length).toBeGreaterThan(0)
     expect(links[0]).toHaveAttribute("href", "/sign-in")
   })
 
-  it("labells the demonstration as a demo with sample data", async () => {
+  it("labels the demonstration as sample data", async () => {
     renderApp({ route: "/" })
 
     expect(
-      await screen.findByText(/this never contacts a real job board/i)
+      await screen.findByText(/never contacts a real job board/i)
     ).toBeInTheDocument()
   })
 
   it("does not promise live automated submissions to real job boards", async () => {
     renderApp({ route: "/" })
 
-    await screen.findByRole("heading", { name: /your job search/i })
+    await screen.findByRole("heading", { name: /jobpilot finds the roles/i })
     // The honest framing: approval-gated, controlled targets.
     expect(
-      screen.getAllByText(/you approve every application/i).length
+      screen.getAllByText(/approval before every submission/i).length
     ).toBeGreaterThan(0)
+    expect(screen.getAllByText(/evidence/i).length).toBeGreaterThan(0)
   })
 
   it("shows its content even where the scroll reveal cannot run", async () => {
     // jsdom has no IntersectionObserver, and the reveal is designed so the
-    // content is present and visible without it — never hidden until
+    // content is present and visible without it: never hidden until
     // JavaScript runs.
     renderApp({ route: "/" })
 
     // Content that lives in a reveal-marked block: a capability card and a
     // trust card, both unique to their sections.
     expect(
-      await screen.findByText(/matching that explains itself/i)
+      await screen.findByText(/matches you can argue with/i)
     ).toBeInTheDocument()
-    expect(await screen.findByText(/your data stays yours/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/your data stays in your account/i)
+    ).toBeInTheDocument()
   })
 
   it("opens on the headline, without the AI-badge pill", async () => {
@@ -69,8 +74,17 @@ describe("the landing page", () => {
     // delayed the actual claim, so the hero opens on the headline instead.
     renderApp({ route: "/" })
 
-    await screen.findByRole("heading", { name: /your job search/i })
+    await screen.findByRole("heading", { name: /jobpilot finds the roles/i })
     expect(screen.queryByText(/autonomous job search/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/human at the wheel/i)).not.toBeInTheDocument()
+  })
+
+  it("says who decides the submission, in the first screen", async () => {
+    renderApp({ route: "/" })
+
+    // The one claim this product must never blur is on the first screen.
+    expect(
+      await screen.findByText(/you approve what gets sent/i)
+    ).toBeInTheDocument()
   })
 })
