@@ -310,6 +310,12 @@ class _StubStore:
         self.scans += 1
         return {job_id: float(len(query_text)) for job_id in self._ids}
 
+    def _scope_key(self) -> str:
+        """Delegate to the real implementation so this stub cannot drift."""
+        from src.rag.chroma_store import ChromaVectorStore
+
+        return ChromaVectorStore._scope_key(self)
+
     def _scan_key(self, query_text: str, covered: int) -> tuple[str, str, int]:
         """The store's own key builder, so the test cannot drift from it."""
         from src.rag.chroma_store import ChromaVectorStore

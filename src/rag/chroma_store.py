@@ -27,6 +27,7 @@ import logging
 import time
 from collections import OrderedDict
 from collections.abc import Iterable
+from typing import Any
 
 import chromadb
 from chromadb import Documents, EmbeddingFunction, Embeddings
@@ -134,6 +135,62 @@ def _recall_scan(key: tuple[str, str, int]) -> dict[str, float] | None:
 def clear_process_scan_cache() -> None:
     """Drop every memoized scan (tests; operational use)."""
     _PROCESS_SCAN.clear()
+
+
+#: How many resident matrix entries to keep. One is enough for one corpus: at
+#: 24 MB for the live 7,666 vectors, keeping a second corpus state to avoid a
+#: 1.04 s rebuild after a flip is not worth the bookkeeping.
+_VECTOR_MATRIX_ENTRIES = 1
+
+#: The resident copy of the corpus's normalized vectors, keyed by the same
+#: scope the scan memo uses (``persist dir | collection name``).
+#:
+#: Each value is ``(stored_at, id_count, ids, unit_matrix, degenerate)``:
+#:
+#: - ``stored_at`` drives the TTL, for the same reason the scan memo has one —
+#:   the embedding worker is a separate process, so a write it makes is
+#:   invisible here until the count changes or the TTL expires;
+#: - ``id_count`` is what makes that write visible at all;
+#: - ``unit_matrix`` is the L2-normalized float32 matrix, row-aligned with
+#:   ``ids``;
+#: - ``degenerate`` marks the zero-norm rows, which score 0 rather than NaN.
+#:
+#: WS-28. The 47 MB Chroma hands back is the serialized form; decoded it is
+#: **24 MB** of float32, and a matvec against it is 1.1 ms against a 1.04 s
+#: fetch. The scan still multiplies the whole matrix — this is not an ANN
+#: index, and every listing still gets a score (see §11.12: HNSW top-50 is
+#: 5.0 ms but answers a different question).
+_VECTOR_MATRIX: OrderedDict[str, tuple[float, int, list[str], Any, list[bool]]] = OrderedDict()
+
+
+def clear_vector_matrix_cache() -> None:
+    """Drop the resident vector matrix (tests; operational use)."""
+    _VECTOR_MATRIX.clear()
+
+
+def _recall_matrix(scope: str, count: int) -> tuple[list[str], Any, list[bool]] | None:
+    """The resident ``(ids, unit_matrix, degenerate)``, or ``None``."""
+    entry = _VECTOR_MATRIX.get(scope)
+    if entry is None:
+        return None
+    stored_at, built_count, ids, matrix, degenerate = entry
+    if built_count != count:
+        # A write from another process: the only signal we have is the size.
+        _VECTOR_MATRIX.pop(scope, None)
+        return None
+    if time.monotonic() - stored_at > _PROCESS_SCAN_TTL_SECONDS:
+        _VECTOR_MATRIX.pop(scope, None)
+        return None
+    _VECTOR_MATRIX.move_to_end(scope)
+    return ids, matrix, degenerate
+
+
+def _remember_matrix(scope: str, ids: list[str], matrix: Any, degenerate: list[bool]) -> None:
+    """Hold the matrix for this scope, bounded to one entry."""
+    _VECTOR_MATRIX[scope] = (time.monotonic(), len(ids), ids, matrix, degenerate)
+    _VECTOR_MATRIX.move_to_end(scope)
+    while len(_VECTOR_MATRIX) > _VECTOR_MATRIX_ENTRIES:
+        _VECTOR_MATRIX.popitem(last=False)
 
 
 class VectorStoreMismatch(RuntimeError):
@@ -327,7 +384,10 @@ class ChromaVectorStore:
         # WS-24c: a re-embedded listing changes its score without changing
         # the row count, so the count in the scan key is not enough — any
         # write drops the memoized scans outright.
+        # WS-28: and the resident vector matrix, which holds the vectors those
+        # scans were computed from.
         clear_process_scan_cache()
+        clear_vector_matrix_cache()
         return written
 
     # -- read path -----------------------------------------------------------
@@ -345,7 +405,9 @@ class ChromaVectorStore:
             return 0
         self._collection.delete(ids=list(job_ids))
         # WS-24c: the memoized scans are no longer the corpus.
+        # WS-28: and the resident matrix is no longer its vectors.
         clear_process_scan_cache()
+        clear_vector_matrix_cache()
         logger.info(
             "Deleted %d vectors from Chroma collection %s", len(job_ids), self.collection_name
         )
@@ -370,8 +432,18 @@ class ChromaVectorStore:
     def count(self) -> int:
         return self._collection.count()
 
+    def _scope_key(self) -> str:
+        """The store's identity, for the process-level caches.
+
+        The persist directory *and* the collection name: two stores can share a
+        collection name while pointing at different directories (the tests
+        build one per tmp path), and a shared entry between them would be a
+        wrong answer rather than a slow one.
+        """
+        return f"{self._persist_dir}\x1f{self.collection_name}"
+
     def _scan_key(self, query_text: str, covered: int) -> tuple[str, str, int]:
-        """The memo key for one full-corpus scan (WS-24c).
+        """The memo key for one full-corpus scan (WS-24c; key changed WS-28).
 
         Each part closes a way the memo could be wrong:
 
@@ -379,14 +451,16 @@ class ChromaVectorStore:
           — the tests build one per tmp directory — never share a scan;
         - a **digest** of the query text, so the raw candidate text is never
           held as a key and two different texts never collide; and
-        - the number of **ids the scan covers**, so a corpus that grew or
-          shrank cannot be served a stale map. A write also clears the memo
-          outright (see :meth:`upsert_jobs` / :meth:`delete_jobs`), because a
-          re-embedded listing changes a score without changing the count.
+        - the collection's **count**, so a corpus that grew or shrank cannot be
+          served a stale map. WS-28 changed this from "ids fetched" to "count":
+          both are the same number, but only the count is O(1), and the old key
+          forced a hit to enumerate every id before it could know it was one. A
+          write also clears the memo outright (see :meth:`upsert_jobs` /
+          :meth:`delete_jobs`), because a re-embedded listing changes a score
+          without changing the count.
         """
         digest = hashlib.sha256(query_text.encode("utf-8", errors="replace")).hexdigest()
-        scope = f"{self._persist_dir}\x1f{self.collection_name}"
-        return (scope, digest, covered)
+        return (self._scope_key(), digest, covered)
 
     def stored_ids(self) -> set[str]:
         """Ids of every listing that has a vector in the collection."""
@@ -484,28 +558,27 @@ class ChromaVectorStore:
         the configured ceiling even when the corpus is larger than the cap
         (the cap may have been raised after the corpus was built).
         """
-        if self._collection.count() == 0:
+        count = self._collection.count()
+        if count == 0:
             return {}
 
         from src.security.limits import get_limits
 
         limit = get_limits().max_corpus_listings
-        scores: dict[str, float] = {}
+        # The budget is spent over the pages, not per page: the last page is
+        # trimmed to whatever is left of the limit, so a corpus larger than the
+        # limit is really *cut* at the limit rather than merely warned about.
+        remaining = min(count, limit)
 
-        # The ids first (cheap — no vectors), then the vectors in pages.
-        all_ids = self._collection.get(include=[]).get("ids") or []
-        # The budget is spent over the pages, not per page: the last page
-        # is trimmed to whatever is left of the limit, so a corpus larger
-        # than the limit is really *cut* at the limit rather than merely
-        # warned about.
-        remaining = min(len(all_ids), limit)
-
-        # WS-24c: the whole scan is memoized **in this process**, keyed by
-        # the query text and the collection state it was computed against.
-        # A repeat search by an unchanged profile is then a dictionary read
-        # instead of a 3.2 s ONNX embed plus a 1.1 s vector fetch. See
-        # ``_process_scan`` for why this is not the persistent cache WS-14
-        # Phase G forbids.
+        # WS-24c: the whole scan is memoized **in this process**, keyed by the
+        # query text and the collection state it was computed against. A repeat
+        # search by an unchanged profile is then a dictionary read instead of
+        # an ONNX embed plus a vector scan. See ``_PROCESS_SCAN`` for why this
+        # is not the persistent cache WS-14 Phase G forbids.
+        #
+        # WS-28: the key uses ``collection.count()`` rather than the number of
+        # ids fetched. The old key needed the id list, so a "hit" still paid
+        # the 23 ms enumeration before it could know it was a hit.
         memo_key = self._scan_key(query_text, remaining)
         cached_scan = _recall_scan(memo_key)
         if cached_scan is not None:
@@ -513,6 +586,51 @@ class ChromaVectorStore:
 
         vector = self._embedding_fn.embed_query(build_query_text(query_text))
 
+        # WS-28: the resident matrix. Fetching 47 MB out of Chroma costs ~1 s;
+        # the decoded matrix is 24 MB of float32 and a matvec against it is
+        # ~1 ms. The vectors do not change unless the collection does, so they
+        # are held rather than re-read per search.
+        resident = _recall_matrix(self._scope_key(), count)
+        if resident is None:
+            ids, matrix, degenerate = self._load_vector_matrix(remaining)
+            _remember_matrix(self._scope_key(), ids, matrix, degenerate)
+        else:
+            ids, matrix, degenerate = resident
+
+        scores = self._scores_from_matrix(ids, matrix, vector, degenerate)
+
+        _remember_scan(memo_key, scores)
+
+        if count > limit:
+            logger.warning(
+                "Similarity scan covered %d of %d listings (the corpus exceeds the %d cap)",
+                len(scores),
+                count,
+                limit,
+            )
+        return scores
+
+    def _load_vector_matrix(self, remaining: int) -> tuple[list[str], Any, list[bool]]:
+        """Fetch the corpus's vectors once and reduce them to a unit matrix.
+
+        The ids come first (cheap — no vectors), then the vectors in pages, so
+        the peak memory while *reading* is one page rather than the whole
+        corpus. The assembled matrix replaces those pages; it is 24 MB at the
+        live corpus size, against the 47 MB of serialized bytes Chroma hands
+        back.
+
+        Returns ``(ids, unit_matrix, degenerate)``, where ``degenerate`` marks
+        the zero-norm rows — a vector with no direction scores 0, not NaN, and
+        the mask is returned rather than stashed on the instance because the
+        store is rebuilt per request and hidden state would be a second thing
+        to keep in step with the matrix.
+        """
+        import numpy as np
+
+        all_ids = self._collection.get(include=[]).get("ids") or []
+        remaining = min(len(all_ids), remaining)
+        kept_ids: list[str] = []
+        rows: list[Any] = []
         for start in range(0, remaining, SCAN_PAGE_SIZE):
             page_ids = all_ids[start : min(start + SCAN_PAGE_SIZE, remaining)]
             result = self._collection.get(ids=page_ids, include=["embeddings"])
@@ -522,17 +640,51 @@ class ChromaVectorStore:
                 embeddings = []
             if not ids:
                 continue
-            scores.update(self._similarities_for_page(ids, embeddings, vector))
+            kept_ids.extend(ids)
+            rows.append(np.asarray(embeddings, dtype=np.float32))
 
-        _remember_scan(memo_key, scores)
+        if not rows:
+            return [], None, []
+        matrix = np.vstack(rows)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        unit = matrix / np.where(norms == 0, 1.0, norms)
+        degenerate = (norms[:, 0] == 0).tolist()
+        return kept_ids, unit, degenerate
 
-        if len(all_ids) > limit:
-            logger.warning(
-                "Similarity scan covered %d of %d listings (the corpus exceeds the %d cap)",
-                len(scores),
-                len(all_ids),
-                limit,
-            )
+    def _scores_from_matrix(
+        self,
+        ids: list[str],
+        unit_matrix: Any,
+        vector: list[float],
+        degenerate: list[bool],
+    ) -> dict[str, float]:
+        """Cosine 0-100 for every row, as one matrix-vector product."""
+        import numpy as np
+
+        if unit_matrix is None or not ids:
+            return {}
+        query = np.asarray(vector, dtype=np.float32)
+        if query.shape[0] != unit_matrix.shape[1] or len(ids) != unit_matrix.shape[0]:
+            # A shape the fast path cannot use: fall back to the reference
+            # computation rather than returning wrong numbers.
+            return {
+                job_id: self._cosine_similarity(vector, row)
+                for job_id, row in zip(ids, unit_matrix)
+            }
+        query_norm = float(np.linalg.norm(query))
+        if not query_norm:
+            return dict.fromkeys(ids, 0.0)
+
+        values = (unit_matrix @ (query / query_norm)).tolist()
+        if len(degenerate) != len(ids):
+            degenerate = [False] * len(ids)
+
+        scores: dict[str, float] = {}
+        for index, job_id in enumerate(ids):
+            if degenerate[index]:
+                scores[job_id] = 0.0
+            else:
+                scores[job_id] = max(0.0, min(100.0, float(values[index]) * 100.0))
         return scores
 
     @staticmethod
