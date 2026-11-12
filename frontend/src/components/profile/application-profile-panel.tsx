@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Button } from "@/components/ui/button"
 import {
@@ -81,7 +82,9 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
   })
 
   if (query.isPending) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>
+    // The shape of the answer, not the word "Loading": this panel is a card of
+    // labelled fields, so the bones copy that layout and the page does not jump.
+    return <CardSkeleton rows={4} />
   }
   if (query.isError) {
     return <ErrorNotice error={query.error} onRetry={() => query.refetch()} />

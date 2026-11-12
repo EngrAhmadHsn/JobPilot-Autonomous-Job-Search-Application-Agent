@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { PlainText } from "@/components/common/plain-text"
 import { DocumentList } from "@/components/documents/document-picker"
@@ -410,10 +411,14 @@ export function ResumeScreen() {
           }
         >
           {storedProfile.isPending ? (
-            <div className="space-y-2">
-              <p className="text-sm text-foreground">Loading your profile…</p>
-              <div className="agent-progress h-1.5 w-full rounded-full" />
-            </div>
+            /*
+              The extracted profile is a stack of labelled fields, so the bones
+              copy that shape: a header line and four field rows. This replaces
+              the "Loading your profile…" sentence and its moving bar, which
+              said nothing about what was coming and let the section jump when
+              the real content arrived.
+            */
+            <CardSkeleton rows={4} />
           ) : null}
 
           {storedProfile.isError && !profileMissing ? (

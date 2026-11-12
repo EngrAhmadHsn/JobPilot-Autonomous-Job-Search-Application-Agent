@@ -2,12 +2,16 @@ import { useQuery } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
 
 import { Disclosure } from "@/components/common/disclosure"
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader } from "@/components/common/page-header"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
-import { MatchGapChips, SponsorBadge } from "@/components/common/match-gap-chips"
+import {
+  MatchGapChips,
+  SponsorBadge,
+} from "@/components/common/match-gap-chips"
 import { PlainText } from "@/components/common/plain-text"
-import { EmptyState, ProgressState } from "@/components/common/progress-state"
+import { EmptyState } from "@/components/common/progress-state"
 import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
 import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -102,7 +106,16 @@ export function JobDetailScreen() {
   })
 
   if (job.isPending) {
-    return <ProgressState key="job" title="Loading the job listing" />
+    /*
+      A read, not a run the operator started, so there is nothing to cancel and
+      no elapsed time worth showing. The bones reserve the listing's shape.
+    */
+    return (
+      <div className="space-y-6">
+        <CardSkeleton rows={3} />
+        <CardSkeleton rows={4} />
+      </div>
+    )
   }
 
   if (job.isError) {

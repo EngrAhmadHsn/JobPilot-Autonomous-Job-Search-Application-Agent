@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Banner } from "@/components/common/banner"
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Button } from "@/components/ui/button"
 import {
@@ -81,7 +82,7 @@ export function WorkPreferencesCard({ profileId }: { profileId: string }) {
   })
 
   if (query.isPending) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>
+    return <CardSkeleton rows={3} />
   }
   if (query.isError) {
     return <ErrorNotice error={query.error} onRetry={() => query.refetch()} />

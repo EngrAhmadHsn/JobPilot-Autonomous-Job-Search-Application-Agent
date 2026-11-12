@@ -4,6 +4,7 @@ import { ProfileView } from "@/components/profile/profile-view"
 import { Disclosure } from "@/components/common/disclosure"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState } from "@/components/common/progress-state"
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { LinkButton } from "@/components/ui/link-button"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
@@ -66,14 +67,14 @@ export function ProfileScreen() {
       />
 
       {resolving || (storedProfile.isPending && profileId) ? (
-        <div className="space-y-2">
-          <p className="text-sm text-foreground">Loading…</p>
-          <div className="agent-progress h-1.5 w-full rounded-full" />
-        </div>
+        <CardSkeleton rows={4} />
       ) : null}
 
       {storedProfile.isError && !profileMissing ? (
-        <ErrorNotice error={storedProfile.error} onRetry={() => storedProfile.refetch()} />
+        <ErrorNotice
+          error={storedProfile.error}
+          onRetry={() => storedProfile.refetch()}
+        />
       ) : null}
 
       {needsResume ? (
