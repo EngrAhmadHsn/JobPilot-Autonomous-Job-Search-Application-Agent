@@ -114,3 +114,43 @@ describe("the sign-in screen", () => {
     expect(screen.queryByText(/HTTP 400/)).not.toBeInTheDocument()
   })
 })
+
+/**
+ * Which form the screen opens.
+ *
+ * The landing page's primary button says "Create your account". It pointed at
+ * this route, which always opened in sign-in mode, so a first-time visitor was
+ * asked for a password to an account that did not exist yet. The route now
+ * reads the mode the caller asked for, and the default stays sign-in for the
+ * returning visitor who arrives from the header.
+ */
+describe("the sign-in screen's opening form", () => {
+  it("opens the create form when the caller asks for it", async () => {
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
+      )
+    )
+    renderApp({ route: "/sign-in", state: { mode: "create" } })
+
+    expect(
+      await screen.findByRole("heading", { name: "Create an account" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create the account" })
+    ).toBeInTheDocument()
+  })
+
+  it("opens the sign-in form by default", async () => {
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
+      )
+    )
+    renderApp({ route: "/sign-in" })
+
+    expect(
+      await screen.findByRole("heading", { name: "Sign in" })
+    ).toBeInTheDocument()
+  })
+})

@@ -17,14 +17,30 @@ type QueryClient = ReturnType<typeof createQueryClient>
  * Render the console's real route tree.
  *
  * The routing is the console's own, in a memory router, and the query
- * client is the console's own policy — so a test exercises the same wiring
+ * client is the console's own policy, so a test exercises the same wiring
  * the browser gets.
+ *
+ * `state` carries a location's `history.state`, which is how a caller asks
+ * a screen to open in a particular mode. The landing page uses it to request
+ * the create form from `/sign-in`, so a test needs to be able to set it the
+ * same way a `<Link state={...}>` does.
  */
 export function renderApp(
-  options: { route?: string; queryClient?: QueryClient } & RenderOptions = {}
+  options: {
+    route?: string
+    state?: Record<string, unknown>
+    queryClient?: QueryClient
+  } & RenderOptions = {}
 ) {
-  const { route = "/", queryClient = createQueryClient(), ...rest } = options
-  const router = createMemoryRouter(routes, { initialEntries: [route] })
+  const {
+    route = "/",
+    state,
+    queryClient = createQueryClient(),
+    ...rest
+  } = options
+  const router = createMemoryRouter(routes, {
+    initialEntries: [state ? { pathname: route, state } : route],
+  })
   const result = render(
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>

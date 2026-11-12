@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useDocumentTitle } from "@/hooks/use-document-title"
 import { api } from "@/lib/api/endpoints"
 
 /**
@@ -18,13 +19,29 @@ import { api } from "@/lib/api/endpoints"
  *
  * The screen has two modes, because a deployment needs the first
  * account to be creatable: sign in, or create an account.
+ *
+ * **The landing page decides which mode opens.** Its hero says "Open the
+ * console" and its closing card says "Create your account", and both pointed
+ * at this one route, which always opened in sign-in mode. A first-time
+ * visitor pressed the button written for them and was asked for a password
+ * to an account they did not have. A caller can now ask for the right form
+ * with `state: { mode: "create" }`; the default stays sign-in, because that
+ * is the form a returning visitor wants.
  */
 export function SignInScreen() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<"sign-in" | "create">("sign-in")
+  const location = useLocation()
+  const requestedMode = (location.state as { mode?: string } | null)?.mode
+  const [mode, setMode] = useState<"sign-in" | "create">(
+    requestedMode === "create" ? "create" : "sign-in"
+  )
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+
+  // The tab follows the form that is showing, so it never says "Sign in" while
+  // the visitor is creating an account.
+  useDocumentTitle(mode === "sign-in" ? "Sign in" : "Create an account")
 
   const signIn = useMutation({
     mutationFn: () => api.signIn(email, password),
@@ -49,7 +66,13 @@ export function SignInScreen() {
   const error = signIn.error ?? createAccount.error
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6 py-16">
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-16">
+      {/*
+        `<main>` rather than a plain div: this screen has no header and no nav,
+        so the landmark is the only thing a screen reader can jump to, and the
+        page should be consistent with the other public surface (the landing
+        page wraps its content in one too).
+      */}
       <div className="w-full max-w-sm space-y-8">
         <div className="space-y-2">
           <h1 className="font-display text-2xl text-foreground">
@@ -120,11 +143,14 @@ export function SignInScreen() {
         </button>
 
         <p className="text-center text-xs text-muted-foreground">
-          <Link to="/" className="underline underline-offset-4 hover:text-foreground">
+          <Link
+            to="/"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
             ← Back to the site
           </Link>
         </p>
       </div>
-    </div>
+    </main>
   )
 }
