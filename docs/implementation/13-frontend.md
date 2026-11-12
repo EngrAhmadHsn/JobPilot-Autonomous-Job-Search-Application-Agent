@@ -125,8 +125,13 @@ the ranking.
 - **Search form**: `query` (free text, optional), `location` (optional),
   `top_n` (1–50, default 10). The profile is the current one; the form does
   not ask for it, because there is no other profile to choose (BA-4).
-- **In flight**: a progress state with the elapsed seconds. A search takes
-  ~10 s, so a spinner with no text would read as a hang.
+- **In flight**: a skeleton of the ranked list (WS-24c) — placeholder cards
+  shaped like the real ones, so the space is reserved and the list does not
+  jump when the ranking lands. It replaces an earlier elapsed-seconds
+  counter, which was honest but answered a question the operator already
+  knew the answer to. `ProgressState` and its clock remain for the
+  multi-stage runs that genuinely need them (tailoring, refresh, prepare);
+  only the search uses the skeleton.
 - **Degraded banner**: when `degraded` is true, a banner explains that
   semantic scoring was unavailable for part of the corpus and that the
   scores are therefore weaker. It is never collapsed into a footnote.

@@ -473,5 +473,224 @@ against 8,558 documents is **2.77 M** dictionary lookups, of which
 `§4a` still applies: the per-listing **score object** is not cached, and
 the artifacts rebuild is still full rather than incremental. The
 remaining 8.41 s warm search is dominated by (a) the ONNX query
-embedding (~3 s, already content-hash cached) and (b) the per-listing
+embedding (~3 s — **not** content-hash cached; `embed_query` deliberately
+never caches, per WS-14 · Phase G) and (b) the per-listing
 `calculate_match` over 8,558 listings.
+
+Both were addressed by WS-24c (§10).
+
+---
+
+## 10. WS-24c — The per-listing residual, and a skeleton instead of a clock
+
+**Measured 2026-11-12** on the live 8,558-listing corpus, one real profile,
+the real artifacts (`scripts/profile_search_timing.py`, corrected here to
+profile the path `search_stored_jobs` actually takes).
+
+| | Before | After | |
+|---|---|---|---|
+| Warm search, first (pays the query embed) | **9.3–10.7 s** | **5.7–5.8 s** | 1.7x |
+| Warm search, repeat (memo hit) | 9.3–10.7 s | **4.5–4.6 s** | 2.1x |
+| Cold search (artifacts rebuild) | 68.7 s | 86.5 s | see note |
+| `calculate_match` over the corpus | 2.9 s | 2.9 s | flat |
+| Query embedding (ONNX) | 3.17 s | 0 s on a repeat | memoized |
+| Vector fetch + cosine | ~1.1 s | 0 s on a repeat | memoized |
+| Scores differing | — | **0 of 8,558** | identical |
+
+The cold figure is a **measurement artifact, not a regression**: the rebuild
+work is unchanged (`_important_terms`, BM25, role classification), and the
+only addition is one seniority-rank pass per listing. The 68.7 s baseline
+and the 86.5 s figure were taken under different machine load — a competing
+uvicorn holding the ONNX model in memory inflated an intermediate run to
+103 s. The warm numbers are the ones that matter and they were measured
+back-to-back on an idle machine.
+
+### 10.1 — The measurement that changed the plan
+
+The workstream was scoped from a profile that attributed the per-listing
+residual to five causes, with `_seniority_rank` alone at ~1.3 s. Measured
+one at a time on the real corpus, the numbers were smaller:
+
+| Cost | Projected | Measured | Verdict |
+|---|---|---|---|
+| `_seniority_rank` (18,345 calls) | 1.3 s | 0.14 s | fixed — and moved into the artifacts |
+| `_effective_preferences` (17,116 calls, 2 deep copies each) | — | 0.27 s | fixed |
+| `model_copy(deep=True)` alone | ~0.88 s | 0.24 s | fixed with the above |
+| `_candidate_rank` (8,558 calls) | — | 0.006 s | fixed (free) |
+| `years_of_experience` (17,116 calls) | — | 0.026 s | fixed (free) |
+| `validate_weights` (8,558 calls) | — | **0.084 s** | **declined** — below the noise |
+| `ComponentScore` x 68,464 (pydantic) | ~1.4 s | **0.40 s** | **declined** — see 10.4 |
+| Matched/missing list appends | 0.9 s | included in lexical | fixed (Phase C) |
+
+The lesson is recorded because it is the reusable one: **profile the real
+path before scoping.** A profile script that omits `context=` and
+`artifacts=` measures a path the product never runs, which is why the
+earlier numbers were inflated — `calculate_match` fell back to
+`CandidateContext.for_profile` on every call, re-tokenizing the candidate
+8,558 times inside the measurement tool alone.
+
+The two costs the plan did **not** name were the ones that mattered: the
+**query embedding (3.17 s)** and the **vector fetch (~1.1 s)**, both paid
+again on every repeat search by an unchanged profile.
+
+### 10.2 — Phase A: the per-search constants
+
+`CandidateContext` (`src/matching/engine.py`) now holds every value that is
+a pure function of the profile, computed once per search rather than once
+per listing: the merged `WorkPreferences`, the candidate's seniority rank,
+their years of experience, and the derived preferred-location /
+employment-type / salary-floor values the components read.
+
+Each component builder gained a keyword-only parameter with an `_UNCACHED`
+default, mirroring the existing `_skill_component(context=)` and
+`_experience_component(requirement=)` patterns — so every existing call
+site, including the eight direct `_effective_preferences` calls in
+`tests/test_preferences_merge.py` and the two `_location_component` calls in
+`tests/test_ws23_corpus.py`, keeps working unchanged.
+
+`years_of_experience` was being computed **twice** per listing — once in
+`_experience_component` and again inside `experience_score` — each a union
+over every dated entry. The component now performs the same arithmetic on
+the two values it already has, so the second union is not paid at all.
+
+The per-listing `logger.info` is now `logger.debug`: it produced 8,558 log
+records per search, each through the PII-masking filter.
+
+### 10.3 — Phase B: the rank in the artifacts, and the fingerprint it required
+
+`CorpusArtifacts.seniority_ranks` holds each listing's stated rank, derived
+once at rebuild time beside the role classification, lexical terms and
+experience bars.
+
+**This required a fingerprint fix.** `content_version_for` hashed the
+title, description, skill lists and requirement strings — but **not
+`seniority`**, which the cached rank reads. A refresh that changed only
+that column would have kept the same corpus fingerprint and served a stale
+rank. `seniority` is now one of the hashed parts.
+
+That in turn exposed a general hazard worth closing while it was visible:
+the fingerprint hashes the corpus *content*, and content cannot report that
+the **shape of `CorpusArtifacts`** changed. Adding a field leaves every
+stored row identical, so a process holding the previous shape would keep
+serving it with the new field silently empty. `_ARTIFACTS_VERSION` is now
+seeded into the digest, so an artifact-schema change forces exactly one
+rebuild.
+
+`_seniority_rank` also gained a substring prefilter: a word-boundary regex
+can only match when the bare keyword occurs, so the 19 regex matches per
+text became 19 `in` checks that escalate to a regex only on a hit. The
+regex remains the arbiter, so "international" still does not match "intern".
+The equivalence is pinned by `test_the_seniority_prefilter_is_exactly_equivalent`
+against the pre-change implementation, on adversarial cases *and* on every
+real corpus title (8,558 rows x 2 texts, 0 mismatches).
+
+### 10.4 — Phase C: the evidence lists, and what was declined
+
+`lexical_score` built the full matched/missing lists and truncated to 25 at
+the end — 3.4 M `list.append` calls per search for evidence that only the
+top-N listings ever carry. The loop now caps each list as it goes while
+still accumulating the **weight** over every term, so the coverage — and
+therefore every score — is unchanged.
+
+**Declined: the pydantic carrier refactor.** A slots-based carrier measured
+0.26 s of savings over 68,464 constructions, and
+`ComponentScore.model_construct` measured *slower* than the validating
+constructor (0.70 s vs 0.40 s). Both are below the cost of the remaining
+per-listing work, so neither was worth a contract change across 65
+`calculate_match` call sites.
+
+**Also out of scope, and noted as the higher ceiling:** 8,508 of the 8,558
+`JobMatchResult` objects — each with a fully formatted explanation string,
+note list and component-state map — are built and then discarded, because
+only `top_n` survives ranking. A two-phase "score cheaply, materialize the
+survivors" refactor would beat everything above. It changes
+`calculate_match`'s contract and the evaluation harness, so it is its own
+workstream rather than a phase here.
+
+### 10.5 — Phase D: the in-process scan memo, and the privacy line
+
+A repeat search by an unchanged profile embeds the same query and re-reads
+the same vectors — 4.3 s of the 4.5 s that remained, for an identical
+answer. `ChromaVectorStore.similarities_for_all` now memoizes the
+**similarity map**, keyed by `(collection, sha256(query text), covered ids)`,
+bounded to four entries with a 120 s TTL, and cleared outright by any write.
+
+This is **not** a relaxation of WS-14 · Phase G. That rule's two named
+harms are properties of a *shared, persistent* cache: a hit on identical
+text would tell a second tenant that someone else submitted it, and the
+stored vector is a candidate fingerprint that can be inverted. A
+process-local dictionary is neither shared across tenants nor durable — and
+the memo holds a **similarity map, not a vector**, so it is not invertible
+into the candidate's prose at all. The key carries only a digest. Both
+`embed_query` docstrings now record the distinction, so a later reader does
+not "restore" an absolute rule that the rule itself did not state.
+
+The TTL exists because the embedding worker is a **separate process**: it
+can upsert or evict vectors while the API holds a scan, and without a bound
+that write would stay invisible until the API restarted.
+
+### 10.6 — Phase E: a skeleton instead of a stopwatch
+
+The Matches screen showed a `ProgressState` with a ticking `{n}s elapsed`
+counter while a search ran. It was honest, but it was the only thing on
+screen moving, and it told the operator something they already knew.
+
+It is replaced by `MatchListSkeleton` — a placeholder list whose bones copy
+`MatchCard`'s real layout (title line, meta line, score chip, disclosure
+row, action button), so the space is reserved and the list does not jump
+when the ranking lands. The skeleton **takes precedence over stale
+results**: a re-search must not stack placeholders above last time's
+numbers.
+
+`ProgressState` and `useElapsed` are untouched. Nine other screens still
+use them, and an elapsed counter is the right feedback for a long
+multi-stage run; it was only wrong for a search, which is now bounded
+enough to wait out.
+
+Accessibility: the container is `aria-busy`, every bone is `aria-hidden`,
+and the visible `Section` heading ("Ranking your saved jobs") is the one
+announcement — there is deliberately **no** second live region, which would
+say it twice. Reduced motion needs no new rule: the console's existing
+`html[data-motion="reduced"]` block zeroes keyframed animation, so
+`animate-pulse` becomes a flat muted block, which is correct because the
+pulse moves nothing.
+
+Verified in a real browser (Chromium against the production build on 4173,
+a real session and the real 8,558-listing corpus): one busy region, 20
+bones, one heading, and no elapsed counter in the rendered text.
+
+### 10.7 — Acceptance
+
+| Check | Test |
+|---|---|
+| The seniority prefilter is exactly equivalent to the ladder | `tests/test_ws24c_search_residual.py` |
+| The candidate constants are computed once in the context | `tests/test_ws24c_search_residual.py` |
+| The rank is read from the artifacts, not recomputed | `tests/test_ws24c_search_residual.py` |
+| A seniority change moves the content version | `tests/test_ws24c_search_residual.py` |
+| The artifacts version is in the fingerprint | `tests/test_ws24c_search_residual.py` |
+| Capped lists do not change the coverage or the score | `tests/test_ws24c_search_residual.py` |
+| The capped list keeps the first N in order | `tests/test_ws24c_search_residual.py` |
+| A repeat scan is served from the memo | `tests/test_ws24c_search_residual.py` |
+| A different query never shares a scan | `tests/test_ws24c_search_residual.py` |
+| A corpus-size change and a TTL expiry invalidate | `tests/test_ws24c_search_residual.py` |
+| The memo holds no candidate text | `tests/test_ws24c_search_residual.py` |
+| Every component matches an independently computed reference | `tests/test_ws24c_search_residual.py` |
+| All 8,558 scores unchanged on the live corpus | measured, 0 differing |
+| The skeleton shows in flight and clears after | `frontend/src/screens/matches-screen.test.tsx` |
+| No elapsed-seconds counter on Matches | `frontend/src/screens/matches-screen.test.tsx` |
+| The busy state is announced as a heading | `frontend/src/screens/matches-screen.test.tsx` |
+| A re-search replaces the old ranking | `frontend/src/screens/matches-screen.test.tsx` |
+| The whole suite is green | `pytest -m "not browser"` |
+| Lint is clean | `ruff check src tests scripts` |
+
+Both new gates were verified to **fail** when the property they protect is
+broken: perturbing the seniority formula by one unit fails the differential
+test, and re-introducing the elapsed counter fails the console test.
+
+### 10.8 — Out of scope
+
+The two-phase score/materialize refactor (§10.4) — it is the largest
+remaining win and a contract change across every `calculate_match` caller.
+The artifacts rebuild is still full rather than incremental (§4a.2). A
+distributed memo is explicitly not wanted: one process, one Chroma
+directory.
