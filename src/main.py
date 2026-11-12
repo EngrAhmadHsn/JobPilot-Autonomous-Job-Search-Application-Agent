@@ -64,9 +64,38 @@ def _warm_local_embeddings() -> None:
         logger.exception("Local embedding warm-up failed; first search will load the model")
 
 
+def _warm_corpus_artifacts() -> None:
+    """Build the corpus artifacts before the first search asks for them.
+
+    WS-28. The artifacts cache is per-process, so the first search after a
+    restart paid the whole rebuild — measured at 52–65 s on the
+    8,558-listing corpus, while every later search hit the cache in 0.15 s.
+    The rebuild has to happen exactly once either way; doing it here moves it
+    to a moment when nothing is waiting for it.
+
+    Deliberately the **same** call a search makes, including the corpus cap:
+    an uncapped warm would build a larger corpus than a search is allowed to
+    consider, and the first search would then miss the cache and rebuild.
+
+    A failure is logged and swallowed. The warm is an optimisation — a corpus
+    that cannot be read yet (a locked database, a migration mid-flight) must
+    not stop the server; the first search will pay the rebuild as it did
+    before.
+    """
+    from src.matching.corpus_cache import get_corpus_artifacts
+    from src.security.limits import get_limits
+
+    try:
+        artifacts = get_corpus_artifacts(limit=get_limits().max_corpus_listings)
+        logger.info("Corpus artifacts warmed up (%d listings)", len(artifacts.jobs))
+    except Exception:
+        logger.exception("Corpus artifacts warm-up failed; the first search will rebuild them")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     _warm_local_embeddings()
+    _warm_corpus_artifacts()
     yield
 
 
