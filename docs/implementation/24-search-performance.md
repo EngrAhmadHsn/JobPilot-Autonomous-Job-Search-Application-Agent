@@ -694,3 +694,221 @@ remaining win and a contract change across every `calculate_match` caller.
 The artifacts rebuild is still full rather than incremental (§4a.2). A
 distributed memo is explicitly not wanted: one process, one Chroma
 directory.
+
+---
+
+## 11. WS-28 — Why a cold search takes 70 s, and the two defects inside it
+
+**Reported 2026-11-12**: a search logged `Job search requested` at 15:43:17
+and `Job search complete` at 15:44:27 — 70 s. The server had started at
+15:42:59, eighteen seconds earlier.
+
+### 11.1 — The measurement
+
+Reproduced on a freshly started server against the live 8,558-listing corpus:
+
+| | Measured |
+|---|---|
+| First search after startup | **58.6 s** |
+| Second search | 3.6 s |
+| Third search | 3.0 s |
+| Warm, on an already-warm server | 3.1–3.6 s |
+
+The corpus artifacts cache is per-process (`src/matching/corpus_cache.py`,
+`_CACHE`), so the first search after every restart pays the full rebuild. The
+rebuild measures **52–65 s**; every later search hits the cache in 0.15 s.
+
+Per-phase, at 8,558 listings:
+
+| Phase | Cost |
+|---|---|
+| `required_years` mining | **20.6 s** |
+| `classify_job_role` | 13.8 s |
+| `Bm25Index.__init__` | 10.7 s |
+| `_important_terms` | 7.1 s |
+| `listing_from_row` (Pydantic) | 0.8 s |
+| `seniority_rank` (WS-24c, cached) | 0.03 s |
+
+So the 70 s was **not the search** — it was a once-per-restart rebuild that
+the user happened to trigger. That is a real user-facing defect (an operator
+who restarts the server and immediately searches waits a minute), but the
+frame "the search is slow" is wrong, and the difference decides the fix.
+
+### 11.2 — The first defect: `required_years` NULL means two things
+
+WS-23b moved experience-bar mining from read time to **write** time, storing
+the result in `jobs.required_years`. The read path in
+`get_corpus_artifacts` is:
+
+```python
+required_years={
+    job.id: (
+        stored_years.get(job.id)
+        if stored_years.get(job.id) is not None
+        else required_years(job)      # <-- mines the description, again
+    )
+    for job in jobs
+},
+```
+
+`NULL` therefore means either "never mined" **or** "mined, and the listing
+states no bar" — and the read path cannot tell them apart, so it re-mines
+both. On the live corpus **6,741 of 8,558 rows are NULL**, and re-mining them
+costs **20.6 s of every cold start**.
+
+The initial hypothesis was "the backfill never ran". That was **wrong**, and
+the measurement disproved it: a backfill script exists
+(`scripts/backfill_required_years.py`), it only writes when the mined value is
+not `None`, and re-mining all 6,741 NULL rows yields **0** values — every one
+of them genuinely states no bar. The backfill therefore cannot change anything,
+and running it again would be a no-op.
+
+The fix is a **sentinel**: a column value that means "mined, nothing stated",
+distinct from `NULL` ("never mined"). A row with the sentinel is never re-mined.
+
+### 11.3 — The second defect: the miner discards bars it can read
+
+While verifying the first, a correctness bug surfaced. The miner's
+technology-context rule (`_TECH_CONTEXT_RE`) is meant to skip
+technology-specific bars — "3 years with Python" is not a total-experience
+bar. But the rule fires on **any** noun, so it swallows domain nouns too:
+
+| Sentence | Mined | Correct |
+|---|---|---|
+| "Minimum requirements 7+ years of sales or prospecting experience" | `None` | 7 |
+| "5+ years of software sales experience selling to enterprises" | `None` | 5 |
+| "Minimum of 3 years of experience in a Customer Success role" | `None` | 3 |
+| "9+ years of experience in customer support" | `None` | 9 |
+
+Measured across the corpus, exercising the rule with a generic-noun
+exclusion:
+
+- **1,145 listings gain a bar** they should always have had;
+- **90 listings have an existing bar change value**, in both directions,
+  because a *later* sentence was previously discarded and now competes:
+  `3.0 → 7.0`, `3.0 → 9.0`, `2.0 → 3.0`, and in two cases `3.0 → 2.0`.
+
+That is a **scoring** change, not a performance one. It moves the
+`experience` component (weight 0.17) for 1,235 listings, which will reorder
+rankings. It is the honest fix, but it must be a deliberate, measured change
+with a documented before/after — never a silent side effect of a speed
+workstream.
+
+This is also why the corpus must be **re-mined after** the fix: the stored
+values are the output of the buggy miner, so leaving them would freeze the
+bug into the column.
+
+### 11.4 — What the plan does, in order
+
+1. **The miner keeps generic-domain bars** (defect 2). A small generic-noun
+   set, so "years of sales" is a total bar and "years with Python" is not.
+   This is the correctness fix, and it is what the re-mine depends on.
+2. **A mine-once sentinel** (defect 1), so a row whose answer is legitimately
+   "no bar" stops being re-mined forever.
+3. **A re-mine of the corpus**, now that the miner is right and the sentinel
+   exists — a migration or script, decided by measurement of which is safer.
+4. **A startup warm** of the corpus artifacts, so the first search after a
+   restart is not the one that pays. Deliberately last: it removes the
+   symptom, and the symptom is what makes the other three visible.
+
+### 11.5 — Sizing, before committing to the approach
+
+| Option | Measured | Verdict |
+|---|---|---|
+| Persist the whole `CorpusArtifacts` | 205 MB, dump 9.5 s, **load 5.1 s** | no better than a warm start, and 205 MB of scratch |
+| Persist the derived parts only (no jobs list) | 149 MB, dump 8.6 s, **load 5.3 s** | still not worth it; the jobs list re-reads from SQLite in 0.8 s |
+| Delete the 6,741 re-mines | ~20.6 s saved per cold start | the sentinel does this |
+| Warm the artifacts at startup | 52 s moved off the request path | the server is not serving yet, so it costs nothing user-visible |
+
+A startup warm is the right shape: the rebuild has to happen exactly once per
+process either way, and doing it before the first request is strictly better
+than doing it during one. Persisting to disk is **rejected** on the
+measurement — a 5 s load plus 149–205 MB of scratch to save a 52 s
+once-per-boot cost, with its own invalidation problem.
+
+### 11.6 — Out of scope
+
+- **Incremental artifacts** (rebuilding only the changed listings) — the BM25
+  index is global, so it cannot be built incrementally without a different
+  index. Recorded as §4a.2 and unchanged.
+- **Deferring the rebuild to a background thread after startup.** It would
+  make the first request race the rebuild, which is how you get two rebuilds
+  and a cache miss under load. The warm is synchronous and bounded.
+
+### 11.7 — What was measured, after
+
+The live 8,558-listing corpus, one real profile, a freshly started server.
+
+| | Before WS-28 | After WS-28 |
+|---|---|---|
+| Artifacts rebuild (cold) | 52–65 s | **42.1 s** |
+| Rows re-mined per rebuild | 6,741 | **0** |
+| First search after restart (client-observed) | **58.6 s** | **11.5 s** |
+| First search (route's own timing, from the log) | ~58 s | **4.3 s** |
+| Second search | 3.6 s | 4.4 s |
+| Third search | 3.0 s | 3.7 s |
+
+The rebuild now happens in the lifespan, before the server accepts traffic —
+the log shows `Corpus artifacts warmed up (8558 listings)` at 17:40:57 and
+`Application startup complete` immediately after, so the first request never
+pays it.
+
+**A note on the two first-search numbers.** The route logs 4.3 s; the client
+observes 11.5 s. The ~7 s difference is in the very first request of a fresh
+process and outside the route's own timing — most plausibly first database
+connection, thread-pool spin-up, and the client's first connection, none of
+which repeat on the second request (4.4 s). It is recorded rather than
+explained away: the claim this workstream makes is that the **rebuild left the
+request path**, and that is measured. Whatever the remaining first-request
+7 s is, it is not the corpus rebuild.
+
+### 11.8 — The re-mine, and what it changed
+
+The corrected miner was applied to the store, because the column held the
+output of the old one:
+
+| | Rows |
+|---|---|
+| Gained a bar it always stated | **1,542** |
+| Bar value changed | **99** |
+| Total re-decided | **1,641** |
+| Now carry a bar | 3,359 of 8,558 (was 1,817) |
+
+This is a **scoring** change and it is deliberate: the `experience` component
+(weight 0.17) moves for 1,641 listings, so rankings shift. The alternative was
+freezing a parser bug into a column — reporting "this listing states no
+experience bar" for 1,542 listings that state one plainly.
+
+`scripts/remine_required_years.py` performs the pass and is idempotent: it
+records the decision on every row, so a second run finds nothing to do. It has
+a `--dry-run` that reports the delta without writing.
+
+### 11.9 — Acceptance
+
+| Check | Test |
+|---|---|
+| A bar stated against a domain is the total bar | `tests/test_ws28_experience_bars.py` |
+| A bar stated against a real technology is still skipped | `tests/test_ws28_experience_bars.py` |
+| An empty description is mineable, not a crash | `tests/test_ws28_experience_bars.py` |
+| The board's own requirement still wins | `tests/test_ws28_experience_bars.py` |
+| Every written row is marked decided | `tests/test_ws28_required_years_marker.py` |
+| A row decided "no bar" keeps its NULL and is not re-mined | `tests/test_ws28_required_years_marker.py` |
+| A zero bar is a measurement, not "nothing stated" | `tests/test_ws28_required_years_marker.py` |
+| A pre-migration row still mines (no backfill required) | `tests/test_ws28_required_years_marker.py` |
+| The migration is reversible and moves the column set | `tests/test_migrations.py` |
+| The warm uses the same capped call a search does | `tests/test_ws28_startup_warm.py` |
+| A failed warm does not stop the server | `tests/test_ws28_startup_warm.py` |
+
+Each test was written and **run failing** before its implementation, and each
+was verified to fail again when the fix is reverted.
+
+### 11.10 — What this does not fix
+
+The remaining 42.1 s cold rebuild is still `classify_job_role` (13.8 s),
+`Bm25Index` (10.7 s) and `_important_terms` (7.1 s) — inherent to a full
+artifacts build. It now costs a restart rather than a user's first search.
+Persisting it to disk was measured and rejected (§11.5).
+
+An operator restarting the server still waits ~42 s before it serves. That is
+a deliberate trade: the alternative is serving requests that race a rebuild,
+which produces two rebuilds and a cache miss under load.
