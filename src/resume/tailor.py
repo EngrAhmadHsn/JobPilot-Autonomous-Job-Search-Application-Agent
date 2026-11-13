@@ -33,6 +33,23 @@ GenerateFn = Callable[..., Any]
 
 _YEAR_RE = re.compile(r"(\d+)\+?\s*(?:years?|yrs)\b", re.IGNORECASE)
 
+#: WS-31: the prompt half of "edit in place". A request, not a guarantee — the
+#: editor handles a count mismatch either way (``_replace_bullets``), and the
+#: ``RenderReport`` counts what it had to append or empty. It is stated here
+#: because the model's usual instinct for a tailored résumé is to condense,
+#: which is exactly the instinct that breaks a positional edit.
+FORMAT_RULES = (
+    "FORMAT RULES (the candidate's own document is edited, not rewritten):\n"
+    "- Rewrite the existing bullets. Keep the SAME NUMBER of bullets under each"
+    " role, in the SAME ORDER; do not merge two bullets into one or split one"
+    " into two.\n"
+    "- Keep each bullet to one achievement, about as long as the original.\n"
+    "- Keep the entries themselves: one per role the profile lists, no added"
+    " roles, none dropped.\n"
+    "- Do not add section headings; the resume's own sections and their order"
+    " are preserved, and only the wording inside them changes.\n"
+)
+
 SYSTEM_RULES = (
     "You tailor a candidate's resume for one specific job opening.\n"
     "STRICT FACTUALITY RULES:\n"
@@ -51,6 +68,13 @@ SYSTEM_RULES = (
     # reason — the ban list the model is given and the ban list its answer is
     # checked against are one list.
     + PROMPT_STYLE_RULES
+    # WS-31: the delivered résumé is the candidate's **own document** with the
+    # wording replaced, so the shape of the answer has to match the shape of
+    # their file: one rewritten bullet per original bullet, one entry per role,
+    # in the order the résumé already had them. A model that merges three
+    # bullets into one paragraph loses two paragraph styles and two lines of
+    # the candidate's layout, and the editor can only append the surplus.
+    + FORMAT_RULES
 )
 
 

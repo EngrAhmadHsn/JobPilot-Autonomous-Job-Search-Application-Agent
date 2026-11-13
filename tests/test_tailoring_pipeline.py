@@ -114,3 +114,77 @@ def test_pipeline_result_is_complete_and_consistent(tmp_path: Path) -> None:
     assert outcome.insights.tech_stack == ["Python", "LangGraph"]
     # The job id defaults to the listing id.
     assert Path(outcome.docx_path).name.startswith("prof1_greenhouse_abc123")
+
+
+def test_the_deliverable_is_the_uploaded_resume_with_the_wording_replaced(
+    tmp_path: Path,
+) -> None:
+    """WS-31: the pipeline edits the candidate's own file, not a fresh one.
+
+    The wiring under test is the `upload_path` argument: without it the
+    orchestrator has nothing to edit and falls back to the renderer, so this
+    fails if the pipeline stops passing it.
+    """
+    from docx import Document
+    from docx.shared import Pt
+
+    source = tmp_path / "uploads" / "resume.docx"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    document = Document()
+    document.styles["Normal"].font.name = "Georgia"
+    document.styles["Normal"].font.size = Pt(13)
+    for text, style in (
+        ("Ahmad Hassan", None),
+        ("AI Engineer | ahmad@example.com | Berlin, Germany", None),
+        ("Technical Skills", "Heading 2"),
+        ("Languages: python, langgraph", None),
+        ("Experience", "Heading 2"),
+        ("AI Engineer | Agentic Labs", None),
+        ("Built agent pipelines", "List Bullet"),
+        ("Education", "Heading 2"),
+        ("BSc Computer Science", None),
+    ):
+        document.add_paragraph(text, style=style)
+    document.save(str(source))
+
+    captured: dict = {}
+    outcome = run_tailoring(
+        PROFILE,
+        JOB,
+        generate=_fake_generate(captured),
+        out_dir=tmp_path / "tailored",
+        profile_id="prof1",
+        job_id=JOB.id,
+        upload_path=source,
+    )
+
+    assert outcome.render.mode == "in_place"
+    assert outcome.render.edits >= 1
+    # The upload itself was not written to…
+    assert "Built agent pipelines" in "\n".join(
+        p.text for p in Document(str(source)).paragraphs
+    )
+    # …and the deliverable kept the document's own font and heading.
+    delivered = Document(outcome.docx_path)
+    edited = "\n".join(p.text for p in delivered.paragraphs)
+    assert "Technical Skills" in edited
+    assert delivered.styles["Normal"].font.name == "Georgia"
+    assert "Built agent pipelines with LangGraph" in edited
+
+
+def test_a_resume_with_no_upload_is_reported_as_regenerated(tmp_path: Path) -> None:
+    """The fallback is honest: no upload means a rewrite, and the report says so."""
+    captured: dict = {}
+    outcome = run_tailoring(
+        PROFILE,
+        JOB,
+        generate=_fake_generate(captured),
+        out_dir=tmp_path,
+        profile_id="prof1",
+        job_id=JOB.id,
+        upload_path=tmp_path / "gone.docx",
+    )
+
+    assert outcome.render.mode == "regenerated"
+    assert outcome.render.in_place is False
+    assert any("not available" in note for note in outcome.render.notes)
