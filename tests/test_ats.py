@@ -335,3 +335,43 @@ def test_unreadable_file_is_reported_not_raised(tmp_path: Path) -> None:
     broken.write_bytes(b"not a docx at all")
     report = analyze_ats(TAILORED, PROFILE, JOB, docx_path=broken)
     assert any("could not inspect" in risk.lower() for risk in report.format_risks)
+
+
+def test_a_text_deliverable_is_inspected_as_text_not_as_a_broken_docx(
+    tmp_path,
+) -> None:
+    """WS-31: the deliverable keeps the uploaded format.
+
+    A text résumé used to reach the DOCX reader, fail to open, and be scored
+    ``Could not inspect the rendered file`` — a 20-point penalty for a file that
+    was perfectly fine. Found by the WS-30/31 live verification run.
+    """
+    path = tmp_path / "resume.txt"
+    path.write_text(
+        "Professional Summary\nAI engineer.\n\n"
+        "Technical Skills\nLanguages: Python\n\n"
+        "Experience\nAI Engineer | Agentic Labs\n- Built things\n\n"
+        "Education\nBSc Computer Science\n",
+        encoding="utf-8",
+    )
+    report = analyze_ats(TAILORED, PROFILE, JOB, docx_path=path)
+
+    assert not any("could not inspect" in risk.lower() for risk in report.format_risks)
+    # Every required heading is present, so a text deliverable scores full
+    # format safety — exactly as a clean DOCX does.
+    assert report.format_risks == []
+    assert report.score == pytest.approx(100.0, abs=0.05)
+
+
+def test_a_text_deliverable_missing_a_heading_is_still_flagged(tmp_path) -> None:
+    """The text path is a real check, not a rubber stamp."""
+    path = tmp_path / "resume.md"
+    path.write_text(
+        "Professional Summary\nAI engineer.\n\n"
+        "Experience\nAI Engineer | Agentic Labs\n- Built things\n",
+        encoding="utf-8",
+    )
+    report = analyze_ats(TAILORED, PROFILE, JOB, docx_path=path)
+    risks = " ".join(report.format_risks).lower()
+    assert "missing standard section heading" in risks
+    assert "skills" in risks and "education" in risks

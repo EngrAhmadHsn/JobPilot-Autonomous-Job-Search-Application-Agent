@@ -271,8 +271,51 @@ def _heading_key(text: str) -> str | None:
     return STANDARD_HEADINGS.get(re.sub(r"[^a-z ]", " ", text.lower()).strip())
 
 
+def _text_format_risks(text_path: Path) -> list[str]:
+    """Format risks of a **plain-text** deliverable, read from the file itself.
+
+    WS-31: the deliverable keeps the uploaded format, so a candidate whose
+    résumé is plain text gets plain text back. A ``.txt`` file has no fonts,
+    tables, text boxes or images to inspect and no style-based headings, so
+    the DOCX checks above do not apply — but the one risk that *does* apply to
+    text is the one that matters: a screening system reads a text file only if
+    its sections are recognisably labelled, and ``_heading_key`` reads exactly
+    the headings the parser reads.
+
+    Previously this path did not exist, so a text deliverable reached the DOCX
+    reader, failed to open, and was penalized 20 points for "Could not inspect
+    the rendered file" — a scoring penalty for a file that was perfectly fine.
+    """
+    try:
+        raw = text_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        logger.warning("Could not inspect the rendered text file: %s", exc)
+        return [f"Could not inspect the rendered file: {type(exc).__name__}"]
+
+    risks: list[str] = []
+    seen_sections: list[str] = []
+    for line in raw.splitlines():
+        section = _heading_key(line)
+        if section and section not in seen_sections:
+            seen_sections.append(section)
+    missing = [
+        name
+        for name in ("summary", "skills", "experience", "education")
+        if name not in seen_sections
+    ]
+    if missing:
+        risks.append(f"Missing standard section heading(s): {', '.join(missing)}")
+    return risks
+
+
 def _format_risks(docx_path: Path) -> list[str]:
     """Format risks of a rendered resume, read from the file itself."""
+    # WS-31: the deliverable may be a plain-text file. Dispatch on the real
+    # suffix rather than assuming DOCX, or a text résumé is scored as an
+    # unreadable document.
+    if Path(docx_path).suffix.lower() in {".txt", ".md"}:
+        return _text_format_risks(Path(docx_path))
+
     try:
         from docx import Document
     except ImportError:  # pragma: no cover - python-docx is a hard dependency
