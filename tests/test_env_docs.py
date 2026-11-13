@@ -50,6 +50,19 @@ _ENV_PATTERNS = (
     re.compile(r"""_float_env\(\s*["']([A-Z][A-Z0-9_]*)["']"""),
 )
 
+# WS-30: the provider fallback chain names its six variables in a **spec
+# table** rather than calling ``os.getenv`` once per variable, and
+# ``Settings._parse_fallback_links`` reads that table row by row. A row is
+# ``("groq", "GROQ_API_KEY", "GROQ_MODEL", "<default model>")`` — an alias,
+# then a key variable and a model variable. The pattern is deliberately narrow
+# (an alias-shaped first element, then exactly two ENV-shaped names) so it
+# matches that table and not some unrelated tuple.
+_ENV_PAIR_PATTERNS = (
+    re.compile(
+        r"""\(\s*"[a-z][a-z0-9_-]*"\s*,\s*"([A-Z][A-Z0-9_]*)"\s*,\s*"([A-Z][A-Z0-9_]*)"\s*,"""
+    ),
+)
+
 # A line of .env.example is an entry when it is `NAME=value`, with or
 # without a leading comment marker. A commented entry is an *example* of an
 # override; an uncommented entry states the default.
@@ -63,6 +76,10 @@ def _runtime_env_vars() -> set[str]:
         text = path.read_text(encoding="utf-8")
         for pattern in _ENV_PATTERNS:
             names.update(pattern.findall(text))
+        # WS-30: the spec-table form contributes two names per matched row.
+        for pattern in _ENV_PAIR_PATTERNS:
+            for key_var, model_var in pattern.findall(text):
+                names.update((key_var, model_var))
     return names
 
 
@@ -99,6 +116,10 @@ SETTINGS_VAR_TO_ATTR = {
     "LLM_TIMEOUT": "llm_timeout",
     "LLM_MAX_RPM": "llm_max_rpm",
     "LLM_MAX_RETRIES": "llm_max_retries",
+    # WS-30: the provider fallback chain's switch. The six per-link variables
+    # are read by ``_parse_fallback_links`` and are checked by FALLBACK_LINK_VARS
+    # below, since they have no Settings attribute of their own.
+    "LLM_FALLBACK_ENABLED": "llm_fallback_enabled",
     # WS-22: the bring-your-own-key mode and its encryption key source. The
     # key source is documented as an empty default (unset means "derive from
     # AUTH_SECRET, or fall back to the development key file").
@@ -191,8 +212,6 @@ LIMITS_VAR_TO_ATTR = {
 }
 
 # Documented variables that deliberately do NOT state a default, and why.
-# The board lists are curated examples, not defaults — the code's default is
-# an empty list, and the example file is more useful with real boards in it.
 NOT_A_DEFAULT = {
     "GREENHOUSE_BOARDS": "a curated board list, not the code's empty default",
     "LEVER_COMPANIES": "a curated company list, not the code's empty default",
@@ -214,6 +233,23 @@ SPECIAL_DEFAULTS = {
     "APPROVAL_TTL_HOURS",
 }
 
+# WS-30: the provider fallback chain's per-link variables. They are read by
+# ``Settings._parse_fallback_links`` from its own spec table rather than as
+# individual attributes, so each is checked against the spec that actually
+# consumes it — which also proves the .env.example row and the code's table
+# name the same variable. A blank key is the documented default for the keys;
+# each model's documented value must equal the spec's default model.
+FALLBACK_KEY_VARS = {"GROQ_API_KEY", "TOKENHARBOR_API_KEY", "POLLINATIONS_API_KEY"}
+FALLBACK_MODEL_DEFAULTS = {
+    "GROQ_MODEL": "qwen/qwen3.8-27b",
+    "TOKENHARBOR_MODEL": "deepseek-v4.1-flash",
+    "POLLINATIONS_MODEL": "community/morriszdweck/glm-5.3-flash-free",
+}
+#: Every variable read from the fallback spec table, so a variable that exists
+#: in the test's rules but not in the code's table is a failure rather than a
+#: silently skipped check.
+FALLBACK_LINK_VARS = FALLBACK_KEY_VARS | set(FALLBACK_MODEL_DEFAULTS)
+
 
 def _normalize(value: str) -> str:
     """Normalize a path-ish value so ``./data/x`` and ``data/x`` compare equal."""
@@ -226,6 +262,11 @@ def _code_default(name: str, settings: Settings, limits) -> object:
         return launch_options()["headless"]
     if name == "FASTEMBED_CACHE_PATH":
         return _normalize(fastembed_cache_dir(settings))
+    if name in FALLBACK_KEY_VARS:
+        # WS-30: an unset key is the default, and that is what disables a link.
+        return None
+    if name in FALLBACK_MODEL_DEFAULTS:
+        return FALLBACK_MODEL_DEFAULTS[name]
     if name in SETTINGS_VAR_TO_ATTR:
         return getattr(settings, SETTINGS_VAR_TO_ATTR[name])
     if name in LIMITS_VAR_TO_ATTR:
@@ -344,6 +385,7 @@ def test_the_documented_default_of_every_known_variable_is_checked() -> None:
         | set(LIMITS_VAR_TO_ATTR)
         | set(NOT_A_DEFAULT)
         | set(SPECIAL_DEFAULTS)
+        | set(FALLBACK_LINK_VARS)
     )
 
     unknown = sorted(documented - known)
@@ -351,6 +393,49 @@ def test_the_documented_default_of_every_known_variable_is_checked() -> None:
     assert not unknown, (
         f"{unknown} are documented but have no default rule. Add them to the "
         "mapping tables in this test, with a reason if they are not defaults."
+    )
+
+
+def test_the_fallback_link_defaults_match_the_code_spec_table(
+    clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WS-30: the documented model defaults are the ones the code itself uses.
+
+    The table above is this test's copy of the defaults; this assertion reads
+    the **code's** spec table and the settings the code builds from it, so the
+    two cannot drift. It also proves the blank-key-means-disabled rule: with
+    no keys set, every link reports ``active`` False.
+    """
+    from src.config.settings import _FALLBACK_LINK_SPECS, Settings
+
+    settings = Settings()
+    by_var = {
+        key_var: (alias, default_model)
+        for alias, key_var, _model_var, default_model in _FALLBACK_LINK_SPECS
+    }
+
+    assert set(FALLBACK_KEY_VARS) == set(by_var), (
+        "the test's key-variable list and the code's spec table disagree"
+    )
+    for model_var, documented in FALLBACK_MODEL_DEFAULTS.items():
+        alias = next(
+            spec_alias
+            for spec_alias, _k, spec_model_var, _d in _FALLBACK_LINK_SPECS
+            if spec_model_var == model_var
+        )
+        link = next(link for link in settings.llm_fallback_links if link.alias == alias)
+        assert link.model == documented, (
+            f"{model_var} documents {documented!r} but {alias} builds {link.model!r}"
+        )
+
+    assert all(not link.active for link in settings.llm_fallback_links), (
+        "with no keys configured, no fallback link may be active"
+    )
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    activated = Settings()
+    assert [link.active for link in activated.llm_fallback_links] == [True, False, False], (
+        "setting one link's key must activate exactly that link"
     )
 
 

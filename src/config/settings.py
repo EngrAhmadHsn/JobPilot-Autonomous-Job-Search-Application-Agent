@@ -21,6 +21,53 @@ _DEFAULT_ALLOWED_DOMAINS = (
     "greenhouse.io,lever.co,workday.com,ashbyhq.com,smartrecruiters.com,icims.com"
 )
 
+#: WS-30: the fallback chain's links, in the order they are tried. Each row is
+#: (provider alias, key variable, model variable, default model).
+#:
+#: The aliases are ``src.llm.providers``' alias-table entries, so the endpoint
+#: is not repeated here — only what a deployment has to supply. The order is
+#: fixed because "a link without a key is skipped" already makes the chain
+#: configurable in the only way that matters (how many links exist); a separate
+#: order knob would be a second way to say the same thing.
+_FALLBACK_LINK_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    ("groq", "GROQ_API_KEY", "GROQ_MODEL", "qwen/qwen3.8-27b"),
+    ("tokenharbor", "TOKENHARBOR_API_KEY", "TOKENHARBOR_MODEL", "deepseek-v4.1-flash"),
+    (
+        "pollinations",
+        "POLLINATIONS_API_KEY",
+        "POLLINATIONS_MODEL",
+        "community/morriszdweck/glm-5.3-flash-free",
+    ),
+)
+
+
+class FallbackLinkConfig:
+    """One configured fallback provider (WS-30).
+
+    An empty ``api_key`` means the link is **not active**; ``model`` falls back
+    to the vendor's documented id so enabling a link is one .env line
+    (``GROQ_API_KEY=…``) rather than two.
+    """
+
+    __slots__ = ("alias", "api_key", "model")
+
+    def __init__(self, alias: str, api_key: str, model: str) -> None:
+        self.alias = alias
+        self.api_key = api_key
+        self.model = model
+
+    @property
+    def active(self) -> bool:
+        """Whether this link has a key and will therefore be tried."""
+        return bool(self.api_key.strip())
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        # Never the key: a repr ends up in a traceback or a log line.
+        return (
+            f"FallbackLinkConfig(alias={self.alias!r}, model={self.model!r}, "
+            f"api_key={'<set>' if self.active else '<unset>'})"
+        )
+
 
 class Settings:
     def __init__(self) -> None:
@@ -76,6 +123,25 @@ class Settings:
                 f"LLM_MAX_RETRIES must be 0 or more, got {self.llm_max_retries!r}. "
                 "Refusing to start."
             )
+
+        # -- Model provider fallback chain (WS-30) ---------------------------
+        #
+        # A deployment may hold more than one provider key, and one provider
+        # being throttled or down should not fail the call. Behind the
+        # configured primary, up to three aliases are tried in a fixed order:
+        # Groq, TokenHarbor, then Pollinations. Each link is its own key and
+        # its own model; the endpoint comes from the alias table in
+        # ``src.llm.providers``, so only a key and a model are configured here.
+        #
+        # A link is **active when its key is non-blank**. That is the whole
+        # switch: leaving a key unset disables that link, which is the natural
+        # way to run with one, two or three of them without a second knob to
+        # keep in sync. The model keeps a useful default, so adding a key is
+        # the only step needed to enable a link.
+        self.llm_fallback_enabled = os.getenv(
+            "LLM_FALLBACK_ENABLED", "true"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self.llm_fallback_links = self._parse_fallback_links()
 
         # -- Bring your own key (WS-22) --------------------------------------
         #
@@ -338,6 +404,32 @@ class Settings:
         self._validate_production_cors()
         self._validate_production_identity()
         self._validate_production_byok()
+
+    @staticmethod
+    def _parse_fallback_links() -> list[FallbackLinkConfig]:
+        """The fallback links, in the order the chain tries them (WS-30).
+
+        Every spec becomes a link; a link whose key is unset is simply not
+        ``active`` and the chain skips it. The keys are stripped here for the
+        same reason ``llm_api_key`` is (WS-27): a whitespace-only value passed
+        truthiness and reached the provider as an empty header, which reads as
+        an auth bug rather than a missing setting. A model that was set to
+        whitespace falls back to the default rather than sending an empty
+        model id.
+
+        The key is **never** logged or echoed — ``FallbackLinkConfig.__repr__``
+        masks it, and nothing here writes one anywhere.
+        """
+        links: list[FallbackLinkConfig] = []
+        for alias, key_var, model_var, default_model in _FALLBACK_LINK_SPECS:
+            links.append(
+                FallbackLinkConfig(
+                    alias=alias,
+                    api_key=(os.getenv(key_var, "") or "").strip(),
+                    model=(os.getenv(model_var, "") or "").strip() or default_model,
+                )
+            )
+        return links
 
     @staticmethod
     def _parse_match_weights(raw: str | None) -> dict[str, float] | None:
