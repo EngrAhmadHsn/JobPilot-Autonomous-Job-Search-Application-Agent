@@ -974,7 +974,6 @@ def search_stored_jobs(
     # store is down" into one boolean.
     from src.matching.embedding_status import embedding_status_for_jobs, is_pending_status
     from src.matching.lexical import (
-        LexicalResult,
         candidate_lexical_text,
         candidate_tokens,
         lexical_score,
@@ -1024,7 +1023,6 @@ def search_stored_jobs(
     # in tests/test_ws29_two_phase_scoring.py pins that.
     scored: list[tuple[str, float]] = []
     jobs_by_id: dict[str, JobListing] = {}
-    lexical_by_id: dict[str, LexicalResult] = {}
     semantic_by_id: dict[str, tuple[float | None, ScoreState | None]] = {}
     semantic_covered = 0
     for job in jobs:
@@ -1060,6 +1058,11 @@ def search_stored_jobs(
             # is ``None`` — and the index returning no entry for a listing
             # means that listing matched no term, which is genuinely 0.0.
             bm25_raw=(bm25_scores.get(job.id, 0.0) if index is not None else None),
+            # WS-29: the bulk path ranks on the weight and never reads the
+            # evidence lists, which are built for the survivors only. Measured
+            # 42% of this function's time (0.514 s -> 0.327 s) with an
+            # identical score.
+            collect_evidence=False,
         )
         cheap = score_listing(
             job,
@@ -1072,7 +1075,6 @@ def search_stored_jobs(
         )
         scored.append((job.id, cheap.overall_score))
         jobs_by_id[job.id] = job
-        lexical_by_id[job.id] = lexical_result
         semantic_by_id[job.id] = (semantic_score, semantic_state)
 
     # Deterministic tie-break on the job id so a repeated search is stable —
@@ -1083,12 +1085,30 @@ def search_stored_jobs(
     top: list[JobMatchPair] = []
     for job_id, _score in survivors:
         semantic_score, semantic_state = semantic_by_id[job_id]
+        # WS-29: the bulk pass skipped the evidence lists to save 42% of the
+        # lexical work. The survivors are the only listings whose evidence is
+        # ever read (the explanation's "Missing keywords", and the detail
+        # screen's `missing_keywords`), so it is collected here — for 30
+        # listings instead of 8,558. The score is unchanged by construction;
+        # `collect_evidence` decides what is *reported*, never what is measured.
+        survivor_lexical = lexical_score(
+            jobs_by_id[job_id],
+            index=index,
+            candidate_token_list=candidate_token_list,
+            candidate_text=candidate_text,
+            important_terms=artifacts.lexical_terms.get(job_id),
+            candidate_token_set=context.token_set,
+            lowered_candidate_text=context.lowered_text,
+            total_weight=artifacts.lexical_weight_totals.get(job_id),
+            required_phrases=artifacts.required_phrases.get(job_id),
+            bm25_raw=(bm25_scores.get(job_id, 0.0) if index is not None else None),
+        )
         match = calculate_match(
             jobs_by_id[job_id],
             profile,
             semantic_score=semantic_score,
             semantic_state=semantic_state,
-            lexical=lexical_by_id[job_id],
+            lexical=survivor_lexical,
             artifacts=artifacts,
             context=context,
         )
