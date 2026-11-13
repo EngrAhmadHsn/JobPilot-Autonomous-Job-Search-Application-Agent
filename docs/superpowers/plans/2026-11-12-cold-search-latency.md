@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, SQLAlchemy 2.0, Alembic, Pydantic v2, pytest, FastAPI lifespan.
 
-**Spec:** `docs/implementation/24-search-performance.md` §11 (WS-28)
+**Spec:** `docs/implementation/28-cold-search-and-residual-latency.md` (WS-28). When this plan was written the spec was `24-search-performance.md` §11; that section was extracted into its own document on 2026-11-13, and **every `§11.N` reference below now means `§N` of `28-cold-search-and-residual-latency.md`** (§11.3 → §3, §11.7 → §7). The plan's steps are left as they were executed, so this file remains an honest record of what was asked for at the time.
 
 ## Global Constraints
 

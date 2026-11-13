@@ -1,6 +1,6 @@
 # WS-23 · Corpus Correctness, Field Completeness & Source Health
 
-Status: **Phases 0–5 done, Phase 6 not started** · Milestone: **M5** · Depends on: WS-02 (boards), WS-12 (limits), WS-15 (corpus cap), WS-18 (durable queue), WS-20 (matching) · Live-verified: against the local corpus and live board endpoints · **Deviations in §11, follow-up in §12 (WS-23b)**
+Status: **Done (2026-11-11)** — Phases 0–6 plus the WS-23b follow-up in §12 · Milestone: **M5** · Depends on: WS-02 (boards), WS-12 (limits), WS-15 (corpus cap), WS-18 (durable queue), WS-20 (matching) · Live-verified: against the local corpus and live board endpoints · **Deviations in §11, follow-up in §12 (WS-23b)**. Phase 6's expiry signal landed in WS-23b (the age bound, `first_seen_at`, the approval-gate liveness check), and §11.1's unfinished field is finished by ingest-time mining. **Still open and deferred:** §11.3 (cross-source dedup — now owned by WS-26 Phase 2) and §11.4 (the operator role-family allowlist, not needed inside the 50,000 cap)
 
 > The corpus is not too small. It is **wrong**.
 >
@@ -644,7 +644,7 @@ changed both, and the measurement above is the proof.
 
 | WS | Row |
 |---|---|
-| 23 | corpus correctness — the field population 0%/11%/0.2% → 61%/48%/47% |
+| 23 | corpus correctness — the field population 0%/11%/0.2% → 50%/38%/38% |
 | 24 | search performance — 68× scan, the refresh penalty removed |
 | 25 | provider depth — the form schema and liveness verified live |
 | 26 | source expansion — planned, depends on WS-23 |

@@ -1,6 +1,6 @@
 # WS-25 · Provider Depth, the Application Form Schema & Approval Expiry
 
-Status: **Phases 1–3 done, the wiring not** · Milestone: **M5** · Depends on: WS-06 (approval), WS-08 (browser automation), WS-20 (matching), WS-23 (corpus correctness) · **Deviations in §7a** — the form schema and the closed-job check are implemented and live-verified as libraries, but neither is wired into the prepare/approve path, and the questions measurement is not built. **Follow-up in §9 (WS-25b)**
+Status: **Done (2026-11-11)** — Phases 1–5 plus the WS-25b wiring in §9/§10 · Milestone: **M5** · Depends on: WS-06 (approval), WS-08 (browser automation), WS-20 (matching), WS-23 (corpus correctness) · **Deviations in §7a, follow-up in §9 (WS-25b)**. The §7a gaps are closed: §7a.1's form schema is wired into prepare (`_build_form_plans`), §7a.2's liveness check is wired into approve (`_job_liveness`), and §7a.3's questions measurement is built (75 `form_questions` rows behind `GET /api/profiles/{id}/question-gaps`). **Still open:** the console does not call that endpoint yet, so the measured field order is not what the profile screen renders
 
 > Two of the four providers publish far more than the adapters were
 > reading, and one of the project's core safety guarantees — *a human

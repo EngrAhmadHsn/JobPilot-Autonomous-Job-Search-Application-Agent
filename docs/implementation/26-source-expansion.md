@@ -1,6 +1,6 @@
 # WS-26 · Source Expansion — Verified Boards, Cross-Source Dedup, Source Ordering & Tier-A ATS Adapters
 
-Status: **Planned (plan only — no code)** · Milestone: **M5** · Depends on: WS-23 (corpus correctness — field completeness and the `job_boards` registry **landed 2026-11-10**), WS-24 (search performance — **landed 2026-11-10**), WS-18 (durable queue for staggered sync) · Live-verified: every slug and endpoint cited below was probed live on 2026-11-09/10 (read-only GETs); see the research reference notes · **Follow-up in §11 (WS-26b)**
+Status: **Plan only — the expansion is not built. WS-26b (§11) delivered** · Milestone: **M5** · Depends on: WS-23 (corpus correctness — field completeness and the `job_boards` registry, done 2026-11-11), WS-24 (search performance — done 2026-11-12), WS-18 (durable queue for staggered sync) · Live-verified: every slug and endpoint cited below was probed live on 2026-11-09/10 (read-only GETs); see the research reference notes · **Delivered in §11 (WS-26b): `scripts/verify_sources.py` and the dedup-docstring correction. Not built: Phases 2–6 — cross-source dedup, proposals, honest source ordering, the robots-aware crawl policy, and every tier-A adapter**
 
 > The corpus is correct but **narrow**: four sources — Greenhouse (13
 > boards), Lever (4 companies), Ashby (10 orgs), Remotive — **8,558
