@@ -113,12 +113,23 @@ class ProviderRequest:
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """One generation response, with the token counts when the provider gives them."""
+    """One generation response, with the token counts when the provider gives them.
+
+    ``provider`` and ``model`` are WS-30 additions, and they are only set by a
+    **fallback chain**: they name the link that actually answered. Without
+    them, a call the primary refused and Groq answered would be recorded in
+    the usage row (and the audit ``resource``) under the primary's model —
+    "the spend is visible" would be false in exactly the case the chain exists
+    for. A single provider leaves both ``None`` and the client falls back to
+    its own identity, so nothing about the non-chained path changes.
+    """
 
     text: str
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    provider: str | None = None
+    model: str | None = None
 
 
 @runtime_checkable

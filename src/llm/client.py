@@ -14,6 +14,10 @@ What this module guarantees:
 - **A transient failure does not fail the workflow.** A 429 or a 5xx is
   retried with exponential backoff and jitter; a bad key, an unknown provider
   and an invalid answer are not.
+- **A provider outage does not have to fail the call.** WS-30: when the
+  deployment configured fallback providers, the chain is tried inside the call
+  — after the client's own retries are exhausted — and the answering link is
+  recorded in the usage row.
 - **The call is paced.** A sliding-window limiter keeps the client inside
   the provider's per-minute budget (``settings.llm_max_rpm``) by sleeping,
   never by refusing the call.
@@ -45,6 +49,7 @@ from src.llm.errors import (
     LLMUnavailable,
     classify_provider_error,
 )
+from src.llm.fallback import build_fallback_chain
 from src.llm.providers import (
     Provider,
     ProviderRequest,
@@ -234,7 +239,15 @@ class LLMClient:
     # -- internals ----------------------------------------------------------
 
     def _ensure_provider(self) -> Provider:
-        """The provider adapter, built on first use."""
+        """The provider adapter, built on first use.
+
+        WS-30: the adapter is wrapped in the **provider fallback chain** when
+        the deployment configured fallback keys. The chain is a provider, so
+        everything below this line — the timeout, the limiter, the retry loop,
+        the client's breaker, the usage row — is unchanged and applies once per
+        logical call. A client with no fallbacks gets the bare adapter, so a
+        single-provider deployment's object graph is exactly what it was.
+        """
         if self._provider is not None:
             return self._provider
         if self._provider_instance is not None:
@@ -246,14 +259,23 @@ class LLMClient:
         # rather than a missing setting.
         if not (self._api_key or "").strip():
             raise LLMConfigError("LLM_API_KEY is not set; configure it in .env (never commit it)")
-        self._provider = build_provider(
+        adapter = build_provider(
             self.provider,
             api_key=self._api_key,
             model=self.model,
             base_url=self._base_url,
             timeout=self._timeout,
         )
+        self._provider = build_fallback_chain(
+            adapter,
+            primary_alias=self._provider_name_of(adapter),
+            primary_model=self.model,
+        )
         return self._provider
+
+    def _provider_name_of(self, provider: Provider | None) -> str:
+        """The name an adapter reports, falling back to the configured id."""
+        return getattr(provider, "name", None) or self.provider or "unknown"
 
     def _provider_name(self) -> str:
         provider = self._provider or self._provider_instance
@@ -321,7 +343,9 @@ class LLMClient:
     def _record_success(
         self, response: ProviderResponse, started: float, kind: str, attempts: int
     ) -> str:
-        """Account for a successful call and return its text."""
+        """Account for a successful call and return its text.
+
+        """
         usage = GenerationUsage(
             provider=self._provider_name(),
             model=self.model,
