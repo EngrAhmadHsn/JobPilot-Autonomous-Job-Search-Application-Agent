@@ -234,3 +234,137 @@ def test_unknown_ids_are_404(api: TestClient) -> None:
     response = api.post("/api/tailor", json={"profile_id": "nope", "job_id": "nope"})
     assert response.status_code == 404
     assert api.get("/api/tailored/does-not-exist").status_code == 404
+
+
+# -- WS-31: the deliverable is the caller's own résumé, edited ----------------
+#
+# The seed above writes ``file_path="resume.docx"``, which does not exist, so
+# those cases exercise the **reported** fallback: a fresh document. These cases
+# put a real résumé on disk and assert that the route edits *that* file.
+
+
+def _seed_with_upload(api: TestClient, tmp_path: Path, *, suffix: str = ".docx"):
+    """Store a profile whose ``file_path`` is a real uploaded résumé."""
+    with app.state.db_factory() as db:
+        row = build_profile_row(PROFILE, "")
+        db.add(row)
+        db.add(
+            JobDB(
+                id=JOB.id,
+                source=JOB.source,
+                source_job_id=JOB.source_job_id,
+                title=JOB.title,
+                company=JOB.company,
+                description=JOB.description,
+                location=JOB.location,
+                required_skills=JOB.required_skills,
+                preferred_skills=JOB.preferred_skills,
+            )
+        )
+        # Commit once so the generated id is available for the file name.
+        db.commit()
+
+        if suffix == ".docx":
+            upload = _write_resume_docx(tmp_path / f"{row.id}.docx")
+        else:
+            upload = tmp_path / f"{row.id}{suffix}"
+            upload.write_text(
+                "AHMAD HASSAN\n"
+                "AI Engineer | ahmad@example.com | Berlin, Germany\n"
+                "\n"
+                "Technical Skills\n"
+                "Languages: python, go\n"
+                "\n"
+                "Professional Summary\n"
+                "AI engineer building agent systems.\n"
+                "\n"
+                "Experience\n"
+                "AI Engineer | Agentic Labs\n"
+                "- Built agent pipelines\n"
+                "\n"
+                "Education\n"
+                "BSc Computer Science\n",
+                encoding="utf-8",
+            )
+        row.file_path = str(upload)
+        db.commit()
+        return row.id, JOB.id, upload
+
+
+def _write_resume_docx(path: Path) -> Path:
+    """A résumé with a look the renderer would never produce."""
+    from docx import Document
+    from docx.shared import Pt
+
+    document = Document()
+    document.styles["Normal"].font.name = "Georgia"
+    document.styles["Normal"].font.size = Pt(13)
+    for text, style in (
+        ("AHMAD HASSAN", None),
+        ("AI Engineer | ahmad@example.com | Berlin, Germany", None),
+        ("Technical Skills", "Heading 2"),
+        ("Languages: python, go", None),
+        ("Professional Summary", "Heading 2"),
+        ("AI engineer building agent systems.", None),
+        ("Experience", "Heading 2"),
+        ("AI Engineer | Agentic Labs", None),
+        ("Built agent pipelines", "List Bullet"),
+        ("Education", "Heading 2"),
+        ("BSc Computer Science", None),
+    ):
+        document.add_paragraph(text, style=style)
+    document.save(str(path))
+    return path
+
+
+def test_the_route_edits_the_callers_own_upload(api: TestClient, tmp_path: Path) -> None:
+    from docx import Document
+
+    profile_id, job_id, upload = _seed_with_upload(api, tmp_path)
+    body = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id}).json()
+
+    assert body["render"]["mode"] == "in_place"
+    assert body["render"]["source_format"] == ".docx"
+    assert body["render"]["edits"] >= 1
+
+    # The deliverable is NOT the uploaded file (never written to), and it keeps
+    # the upload's own formatting.
+    assert Path(body["docx_path"]) != upload
+    edited = Document(body["docx_path"])
+    font = edited.styles["Normal"].font
+    assert font.name == "Georgia"
+    text = "\n".join(p.text for p in edited.paragraphs)
+    assert "Built agent pipelines with LangGraph" in text
+    assert "Technical Skills" in text  # the document's own heading
+
+
+def test_the_route_reports_a_rewrite_as_a_rewrite(api: TestClient) -> None:
+    """No upload on disk: a fresh document, and the response says so."""
+    profile_id, job_id = _seed(api)
+    body = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id}).json()
+
+    assert body["render"]["mode"] == "regenerated"
+    assert body["render"]["source_format"] == "none"
+    assert any("not available" in note for note in body["render"]["notes"])
+
+
+def test_a_text_upload_is_edited_and_comes_back_as_text(api: TestClient, tmp_path: Path) -> None:
+    profile_id, job_id, _upload = _seed_with_upload(api, tmp_path, suffix=".txt")
+    body = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id}).json()
+
+    assert body["render"]["mode"] == "in_place"
+    assert body["render"]["source_format"] == ".txt"
+    delivered = Path(body["docx_path"])
+    assert delivered.suffix == ".txt"
+    text = delivered.read_text(encoding="utf-8")
+    assert "Technical Skills" in text
+    assert "- Built agent pipelines with LangGraph" in text
+
+
+def test_the_render_report_survives_the_round_trip(api: TestClient, tmp_path: Path) -> None:
+    profile_id, job_id, _upload = _seed_with_upload(api, tmp_path)
+    created = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id}).json()
+
+    stored = api.get(f"/api/tailored/{created['tailoring_id']}").json()
+    assert stored["render"] == created["render"]
+    assert stored["render"]["mode"] == "in_place"

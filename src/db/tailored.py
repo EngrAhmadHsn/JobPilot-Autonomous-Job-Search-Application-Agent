@@ -23,6 +23,7 @@ from src.db.base import Base
 from src.db.users import LEGACY_OWNER_ID
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
+from src.resume.edit import RenderReport
 from src.resume.style import StyleReport
 from src.resume.tailor import FactualityReport, TailoredResume
 
@@ -53,6 +54,12 @@ class TailoredResumeDB(Base):
     #: existed stay valid and read back as an empty report.
     style: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     insights: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    #: WS-31: how the deliverable was produced — the candidate's own document
+    #: edited in place, or a freshly rendered one, and what could not be
+    #: edited. Nullable so rows written before this column existed stay valid
+    #: and read back as the regenerated verdict (which is what those rows
+    #: really are: they came from the from-scratch renderer).
+    render: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     docx_path: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
@@ -68,6 +75,8 @@ class StoredTailoring(BaseModel):
     ats_report: AtsReport
     style: StyleReport = StyleReport()
     insights: JobInsights | None = None
+    #: WS-31: how the deliverable was produced (in place or regenerated).
+    render: RenderReport = RenderReport()
     docx_path: str
     created_at: datetime
 
@@ -88,6 +97,7 @@ def build_tailored_row(
     docx_path: str,
     style: StyleReport | None = None,
     insights: JobInsights | None = None,
+    render: RenderReport | None = None,
 ) -> TailoredResumeDB:
     """Map a tailoring result onto a new row (the caller owns the session)."""
     return TailoredResumeDB(
@@ -100,6 +110,7 @@ def build_tailored_row(
         ats_report=ats_report.model_dump(mode="json"),
         style=style.model_dump(mode="json") if style is not None else None,
         insights=insights.model_dump(mode="json") if insights is not None else None,
+        render=render.model_dump(mode="json") if render is not None else None,
         docx_path=docx_path,
     )
 
@@ -115,6 +126,7 @@ def stored_from_row(row: TailoredResumeDB) -> StoredTailoring:
         ats_report=AtsReport.model_validate(row.ats_report),
         style=StyleReport.model_validate(row.style) if row.style else StyleReport(),
         insights=JobInsights.model_validate(row.insights) if row.insights else None,
+        render=RenderReport.model_validate(row.render) if row.render else RenderReport(),
         docx_path=row.docx_path,
         created_at=row.created_at,
     )

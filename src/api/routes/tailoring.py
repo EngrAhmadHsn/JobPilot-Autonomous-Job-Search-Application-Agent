@@ -1,9 +1,14 @@
 """Tailoring API (WS-05).
 
 ``POST /api/tailor`` runs the full pipeline for one stored profile and one
-stored job: grounded research, tailored content, factuality validation, a
-rendered DOCX and the ATS report. The result is persisted so it can be served
+stored job: grounded research, tailored content, factuality validation, the
+deliverable and the ATS report. The result is persisted so it can be served
 again after a restart.
+
+The deliverable is the caller's **own uploaded résumé, edited in place**
+(WS-31), so its formatting survives; when the original cannot be edited a fresh
+document is rendered instead and the response's ``render`` report says which
+happened and why.
 
 ``GET /api/tailored/{id}`` returns a stored tailoring record.
 
@@ -31,6 +36,7 @@ from src.llm.client import LLMError
 from src.llm.errors import LLMConfigError, LLMCredentialError
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport
+from src.resume.edit import RenderReport
 from src.resume.pipeline import run_tailoring
 from src.resume.style import StyleReport
 from src.resume.tailor import FactualityReport, GenerateFn, TailoredResume
@@ -49,7 +55,7 @@ class TailorRequest(BaseModel):
 
 
 class TailorResponse(BaseModel):
-    """The tailoring result, its reports and the rendered file path."""
+    """The tailoring result, its reports and the path of the deliverable."""
 
     tailoring_id: str
     profile_id: str
@@ -61,6 +67,10 @@ class TailorResponse(BaseModel):
     style: StyleReport
     insights: JobInsights
     docx_path: str
+    #: WS-31: how the deliverable was produced — the caller's own uploaded
+    #: résumé edited in place (``in_place``) or a freshly rendered document
+    #: (``regenerated``), with the counts and the reasons.
+    render: RenderReport = RenderReport()
 
 
 class StoredTailoringResponse(TailorResponse):
@@ -115,6 +125,11 @@ def tailor_resume_endpoint(
             out_dir=ensure_dir(user_dir(scope.user_id, KIND_TAILORED)),
             profile_id=req.profile_id,
             job_id=req.job_id,
+            # WS-31: the deliverable is the caller's own uploaded résumé with
+            # the tailored wording edited into it, so its formatting survives.
+            # The row's path is the stored upload; a row whose file is gone
+            # falls back to a fresh render, reported in ``outcome.render``.
+            upload_path=profile_row.file_path,
         )
     except LLMCredentialError as exc:
         # WS-22: the caller's own credential is missing or rejected. The
@@ -165,6 +180,7 @@ def tailor_resume_endpoint(
         ats_report=outcome.ats_report,
         style=outcome.style,
         insights=outcome.insights,
+        render=outcome.render,
         docx_path=outcome.docx_path,
     )
     db.add(row)
@@ -176,6 +192,7 @@ def tailor_resume_endpoint(
             "tailoring_id": row.id,
             "factuality_passed": outcome.factuality.passed,
             "ats_score": outcome.ats_report.score,
+            "render_mode": outcome.render.mode,
         },
     )
     return TailorResponse(
@@ -187,6 +204,7 @@ def tailor_resume_endpoint(
         ats_report=outcome.ats_report,
         style=outcome.style,
         insights=outcome.insights,
+        render=outcome.render,
         docx_path=outcome.docx_path,
     )
 
@@ -211,6 +229,7 @@ def get_tailored(
         ats_report=stored.ats_report,
         style=stored.style,
         insights=stored.insights or JobInsights(),
+        render=stored.render,
         docx_path=stored.docx_path,
         created_at=stored.created_at.isoformat(),
     )

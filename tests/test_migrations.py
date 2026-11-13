@@ -110,6 +110,9 @@ TAILORED_RESUMES_COLUMNS = {
     # WS-22: the deterministic style report on the delivered content.
     "style",
     "insights",
+    # WS-31: how the deliverable was produced (the candidate's own document
+    # edited in place, or a freshly rendered one) and what could not be edited.
+    "render",
     "docx_path",
     "created_at",
     "owner_id",
