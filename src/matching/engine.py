@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any, NamedTuple
 
 from src.config.settings import get_settings
 from src.jobs.contracts import JobListing
@@ -660,6 +661,141 @@ class CandidateContext:
         )
 
 
+class ListingScore(NamedTuple):
+    """The numbers a **ranking** needs, and nothing else (WS-29).
+
+    `calculate_match` builds a 23-field result with an explanation string, a
+    note list and an eight-entry state map. Ranking needs three numbers. On the
+    live corpus 8,528 of 8,558 full results are built and discarded
+    (99.6% at `top_n=30`), so the bulk path scores with this and materializes
+    only the survivors.
+    """
+
+    overall_score: float
+    evidence_coverage: float
+    role_capped: bool
+
+
+def _scored_components(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    semantic_score: float | None,
+    semantic_state: ScoreState | None,
+    lexical: LexicalResult | None,
+    bm25_index: Bm25Index | None,
+    effective_weights: dict[str, float],
+    artifacts: CorpusArtifacts | None,
+    context: CandidateContext,
+) -> tuple[dict[str, ComponentScore], RoleRelevance]:
+    """The eight components and the role comparison, for one listing.
+
+    Shared by :func:`calculate_match` and :func:`score_listing` so the two can
+    never disagree about a number — the only difference between them is what
+    they do with the result.
+    """
+    cached_classification = (
+        artifacts.role_classifications.get(job.id) if artifacts is not None else None
+    )
+    relevance = role_relevance(profile, job, classification=cached_classification)
+
+    cached_terms = artifacts.lexical_terms.get(job.id) if artifacts is not None else None
+    cached_requirement: float | None | object = (
+        artifacts.required_years.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
+    )
+    cached_rank: int | None | object = (
+        artifacts.seniority_ranks.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
+    )
+
+    components: dict[str, ComponentScore] = {
+        "semantic": _semantic_component(job, semantic_score, semantic_state),
+        "lexical": _lexical_component(
+            job,
+            profile,
+            lexical,
+            bm25_index,
+            important_terms=cached_terms,
+            context=context,
+        ),
+        "skill": _skill_component(job, profile, context=context),
+        "experience": _experience_component(
+            job, profile, requirement=cached_requirement, context=context
+        ),
+        "seniority": _seniority_component(
+            job, profile, job_rank=cached_rank, candidate_rank=context.candidate_rank
+        ),
+        "location": _location_component(job, profile, context=context),
+        "preference": _preference_component(job, profile, context=context),
+        "role": _role_component(relevance),
+    }
+    return components, relevance
+
+
+def _overall_score(
+    components: dict[str, ComponentScore],
+    relevance: RoleRelevance,
+    effective_weights: dict[str, float],
+) -> tuple[float, Any]:
+    """The blended score, with the WS-21 role cap applied."""
+    blended = blend(effective_weights, components)
+    overall = blended.overall_score
+    if relevance.capped:
+        overall = min(overall, ROLE_MISMATCH_CAP)
+    return overall, blended
+
+
+def score_listing(
+    job: JobListing,
+    profile: CandidateProfile,
+    *,
+    semantic_score: float | None = None,
+    semantic_state: ScoreState | None = None,
+    lexical: LexicalResult | None = None,
+    bm25_index: Bm25Index | None = None,
+    weights: dict[str, float] | None = None,
+    artifacts: CorpusArtifacts | None = None,
+    context: CandidateContext | None = None,
+) -> ListingScore:
+    """Score one listing **for ranking**, without materializing a result.
+
+    The same components, the same blend and the same role cap as
+    :func:`calculate_match` — they share :func:`_scored_components` and
+    :func:`_overall_score`, and `tests/test_ws29_two_phase_scoring.py` pins that
+    the two agree to the last digit. What this omits is the materialization: the
+    explanation string, the notes, the evidence lists, the component-state map
+    and the pydantic validation of a 23-field model.
+
+    Use this to rank a corpus, then :func:`calculate_match` for the slice that
+    will actually be returned.
+    """
+    if weights is not None:
+        effective_weights = validate_weights(weights)
+    else:
+        configured = get_settings().match_weights
+        effective_weights = validate_weights(configured) if configured else dict(DEFAULT_WEIGHTS)
+
+    if context is None:
+        context = CandidateContext.for_profile(profile)
+
+    components, relevance = _scored_components(
+        job,
+        profile,
+        semantic_score=semantic_score,
+        semantic_state=semantic_state,
+        lexical=lexical,
+        bm25_index=bm25_index,
+        effective_weights=effective_weights,
+        artifacts=artifacts,
+        context=context,
+    )
+    overall, blended = _overall_score(components, relevance, effective_weights)
+    return ListingScore(
+        overall_score=overall,
+        evidence_coverage=blended.evidence_coverage,
+        role_capped=relevance.capped,
+    )
+
+
 def calculate_match(
     job: JobListing,
     profile: CandidateProfile,
@@ -719,50 +855,22 @@ def calculate_match(
     # WS-24: the listing's classification comes from the corpus cache when
     # it is there, so the taxonomy scan is not repeated for every listing
     # on every search.
-    cached_classification = (
-        artifacts.role_classifications.get(job.id) if artifacts is not None else None
+    #
+    # WS-29: the components and the cap are shared with `score_listing`, which
+    # ranks the corpus without materializing a result. Extracting them is what
+    # guarantees the two paths cannot disagree about a number.
+    components, relevance = _scored_components(
+        job,
+        profile,
+        semantic_score=semantic_score,
+        semantic_state=semantic_state,
+        lexical=lexical,
+        bm25_index=bm25_index,
+        effective_weights=effective_weights,
+        artifacts=artifacts,
+        context=context,
     )
-    relevance = role_relevance(profile, job, classification=cached_classification)
-
-    cached_terms = artifacts.lexical_terms.get(job.id) if artifacts is not None else None
-    cached_requirement: float | None | object = (
-        artifacts.required_years.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
-    )
-    # WS-24c: the job's seniority rank is cached beside the listing's other
-    # derived artifacts, so the title ladder is not re-walked per search.
-    cached_rank: int | None | object = (
-        artifacts.seniority_ranks.get(job.id, _UNCACHED) if artifacts is not None else _UNCACHED
-    )
-
-    components: dict[str, ComponentScore] = {
-        "semantic": _semantic_component(job, semantic_score, semantic_state),
-        "lexical": _lexical_component(
-            job,
-            profile,
-            lexical,
-            bm25_index,
-            important_terms=cached_terms,
-            context=context,
-        ),
-        "skill": _skill_component(job, profile, context=context),
-        "experience": _experience_component(
-            job, profile, requirement=cached_requirement, context=context
-        ),
-        "seniority": _seniority_component(
-            job, profile, job_rank=cached_rank, candidate_rank=context.candidate_rank
-        ),
-        "location": _location_component(job, profile, context=context),
-        "preference": _preference_component(job, profile, context=context),
-        "role": _role_component(relevance),
-    }
-    blended = blend(effective_weights, components)
-
-    # WS-21: a role the candidate's targets are WEAK-to-UNRELATED against can
-    # never read as a match. The cap is below the evaluation's decision
-    # threshold (30) and is always reported — see `role_capped` and the notes.
-    overall = blended.overall_score
-    if relevance.capped:
-        overall = min(overall, ROLE_MISMATCH_CAP)
+    overall, blended = _overall_score(components, relevance, effective_weights)
 
     skill_match = components["skill"]
     lexical_component = components["lexical"]

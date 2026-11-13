@@ -974,6 +974,7 @@ def search_stored_jobs(
     # store is down" into one boolean.
     from src.matching.embedding_status import embedding_status_for_jobs, is_pending_status
     from src.matching.lexical import (
+        LexicalResult,
         candidate_lexical_text,
         candidate_tokens,
         lexical_score,
@@ -998,7 +999,7 @@ def search_stored_jobs(
     candidate_token_list = candidate_tokens(profile)
     candidate_text = candidate_lexical_text(profile)
 
-    from src.matching.engine import CandidateContext, calculate_match
+    from src.matching.engine import CandidateContext, calculate_match, score_listing
 
     # WS-24: the candidate-derived values are computed **once** for the
     # whole search and shared by every listing. Without this the score
@@ -1013,7 +1014,18 @@ def search_stored_jobs(
     # The scores are bit-identical; the differential test asserts it.
     bm25_scores = index.score_all(candidate_token_list) if index is not None else {}
 
-    matches: list[JobMatchPair] = []
+    # WS-29: score every listing **cheaply**, rank, then materialize only the
+    # survivors. The full `JobMatchResult` costs a 23-field validation plus a
+    # ~1 KB explanation string; on the live corpus 8,528 of 8,558 were built
+    # and thrown away (99.6% at top_n=30, measured at 1.91 s for the loop).
+    #
+    # `score_listing` shares `_scored_components` and `_overall_score` with
+    # `calculate_match`, so the numbers cannot diverge — the differential test
+    # in tests/test_ws29_two_phase_scoring.py pins that.
+    scored: list[tuple[str, float]] = []
+    jobs_by_id: dict[str, JobListing] = {}
+    lexical_by_id: dict[str, LexicalResult] = {}
+    semantic_by_id: dict[str, tuple[float | None, ScoreState | None]] = {}
     semantic_covered = 0
     for job in jobs:
         if job.id in similarities:
@@ -1049,7 +1061,7 @@ def search_stored_jobs(
             # means that listing matched no term, which is genuinely 0.0.
             bm25_raw=(bm25_scores.get(job.id, 0.0) if index is not None else None),
         )
-        match = calculate_match(
+        cheap = score_listing(
             job,
             profile,
             semantic_score=semantic_score,
@@ -1058,11 +1070,29 @@ def search_stored_jobs(
             artifacts=artifacts,
             context=context,
         )
-        matches.append(JobMatchPair(job=job, match=match))
+        scored.append((job.id, cheap.overall_score))
+        jobs_by_id[job.id] = job
+        lexical_by_id[job.id] = lexical_result
+        semantic_by_id[job.id] = (semantic_score, semantic_state)
 
-    # Deterministic tie-break on the job id so a repeated search is stable.
-    ranked = sorted(matches, key=lambda pair: (-pair.match.overall_score, pair.job.id))
-    top = ranked[:clamped_top_n]
+    # Deterministic tie-break on the job id so a repeated search is stable —
+    # the same key the one-phase loop used, so the order is unchanged.
+    ranked = sorted(scored, key=lambda row: (-row[1], row[0]))
+    survivors = ranked[:clamped_top_n]
+
+    top: list[JobMatchPair] = []
+    for job_id, _score in survivors:
+        semantic_score, semantic_state = semantic_by_id[job_id]
+        match = calculate_match(
+            jobs_by_id[job_id],
+            profile,
+            semantic_score=semantic_score,
+            semantic_state=semantic_state,
+            lexical=lexical_by_id[job_id],
+            artifacts=artifacts,
+            context=context,
+        )
+        top.append(JobMatchPair(job=jobs_by_id[job_id], match=match))
 
     degraded = bool(jobs) and semantic_covered < len(jobs)
     if degraded:
