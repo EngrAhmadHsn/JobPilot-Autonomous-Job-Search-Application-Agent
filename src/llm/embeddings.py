@@ -57,6 +57,7 @@ import os
 import sqlite3
 import time
 from array import array
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -168,6 +169,59 @@ _fastembed_registered: set[str] = set()
 
 # One loaded ONNX session per registered variant (shared across instances).
 _fastembed_loaded_models: dict[str, Any] = {}
+
+#: How many query vectors this process memoizes, and for how long (WS-29).
+#:
+#: A search embeds the candidate's whole professional record — 4,555 chars on
+#: the profile measured in WS-28 §14 — at ~0.45 ms/char. A repeat search by an
+#: unchanged profile re-paid ~2 s for a vector it already had.
+#:
+#: This is **not** the cache WS-14 · Phase G forbids. That rule's two harms are
+#: properties of a *shared, persistent* cache: a hit on identical text would
+#: tell a second tenant that somebody else submitted the same text, and the
+#: stored vector is a fingerprint of the candidate that can be inverted. A
+#: process-local dictionary is neither shared across tenants nor durable —
+#: nothing reaches the disk or a log, and it dies with the process. It is the
+#: same distinction WS-24c drew for the similarity map, carried one step
+#: further: the memo holds the vector, so the exposure is exactly that of
+#: holding the profile in memory, which this process already does.
+#:
+#: The key is a digest, so no prose is retained. The TTL bounds a vector kept
+#: for a profile that has since been edited.
+_QUERY_VECTOR_MEMO_ENTRIES = 8
+_QUERY_VECTOR_MEMO_TTL_SECONDS = 120.0
+_QUERY_VECTOR_MEMO: OrderedDict[str, tuple[float, tuple[float, ...]]] = OrderedDict()
+
+
+def clear_query_vector_memo() -> None:
+    """Drop every memoized query vector (tests; operational use)."""
+    _QUERY_VECTOR_MEMO.clear()
+
+
+def _recall_query_vector(key: str) -> tuple[float, ...] | None:
+    """The memoized vector for ``key``, or ``None`` when absent or expired."""
+    entry = _QUERY_VECTOR_MEMO.get(key)
+    if entry is None:
+        return None
+    stored_at, vector = entry
+    if time.monotonic() - stored_at > _QUERY_VECTOR_MEMO_TTL_SECONDS:
+        _QUERY_VECTOR_MEMO.pop(key, None)
+        return None
+    _QUERY_VECTOR_MEMO.move_to_end(key)
+    return vector
+
+
+def _remember_query_vector(key: str, vector: list[float]) -> None:
+    """Store one vector, bounded (WS-29)."""
+    _QUERY_VECTOR_MEMO[key] = (time.monotonic(), tuple(vector))
+    _QUERY_VECTOR_MEMO.move_to_end(key)
+    while len(_QUERY_VECTOR_MEMO) > _QUERY_VECTOR_MEMO_ENTRIES:
+        _QUERY_VECTOR_MEMO.popitem(last=False)
+
+
+def _query_vector_key(text: str) -> str:
+    """The memo key: a digest, so the candidate's prose is never a key."""
+    return sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def parse_gemma_identity(model: str) -> str | None:
@@ -694,8 +748,23 @@ class FastembedEmbedding:
         memoizes the **similarity map** it derives — keyed by a digest of the
         query text — without ever caching the vector itself. This provider
         still does no caching of its own, at either level.
+        **The vector is memoized in this process (WS-29).** The paragraph above
+        says the vector is never *written to the disk*, and that still holds:
+        this is a dictionary that dies with the process. It exists because the
+        same profile searched twice re-paid the whole ONNX pass — ~2 s at the
+        measured 0.45 ms/char — for a vector it already had. The key is a
+        digest of the text, the TTL bounds a profile that has changed, and the
+        value never leaves memory.
         """
-        return self._embed_local([self._truncate(text)])[0]
+        key = _query_vector_key(text)
+        cached = _recall_query_vector(key)
+        if cached is not None:
+            # A copy: a caller that normalizes or sorts in place must not
+            # corrupt the memo for every later search.
+            return list(cached)
+        vector = self._embed_local([self._truncate(text)])[0]
+        _remember_query_vector(key, vector)
+        return vector
 
     # -- internals ----------------------------------------------------------
 
@@ -1141,8 +1210,21 @@ class GeminiEmbedding:
         shared cache — and on this provider a cache miss is a real API
         call, so the per-tenant fair share below is what keeps one
         tenant's searches from spending everybody's quota.
+
+        **The vector is memoized in this process (WS-29)**, exactly as the
+        local provider's is: a dictionary keyed by a digest of the text, bounded
+        to eight entries, expiring after two minutes, and dying with the
+        process. On this provider the memo saves a real API call, which makes it
+        worth more than it is on the local path — and the per-tenant bucket
+        below still governs the calls that do happen.
         """
-        return self._embed_with_quota([self._truncate(text)])[0]
+        key = _query_vector_key(text)
+        cached = _recall_query_vector(key)
+        if cached is not None:
+            return list(cached)
+        vector = self._embed_with_quota([self._truncate(text)])[0]
+        _remember_query_vector(key, vector)
+        return vector
 
     # -- quota budget (FU-4) --------------------------------------------------
 
