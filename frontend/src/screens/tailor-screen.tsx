@@ -27,6 +27,21 @@ import { asRecord, asString } from "@/lib/safe"
 import type { TailorResponse } from "@/lib/api/types"
 
 /**
+ * What the deliverable's file is, named for the candidate (WS-31).
+ *
+ * The tailoring keeps the uploaded format, so a résumé that arrived as plain
+ * text comes back as plain text. The download link says which one it is rather
+ * than promising a DOCX that may not be there.
+ */
+function deliverableLabel(path: string): string {
+  const lower = path.toLowerCase()
+  if (lower.endsWith(".docx")) return "DOCX"
+  if (lower.endsWith(".txt")) return "text version"
+  if (lower.endsWith(".md")) return "Markdown version"
+  return "file"
+}
+
+/**
  * The factuality report.
  *
  * A factuality failure is **not** an error: the stripped content plus the
@@ -94,6 +109,71 @@ function FactualityReport({
                 <li key={violation}>
                   <PlainText as="span">{violation}</PlainText>
                 </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** How the delivered document was produced (WS-31). */
+function RenderPanel({ render }: { render: TailorResponse["render"] }) {
+  const sourceLabel =
+    render.source_format === "none" ? "no original" : render.source_format
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Your document</CardTitle>
+        <CardDescription>
+          {render.mode === "in_place"
+            ? "Your own file was edited: the wording changed, your formatting did not."
+            : "Your own file could not be edited, so a freshly formatted document was written instead."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Banner
+          tone={render.mode === "in_place" ? "success" : "warning"}
+          title={
+            render.mode === "in_place"
+              ? `Edited in place from your ${sourceLabel} résumé`
+              : "A new document was generated"
+          }
+        >
+          {/* The counts are only meaningful for an in-place edit, so they are
+              shown only then — a rewrite has nothing to count. */}
+          {render.mode === "in_place" ? (
+            <p>
+              {render.edits} passage{render.edits === 1 ? "" : "s"} rewritten
+              {render.appended > 0
+                ? `, ${render.appended} added`
+                : ""}
+              {render.removed > 0 ? `, ${render.removed} cleared` : ""}. Your
+              fonts, section order and page setup are unchanged.
+            </p>
+          ) : (
+            <p>
+              The original could not be edited, so the content was written into
+              a standard layout instead.
+            </p>
+          )}
+        </Banner>
+
+        {render.notes.length > 0 ? (
+          <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+            {render.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        {render.skipped.length > 0 ? (
+          <div>
+            <SectionTitle>Left untouched</SectionTitle>
+            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+              {render.skipped.map((item) => (
+                <li key={item}>{item}</li>
               ))}
             </ul>
           </div>
@@ -464,12 +544,15 @@ export function TailorJobScreen() {
                 className="font-medium underline underline-offset-4"
                 download
               >
-                Download the DOCX
+                {/* WS-31: the deliverable keeps the uploaded format, so the
+                    link names what it really is rather than assuming DOCX. */}
+                Download the {deliverableLabel(result.docx_path)}
               </a>
             </p>
           </Banner>
 
           <FactualityReport factuality={result.factuality} />
+          <RenderPanel render={result.render} />
           <TailoredResumePanel tailored={result.tailored} />
           <StylePanel style={result.style} />
           <AtsPanel ats={result.ats_report} />

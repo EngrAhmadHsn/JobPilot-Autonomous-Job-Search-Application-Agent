@@ -134,6 +134,131 @@ describe("the tailor screen", () => {
     )
   })
 
+  it("says the deliverable was edited in place, and counts the edits (WS-31)", async () => {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    expect(await screen.findByText("Your document")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Your own file was edited: the wording changed, your formatting did not."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText(/4 passages rewritten/)).toBeInTheDocument()
+    // A `.docx` deliverable keeps the DOCX link label.
+    expect(
+      screen.getByRole("link", { name: "Download the DOCX" })
+    ).toBeInTheDocument()
+  })
+
+  it("reports a regenerated document as a rewrite, never as an edit (WS-31)", async () => {
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          tailorResponse({
+            render: {
+              mode: "regenerated",
+              source_format: "none",
+              edits: 0,
+              appended: 0,
+              removed: 0,
+              skipped: [],
+              notes: [
+                "The uploaded résumé is not available, so a freshly formatted document was generated instead of editing yours",
+              ],
+            },
+          })
+        )
+      )
+    )
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    expect(
+      await screen.findByText("A new document was generated")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/not available, so a freshly formatted document/)
+    ).toBeInTheDocument()
+    // The counts are not shown for a rewrite — there is nothing to count.
+    expect(screen.queryByText(/passages rewritten/)).not.toBeInTheDocument()
+  })
+
+  it("names a text deliverable for what it is (WS-31)", async () => {
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          tailorResponse({
+            render: {
+              mode: "in_place",
+              source_format: ".txt",
+              edits: 3,
+              appended: 0,
+              removed: 1,
+              skipped: [],
+              notes: [],
+            },
+            docx_path: "./data/tailored/profile-1-greenhouse-1.txt",
+          })
+        )
+      )
+    )
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    // The link says "text version", not "DOCX": the file really is text.
+    expect(
+      await screen.findByRole("link", { name: "Download the text version" })
+    ).toBeInTheDocument()
+  })
+
+  it("lists what was left untouched when something could not be edited (WS-31)", async () => {
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          tailorResponse({
+            render: {
+              mode: "in_place",
+              source_format: ".docx",
+              edits: 2,
+              appended: 0,
+              removed: 0,
+              skipped: [
+                "1 table(s) were left untouched; text inside a table is not edited in place",
+              ],
+              notes: [],
+            },
+          })
+        )
+      )
+    )
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    expect(await screen.findByText("Left untouched")).toBeInTheDocument()
+    expect(screen.getByText(/1 table\(s\) were left untouched/)).toBeInTheDocument()
+  })
+
   it("renders a factuality failure as content, not as an error", async () => {
     server.use(
       http.post(`${BASE}/api/tailor`, () =>

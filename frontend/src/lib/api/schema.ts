@@ -1290,6 +1290,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profiles/{profile_id}/question-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Question Gaps
+         * @description The questions the boards actually ask, that this profile cannot answer.
+         *
+         *     WS-25b. The profile screen used to show a **guessed** set of fields.
+         *     This returns the **measured** set — the labels the boards publish in
+         *     their own application forms — ranked by how often they are asked, and
+         *     filtered to the ones the profile does not already answer.
+         *
+         *     The consent and demographic questions are excluded: they are never
+         *     the agent's to answer, so asking the user to fill a profile field for
+         *     them would be wrong. They are surfaced at approval time instead.
+         *
+         *     Args:
+         *         profile_id: The profile to check coverage against.
+         *         limit: How many questions to return (1..100).
+         *
+         *     Returns:
+         *         The ranked gaps, with the reason each is listed.
+         *
+         *     Raises:
+         *         HTTPException 404: The profile is unknown, or belongs to another
+         *             account (the two answers are indistinguishable).
+         */
+        get: operations["get_question_gaps_api_profiles__profile_id__question_gaps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/resumes": {
         parameters: {
             query?: never;
@@ -1661,10 +1701,22 @@ export interface components {
              * @description Id of the approval request
              */
             approval_id: string;
+            /**
+             * Blocking Questions
+             * @description Required questions the profile does not answer
+             */
+            blocking_questions?: string[];
+            /**
+             * Form Questions
+             * @description The board's form, with the agent's verdict per question
+             */
+            form_questions?: {
+                [key: string]: unknown;
+            }[];
             prepared_summary: components["schemas"]["PreparedSummary"];
             /**
              * Status
-             * @description awaiting_approval
+             * @description awaiting_approval or blocked_human_review
              */
             status: string;
             /**
@@ -2662,6 +2714,79 @@ export interface components {
             tech: string;
         };
         /**
+         * QuestionGapResponse
+         * @description One question the boards ask, and whether the profile answers it.
+         */
+        QuestionGapResponse: {
+            /** Block */
+            block: string;
+            /** Boards */
+            boards: number;
+            /** Category */
+            category: string;
+            /** Coverage */
+            coverage: string;
+            /** Label */
+            label: string;
+            /** Required */
+            required: boolean;
+            /** Times Seen */
+            times_seen: number;
+        };
+        /**
+         * QuestionGapsResponse
+         * @description The measured question gaps for one profile.
+         */
+        QuestionGapsResponse: {
+            /** Profile Id */
+            profile_id: string;
+            /** Questions */
+            questions?: components["schemas"]["QuestionGapResponse"][];
+            /** Total Observed */
+            total_observed: number;
+        };
+        /**
+         * RenderReport
+         * @description What producing the deliverable did (WS-31).
+         *
+         *     ``mode`` is the load-bearing field: ``in_place`` means the candidate's own
+         *     document was edited and its formatting survived; ``regenerated`` means it
+         *     could not be used and a fresh document was written instead. The counts let
+         *     the console say what changed, and ``skipped``/``notes`` say what could not
+         *     be done — so a rewrite is never presented as an edit.
+         */
+        RenderReport: {
+            /**
+             * Appended
+             * @default 0
+             */
+            appended: number;
+            /**
+             * Edits
+             * @default 0
+             */
+            edits: number;
+            /**
+             * Mode
+             * @default regenerated
+             */
+            mode: string;
+            /** Notes */
+            notes?: string[];
+            /**
+             * Removed
+             * @default 0
+             */
+            removed: number;
+            /** Skipped */
+            skipped?: string[];
+            /**
+             * Source Format
+             * @default none
+             */
+            source_format: string;
+        };
+        /**
          * ResumeProfileResponse
          * @description Stored profile response.
          */
@@ -2807,6 +2932,18 @@ export interface components {
             job_id: string;
             /** Profile Id */
             profile_id: string;
+            /**
+             * @default {
+             *       "mode": "regenerated",
+             *       "source_format": "none",
+             *       "edits": 0,
+             *       "appended": 0,
+             *       "removed": 0,
+             *       "skipped": [],
+             *       "notes": []
+             *     }
+             */
+            render: components["schemas"]["RenderReport"];
             style: components["schemas"]["StyleReport"];
             tailored: components["schemas"]["TailoredResume"];
             /** Tailoring Id */
@@ -2939,7 +3076,7 @@ export interface components {
         };
         /**
          * TailorResponse
-         * @description The tailoring result, its reports and the rendered file path.
+         * @description The tailoring result, its reports and the path of the deliverable.
          */
         TailorResponse: {
             ats_report: components["schemas"]["AtsReport"];
@@ -2951,6 +3088,18 @@ export interface components {
             job_id: string;
             /** Profile Id */
             profile_id: string;
+            /**
+             * @default {
+             *       "mode": "regenerated",
+             *       "source_format": "none",
+             *       "edits": 0,
+             *       "appended": 0,
+             *       "removed": 0,
+             *       "skipped": [],
+             *       "notes": []
+             *     }
+             */
+            render: components["schemas"]["RenderReport"];
             style: components["schemas"]["StyleReport"];
             tailored: components["schemas"]["TailoredResume"];
             /** Tailoring Id */
@@ -4856,6 +5005,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MatchesHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_question_gaps_api_profiles__profile_id__question_gaps_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionGapsResponse"];
                 };
             };
             /** @description Validation Error */

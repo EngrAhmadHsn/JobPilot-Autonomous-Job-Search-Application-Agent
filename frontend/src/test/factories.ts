@@ -314,6 +314,17 @@ export function tailorResponse(
       culture_flags: [],
       summary: "An AI Engineer role in London building ML systems.",
     },
+    // WS-31: the uploaded résumé was edited in place. A test that cares about
+    // the regenerated path overrides this.
+    render: {
+      mode: "in_place",
+      source_format: ".docx",
+      edits: 4,
+      appended: 0,
+      removed: 0,
+      skipped: [],
+      notes: [],
+    },
     docx_path: "./data/tailored/profile-1-greenhouse-1.docx",
     ...overrides,
   }
