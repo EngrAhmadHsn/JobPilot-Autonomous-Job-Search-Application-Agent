@@ -23,9 +23,12 @@ from __future__ import annotations
 import pytest
 
 from src.config.settings import FallbackLinkConfig
+from src.llm import client as client_module
+from src.llm.client import LLMClient
 from src.llm.errors import (
     LLMConfigError,
     LLMError,
+    LLMInvalidOutput,
     LLMRateLimited,
     LLMUnavailable,
 )
@@ -447,3 +450,132 @@ class TestBuildFallbackChain:
         )
         assert chain.complete(_request()).text == "ok"
         assert len(primary.calls) == 1
+
+
+# -- the client integration ---------------------------------------------------
+
+
+def _client_with(fake: FakeProvider, **kwargs) -> LLMClient:
+    return LLMClient(
+        provider="google",
+        api_key=KEY,
+        model="gemini-3.8-flash",
+        temperature=0.2,
+        provider_instance=fake,
+        **kwargs,
+    )
+
+
+class TestTheClientUsesTheChain:
+    def test_the_client_wraps_its_adapter_in_the_chain(self, monkeypatch, tmp_path) -> None:
+        """``_ensure_provider`` builds the chain, not the bare adapter."""
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_x")
+        client = LLMClient(
+            provider="google",
+            api_key=KEY,
+            model="gemini-3.8-flash",
+            temperature=0.2,
+            max_retries=0,
+        )
+        provider = client._ensure_provider()
+        assert isinstance(provider, FallbackProvider)
+        assert provider.links[0].alias == "google"
+
+    def test_the_answering_links_identity_is_recorded_in_the_usage_row(self, monkeypatch) -> None:
+        """Otherwise a Groq answer would be booked under the Gemini model."""
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_x")
+        recorded: list = []
+        monkeypatch.setattr(
+            client_module, "record_usage", lambda usage, **kw: recorded.append(usage)
+        )
+
+        client = LLMClient(
+            provider="google",
+            api_key=KEY,
+            model="gemini-3.8-flash",
+            temperature=0.2,
+            max_retries=0,
+        )
+        # Replace the built chain's primary with a failing fake, and let the
+        # real Groq link — a fake adapter — answer.
+        client._provider = FallbackProvider(
+            [
+                FallbackLink(
+                    alias="google",
+                    provider=FakeProvider("google", error=LLMUnavailable("503")),
+                    model="gemini-3.8-flash",
+                ),
+                _link("groq", model="qwen/qwen3.8-27b"),
+            ]
+        )
+        assert client.generate_text("hello") == "ok"
+        usage = recorded[-1]
+        assert usage.provider == "groq"
+        assert usage.model == "qwen/qwen3.8-27b"
+
+    def test_a_single_provider_still_records_its_own_identity(self, monkeypatch) -> None:
+        recorded: list = []
+        monkeypatch.setattr(
+            client_module, "record_usage", lambda usage, **kw: recorded.append(usage)
+        )
+        client = _client_with(FakeProvider("google", model="m"), max_retries=0)
+        client.generate_text("hello")
+        assert recorded[-1].provider == "google"
+        assert recorded[-1].model == "gemini-3.8-flash"
+
+    def test_the_bring_your_own_key_client_is_not_chained(self, monkeypatch) -> None:
+        """WS-22's ruling stands: a user's key never spends the platform's.
+
+        The chain is built inside ``LLMClient._ensure_provider``, which a BYOK
+        client never reaches — it is constructed with a ``provider_instance``.
+        """
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_x")
+        from datetime import UTC, datetime
+
+        from src.llm.credentials import ResolvedCredential, _build_byok_client
+
+        credential = ResolvedCredential(
+            provider="google",
+            model="gemini-3.8-flash",
+            api_key="user-key",
+            base_url=None,
+            updated_at=datetime.now(UTC),
+        )
+        client = _build_byok_client("owner-1", credential)
+        provider = client._ensure_provider()
+        assert not isinstance(provider, FallbackProvider)
+        assert getattr(provider, "name", None) == "google"
+
+    def test_an_invalid_answer_does_not_advance_the_chain(self, monkeypatch) -> None:
+        """The chain is below parsing by design; this pins that boundary."""
+        monkeypatch.setenv("GROQ_API_KEY", "gsk_x")
+        groq = _link("groq")
+        chain = FallbackProvider(
+            [
+                FallbackLink(
+                    alias="google",
+                    provider=FakeProvider("google", text="not json at all", model="m"),
+                    model="m",
+                ),
+                groq,
+            ]
+        )
+        client = LLMClient(
+            provider="google",
+            api_key=KEY,
+            model="gemini-3.8-flash",
+            temperature=0.2,
+            max_retries=0,
+            provider_instance=chain,
+        )
+        from pydantic import BaseModel
+
+        class Sample(BaseModel):
+            ok: bool = False
+
+        with pytest.raises(LLMInvalidOutput):
+            client.generate_structured("hello", Sample)
+        # The fallback was not consulted: the answer parsed as far as the
+        # chain is concerned (it is a string), and the chain never sees the
+        # validation failure.
+        assert groq.provider.calls == []

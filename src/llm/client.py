@@ -345,10 +345,16 @@ class LLMClient:
     ) -> str:
         """Account for a successful call and return its text.
 
+        WS-30: when a fallback link answered, the usage row names **that**
+        link's provider and model — not the configured primary's. Otherwise a
+        call Groq answered would be recorded under the platform's Gemini model,
+        and "the spend is visible" would be false in exactly the case the chain
+        exists for. A single provider leaves both fields ``None``, so the row
+        is byte-for-byte what it was before the chain existed.
         """
         usage = GenerationUsage(
-            provider=self._provider_name(),
-            model=self.model,
+            provider=response.provider or self._provider_name(),
+            model=response.model or self.model,
             kind=kind,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
