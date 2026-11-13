@@ -29,6 +29,7 @@ from src.llm.providers import (
     GeminiProvider,
     OpenAICompatibleProvider,
     ProviderRequest,
+    alias_base_url,
     build_provider,
 )
 from tests.fixtures.llm_fakes import FakeGeminiClient, FakeInteraction, FakeUsage
@@ -356,3 +357,38 @@ class TestBuildProvider:
     def test_an_empty_provider_is_refused(self) -> None:
         with pytest.raises(LLMConfigError, match="Unsupported LLM provider"):
             build_provider("", api_key=KEY, model="m")
+
+class TestFallbackAliases:
+    """WS-30: the three chat-completions aliases carry their own endpoints.
+
+    An alias with a vendor default needs no ``LLM_BASE_URL``: that is what
+    makes a fallback link (and a bring-your-own-key credential) a key and a
+    model and nothing else.
+    """
+
+    def test_each_fallback_alias_carries_its_vendor_endpoint(self) -> None:
+        assert alias_base_url("groq") == "https://api.groq.com/openai/v1"
+        assert alias_base_url("tokenharbor") == "https://tokenharbor.ai/v1"
+        assert alias_base_url("pollinations") == "https://gen.pollinations.ai/v1"
+
+    def test_a_build_accepts_the_alias_without_a_base_url(self) -> None:
+        provider = build_provider("groq", api_key=KEY, model="m")
+        assert provider.base_url == "https://api.groq.com/openai/v1"
+
+    def test_the_bare_openai_compatible_provider_still_needs_a_url(self) -> None:
+        """The alias table must not invent a default for the generic provider."""
+        assert alias_base_url("openai-compatible") is None
+        with pytest.raises(LLMConfigError, match="LLM_BASE_URL"):
+            build_provider("openai-compatible", api_key=KEY, model="m")
+
+    def test_an_unknown_alias_has_no_default(self) -> None:
+        assert alias_base_url("not-a-provider") is None
+
+    def test_a_stored_url_still_wins_over_the_vendor_default(self) -> None:
+        from src.llm.credentials import _resolved_base_url
+
+        assert (
+            _resolved_base_url("groq", "https://proxy.internal/v1")
+            == "https://proxy.internal/v1"
+        )
+        assert _resolved_base_url("groq", None) == "https://api.groq.com/openai/v1"

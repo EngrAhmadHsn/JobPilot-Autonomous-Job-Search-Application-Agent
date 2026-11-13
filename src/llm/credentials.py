@@ -57,7 +57,11 @@ from src.llm.client import (
 from src.llm.errors import LLMConfigError, LLMCredentialError, LLMError
 from src.llm.providers import (
     PROVIDER_GOOGLE,
+    PROVIDER_GROQ,
     PROVIDER_OPENAI_COMPATIBLE,
+    PROVIDER_POLLINATIONS,
+    PROVIDER_TOKENHARBOR,
+    alias_base_url,
     build_provider,
 )
 from src.llm.resilience import get_limiter
@@ -110,12 +114,17 @@ BYOK_MODE_OPTIONAL = "optional"
 BYOK_MODE_REQUIRED = "required"
 
 #: The provider ids a user may register — the same set the platform
-#: supports, aliases included.
+#: supports, aliases included. WS-30 adds the three fallback-chain aliases:
+#: each carries its vendor's default endpoint, so a user stores a key and a
+#: model and nothing else.
 _USER_PROVIDERS = (
     PROVIDER_GOOGLE,
     PROVIDER_OPENAI_COMPATIBLE,
     "openai",
     "zai",
+    PROVIDER_GROQ,
+    PROVIDER_TOKENHARBOR,
+    PROVIDER_POLLINATIONS,
 )
 
 # The limiter window for a BYOK client's own pacing bucket.
@@ -271,14 +280,23 @@ def _resolved_base_url(provider: str, base_url: str | None) -> str | None:
     ``openai-compatible`` needs an explicit URL, while the aliases carry the
     vendor default. The check happens at write time so a stored credential is
     never unusable.
+
+    WS-30: the alias table is the **one** source of the vendor endpoints. The
+    three fallback aliases added here (Groq, TokenHarbor, Pollinations) are
+    read from it rather than spelled out a second time, so a URL can never
+    drift between what the platform client builds and what a stored user
+    credential resolves to.
     """
     name = (provider or "").strip().lower()
     if name == PROVIDER_GOOGLE:
         return base_url or None
-    if name == "openai":
-        return base_url or "https://api.openai.com/v1"
-    if name == "zai":
-        return base_url or "https://api.z.ai/api/paas/v4"
+    default = alias_base_url(name)
+    if default is not None:
+        return base_url or default
+    if name != PROVIDER_OPENAI_COMPATIBLE:
+        # Unknown to the alias table: fall through to the explicit-URL rule so
+        # the caller gets the same message build_provider would have given.
+        raise ValueError(f"Unsupported provider {name!r}")
     if not base_url:
         raise ValueError(
             "base_url is required for the openai-compatible provider "

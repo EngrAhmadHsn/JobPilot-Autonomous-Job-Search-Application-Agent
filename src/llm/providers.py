@@ -53,19 +53,48 @@ logger = logging.getLogger(__name__)
 
 _STORE = False  # privacy: never persist interactions on the provider side
 
-# The provider ids the client understands. "openai" and "zai" are aliases of
-# "openai-compatible": both speak the chat-completions dialect and both are
-# already documented in .env.example with an LLM_BASE_URL. "anthropic" is NOT
-# supported — its native API is not chat-completions shaped, and half of it
-# would be worse than a clear refusal.
+# The provider ids the client understands. "openai", "zai", "groq",
+# "tokenharbor" and "pollinations" are aliases of "openai-compatible": all of
+# them speak the chat-completions dialect, and the aliases that carry a vendor
+# default endpoint (see the table below) need no LLM_BASE_URL. "anthropic" is
+# NOT supported — its native API is not chat-completions shaped, and half of
+# it would be worse than a clear refusal.
 PROVIDER_GOOGLE = "google"
 PROVIDER_OPENAI_COMPATIBLE = "openai-compatible"
+#: WS-30: the aliases that are also fallback-chain links, in the order the
+#: chain tries them (see ``src.llm.fallback``). Named here because the alias
+#: table below and the chain's default order are the same list read twice.
+PROVIDER_GROQ = "groq"
+PROVIDER_TOKENHARBOR = "tokenharbor"
+PROVIDER_POLLINATIONS = "pollinations"
 SUPPORTED_PROVIDERS = (PROVIDER_GOOGLE, PROVIDER_OPENAI_COMPATIBLE)
 _OPENAI_COMPATIBLE_ALIASES: dict[str, str | None] = {
     PROVIDER_OPENAI_COMPATIBLE: None,  # LLM_BASE_URL is required
     "openai": "https://api.openai.com/v1",
     "zai": "https://api.z.ai/api/paas/v4",
+    # WS-30: the three fallback links. Each was verified live on 2026-11-13 —
+    # the endpoint answers 401 (not 404) without a key, which is what proves
+    # the path exists and requires auth.
+    PROVIDER_GROQ: "https://api.groq.com/openai/v1",
+    PROVIDER_TOKENHARBOR: "https://tokenharbor.ai/v1",
+    PROVIDER_POLLINATIONS: "https://gen.pollinations.ai/v1",
 }
+
+
+def alias_base_url(provider: str) -> str | None:
+    """The vendor default endpoint of a chat-completions alias, if it has one.
+
+    ``None`` means "no default": the bare ``openai-compatible`` provider needs
+    an explicit URL, and an unknown name is not an alias at all. Exposed so the
+    credential store (``src.llm.credentials``) resolves a stored user
+    credential against the **same** table the platform client builds from — a
+    vendor URL must not be able to drift between the two.
+    """
+    name = (provider or "").strip().lower()
+    if name == PROVIDER_OPENAI_COMPATIBLE:
+        return None
+    return _OPENAI_COMPATIBLE_ALIASES.get(name)
+
 
 # The longest provider error detail kept in an exception message.
 _MAX_ERROR_DETAIL = 200
@@ -429,5 +458,5 @@ def build_provider(
     raise LLMConfigError(
         f"Unsupported LLM provider: {provider!r}. "
         f"Supported: {', '.join(SUPPORTED_PROVIDERS)} "
-        "(aliases: openai, zai)."
+        f"(aliases: {', '.join(sorted(set(_OPENAI_COMPATIBLE_ALIASES) - {PROVIDER_OPENAI_COMPATIBLE}))})."
     )

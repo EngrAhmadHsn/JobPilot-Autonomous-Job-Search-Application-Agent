@@ -18,6 +18,7 @@ from src.llm.providers import (
     Provider,
     ProviderRequest,
     ProviderResponse,
+    alias_base_url,
     build_provider,
 )
 from src.llm.usage import GenerationUsage
@@ -37,6 +38,7 @@ __all__ = [
     "Provider",
     "ProviderRequest",
     "ProviderResponse",
+    "alias_base_url",
     "build_provider",
     "classify_provider_error",
     "get_client",
