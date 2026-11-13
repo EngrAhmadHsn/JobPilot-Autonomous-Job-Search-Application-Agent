@@ -165,6 +165,13 @@ Set `LLM_PROVIDER`, `LLM_API_KEY` and `LLM_MODEL` in `.env` only if you want the
 stage to call a real model. Everything else works without a key: the embeddings are local, and
 the job sources are key-less public APIs.
 
+Behind that provider, up to three more are tried when it is throttled or down (WS-30):
+**Groq**, **TokenHarbor** and **Pollinations**, in that order. Each is enabled by setting its
+key (`GROQ_API_KEY`, `TOKENHARBOR_API_KEY`, `POLLINATIONS_API_KEY`) — a blank key simply leaves
+that link out of the chain — and each has a working default model. So `GROQ_API_KEY=…` alone
+adds a second provider, and `LLM_FALLBACK_ENABLED=false` turns the whole chain off. Each link
+keeps its own circuit breaker, and the usage record names the model that actually answered.
+
 ### Try the API
 
 Every route except `/` and `/api/health` needs a credential (WS-14), so the examples below
@@ -415,8 +422,11 @@ code ever disagree. The settings you are most likely to change:
 | `EMBEDDING_BATCH_SIZE` | Documents per local embedding call — the memory ceiling the embedder starts from (it halves this itself when ONNX Runtime cannot allocate) | `8` |
 | `FASTEMBED_CACHE_PATH`, `CHROMA_DIR` | Model weights and vector store | `./data/fastembed`, `./data/chroma` |
 | `MATCH_WEIGHTS` | JSON override for the eight match weights, summing to 1.0 | the built-in weights |
-| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` for any chat-completions endpoint) | unset |
+| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | The tailoring model (Google Gemini is the supported path; `openai-compatible` for any chat-completions endpoint, or one of the `groq` / `tokenharbor` / `pollinations` aliases) | unset |
 | `LLM_TIMEOUT`, `LLM_MAX_RPM`, `LLM_MAX_RETRIES` | Seconds per call, calls per minute, retries after the first attempt | 60, 10, 2 |
+| `LLM_FALLBACK_ENABLED` | Whether the provider fallback chain is tried after the primary fails (WS-30) | `true` |
+| `GROQ_API_KEY`, `TOKENHARBOR_API_KEY`, `POLLINATIONS_API_KEY` | The fallback providers' keys — a non-blank key enables that link, a blank one leaves it out | empty |
+| `GROQ_MODEL`, `TOKENHARBOR_MODEL`, `POLLINATIONS_MODEL` | The model each fallback link calls | `qwen/qwen3.8-27b`, `deepseek-v4.1-flash`, `community/morriszdweck/glm-5.3-flash-free` |
 | `BYOK_MODE` | Whether users may register their own model key: `optional`, `required` (platform key never used for user requests) or `disabled` | `optional` |
 | `BYOK_ENCRYPTION_KEY` | Where the credential store's encryption key comes from; empty derives it from `AUTH_SECRET`, and development falls back to a local key file | empty |
 | `DATA_DIR` | The root of all runtime state | `./data` |
@@ -634,7 +644,8 @@ WS-10.
 - **A full-corpus search with no filter can return one result fewer than requested** and
   report `degraded=true`. This is a Chroma edge case, not a matching bug.
 - **The `openai-compatible` LLM provider is experimental.** It is verified against a mock
-  HTTP transport, never against a live OpenAI-compatible endpoint.
+  HTTP transport and, for the WS-30 fallback aliases, against the three live endpoints'
+  own key boundary — a completed live generation has not been run (it needs vendor keys).
 - **Six Remotive tests fail intermittently** when DNS resolution stalls, because the SSRF
   guard resolves real DNS under the mock transport. It is environmental.
 
