@@ -1,6 +1,6 @@
 # WS-22 · Bring-your-own model key, prompt PII masking, résumé style policy & sponsor verification
 
-Status: **Done (2026-11-08)** · Milestone: **M5** · Depends on: WS-10 (LLM client), WS-13/14 (console, multi-user), WS-17/19 (console experience), WS-18 (durable execution), WS-20/21 (matching, application profile)
+Status: **Done (2026-11-08)** · Milestone: **M5** · Depends on: WS-10 (LLM client), WS-13/14 (console, multi-user), WS-17/19 (console experience), WS-18 (durable execution), WS-20/21 (matching, application profile) · **The WS-27 section (§13) was extracted to [27-llm-key-guidance.md](27-llm-key-guidance.md) on 2026-11-13; §13 remains here as a pointer and a summary**
 
 > Two source documents drive this workstream:
 >
@@ -464,103 +464,32 @@ chat-completions server, with a throwaway data directory:
 
 ## 13. WS-27 — A rejected model key must read as a configuration error
 
-Found in operation: a tailoring request returned
+**Moved 2026-11-13.** This workstream outgrew a subsection of a BYOK document
+and now has its own record: **[27-llm-key-guidance.md](27-llm-key-guidance.md)**.
 
-```json
-[{"error": {"code": 403, "status": "PERMISSION_DENIED",
-  "message": "Method doesn't allow unregistered callers (callers without
-              established identity). Please use API Key or other form of API
-              consumer identity to call this API."}}]
-```
+The section stayed here only as long as it was a single defect found while
+implementing WS-22. It is not: it is four independent defects in the key
+boundary and the error taxonomy, a console relocation, and its own acceptance
+table — enough to be read, cited and closed on its own.
 
-That is Google saying **no usable API key arrived**. Four separate defects
-combined to produce it, and each one alone would have been enough to make the
-failure unreadable.
+The anchor `§13` in this file is kept so that references written before the
+move still resolve; `§13.1`–`§13.4` now live in the new document as §1–§4.
 
-### 13.1 — What was actually wrong
+The four defects, the five fixes, the console change and the acceptance table
+are recorded in **[27-llm-key-guidance.md](27-llm-key-guidance.md)**. Summarised
+here, so this document still says why the work happened:
 
-1. **A whitespace-only key passed every guard.** Both
-   `LLMClient._ensure_provider` and `GeminiProvider._ensure_client` tested
-   `if not self._api_key`. `"   "` is truthy, so the key sailed through; the
-   SDK then stripped it to `""` and sent an empty `x-goog-api-key`. Verified
-   against the installed SDK: an empty string raises `ValueError` at
-   construction, three spaces construct fine and produce exactly the 403 above.
-2. **The 403 was classified as an outage.** `classify_provider_error` keyed on
-   retryable tokens and had no auth token, so "unregistered callers" fell
-   through to plain `LLMError`. The route's generic handler then answered
-   *"The language model is unavailable; try again later."* — advice that cannot
-   work, about a setting the operator can fix in a minute.
-3. **The route hid the cause.** `LLMConfigError` is an `LLMError` subclass, so
-   it hit the generic 503 handler rather than a specific one.
-4. **A user could store a blank key.** `LlmCredentialInput` declared
-   `min_length=8` and stripped in an `after` validator — Pydantic runs the
-   length check first, so **eight spaces satisfied it** and were stored as
-   `""`. (Demonstrated directly: the old validator returns `api_key == ""`.)
+1. a **whitespace-only key** passed every `if not self._api_key` guard, because
+   `"   "` is truthy and the SDK then stripped it to `""` and sent an empty
+   `x-goog-api-key`;
+2. the provider's 403 (`unregistered callers`) was classified as an **outage**,
+   so the route advised "try again later" about a setting the operator can fix
+   in a minute;
+3. the route hid the cause behind the generic 503 handler, although
+   `LLMConfigError` is a distinct subclass;
+4. a user could **store a blank key**, because Pydantic ran `min_length=8`
+   before the `after` validator that stripped — eight spaces satisfied it.
 
-### 13.2 — The fixes
-
-| Where | Change |
-|---|---|
-| `src/config/settings.py` | `llm_api_key` is stripped at the boundary, so "not configured" means one thing everywhere |
-| `src/llm/client.py`, `src/llm/providers.py` | both guards strip before testing — defence in depth for clients built with an explicit key |
-| `src/llm/errors.py` | `_AUTH_TOKENS` (`401`, `403`, `unauthenticated`, `permission_denied`, `unregistered caller`, invalid-key phrases) classify as `LLMConfigError`; the check runs **before** the availability tokens so Google's retryable-looking 403 body cannot win the race. 429/quota/503 semantics are untouched and pinned by test. |
-| `src/llm/credentials.py` | the strip runs `mode="before"`, plus a `_not_blank` validator — a blank key fails at the form, where the user can see it |
-| `src/api/routes/tailoring.py` | a specific `LLMConfigError` handler that separates **"no key is set"** from **"the provider rejected the key"**, because they are different repairs. The provider's own 403 body stays in the debug log and never reaches the caller. |
-
-No retry behaviour was changed: `_is_retryable` already excluded configuration
-errors (it retries only `LLMRateLimited` / `LLMUnavailable`), which is now
-pinned rather than assumed.
-
-### 13.3 — The console: where the credential card sits
-
-The card was appended to the bottom of the Profile screen as a bare `<Card>`
-after the résumé block — the only orphan card in the console, last on a page
-about profile answers, and outside the heading outline (`CardTitle` is a
-`div`). Its own docstring calls it an account setting.
-
-Two changes, in `frontend/src/screens/profile-screen.tsx`:
-
-- **Position and structure.** It is wrapped in a `Section` titled **"Your
-  model"** (named for the concern, not the widget, following the "What you
-  want next" / Work preferences precedent) and moved **above** "From your
-  résumé", with the `max-w-3xl` cap the other settings card uses. Order is now
-  answers → your model → résumé.
-- **Reachability.** The screen's empty state returned before the card rendered,
-  so a fresh account with no résumé could not register the key that
-  `BYOK_MODE=required` refuses to run without — the comment claiming otherwise
-  was false. The screen is now keyed on `profileId` rather than `isPending`:
-  a disabled React Query reports `isPending: true` forever, which is why the
-  old code showed "Loading…" indefinitely for a profile-less account. Three
-  states are distinguished (resolving / no profile / profile), and the card
-  renders in all three.
-
-Verified in Chromium against the production build: the `h2` order is
-`["Your model", "From your résumé"]` and the card is present with and without
-a profile.
-
-### 13.4 — Acceptance
-
-| Check | Test |
-|---|---|
-| Google's real 403 body classifies as `LLMConfigError` | `tests/test_ws27_llm_key_guidance.py` |
-| 503, daily-quota 429 and a plain 401 keep their meanings | `tests/test_ws27_llm_key_guidance.py` |
-| A blank key is never a configured key, at both guards | `tests/test_ws27_llm_key_guidance.py` |
-| A padded key is still usable (the fix is not "reject whitespace") | `tests/test_ws27_llm_key_guidance.py` |
-| Settings strip the key at the boundary | `tests/test_ws27_llm_key_guidance.py` |
-| A configuration error is not retried | `tests/test_ws27_llm_key_guidance.py` |
-| A blank key cannot be stored; a padded one is stored stripped | `tests/test_ws27_llm_key_guidance.py` |
-| The credential card sits above the résumé | `frontend/src/screens/profile-screen.test.tsx` |
-| The card renders with no profile at all | `frontend/src/screens/profile-screen.test.tsx` |
-| The answer cards survive the reorder | `frontend/src/screens/profile-screen.test.tsx` |
-
-Both new gates were verified to **fail** when the fix is reverted: 9 of the
-19 backend cases go red with the guards and the classifier restored to their
-previous form, and the placement case goes red when the card is moved back
-below the résumé.
-
-End-to-end, against a running server:
-
-| Configuration | Before | After |
-|---|---|---|
-| `LLM_API_KEY` absent/blank | 503 "…unavailable; try again later" (after retrying) | 503 "not configured: no API key is set… Retrying will not help." |
-| `LLM_API_KEY` invalid | 503 "…unavailable; try again later" (after 3 attempts) | 503 "the provider rejected the deployment's API key… Retrying will not help." |
+What this document's own subject (WS-22) takes from WS-27 is the third row of
+its own table: the BYOK credential store now strips at the boundary and refuses
+a blank key at the form, where the user can see it.
