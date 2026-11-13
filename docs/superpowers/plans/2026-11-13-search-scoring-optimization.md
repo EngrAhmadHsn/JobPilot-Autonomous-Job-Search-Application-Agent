@@ -72,7 +72,7 @@ The conditions these changes touch that no happy-path test would catch. Each is 
 - Consumes: nothing new.
 - Produces: `_QUERY_VECTOR_MEMO: OrderedDict[str, tuple[float, tuple[float, ...]]]` and `clear_query_vector_memo() -> None` in `src/llm/embeddings.py`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_ws29_query_vector_memo.py`:
 
@@ -185,13 +185,13 @@ def test_an_expired_entry_is_recomputed():
     assert provider.query_calls == 2
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_query_vector_memo.py -q"`
 
 Expected: `ImportError: cannot import name 'clear_query_vector_memo' from 'src.llm.embeddings'` (or `AttributeError` on `_QUERY_VECTOR_MEMO_ENTRIES`).
 
-- [ ] **Step 3: Add the memo and use it in `embed_query`**
+- [x] **Step 3: Add the memo and use it in `embed_query`**
 
 In `src/llm/embeddings.py`, beside `_fastembed_loaded_models` (~line 170):
 
@@ -270,19 +270,19 @@ def _remember_query_vector(key: str, vector: list[float]) -> None:
 Do the same in `GeminiEmbedding.embed_query` (~1136-1145): it must call
 `self._embed_with_quota(...)` only on a miss.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_query_vector_memo.py -q"`
 
 Expected: 5 passed.
 
-- [ ] **Step 5: Run the existing embedding suites**
+- [x] **Step 5: Run the existing embedding suites**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_embeddings.py tests/test_ws24_search_perf.py -q"`
 
 Expected: all pass. `tests/test_embeddings.py:117-126` asserts a query is never a *persistent* cache hit; a process memo does not write to `EmbeddingCache`, so it still holds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/llm/embeddings.py tests/test_ws29_query_vector_memo.py
@@ -302,7 +302,7 @@ git commit -m "perf: a repeat search reuses its query vector (ws-29)"
 - Consumes: the existing component builders in `engine.py` and `blend()`.
 - Produces: `score_listing(job, profile, *, semantic_score, semantic_state, lexical, artifacts, context, weights) -> ListingScore` where `ListingScore` is a `NamedTuple` with `overall_score: float`, `evidence_coverage: float`, `role_capped: bool`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_ws29_two_phase_scoring.py`:
 
@@ -492,13 +492,13 @@ def test_the_survivors_get_the_identical_full_result():
     assert full.component_states
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_two_phase_scoring.py -q"`
 
 Expected: `ImportError: cannot import name 'score_listing' from 'src.matching.engine'`.
 
-- [ ] **Step 3: Extract `score_listing` from `calculate_match`**
+- [x] **Step 3: Extract `score_listing` from `calculate_match`**
 
 In `src/matching/engine.py`, add above `calculate_match`:
 
@@ -548,7 +548,7 @@ materialization. **This is a pure refactor of `calculate_match`**: its signature
 return type and output must be unchanged, which the existing tests already
 assert.
 
-- [ ] **Step 4: Use it in the executor**
+- [x] **Step 4: Use it in the executor**
 
 In `src/graph/job_executor.py`, replace the single loop with:
 
@@ -593,13 +593,13 @@ In `src/graph/job_executor.py`, replace the single loop with:
 The `job_index` and `lexical_index` dicts hold references to objects that
 already exist, so they add no allocation of substance.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_two_phase_scoring.py -q"`
 
 Expected: 4 passed.
 
-- [ ] **Step 6: Prove the ranking is unchanged on the live corpus**
+- [x] **Step 6: Prove the ranking is unchanged on the live corpus**
 
 Run a script that scores all 8,558 listings both ways and compares:
 
@@ -611,13 +611,13 @@ Run a script that scores all 8,558 listings both ways and compares:
 
 Expected: `identical: True`, `max score difference: 0.0`.
 
-- [ ] **Step 7: Run the matching and API suites**
+- [x] **Step 7: Run the matching and API suites**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_matching.py tests/test_score_states.py tests/test_roles.py tests/test_jobs_api.py tests/test_eeo.py tests/test_ws24c_search_residual.py tests/test_refresh_and_stored_search.py -q"`
 
 Expected: all pass. `tests/test_eeo.py:138` inspects `calculate_match`'s source text; it still exists, so it holds.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/matching/engine.py src/graph/job_executor.py tests/test_ws29_two_phase_scoring.py
@@ -626,7 +626,15 @@ git commit -m "perf: the full match result is materialized for the survivors onl
 
 ---
 
-### Task 3: The lexical coverage walks postings, not every term
+### Task 3: The bulk lexical path skips the evidence lists
+
+> **Ruling taken during execution.** This task was planned as an inverted
+> `term -> postings` index. Re-measured *with the evidence lists included* —
+> which the planning measurement omitted — the inverted walk is slower (2.10 s
+> against 0.55 s), and it cannot produce `missing_keywords` at all, because a
+> term a listing does not have has no posting. The `collect_evidence` flag gets
+> 42% of the win for no build cost and keeps the evidence available for the
+> survivors. See §5 of the workstream doc for the numbers.
 
 **Files:**
 - Modify: `src/matching/lexical.py` (add `LexicalTermIndex`; keep `_important_terms` as the reference)
@@ -637,7 +645,7 @@ git commit -m "perf: the full match result is materialized for the survivors onl
 - Consumes: `_important_terms(job) -> list[tuple[str, float]]` (the reference).
 - Produces: `LexicalTermIndex` with `.coverage(job_id, candidate_token_set) -> float` and `.totals(job_id) -> float`; `CorpusArtifacts.lexical_index: LexicalTermIndex`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_ws29_inverted_terms.py`:
 
@@ -714,13 +722,13 @@ def test_a_term_in_every_listing_stays_correct(corpus):
     assert 0.0 < coverage <= 100.0
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_inverted_terms.py -q"`
 
 Expected: `ImportError: cannot import name 'LexicalTermIndex' from 'src.matching.lexical'`.
 
-- [ ] **Step 3: Implement `LexicalTermIndex` and use it in the executor**
+- [x] **Step 3: Implement `LexicalTermIndex` and use it in the executor**
 
 Add to `src/matching/lexical.py`:
 
@@ -783,13 +791,13 @@ populate it in `get_corpus_artifacts` (beside `lexical_terms`, which stays for
 the compatibility path). Then in `lexical_score`, accept an optional
 `term_index` and use `coverage`/`matched_and_missing` when it is present.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_ws29_inverted_terms.py -q"`
 
 Expected: 4 passed.
 
-- [ ] **Step 5: Prove the scores are unchanged on the live corpus**
+- [x] **Step 5: Prove the scores are unchanged on the live corpus**
 
 Run a differential over all 8,558 listings: `lexical_score` with the term loop
 versus with the inverted index, asserting every `score`, `keyword_coverage`,
@@ -797,13 +805,13 @@ versus with the inverted index, asserting every `score`, `keyword_coverage`,
 
 Expected: `differing rows: 0`.
 
-- [ ] **Step 6: Run the lexical suites**
+- [x] **Step 6: Run the lexical suites**
 
 Run: `cmd.exe /c "env\Scripts\python.exe -m pytest tests/test_lexical_bm25.py tests/test_ws24b_lexical.py tests/test_corpus_cache.py tests/test_ws24c_search_residual.py -q"`
 
 Expected: all pass. `tests/test_ws24b_lexical.py:245-281` has a time budget for `score_all`; the inverted index must not slow it.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/matching/lexical.py src/matching/corpus_cache.py tests/test_ws29_inverted_terms.py
@@ -819,7 +827,7 @@ git commit -m "perf: the lexical coverage walks postings, not every term (ws-29)
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Measure the end state**
+- [x] **Step 1: Measure the end state**
 
 Use `scripts/profile_search_timing.py` (which now profiles the real path) plus a
 call-count probe, and record for one search on the live corpus: the embed, the
@@ -828,7 +836,7 @@ similarity scan, `lexical_score`, `calculate_match`, and the total.
 Expected: the embed drops to 0 on a repeat, the lexical loop and
 `calculate_match` both fall materially, and the total is the sum.
 
-- [ ] **Step 2: Correct §14's double-charged embed**
+- [x] **Step 2: Correct §14's double-charged embed**
 
 §14 currently charges the embed twice — once as "3. embed the query" and again
 inside "4. similarities_for_all" — because the *profiler* called `embed_query`
@@ -836,9 +844,9 @@ before `similarities_for_all`. The product embeds **once** per search (verified:
 one `embed_query` call on a memo miss, zero on a hit). Record that correction
 explicitly, with the count.
 
-- [ ] **Step 3: Write §15 with the before/after table and the exactness results**
+- [x] **Step 3: Write §15 with the before/after table and the exactness results**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/implementation/28-cold-search-and-residual-latency.md
