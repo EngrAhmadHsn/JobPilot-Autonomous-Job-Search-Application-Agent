@@ -238,7 +238,7 @@ describe("the Model credentials card", () => {
     // google: optional, with the default explained
     expect(screen.getByLabelText(/Base URL/)).toBeInTheDocument()
     expect(
-      screen.getByText(/Leave empty for Google's default endpoint/)
+      screen.getByText(/Leave empty to use this provider's default endpoint/)
     ).toBeInTheDocument()
 
     // a bare openai-compatible endpoint: required
@@ -257,6 +257,32 @@ describe("the Model credentials card", () => {
       "https://api.example.com/v1"
     )
     expect(save).toBeEnabled()
+  })
+
+  it("offers the fallback providers with their own defaults (WS-30)", async () => {
+    serveState(state())
+    const user = userEvent.setup()
+
+    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+    await screen.findByText("Using the deployment's key")
+
+    const provider = screen.getByLabelText("Provider")
+    const values = Array.from(provider.querySelectorAll("option")).map(
+      (option) => option.getAttribute("value")
+    )
+    // The three the platform's chain uses are registerable by a user too.
+    expect(values).toEqual(
+      expect.arrayContaining(["groq", "tokenharbor", "pollinations"])
+    )
+
+    // A vendor-default provider needs a key and a model, no URL.
+    await user.selectOptions(provider, "groq")
+    await user.type(screen.getByLabelText("Model"), "qwen/qwen3.8-27b")
+    await user.type(screen.getByLabelText(/API key/), "gsk-my-own-key-123456")
+    expect(screen.getByRole("button", { name: "Save key" })).toBeEnabled()
+    expect(
+      screen.getByText(/Leave empty to use this provider's default endpoint/)
+    ).toBeInTheDocument()
   })
 
   it("renders the required mode as a demand, and the disabled mode as a fact", async () => {

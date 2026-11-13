@@ -40,11 +40,33 @@ const PROVIDERS = [
   { value: "openai-compatible", label: "OpenAI-compatible endpoint" },
   { value: "openai", label: "OpenAI (default endpoint)" },
   { value: "zai", label: "Z.ai GLM (default endpoint)" },
+  // WS-30: the same three providers the platform's fallback chain uses. Each
+  // carries its vendor endpoint, so a key and a model are all that is needed.
+  { value: "groq", label: "Groq (default endpoint)" },
+  { value: "tokenharbor", label: "TokenHarbor (default endpoint)" },
+  { value: "pollinations", label: "Pollinations (default endpoint)" },
 ] as const
 
 /** Providers whose base URL the user must or may supply. */
 const NEEDS_BASE_URL = new Set(["openai-compatible"])
-const MAY_HAVE_BASE_URL = new Set(["openai-compatible", "openai", "zai", "google"])
+const MAY_HAVE_BASE_URL = new Set([
+  "openai-compatible",
+  "openai",
+  "zai",
+  "google",
+  "groq",
+  "tokenharbor",
+  "pollinations",
+])
+/** Providers that already know their endpoint, so an empty URL is normal. */
+const VENDOR_DEFAULT_PROVIDERS = new Set([
+  "google",
+  "openai",
+  "zai",
+  "groq",
+  "tokenharbor",
+  "pollinations",
+])
 
 const maskingKey = (hint: string): string => `••••••••${hint}`
 
@@ -207,9 +229,9 @@ export function ModelCredentialsCard() {
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
-              {provider === "google" ? (
+              {provider === "google" || VENDOR_DEFAULT_PROVIDERS.has(provider) ? (
                 <span className="block text-xs text-muted-foreground">
-                  Leave empty for Google's default endpoint.
+                  Leave empty to use this provider's default endpoint.
                 </span>
               ) : null}
             </label>
