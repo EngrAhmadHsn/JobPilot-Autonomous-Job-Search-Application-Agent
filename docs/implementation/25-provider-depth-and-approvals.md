@@ -1,6 +1,6 @@
 # WS-25 · Provider Depth, the Application Form Schema & Approval Expiry
 
-Status: **Done (2026-11-11)** — Phases 1–5 plus the WS-25b wiring in §9/§10 · Milestone: **M5** · Depends on: WS-06 (approval), WS-08 (browser automation), WS-20 (matching), WS-23 (corpus correctness) · **Deviations in §7a, follow-up in §9 (WS-25b)**. The §7a gaps are closed: §7a.1's form schema is wired into prepare (`_build_form_plans`), §7a.2's liveness check is wired into approve (`_job_liveness`), and §7a.3's questions measurement is built (75 `form_questions` rows behind `GET /api/profiles/{id}/question-gaps`). **Still open:** the console does not call that endpoint yet, so the measured field order is not what the profile screen renders
+Status: **Done (2026-11-11)** — Phases 1–5, the WS-25b wiring in §9/§10, and **WS-25c in §11 (work eligibility by country, 2026-11-13)** · Milestone: **M5** · Depends on: WS-06 (approval), WS-08 (browser automation), WS-20 (matching), WS-23 (corpus correctness) · **Deviations in §7a, follow-up in §9 (WS-25b)**. The §7a gaps are closed: §7a.1's form schema is wired into prepare (`_build_form_plans`), §7a.2's liveness check is wired into approve (`_job_liveness`), and §7a.3's questions measurement is built (75 `form_questions` rows behind `GET /api/profiles/{id}/question-gaps`). **The console gap closed 2026-11-13:** the profile screen calls that endpoint and the approval panel renders the board's own `form_questions` order — see §10.4's update for the two defects the wiring exposed. **WS-25c then acted on what the measurement said (§11):** the boards' country-qualified authorization questions are now answered from the candidate's stated countries rather than one boolean, and the profile screen states them through a country picker
 
 > Two of the four providers publish far more than the adapters were
 > reading, and one of the project's core safety guarantees — *a human
@@ -697,3 +697,173 @@ to-do list:
   yet populate.
 * The **console** still renders the guessed field order. The endpoint
   exists; the profile screen has not been changed to call it.
+
+#### Closed 2026-11-13 — and the two defects closing it exposed
+
+* **The console is wired.** The profile screen renders the measured gaps
+  (`api.getQuestionGaps`, in a card above the guessed answer fields, ordered
+  as the server sent them, each entry naming the board count and its listing
+  count; absent rather than empty when no board has published a schema), and
+  the approval panel renders the board's own `form_questions` in the board's
+  order, naming each blocker instead of counting them. The prepare response's
+  `form_questions` was also typed — it was `list[dict]`, so the generated
+  TypeScript said `{ [key: string]: unknown }[]` and the console could not
+  have read the field without a cast. It is now a `BoardQuestion` model with
+  named fields.
+
+* **Defect 1 — the coverage map had drifted from the taxonomy.** The second
+  bullet above was not a missing profile field; it was two maps that disagree.
+  `CATEGORY_FACT_KEYS` (`src/applications/questions.py`) gained the split
+  name, the coordinates and the application-profile categories in WS-25b and
+  WS-20; `_CATEGORY_PROFILE_FIELDS` (`src/db/form_questions.py`) did not, and
+  a category with no entry falls through `_coverage_for` to `not_in_profile`
+  — the state the console renders as "you should answer this". Measured on
+  the live corpus, a profile holding **"Ada Lovelace"** was shown **First
+  Name** (30 sightings across 3 boards) and **Last Name** as gaps, along with
+  `skills` and `employment_type`. Pinned by
+  `tests/test_ws25b_coverage_map.py`, which also fails on any *future*
+  category the taxonomy resolves and the map does not — the general defect
+  rather than these four instances.
+
+* **Defect 2 — `_profile_has` walked a hand-kept attribute list that
+  predated `work_preferences`.** So a profile that stated its employment types
+  read as not holding them, and `Employment type` appeared as a question to
+  answer when it was already answered. The walk is now derived from the
+  model's own fields (`_nested_profile_objects`), so a nested field is walked
+  the day it exists. A list of attribute names was a second, silent copy of
+  the model's shape: it goes stale the moment a field is added, and nothing
+  fails — which is exactly how the first defect survived WS-25b's own tests.
+
+* `Latitude` / `Longitude` **stay** `not_in_profile`, deliberately and now
+  visibly. The profile genuinely has no coordinates and a computed coordinate
+  is a fabrication, so the honest states are "ask the candidate" or "let
+  Greenhouse ignore the location". The taxonomy and the coverage map both
+  classify them now, so the gap is *reported* rather than falling through —
+  which is the difference between a to-do item and a bug.
+
+---
+
+## 11. WS-25c — Work eligibility by country (2026-11-13)
+
+**Status: built.** `src/applications/countries.py` (+46 tests),
+`WorkAuthorizationInfo.authorized_countries` canonicalized and made live
+(+14), the country-qualified fact path (+21), `GET /api/profiles/countries`,
+and the profile screen's country picker (+5 vitest). Backend **2038 passed /
+8 skipped / 0 failed**; frontend **235 passed**; `ruff` clean.
+
+### 11.1 Why — the measurement drove it
+
+The measurement from WS-25b (§10) is what exposed this. The boards ask
+authorization questions **qualified by the job's country**, and they are
+required:
+
+| Label | Sightings | Boards | Required |
+|---|---|---|---|
+| Are you authorized to work in the country for which you apply? | 12 | 1 | yes |
+| Are you authorized to work in the location(s) you selected? | 12 | 1 | yes |
+| Please select the country or countries you anticipate working from | 12 | 1 | yes |
+| Please select the country where you currently reside. | 12 | 1 | yes |
+| Will you require *<company>* to sponsor you for a work permit? | 12 | 1 | yes |
+
+The profile answered all of these with one `legally_authorized: bool`. That
+cannot be right: **authorized in the UK is not authorized in the US**, so a
+blanket "yes" filled into a US posting's authorization question is a
+fabricated statement about the candidate's legal right to work — on a form a
+human then submits. A wrong legal answer is worse than an unanswered one,
+because the unanswered one is recoverable.
+
+The half-built design was already in the tree: `authorized_countries` existed
+in the model since WS-20 and **nothing read it**. It was a dead field, exposed
+in the API schema, validated as free text. The intent to answer per country
+was there; the wiring was not.
+
+### 11.2 The country resolver, and the two ways it can go wrong
+
+`resolve_country` / `countries_in` turn a board's free-text location into ISO
+3166-1 alpha-2 codes. Two failure modes shaped the design, both found by
+measuring against the live corpus rather than by reasoning:
+
+**The state collision (a real bug, fixed).** `"San Francisco, CA"` is
+California, and a naive reader resolves `CA` to **Canada** — filling a
+Canada authorization answer on a San Francisco posting. Eight codes are both
+a country and a US state (`AR CA CO DE ID IL IN MA`). Measured: the naive
+reader mis-resolved **1,004 live listings**, every one toward a country the
+posting is not in. A bare code is therefore read as a country **only when it
+is the whole location**; inside a comma-separated location it is a state, and
+a state means the United States.
+
+**A stated country must beat an inferred one.** `"London, Ontario, Canada"`
+names Canada outright, and its first fragment is also a city in the UK. The
+city table is an inference and a country name is a statement, so resolution
+runs two passes: the explicit readings first (country names, codes, and
+country-inside-a-fragment), and the city table only when they produce nothing.
+
+**Coverage on the live corpus** (8,558 listings, measured 2026-11-13):
+**91.0% resolved** — US 4,857, GB 480, IN 358, CA 303, SG 253, IE 211 — and
+**772 honestly unresolved** (`"Remote"`, `"Hybrid"`, `"N/A"`, `"SEA"`,
+`"CDMX"`). An unresolved location is not a gap to paper over: it means the
+country-qualified question goes to a human, which is the correct outcome and
+the reason 90% is a good number rather than a problem.
+
+### 11.3 The rule: the answer follows the posting
+
+```
+may_work_in(country) -> True | False | None
+```
+
+Three-valued on purpose. `None` means **the profile does not say**, and it is
+what sends the question to a human instead of answering it; collapsing it to
+`False` would answer "no" on the candidate's behalf.
+
+The fact path (`_work_authorization_facts`) then distinguishes two statements
+the model had been treating as one:
+
+* **A country list is a narrowing.** It decides for a country it names
+  (`yes`) and for one it omits (`no` — the candidate's own answer). When the
+  job's country is **unknown** the list cannot be applied to it, so the fact is
+  **withheld**.
+* **A bare `legally_authorized` is a statement about anywhere.** It needs no
+  country, so it stands either way. Withholding it would ask a question the
+  candidate already answered.
+* **Neither stated -> nothing emitted**, and the question resolves to
+  `needs_human`.
+
+The job's country comes from the corpus: the prepare route hands over the
+`job_url`, `location_for_application_url` reads the stored location (unique
+across all 8,558 rows, so a match identifies one listing), and the country is
+resolved from it. A posting we never ingested yields no country, and the
+answer is withheld rather than defaulted.
+
+**Sponsorship is never inferred** — not from the country list, not from
+eligibility. A candidate authorized in the UK may still need sponsorship for
+the US, so the three-field split from WS-20 is preserved.
+
+### 11.4 The UI
+
+The profile screen's answers card gains a country multi-select **above** the
+sponsorship question and beside the authorization one, whose hint now reads
+"Answers for any country, unless you name the countries below."
+
+The options are served by `GET /api/profiles/countries`, which reads the same
+table the write path validates against. That is deliberate: a picker with its
+own copy of the list drifts, and the failure mode is a validation error on a
+value the UI just suggested. The control is **withheld while the list loads**
+rather than rendering empty — an empty picker looks like "your countries are
+gone", and a save from that state would clear the stored list.
+
+Empty is a real state and nothing forces a selection, because forcing one
+turns an unanswered question into a wrong answer.
+
+### 11.5 What this does not do
+
+* **No coordinates.** `Latitude` / `Longitude` stay `not_in_profile` (§10.4):
+  the profile has a location string and no lat/long, and a computed coordinate
+  is a fabrication. The country resolver is deliberately not extended into
+  geocoding.
+* **No city→country table beyond the corpus's own vocabulary.** The table is
+  curated and closed (the 100+ cities the corpus actually uses), and a city
+  that names two countries is not in it.
+* **`citizenship_status` is unchanged** — verbatim free text, still the user's
+  own disclosure, still never inferred from the country list.
+* **The `-n 4` DNS flake** is unaffected and unrelated (it is Ashby and
+  Remotive, not this workstream).

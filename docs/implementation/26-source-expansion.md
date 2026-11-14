@@ -1,6 +1,6 @@
 # WS-26 · Source Expansion — Verified Boards, Cross-Source Dedup, Source Ordering & Tier-A ATS Adapters
 
-Status: **Plan only — the expansion is not built. WS-26b (§11) delivered** · Milestone: **M5** · Depends on: WS-23 (corpus correctness — field completeness and the `job_boards` registry, done 2026-11-11), WS-24 (search performance — done 2026-11-12), WS-18 (durable queue for staggered sync) · Live-verified: every slug and endpoint cited below was probed live on 2026-11-09/10 (read-only GETs); see the research reference notes · **Delivered in §11 (WS-26b): `scripts/verify_sources.py` and the dedup-docstring correction. Not built: Phases 2–6 — cross-source dedup, proposals, honest source ordering, the robots-aware crawl policy, and every tier-A adapter**
+Status: **Phase 2 built (2026-11-13); Phases 3–6 still plan-only** · Milestone: **M5** · Depends on: WS-23 (corpus correctness — field completeness and the `job_boards` registry, done 2026-11-11), WS-24 (search performance — done 2026-11-12), WS-18 (durable queue for staggered sync) · Live-verified: every slug and endpoint cited below was probed live on 2026-11-09/10 (read-only GETs); see the research reference notes · **Delivered: §11 (WS-26b) — `scripts/verify_sources.py` and the dedup-docstring correction; and §3 (Phase 2) — the cross-source merge (`src/jobs/cross_source.py`, 21 tests), the precedence rule, and the wiring into both admission paths (`tests/test_ws26_dedup_wired.py`, 6 tests). Not built: Phases 3–6 — proposals, honest source ordering, the robots-aware crawl policy, and every tier-A adapter — plus §3.2's fuzzy clustering, which the measurement below deliberately excludes**
 
 > The corpus is correct but **narrow**: four sources — Greenhouse (13
 > boards), Lever (4 companies), Ashby (10 orgs), Remotive — **8,558
@@ -77,24 +77,86 @@ registry and exits 1 when a mocked board returns HTML or a renamed field.
 
 ## 3. Phase 2 — Cross-source dedup (before any new adapter)
 
+**Status: built 2026-11-13.** `src/jobs/cross_source.py` (the key, the
+precedence rule, the merge), 21 tests in `tests/test_ws26_dedup.py`; wired
+into **both** admission paths — `registry.search_all` (the in-process refresh)
+and `graph.job_executor.fetch_and_persist` (the WS-18 durable refresh the
+worker runs) — with 6 tests in `tests/test_ws26_dedup_wired.py`. A merge in
+only one of the two paths would make the corpus depend on which ran.
+
 The ever-jobs idea, ported as pure Python in `src/jobs/deduplicate.py`:
 
 1. **Exact cross-source key**: `sha256(normalize(company) | normalize(title) |
    normalize(location))` — the same posting on two providers collapses to one
    row, keeping the first-seen source's id and merging `extra_metadata`.
+   ✅ **Built.** The company additionally loses a trailing legal-entity suffix
+   (`Acme Inc.` and `Acme` are one employer), the location is part of the key,
+   and a listing with no company or no title is **unkeyable** and never merged
+   — a merge asserts two rows are one posting, and a listing that states
+   neither gives no evidence for that.
 2. **Fuzzy clustering (optional, behind a flag)**: MinHash over title+company
    tokens with union-find, merging only when locations are compatible — for
    near-duplicates ("Senior Backend Engineer" vs "Sr. Backend Engineer").
+   ❌ **Not built, deliberately, and the reason is measured.** The live
+   8,558-listing corpus contains **zero** cross-source duplicate groups under
+   three normalization strengths (exact; punctuation-stripped; company-suffix
+   and title-abbreviation normalized — measured 2026-11-13). There is no
+   duplicate for a fuzzy matcher to collapse, and a matcher that merges
+   *similar* postings without evidence is a way to fabricate an identity —
+   the opposite of what this project's rules allow. It stays unbuilt until a
+   corpus produces a near-duplicate it could actually collapse.
 3. **Precedence rule**: when two sources disagree on a field, the value from
    the source with the higher field-completeness score wins (WS-23 Phase 3
    makes that score exist); ties keep the first-seen.
+   ✅ **Built**, as `field_completeness` — the count of populated WS-23
+   fields plus the skill-list sizes, so it is a *volume* measure rather than
+   a judgement about which value is right, which no data can supply. One
+   refinement the spec's wording did not anticipate: a field only **one** of
+   the two rows states is not a disagreement at all, so it is filled
+   whatever the scores say; the precedence rule is consulted only where both
+   state a value. And a value is never cleared — the merge fills gaps.
 4. The per-source keys stay as the **identity** (canonical id is
    `{source}:{source_job_id}`) — the cross-source key is a *merge* key, not a
    replacement, so a source's own rows never collide with each other.
+   ✅ **Built and pinned**: `test_two_listings_from_one_source_are_never_merged`
+   and `test_the_identity_fields_are_never_overwritten`.
+
+**One exception inside §3.1's `extra_metadata` merge, and it is load-bearing.**
+The spec says the merge accumulates `extra_metadata`, which it does — but
+**`updated_at` must not travel between sources.** That key is not information
+about the posting; it is the board's own per-listing change stamp, and
+`registry._stored_update_stamps` reads it back *per source* to decide what the
+delta refresh must re-fetch (WS-23, Phase 4). Copying another provider's stamp
+onto the survivor would make one source's bookkeeping carry another's
+timestamp, and the owner's next delta refresh would then either re-fetch every
+listing forever or — worse — read a foreign stamp as "unchanged" and silently
+miss a real edit. It is also never *adopted* when the survivor states none:
+"no stamp" is not the same claim as another source's stamp, and adopting one
+would assert a freshness this source never published. So the merge carries the
+known informational keys (`team`, `department`, `category`, `salary_text`,
+`secondary_locations`, `all_locations`, `country`) and leaves every other key
+with the row that owns it. Pinned by
+`test_the_change_stamp_never_crosses_a_source_boundary`,
+`test_a_stamp_is_not_adopted_when_the_survivor_states_none` and
+`test_an_unknown_metadata_key_does_not_travel` — the second of which was
+verified to **fail** when the guard is removed, so it is a real gate rather
+than a restatement of the code.
 
 **Gate:** the same posting fetched from two mocked sources persists as one
 row; a test reproduces the duplicate before the fix; the registry docstring
 ("deduplicates across sources") becomes true.
+✅ **Met.** The duplicate-first tests are written and were run red before the
+implementation; the docstring at `src/jobs/registry.py` now states both dedups
+— the per-source identity and the cross-source merge — rather than the one it
+used to claim.
+
+**The one existing assertion this changed.** `tests/test_search_all.py`'s
+`test_search_all_merges_across_sources` and `test_search_all_survives_one_source_failing`
+both built three sources serving *identical* title/company/location listings —
+which is now, correctly, one row. They were updated to give each listing a
+distinct title, which is what those tests were actually about (that a
+source's own identity is not the merge key, and that a failing source does not
+take the others down). No production behaviour was relaxed to keep them green.
 
 ---
 

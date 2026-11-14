@@ -1,6 +1,6 @@
 # WS-24 · Search Performance — Vectorized Similarity, Stable Corpus Cache, Cached Scores
 
-Status: **Done (2026-11-12)** — Phases 1–2, WS-24b (§8/§9) and WS-24c (§10) · Milestone: **M5** · Depends on: WS-20 (matching), WS-21 (role relevance), WS-23 (corpus correctness) · **Deviations in §4a, follow-up in §8 (WS-24b — the lexical channel)**. The WS-28 latency work that followed is its own document: [28-cold-search-and-residual-latency.md](28-cold-search-and-residual-latency.md). **Still open:** §4a.1 (the per-listing `MatchResult` cache — still computed per request) and §4a.2 (the artifacts rebuild is still full, not incremental)
+Status: **Done (2026-11-12)** — Phases 1–2, WS-24b (§8/§9) and WS-24c (§10) · Milestone: **M5** · Depends on: WS-20 (matching), WS-21 (role relevance), WS-23 (corpus correctness) · **Deviations in §4a, follow-up in §8 (WS-24b — the lexical channel)**. The WS-28 latency work that followed is its own document: [28-cold-search-and-residual-latency.md](28-cold-search-and-residual-latency.md). **Both §4a deviations resolved 2026-11-13, in opposite directions:** **§4a.2 is built** — the rebuild is incremental (52.8 s → 21.1 s for a one-listing change, measured); **§4a.1 is superseded by measurement, not open** — it described a ~9 s per-request score that WS-29's two-phase scoring cut to 1.47 s of a 2.18 s warm search, so the cache it proposed has no win left to take
 
 > A search over the current corpus takes **64.58 s cold** and **9.18 s warm**
 > (measured, 2026-11-09, 6,696 listings, one real profile). The corpus cap
@@ -241,6 +241,14 @@ removes a cost that is *recomputed identically* every time.
 
 ## 4a. Deviations — what this workstream did **not** finish
 
+> **Both deviations were revisited on 2026-11-13, and the answer changed for
+> both — in opposite directions.** §4a.1 was **superseded by measurement**:
+> its premise was a ~9 s per-request score, and by 2026-11-13 WS-29's
+> two-phase scoring had cut the bulk scoring loop to **1.47 s of a 2.18 s warm
+> search** (measured against the live 8,558-listing corpus), so a per-listing
+> score cache no longer has the win its premise assumed. §4a.2 was **built**,
+> and the split it predicted held. See the two sections below.
+
 ### 4a.1 The per-listing score is still computed per request
 
 The full score cache (§4) is **not** built. The per-listing
@@ -253,6 +261,27 @@ profile_version, content_version)`. It needs two things first: the
 result object must be treated as immutable, and the profile's version
 must be tracked (the WS-25 `profile_version` digest is the same idea,
 and could be reused).
+
+**Superseded by measurement (2026-11-13).** The estimate above was taken
+before WS-29. Re-measured on the same live corpus, with the same 12 cores:
+
+| Phase | Then (the estimate above) | Measured 2026-11-13 |
+|---|---|---|
+| Warm search, memo hit | ~9 s | **2.18 s** |
+| Bulk scoring loop over all 8,558 | ~9 s | **1.47 s** |
+| `calculate_match` for the 30 survivors | — | 0.01 s |
+| `similarities_for_all`, memo hit | — | ~0.0 s |
+
+Two changes closed it: WS-29's two-phase scoring builds a `ListingScore` for
+the corpus and a full `JobMatchResult` only for the survivors (99.6% of the
+objects were built and thrown away), and the WS-24c scan memo plus the
+resident vector matrix made the repeat search's vector step free. What the
+cache would buy today is a fraction of 1.47 s, against a correctness surface
+(a score keyed on a profile version that must move whenever any field the
+score reads moves) that is considerably larger than the win. **Do not build
+it on this premise.** If it is ever revisited, it needs its own measurement
+first — and the per-listing artifact cache that §4a.2 describes is the part
+that was actually still expensive.
 
 ### 4a.2 The artifacts rebuild is still a **full** rebuild
 
@@ -270,6 +299,32 @@ changed entries — but the BM25 index is a global structure (its
 document frequencies change when any document changes), so the index
 itself may still need a rebuild. That is the part to measure before
 promising an incremental path.
+
+**Built 2026-11-13, and the predicted split held.** `corpus_cache.py` now
+keeps the per-row `content_version` map it built from, and the next build
+recomputes only the ids whose version moved — re-using the unchanged listings'
+artifacts **by identity** (the same objects, not copies) for the terms, the
+weight totals, the experience bars, the role classifications, the required
+phrases and the seniority ranks. The BM25 index is still rebuilt whole.
+
+Measured on the live 8,558-listing corpus:
+
+| Case | Time |
+|---|---|
+| Full rebuild (cold) | **52.8 s** |
+| No change (cache hit) | 0.22 s — the cached object, unchanged |
+| Rebuild after changing **one** listing | **21.1 s** |
+| — of which the global `Bm25Index` | 16.0 s |
+| — of which the fingerprint pass + row fetch + row mapping | 2.8 s |
+| Untouched listings whose terms are the same object | **8,557 of 8,557** |
+
+So the per-listing half went from 36 s to nothing, and what remains is
+exactly what §4a.2 said could not go incremental — the index, whose document
+frequencies move when any document does — plus the unavoidable read.
+`tests/test_ws24c_incremental_artifacts.py` pins it, including the two
+invariants that matter: reuse is keyed by `content_version` and never by
+position, and a **deleted** listing leaves nothing behind in any map (a stale
+entry there is how a listing the eviction removed would come back).
 
 ### 4a.3 `MAX_CORPUS_LISTINGS` was **not** changed
 

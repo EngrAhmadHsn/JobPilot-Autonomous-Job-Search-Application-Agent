@@ -1,7 +1,12 @@
 # WS-06 · Security Preconditions (SECURITY.md §14)
 
-Status: **In progress** — specification + execution plan written 2026-10-21 (see *Part 2 —
-Detailed specification* and *Part 3 — Execution plan*); implementation started ·
+Status: **Done** — implemented and live-verified 2026-10-21 with a real HTTP server and a real
+Chromium browser (`scripts/verify_ws06.py`, 12/12 checks); this header said "In progress" while
+`00-OVERVIEW.md` and the verification script both said done, and the code agrees with them — the
+allowlist, the approval flow, the evidence capture, the audit trail and the challenge stop are all
+in the running system. The **follow-ups below are real and still open** (malware scanning,
+SEC-15 retention, SEC-12 PII in stored documents), and they are the reason the header
+distinguishes "the workstream is complete" from "every control is" ·
 Milestone: **M3** · Depends on: [01](01-data-foundation.md) ·
 Blocks: [07](07-application-tracking.md), [08](08-browser-automation.md), **any real-site
 submission (M5)**

@@ -16,8 +16,9 @@ runtime — see `docs/implementation/` for the workstream that defines it.
 
 ## Status
 
-Milestones M1–M4 are done and live-verified. The offline suite is green (1,376 collected;
-1 skipped; ~6 minutes) and needs no network, API key or database server. The
+Milestones M1–M4 are done and live-verified. The offline suite is green (2,087 collected by
+`pytest -m "not browser"`, which reports zero failures and 8 skips in ~4 minutes) and needs no
+network, API key or database server. The
 workstream-by-workstream record is in
 [`docs/implementation/`](docs/implementation/00-OVERVIEW.md).
 
@@ -25,7 +26,7 @@ workstream-by-workstream record is in
 |---|---|
 | Resume parsing (DOCX, TXT, MD) → validated `CandidateProfile` | Done (WS-01) — **PDF is not supported** |
 | Job discovery: Greenhouse, Lever, Ashby, Remotive | Done (WS-02, FU-2, FU-3) — key-less public board APIs only |
-| Normalization, deduplication, persistence | Done (WS-02, WS-04) |
+| Normalization, deduplication, persistence | Done (WS-02, WS-04, WS-26 Phase 2) — per-source identity plus a cross-source merge |
 | Hybrid matching: six scorers, Chroma vectors, local embeddings | Done (WS-03, FU-7) |
 | End-to-end job workflow (LangGraph) | Done (WS-04) — verified live over HTTP |
 | Resume tailoring with a deterministic factuality validator | Done (WS-05) |
