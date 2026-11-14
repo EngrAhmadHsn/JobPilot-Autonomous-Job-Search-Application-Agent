@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from pathlib import Path
 
 from src.resume.profile import (
@@ -69,15 +70,42 @@ def _read_docx_lines(path: Path) -> list[tuple[str, bool]]:
     ]
 
 
-#: Fraction of a PDF's extracted characters that may be U+FFFD before the text
-#: is called unreadable. A single replacement character is a font gap a real
-#: document may have; a document whose text is mostly replacement characters is
+#: Fraction of a PDF's extracted characters that may be unreadable before the
+#: text is refused. A single replacement character is a font gap a real
+#: document may have; a document whose text is mostly unreadable characters is
 #: a broken encoding, and a profile built from it would be a fabricated one.
+#:
+#: "Unreadable" is: U+FFFD (a mapping that says the glyph is not Unicode), a
+#: C0/C1 control character other than the whitespace ones, or a Unicode ``Cf``
+#: (format) character. Counting **only** U+FFFD missed the other half of the
+#: same breakage: a CID font with no ``/ToUnicode`` at all has no mapping to
+#: honour, so a reader passes its raw text codes through and the extraction is
+#: control characters — no replacement character in sight. A résumé's text
+#: layer is letters and punctuation; a fifth of it being control characters is
+#: broken whatever its provenance.
 _MOJIBAKE_REPLACEMENT_RATIO = 0.2
 
 
+def _is_unreadable_char(char: str) -> bool:
+    """A character no résumé's text layer would carry.
+
+    Whitespace is excluded deliberately (``\\t``, ``\\n``, ``\\r`` are controls
+    a text layer legitimately contains), and the ratio in
+    ``_looks_like_mojibake`` is measured over non-whitespace characters for the
+    same reason.
+    """
+    codepoint = ord(char)
+    if char == "\ufffd":
+        return True
+    if char in "\t\n\r":
+        return False
+    if codepoint <= 0x1F or 0x7F <= codepoint <= 0x9F:
+        return True
+    return unicodedata.category(char) == "Cf"
+
+
 def _looks_like_mojibake(text: str) -> bool:
-    """True when most of the extracted characters are replacement characters.
+    """True when most of the extracted characters are unreadable.
 
     The ratio is measured over non-whitespace characters only: whitespace
     would otherwise dilute the signal, and a text layer that is pure
@@ -86,8 +114,8 @@ def _looks_like_mojibake(text: str) -> bool:
     visible = [char for char in text if not char.isspace()]
     if not visible:
         return False
-    replacements = sum(1 for char in visible if char == "\ufffd")
-    return replacements / len(visible) > _MOJIBAKE_REPLACEMENT_RATIO
+    unreadable = sum(1 for char in visible if _is_unreadable_char(char))
+    return unreadable / len(visible) > _MOJIBAKE_REPLACEMENT_RATIO
 
 
 def _read_pdf_lines(path: Path) -> list[tuple[str, bool]]:
@@ -104,9 +132,12 @@ def _read_pdf_lines(path: Path) -> list[tuple[str, bool]]:
       uploading the DOCX, because there is nothing here to read.
     * **not readable text** — the text layer exists but is broken: more than
       ``_MOJIBAKE_REPLACEMENT_RATIO`` (20%) of its non-whitespace characters
-      are U+FFFD, which is what a CID font with no usable ``/ToUnicode``
-      mapping extracts as. A profile built from ``\\ufffd`` runs would pass
-      every downstream validator and be rubbish.
+      are unreadable — U+FFFD, a C0/C1 control character other than
+      whitespace, or a Unicode ``Cf`` (format) character. Both shapes of a
+      CID font with no usable Unicode mapping land here: one whose
+      ``/ToUnicode`` table maps to U+FFFD, and one with no ``/ToUnicode`` at
+      all, whose raw text codes extract as control characters. A profile built
+      from either would pass every downstream validator and be rubbish.
     * **encrypted** — the file needs a password. A user problem with a user
       fix, so it must not read the same as a corrupt file.
     * **could not be read** — pypdf could not open or parse the file at all.
@@ -114,7 +145,7 @@ def _read_pdf_lines(path: Path) -> list[tuple[str, bool]]:
 
     Raises:
         ValueError: In each of the four cases above. Never returns an empty or
-            replacement-character line list as a success.
+            unreadable-character line list as a success.
     """
     import pypdf
 

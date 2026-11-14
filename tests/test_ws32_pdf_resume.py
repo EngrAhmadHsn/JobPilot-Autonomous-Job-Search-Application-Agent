@@ -59,10 +59,30 @@ def test_a_mojibake_pdf_is_refused_rather_than_parsed() -> None:
     """A text layer of replacement characters is not text.
 
     A profile built from ``\\ufffd`` runs would pass every downstream validator
-    and produce a résumé full of rubbish, so the refusal belongs here.
+    and produce a résumé full of rubbish, so the refusal belongs here. The
+    fixture is the *mapped-to-FFFD* shape: the CID font ships a ``/ToUnicode``
+    table that says its glyphs are not Unicode.
     """
     with pytest.raises(ValueError, match="not readable text"):
         parse_resume(str(FIXTURES / "resume_mojibake.pdf"))
+
+
+def test_a_pdf_with_no_unicode_mapping_is_refused_rather_than_parsed() -> None:
+    """A CID font with no `/ToUnicode` at all is the shape that fabricates a profile.
+
+    This is the same broken font as the mojibake fixture with its ``/ToUnicode``
+    entry **omitted** — a font that was never embedded, or was embedded without
+    its Unicode table. There is no mapping to honour, so pypdf passes the raw
+    text codes through and extraction yields control characters (U+0001…U+001F)
+    and not one U+FFFD.
+
+    A reader that watched only for the replacement character would accept this
+    and build a profile whose name is a run of control characters — a
+    fabricated candidate, which the project rule forbids outright. So the
+    refusal must fire on this shape too.
+    """
+    with pytest.raises(ValueError, match="not readable text"):
+        parse_resume(str(FIXTURES / "resume_no_tounicode.pdf"))
 
 
 def test_a_corrupt_pdf_is_refused_not_raised_as_a_crash(tmp_path: Path) -> None:
