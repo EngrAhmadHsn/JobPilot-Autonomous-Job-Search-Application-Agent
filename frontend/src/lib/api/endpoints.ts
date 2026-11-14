@@ -40,6 +40,7 @@ import type {
   LlmCredentialState,
   LlmCredentialTestResult,
   MatchesHistory,
+  QuestionGapsResponse,
   ResumeProfileResponse,
   ResumeUploadResponse,
   RunAccepted,
@@ -217,6 +218,19 @@ export const api = {
       signal,
       timeoutMs: 20_000,
     }),
+
+  /** The questions the boards actually ask, measured (WS-25b).
+   *
+   * The server has already excluded what the profile answers and what is
+   * never the agent's to answer (consent and EEO), so the console renders
+   * the response rather than re-filtering it — a second filter would be a
+   * second opinion about coverage, and the measured one is the honest one.
+   */
+  getQuestionGaps: (profileId: string, signal?: AbortSignal, limit = 20) =>
+    request<QuestionGapsResponse>(
+      `/api/profiles/${encodeURIComponent(profileId)}/question-gaps?limit=${limit}`,
+      { signal, timeoutMs: 20_000 }
+    ),
 
   /** The caller's own model credential (WS-22) — masked, never the key. */
   getLlmCredentials: (signal?: AbortSignal) =>

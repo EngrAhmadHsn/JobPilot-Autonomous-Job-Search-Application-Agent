@@ -102,6 +102,12 @@ export type PreparedSummary = DeepRequired<
   components["schemas"]["PreparedSummary"]
 >
 export type ProjectEntry = DeepRequired<components["schemas"]["ProjectEntry"]>
+export type QuestionGap = DeepRequired<
+  components["schemas"]["QuestionGapResponse"]
+>
+export type QuestionGapsResponse = DeepRequired<
+  components["schemas"]["QuestionGapsResponse"]
+>
 export type ResumeProfileResponse = DeepRequired<
   components["schemas"]["ResumeProfileResponse"]
 >

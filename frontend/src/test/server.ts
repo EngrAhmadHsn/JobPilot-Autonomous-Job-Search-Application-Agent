@@ -14,6 +14,7 @@ import {
   jobSearchResponse,
   matchesHistory,
   profileResponse,
+  questionGapsResponse,
   resumeUploadResponse,
   runAccepted,
   runDetail,
@@ -101,6 +102,15 @@ export const server = setupServer(
   http.get(`${BASE}/api/profiles/:profileId/eeo`, () =>
     HttpResponse.json({ profile_id: "profile-1", eeo: { opt_in: false } })
   ),
+
+  // The questions the boards actually ask, measured (WS-25b). The profile
+  // screen renders this, so the default answer has to exercise the card;
+  // a test that wants the no-measurement state overrides it with an empty
+  // question list.
+  http.get(`${BASE}/api/profiles/:profileId/question-gaps`, () =>
+    HttpResponse.json(questionGapsResponse())
+  ),
+
 
   http.post(`${BASE}/api/jobs/search`, () =>
     HttpResponse.json(jobSearchResponse())

@@ -94,6 +94,7 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
   return (
     <div className="space-y-5">
       <WorkPreferencesCard key={`prefs-${profileId}`} profileId={profileId} />
+      <MeasuredQuestionsCard key={`gaps-${profileId}`} profileId={profileId} />
       <ApplicationAnswersCard
         key={`answers-${profileId}`}
         profile={loaded}
@@ -102,6 +103,74 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
       />
       <EeoCard profileId={profileId} />
     </div>
+  )
+}
+
+/**
+ * The questions the boards actually ask (WS-25b).
+ *
+ * The server measures these from the boards' own published form schemas and
+ * ranks them by how many listings ask them. It has **already** excluded the
+ * questions the profile answers, the questions that are consent or EEO (never
+ * the agent's to answer), and — with `limit=20` — the long tail. So this card
+ * renders the response rather than second-guessing it: a re-filter here would
+ * be a second opinion about coverage, and the measured one is the honest one.
+ *
+ * It sits above the guessed answer fields on purpose. A question three boards
+ * ask is worth answering before a field nobody has ever asked for.
+ */
+function MeasuredQuestionsCard({ profileId }: { profileId: string }) {
+  const query = useQuery({
+    queryKey: ["question-gaps", profileId],
+    queryFn: ({ signal }) => api.getQuestionGaps(profileId, signal),
+  })
+
+  const questions = query.data?.questions ?? []
+  // No measurement is not an error state to announce: a corpus with no
+  // published schema (or a board that timed out — the endpoint fails soft)
+  // simply has nothing measured to show, and the panel keeps the layout it
+  // had. A failed query *is* silent too — the gaps are a prompt, not a
+  // source of truth, and an error notice here would offer a retry for a
+  // panel the user can already read.
+  if (query.isError || questions.length === 0) {
+    return null
+  }
+
+  return (
+    <Card data-testid="measured-questions">
+      <CardHeader>
+        <CardTitle>Questions the boards actually ask</CardTitle>
+        <CardDescription>
+          Measured from the application forms the boards publish. Most-asked
+          first — answering one that every board asks removes a question from
+          every future application.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {questions.map((question) => (
+            <li
+              key={question.label}
+              className="flex flex-wrap items-baseline gap-x-2 gap-y-1"
+            >
+              <span className="text-sm font-medium">{question.label}</span>
+              {question.required ? (
+                <span className="rounded-full bg-terracotta-soft px-2 py-0.5 text-[11px] font-medium text-terracotta">
+                  required
+                </span>
+              ) : null}
+              <span className="text-xs text-muted-foreground">
+                asked by {question.boards}{" "}
+                {question.boards === 1 ? "board" : "boards"}
+                {" · "}
+                {question.times_seen}{" "}
+                {question.times_seen === 1 ? "listing" : "listings"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   )
 }
 

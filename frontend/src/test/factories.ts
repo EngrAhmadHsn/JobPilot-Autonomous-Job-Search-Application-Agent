@@ -16,6 +16,7 @@ import type {
   JobListing,
   JobMatchPair,
   JobSearchResponse,
+  QuestionGapsResponse,
   ResumeUploadResponse,
   RunAccepted,
   RunDetail,
@@ -136,6 +137,51 @@ export function applicationProfileResponse(
   applicationProfile = candidateProfile().application_profile
 ) {
   return { profile_id: "profile-1", application_profile: applicationProfile }
+}
+
+/**
+ * The measured question gaps (WS-25b).
+ *
+ * The values are the live corpus's own, measured 2026-11-13: "First Name"
+ * is asked on 3 boards across 30 listings, and the taxonomy classifies it —
+ * so it arrives as `not_in_profile` rather than `unclassified`. The third
+ * entry is a board-specific question nothing can classify, which is the
+ * other action shape the card has to render.
+ */
+export function questionGapsResponse(): QuestionGapsResponse {
+  return {
+    profile_id: "profile-1",
+    total_observed: 75,
+    questions: [
+      {
+        label: "First Name",
+        times_seen: 30,
+        boards: 3,
+        required: true,
+        category: "candidate_first_name",
+        block: "questions",
+        coverage: "not_in_profile",
+      },
+      {
+        label: "Latitude",
+        times_seen: 24,
+        boards: 2,
+        required: true,
+        category: "location_latitude",
+        block: "questions",
+        coverage: "not_in_profile",
+      },
+      {
+        label: "Why do you want to join Figma?",
+        times_seen: 12,
+        boards: 1,
+        required: false,
+        category: "unknown",
+        block: "questions",
+        coverage: "unclassified",
+      },
+    ],
+  }
 }
 
 export function jobListing(overrides: Partial<JobListing> = {}): JobListing {
