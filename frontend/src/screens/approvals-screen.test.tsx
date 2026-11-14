@@ -9,6 +9,20 @@ import { approvalDecision } from "@/test/factories"
 
 const BASE = "http://api.test"
 
+/**
+ * A user that does not wait between keystrokes.
+ *
+ * `userEvent.setup()` advances a real timer per key by default, and this
+ * form has ~80 characters across six fields: the five-second per-test budget
+ * is spent waiting on the keyboard, not on the screen. Nothing here debounces
+ * or observes typing cadence, so `delay: null` types the same string into the
+ * same fields and only removes the wall-clock cost — measured, the first test
+ * went from 5.1 s to well inside its budget.
+ */
+function setupUser() {
+  return userEvent.setup({ delay: null })
+}
+
 async function fillPrepareForm(user: ReturnType<typeof userEvent.setup>) {
   /*
     Every console screen is lazily loaded now, so the form arrives a microtask
@@ -29,7 +43,7 @@ async function fillPrepareForm(user: ReturnType<typeof userEvent.setup>) {
 
 describe("the approvals screen", () => {
   it("prepares an application and shows what would be submitted", async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
@@ -48,10 +62,14 @@ describe("the approvals screen", () => {
   })
 
   it("refuses to prepare an application with a missing field", async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
-    await user.type(screen.getByLabelText("Job title"), "AI Engineer")
+    // The route is a lazy chunk, so the first field is what proves the chunk
+    // arrived. A synchronous `getByLabelText` here read an empty body
+    // whenever the chunk lost the race — which, under the whole suite's
+    // parallel load, it intermittently did.
+    await user.type(await screen.findByLabelText("Job title"), "AI Engineer")
     await user.click(
       screen.getByRole("button", { name: "Prepare application" })
     )
@@ -65,7 +83,7 @@ describe("the approvals screen", () => {
   it("does not ask for an approver name, and says who decides", async () => {
     // WS-14: the approver is the authenticated principal. Asking the
     // operator for a name would collect a value the server ignores.
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
@@ -91,7 +109,7 @@ describe("the approvals screen", () => {
         }
       )
     )
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
@@ -125,7 +143,7 @@ describe("the approvals screen", () => {
         )
       )
     )
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
@@ -160,7 +178,7 @@ describe("the approvals screen", () => {
         )
       })
     )
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
@@ -186,7 +204,7 @@ describe("the approvals screen", () => {
         )
       )
     )
-    const user = userEvent.setup()
+    const user = setupUser()
     renderApp({ route: "/app/approvals" })
 
     await fillPrepareForm(user)
