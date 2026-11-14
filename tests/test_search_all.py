@@ -85,10 +85,16 @@ async def test_search_all_deduplicates_within_source():
 
 @pytest.mark.asyncio
 async def test_search_all_merges_across_sources():
+    # WS-26 Phase 2: the cross-source merge collapses the *same posting* on
+    # two providers, and it decides that on company + title + location. These
+    # three listings therefore carry distinct titles: with one shared title
+    # they would (correctly) become one row, and what this test pins is the
+    # other half — that a source's own identity is not what the merge keys on,
+    # so the same numeric id on different sources stays three rows.
     sources = {
-        "greenhouse": FakeSource([_listing("1", "greenhouse")]),
-        "lever": FakeSource([_listing("9", "lever")]),
-        "remotive": FakeSource([_listing("9", "remotive")]),
+        "greenhouse": FakeSource([_listing("1", "greenhouse", title="Backend")]),
+        "lever": FakeSource([_listing("9", "lever", title="Platform")]),
+        "remotive": FakeSource([_listing("9", "remotive", title="Data")]),
     }
     queries = [SourceQuery(source=name, query="python") for name in sources]
     result = await registry.search_all(queries, sources=sources, persist=False)
@@ -120,10 +126,13 @@ async def test_search_all_validates_acceptance_fields():
 
 @pytest.mark.asyncio
 async def test_search_all_survives_one_source_failing(caplog):
+    # Distinct titles, so the cross-source merge (WS-26 Phase 2) cannot
+    # collapse the two survivors and hide what this test is about: that a
+    # failing source contributes nothing while the others still answer.
     sources = {
-        "greenhouse": FakeSource([_listing("1", "greenhouse")]),
+        "greenhouse": FakeSource([_listing("1", "greenhouse", title="Backend")]),
         "lever": FakeSource(RuntimeError("connection refused")),
-        "remotive": FakeSource([_listing("3", "remotive")]),
+        "remotive": FakeSource([_listing("3", "remotive", title="Data")]),
     }
     queries = [SourceQuery(source=name, query="x") for name in sources]
 

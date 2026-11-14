@@ -6,12 +6,16 @@ source whose adapter raised (plan §35: "job source unavailable → try
 another"), deduplicates the results, persists the survivors, and returns
 them. A failing source degrades to a warning, never a failed search.
 
-**The dedup is per source, not across sources.** ``src/jobs/deduplicate.py``
-keys include ``job.source``, so the same posting on Greenhouse and on
-Ashby is **two rows**. This docstring used to say "deduplicates across
-sources", which the code has never done — a docstring that overclaims is
-worse than a missing one, because a reader relies on it instead of
-reading the code. Cross-source merging is WS-26 Phase 2 / WS-23b §12.3.
+**Two dedups, and they answer different questions.** ``src/jobs/deduplicate.py``
+keys include ``job.source``, so it collapses a source's *own* repeated rows and
+never touches another source's — the per-source key is the identity, and the
+canonical id is ``{source}:{source_job_id}``. ``src/jobs/cross_source.py``
+then merges the same *posting* published by two providers (WS-26 Phase 2),
+keeping the first-seen source's id.
+
+This docstring used to say the code "deduplicates across sources" and it did
+not: a docstring that overclaims is worse than a missing one, because a
+reader relies on it instead of reading the code.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from collections.abc import Mapping, Sequence
 
 from src.jobs.ashby_adapter import AshbyJobAdapter
 from src.jobs.contracts import JobListing, JobSource
+from src.jobs.cross_source import merge_cross_source
 from src.jobs.deduplicate import deduplicate
 from src.jobs.greenhouse_adapter import GreenhouseJobAdapter
 from src.jobs.lever_adapter import LeverJobAdapter
@@ -203,7 +208,10 @@ async def search_all(
     active_sources = sources if sources is not None else SOURCES
     listings, _errors = await _fan_out(queries, active_sources)
 
-    unique = deduplicate(listings)
+    # WS-26 Phase 2: per-source identity first, then the cross-source merge —
+    # in that order, because the merge must never be asked to collapse a
+    # source's own rows (that is what would change a canonical id).
+    unique = merge_cross_source(deduplicate(listings))
     if persist and unique:
         from src.db.jobs import save_jobs
 

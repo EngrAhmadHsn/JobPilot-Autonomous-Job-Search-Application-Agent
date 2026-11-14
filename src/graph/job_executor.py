@@ -613,9 +613,14 @@ def fetch_and_persist(
     else:
         listings, source_errors = asyncio.run(search_all_detailed(queries, active_sources))
     kept, dropped = _filter_complete(listings)
+    from src.jobs.cross_source import merge_cross_source
     from src.jobs.deduplicate import deduplicate
 
-    unique = deduplicate(kept)
+    # WS-26 Phase 2: per-source identity first, then the cross-source merge.
+    # Both admission paths run it — this one is the durable refresh the
+    # worker executes, and `registry.search_all` is the in-process path; a
+    # merge in only one of them makes the corpus depend on which ran.
+    unique = merge_cross_source(deduplicate(kept))
 
     # WS-12: screen the batch before anything is persisted or embedded. A
     # board is untrusted input: a flood of machine-generated listings must
