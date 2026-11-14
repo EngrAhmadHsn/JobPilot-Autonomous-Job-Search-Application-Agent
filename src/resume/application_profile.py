@@ -166,13 +166,33 @@ class WorkAuthorizationInfo(BaseModel):
     ``requires_sponsorship`` for a future role or transfer. Filling one from
     the other would be a fabricated legal answer, so they are separate fields
     and each is only ever set by the user.
+
+    WS-25c adds the **per-country** dimension. The boards ask
+    country-qualified questions — "Are you authorized to work in the country
+    for which you apply?" is required on 12 live listings — and one boolean
+    cannot answer them: authorized in the UK is not authorized in the US, so
+    a blanket "yes" on a US posting would misstate the candidate's legal
+    position on a form a human then submits. ``authorized_countries`` is that
+    dimension, stored as canonical ISO 3166-1 alpha-2 codes (see
+    :mod:`src.applications.countries`) so an answer is derived by comparison
+    rather than by matching free text.
     """
 
     #: Permission to work in a given country, now.
+    #:
+    #: A statement about **anywhere** when no country list is given: the user
+    #: confirmed permission without narrowing it. With a list, the list is the
+    #: narrower and more specific answer for a country it names or omits — see
+    #: :meth:`may_work_in`, which is the rule callers should use.
     legally_authorized: bool | None = None
     #: Whether sponsorship is (or will be) required.
     requires_sponsorship: bool | None = None
-    #: Countries the authorization applies to, when the user says so.
+    #: The countries the authorization applies to, as canonical ISO codes.
+    #:
+    #: Empty means **not stated** — which is not the same claim as
+    #: ``legally_authorized=False`` ("stated, and the answer is no"). The
+    #: distinction is what lets the answer path send an unknown question to a
+    #: human instead of answering it wrongly.
     authorized_countries: list[str] = Field(default_factory=list)
     #: The citizenship/immigration status the user chooses to disclose, verbatim.
     citizenship_status: str | None = None
@@ -187,9 +207,77 @@ class WorkAuthorizationInfo(BaseModel):
     @field_validator("authorized_countries")
     @classmethod
     def _check_countries(cls, value: list[str]) -> list[str]:
+        """Canonicalize the country list, refusing anything that is not one.
+
+        Two rules, and both exist so the answer path can trust the field:
+
+        * a recognized name or alias is stored as its code (``"UK"`` →
+          ``"GB"``, ``"United States"`` → ``"US"``), duplicates collapse, and
+          the user's order is kept;
+        * an **unrecognized** entry raises rather than being stored. A country
+          field holding free text cannot be compared against a job's country,
+          so it would silently never match — the candidate would have answered
+          the question and the agent would still report it as unanswered.
+        """
+        from src.applications.countries import canonicalize_countries, normalize_country
+
         if len(value) > 50:
             raise ValueError("too many countries (max 50)")
-        return [c for c in (_clean_str(item) for item in value) if c is not None]
+
+        rejected = [
+            entry
+            for entry in value
+            if str(entry or "").strip() and normalize_country(str(entry)) is None
+        ]
+        if rejected:
+            raise ValueError(
+                "not a recognized country (use an ISO 3166-1 alpha-2 code or a "
+                "country name): " + ", ".join(map(str, rejected))
+            )
+        return canonicalize_countries(value)
+
+    def may_work_in(self, country: str | None) -> bool | None:
+        """Whether the candidate may work in *country* — three-valued.
+
+        ``True`` authorized, ``False`` stated not authorized, ``None`` **the
+        profile does not say**. The third value is the important one: it is
+        what sends a country-qualified form question to a human instead of
+        being answered, and collapsing it into ``False`` would answer "no" on
+        the candidate's behalf.
+
+        The rules, in order:
+
+        1. A country that is not a country (or is missing) states nothing.
+        2. An explicit country list is the **narrowest** answer, so it decides:
+           a country it names is ``True`` and one it omits is ``False`` — even
+           when ``legally_authorized`` is ``True``, because the list is the
+           user narrowing their own blanket statement.
+        3. With no list, ``legally_authorized`` answers for anywhere it is set.
+        4. Otherwise nothing is stated.
+        """
+        from src.applications.countries import is_known_country, normalize_country
+
+        code = normalize_country(country)
+        if not is_known_country(code):
+            return None
+
+        if self.authorized_countries:
+            return code in self.authorized_countries
+
+        if self.legally_authorized is not None:
+            return self.legally_authorized
+
+        return None
+
+    def sponsorship_stated(self) -> bool:
+        """Whether the user has answered the sponsorship question at all.
+
+        Never derived from the country list or from ``legally_authorized``: a
+        candidate authorized in the UK may still need sponsorship for the US,
+        so inferring one from the other is exactly the fabrication the
+        three-field split exists to prevent.
+        """
+        return self.requires_sponsorship is not None
 
 
 class Compensation(BaseModel):
