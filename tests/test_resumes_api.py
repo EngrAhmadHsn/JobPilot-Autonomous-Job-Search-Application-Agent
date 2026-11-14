@@ -24,6 +24,7 @@ from src.db.session import get_db
 from src.main import app
 
 FIXTURE_DOCX = Path(__file__).parent / "fixtures" / "Ahmad_Hassan_AI_Engineer_Resume.docx"
+FIXTURE_PDF = Path(__file__).parent / "fixtures" / "pdf" / "resume_with_text.pdf"
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -81,7 +82,7 @@ def test_get_unknown_profile_404(api: TestClient) -> None:
     assert api.get("/api/resumes/does-not-exist").status_code == 404
 
 
-@pytest.mark.parametrize("filename", ["resume.pdf", "resume.exe", "resume", "resume.doc"])
+@pytest.mark.parametrize("filename", ["resume.exe", "resume", "resume.doc"])
 def test_upload_wrong_extension_rejected(api: TestClient, filename: str) -> None:
     response = _upload(api, filename=filename, content=b"hello")
     assert response.status_code == 400
@@ -126,3 +127,34 @@ def test_upload_txt_resume_round_trips(api: TestClient) -> None:
     fetched = api.get(f"/api/resumes/{profile_id}")
     assert fetched.status_code == 200
     assert fetched.json()["profile"] == response.json()["profile"]
+
+
+def test_upload_pdf_resume_round_trips(api: TestClient) -> None:
+    """WS-32: a PDF résumé uploads, parses into a populated profile, and persists.
+
+    This is the whole point of the workstream: a candidate whose résumé is a
+    PDF was refused a format every ATS upload field expects. The fixture is a
+    real text-layer PDF, so the assertion is about the parsed body, not just
+    the HTTP status.
+    """
+    response = _upload(
+        api, filename="resume.pdf", content=FIXTURE_PDF.read_bytes(), mime="application/pdf"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"]["personal_information"]["name"] == "Ada Lovelace"
+    assert body["profile"]["experience"]
+
+    fetched = api.get(f"/api/resumes/{body['profile_id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["profile"] == body["profile"]
+
+
+def test_upload_unreadable_pdf_rejected(api: TestClient) -> None:
+    """A scanned PDF is refused with its own reason, not a blank profile."""
+    scanned = (Path(__file__).parent / "fixtures" / "pdf" / "resume_scanned.pdf").read_bytes()
+    response = _upload(api, filename="resume.pdf", content=scanned, mime="application/pdf")
+
+    assert response.status_code == 400
+    assert "no extractable text" in response.json()["detail"]

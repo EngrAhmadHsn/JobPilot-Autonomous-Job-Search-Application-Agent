@@ -335,7 +335,7 @@ export function DocumentPicker({
         ref={inputRef}
         type="file"
         className="sr-only"
-        accept=".docx,.txt,.md"
+        accept=".docx,.pdf,.txt,.md"
         aria-label="Upload a résumé"
         onChange={(event) => {
           const file = event.target.files?.[0]

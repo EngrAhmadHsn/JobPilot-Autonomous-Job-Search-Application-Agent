@@ -24,6 +24,8 @@ from src.api.validation import (
 )
 from src.config.settings import get_settings
 
+FIXTURE_PDF = Path(__file__).parent / "fixtures" / "pdf" / "resume_with_text.pdf"
+
 
 @pytest.fixture(autouse=True)
 def isolated_upload_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -35,6 +37,11 @@ def isolated_upload_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 def _upload(name: str, payload: bytes) -> UploadFile:
     return UploadFile(filename=name, file=io.BytesIO(payload))
+
+
+def _pdf_bytes() -> bytes:
+    """A real PDF with a text layer (the WS-32 fixture)."""
+    return FIXTURE_PDF.read_bytes()
 
 
 def _docx_bytes() -> bytes:
@@ -67,6 +74,18 @@ class TestAcceptedUploads:
         assert path.exists()
         assert path.suffix == ".md"
 
+    def test_a_pdf_resume_is_stored(self, isolated_upload_dir: Path) -> None:
+        """WS-32: `.pdf` is the format ATS upload fields expect, so it is accepted.
+
+        The payload is the checked-in fixture the parser suite reads, so the
+        validator is proved against a document the parser can really parse.
+        """
+        path = validate_resume_upload(_upload("resume.pdf", _pdf_bytes()))
+
+        assert path.exists()
+        assert path.parent == isolated_upload_dir
+        assert path.suffix == ".pdf"
+
     def test_the_stored_name_is_generated_not_uploaded(self, isolated_upload_dir: Path) -> None:
         path = validate_resume_upload(_upload("../../evil.docx", _docx_bytes()))
 
@@ -76,7 +95,7 @@ class TestAcceptedUploads:
 
 
 class TestRejectedUploads:
-    @pytest.mark.parametrize("name", ["resume.pdf", "resume.exe", "resume", "resume.doc"])
+    @pytest.mark.parametrize("name", ["resume.exe", "resume", "resume.doc"])
     def test_disallowed_extensions_are_rejected(self, name: str) -> None:
         with pytest.raises(UploadValidationError):
             validate_resume_upload(_upload(name, b"payload"))
@@ -109,9 +128,14 @@ class TestRejectedUploads:
         with pytest.raises(UploadValidationError, match="UTF-8"):
             validate_resume_upload(_upload("resume.txt", b"\xff\xfe\x00binary"))
 
+    def test_a_non_pdf_payload_named_pdf_is_rejected(self) -> None:
+        """WS-32: a renamed anything must not pass as a PDF — the magic is the evidence."""
+        with pytest.raises(UploadValidationError, match="not a PDF document"):
+            validate_resume_upload(_upload("resume.pdf", b"payload"))
+
     def test_nothing_is_stored_when_the_upload_is_rejected(self, isolated_upload_dir: Path) -> None:
         with pytest.raises(UploadValidationError):
-            validate_resume_upload(_upload("resume.pdf", b"payload"))
+            validate_resume_upload(_upload("resume.exe", b"payload"))
 
         stored = list(isolated_upload_dir.glob("*")) if isolated_upload_dir.exists() else []
         assert stored == []
@@ -119,7 +143,7 @@ class TestRejectedUploads:
 
 class TestConstants:
     def test_the_allowed_types(self) -> None:
-        assert ALLOWED_EXTENSIONS == frozenset({".docx", ".txt", ".md"})
+        assert ALLOWED_EXTENSIONS == frozenset({".docx", ".pdf", ".txt", ".md"})
 
     def test_the_size_cap_is_five_megabytes(self) -> None:
         assert MAX_UPLOAD_BYTES == 5 * 1024 * 1024

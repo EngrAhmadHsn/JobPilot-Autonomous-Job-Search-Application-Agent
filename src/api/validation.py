@@ -3,12 +3,13 @@
 An uploaded resume is an untrusted file. It is checked before it is stored
 and before it is parsed:
 
-1. **Type** — only ``.docx``, ``.txt`` and ``.md`` are accepted.
+1. **Type** — only ``.docx``, ``.pdf``, ``.txt`` and ``.md`` are accepted.
 2. **Size** — at most 5 MB. The payload is read with a cap, so an oversized
    upload is never fully materialised in memory.
 3. **Content** — a ``.docx`` must be a real ZIP *and* open with
    ``python-docx`` (a renamed ZIP or a polyglot is rejected); a ``.txt`` /
-   ``.md`` must decode as UTF-8.
+   ``.md`` must decode as UTF-8; a ``.pdf`` must carry the ``%PDF-`` magic
+   and open with ``pypdf`` (a renamed anything is rejected).
 4. **Name** — the filename is reduced to its base name, and the stored file
    is named after the generated profile id, so a hostile filename can never
    escape the upload directory.
@@ -26,8 +27,13 @@ from fastapi import UploadFile
 
 from src.config.settings import ensure_dir, get_settings
 
-ALLOWED_EXTENSIONS = frozenset({".docx", ".txt", ".md"})
+ALLOWED_EXTENSIONS = frozenset({".docx", ".pdf", ".txt", ".md"})
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+#: The magic number every PDF starts with (ISO 32000-1, 7.5.2), at byte zero.
+#: A file named ``.pdf`` without it is not a PDF, whatever it says about
+#: itself, and this is the same position pypdf reads when it opens the file.
+_PDF_MAGIC = b"%PDF-"
 
 
 class UploadValidationError(ValueError):
@@ -105,6 +111,26 @@ def _assert_not_a_zip_bomb(payload: bytes) -> None:
         )
 
 
+def _validate_pdf(payload: bytes) -> None:
+    """A PDF must start with the magic number *and* open with pypdf.
+
+    The magic alone is a one-line forgery; opening it with the same reader
+    the parser will use proves the file is a PDF this system can read. WS-32:
+    a page count is not enumerated here — pypdf opens a document lazily and
+    the parser's own extraction is capped by the 5 MB upload limit, so a
+    hostile page count costs no more than the file it arrives in.
+    """
+    if not payload[: len(_PDF_MAGIC)].startswith(_PDF_MAGIC):
+        raise UploadValidationError("The uploaded .pdf is not a PDF document")
+
+    try:
+        import pypdf
+
+        pypdf.PdfReader(io.BytesIO(payload))
+    except Exception as exc:
+        raise UploadValidationError("The uploaded .pdf could not be opened") from exc
+
+
 def _validate_text(payload: bytes) -> None:
     """A TXT/MD file must decode as UTF-8."""
     try:
@@ -151,6 +177,8 @@ def validate_resume_upload(
 
     if extension == ".docx":
         _validate_docx(payload)
+    elif extension == ".pdf":
+        _validate_pdf(payload)
     else:
         _validate_text(payload)
 

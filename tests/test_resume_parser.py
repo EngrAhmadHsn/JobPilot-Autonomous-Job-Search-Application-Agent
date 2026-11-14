@@ -79,10 +79,11 @@ def test_validation_flags_empty_profile() -> None:
 
 
 def test_unsupported_format_raises(tmp_path: Path) -> None:
-    fake_pdf = tmp_path / "resume.pdf"
-    fake_pdf.write_bytes(b"%PDF-1.4 fake")
+    """WS-32: `.pdf` is a supported format now, so an unsupported one is `.rtf`."""
+    fake_rtf = tmp_path / "resume.rtf"
+    fake_rtf.write_bytes(b"{\\rtf1 not a supported format}")
     with pytest.raises(ValueError, match="Unsupported resume format"):
-        parse_resume(str(fake_pdf))
+        parse_resume(str(fake_rtf))
 
 
 def test_missing_file_raises() -> None:

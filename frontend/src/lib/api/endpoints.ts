@@ -109,7 +109,7 @@ export const api = {
       timeoutMs: 15_000,
     }),
 
-  /** Upload a resume (DOCX/TXT/MD, <= 5 MB) and get the parsed profile. */
+  /** Upload a resume (DOCX/PDF/TXT/MD, <= 5 MB) and get the parsed profile. */
   uploadResume: (file: File, signal?: AbortSignal) => {
     const formData = new FormData()
     formData.append("file", file)

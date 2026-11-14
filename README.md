@@ -24,7 +24,7 @@ workstream-by-workstream record is in
 
 | Area | State |
 |---|---|
-| Resume parsing (DOCX, TXT, MD) → validated `CandidateProfile` | Done (WS-01) — **PDF is not supported** |
+| Resume parsing (DOCX, PDF, TXT, MD) → validated `CandidateProfile` | Done (WS-01; PDF text layers in WS-32) — a **scanned** PDF has no text layer to read |
 | Job discovery: Greenhouse, Lever, Ashby, Remotive | Done (WS-02, FU-2, FU-3) — key-less public board APIs only |
 | Normalization, deduplication, persistence | Done (WS-02, WS-04, WS-26 Phase 2) — per-source identity plus a cross-source merge |
 | Hybrid matching: six scorers, Chroma vectors, local embeddings | Done (WS-03, FU-7) |
@@ -635,7 +635,9 @@ WS-10.
 - **No real job site is supported yet.** The browser layer is proven against the local fake
   ATS. A live pilot — one posting, `PREPARE_ONLY`, then `REQUIRE_APPROVAL` — is the M5
   milestone and the gate for a real-ATS adapter.
-- **PDF resumes are not parsed.** DOCX, TXT and Markdown are.
+- **A scanned PDF résumé is refused, not parsed.** A PDF's text layer is read (WS-32); an
+  image-only PDF — a phone scan — carries no text to read, and is refused with that reason
+  rather than turned into a blank profile. DOCX, TXT and Markdown are still parsed as before.
 - **The account lifecycle is implemented, but the mail is not.** The password-reset and
   e-mail-verification tokens are issued and delivered to a local mailbox directory
   (`data/outbound/`); a deployment that adds an SMTP provider replaces

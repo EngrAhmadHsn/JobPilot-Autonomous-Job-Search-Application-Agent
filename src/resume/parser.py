@@ -1,4 +1,4 @@
-"""Deterministic resume parser: DOCX/TXT -> CandidateProfile.
+"""Deterministic resume parser: DOCX/PDF/TXT -> CandidateProfile.
 
 Extracts only what the document actually says, section by section. There is no
 fabricated fallback: if a file cannot be read, the parser raises instead of
@@ -69,6 +69,94 @@ def _read_docx_lines(path: Path) -> list[tuple[str, bool]]:
     ]
 
 
+#: Fraction of a PDF's extracted characters that may be U+FFFD before the text
+#: is called unreadable. A single replacement character is a font gap a real
+#: document may have; a document whose text is mostly replacement characters is
+#: a broken encoding, and a profile built from it would be a fabricated one.
+_MOJIBAKE_REPLACEMENT_RATIO = 0.2
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    """True when most of the extracted characters are replacement characters.
+
+    The ratio is measured over non-whitespace characters only: whitespace
+    would otherwise dilute the signal, and a text layer that is pure
+    whitespace is a different problem (no text) with a different message.
+    """
+    visible = [char for char in text if not char.isspace()]
+    if not visible:
+        return False
+    replacements = sum(1 for char in visible if char == "\ufffd")
+    return replacements / len(visible) > _MOJIBAKE_REPLACEMENT_RATIO
+
+
+def _read_pdf_lines(path: Path) -> list[tuple[str, bool]]:
+    """Extract a PDF's text layer as (line, is_bullet) pairs.
+
+    ``.pdf`` is the format ATS upload fields expect, so a candidate whose
+    résumé is a PDF must be able to use the system. What is read is the
+    document's **text layer** — never a rendering of the page, and never a
+    guess. Four different files are four different problems for the user, so
+    each gets its own refusal rather than a generic failure:
+
+    * **no extractable text** — a scan (or an image-only export): the page has
+      no text layer at all. The message advises extracting the text or
+      uploading the DOCX, because there is nothing here to read.
+    * **not readable text** — the text layer exists but is broken: more than
+      ``_MOJIBAKE_REPLACEMENT_RATIO`` (20%) of its non-whitespace characters
+      are U+FFFD, which is what a CID font with no usable ``/ToUnicode``
+      mapping extracts as. A profile built from ``\\ufffd`` runs would pass
+      every downstream validator and be rubbish.
+    * **encrypted** — the file needs a password. A user problem with a user
+      fix, so it must not read the same as a corrupt file.
+    * **could not be read** — pypdf could not open or parse the file at all.
+      pypdf's own exception is wrapped, so it can never surface as a 500.
+
+    Raises:
+        ValueError: In each of the four cases above. Never returns an empty or
+            replacement-character line list as a success.
+    """
+    import pypdf
+
+    try:
+        reader = pypdf.PdfReader(str(path))
+    except Exception as exc:
+        raise ValueError(
+            f"The PDF resume could not be read: {exc}. "
+            "Check that the file is a valid PDF, or upload the DOCX instead."
+        ) from exc
+
+    if reader.is_encrypted:
+        raise ValueError(
+            "The PDF resume is password-protected. Remove the password and upload it again."
+        )
+
+    try:
+        # Every page is read: a résumé exported from a word processor may be
+        # split across two of them, and a reader that stopped at page one
+        # would silently lose half the document.
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as exc:
+        raise ValueError(
+            f"The PDF resume could not be read: {exc}. "
+            "Check that the file is a valid PDF, or upload the DOCX instead."
+        ) from exc
+
+    lines = [(line.strip(), _is_bullet(line, None)) for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError(
+            "The PDF resume has no extractable text — it is probably a scan or an image. "
+            "Extract the text from it, or upload the DOCX instead."
+        )
+    if _looks_like_mojibake(text):
+        raise ValueError(
+            "The PDF resume's text is not readable text — its characters could not be "
+            "decoded (a broken font encoding). Upload the DOCX, or a copy exported with "
+            "embedded fonts."
+        )
+    return lines
+
+
 def _read_txt_lines(path: Path) -> list[tuple[str, bool]]:
     text = path.read_text(encoding="utf-8", errors="replace")
     return [(line.strip(), _is_bullet(line, None)) for line in text.splitlines() if line.strip()]
@@ -80,9 +168,11 @@ def _read_lines(file_path: str) -> list[tuple[str, bool]]:
         raise ValueError(f"Resume file not found: {file_path}")
     if path.suffix.lower() == ".docx":
         return _read_docx_lines(path)
+    if path.suffix.lower() == ".pdf":
+        return _read_pdf_lines(path)
     if path.suffix.lower() in {".txt", ".md"}:
         return _read_txt_lines(path)
-    raise ValueError(f"Unsupported resume format: {path.suffix!r} (use .docx or .txt)")
+    raise ValueError(f"Unsupported resume format: {path.suffix!r} (use .docx, .pdf or .txt)")
 
 
 def _split_sections(
@@ -460,13 +550,19 @@ def _extract_work_preferences(
 def parse_resume(file_path: str) -> CandidateProfile:
     """Parse a resume file into a validated Pydantic candidate profile.
 
-    Supports .docx (primary) and .txt/.md. All content is taken verbatim from
-    the document; missing sections are simply empty. Run
+    Supports .docx (primary), .pdf, .txt and .md. All content is taken
+    verbatim from the document; missing sections are simply empty. Run
     ``validate_candidate_profile`` on the result for the pipeline's
     validation step.
 
+    A PDF is read from its **text layer**: a scan with no text layer, a file
+    whose text is unreadable, a password-protected file, and a file that
+    cannot be parsed at all are each refused with their own reason rather
+    than turned into an empty or rubbish profile.
+
     Raises:
-        ValueError: If the file does not exist or the format is unsupported.
+        ValueError: If the file does not exist, the format is unsupported, or
+            a PDF cannot yield readable text.
     """
     lines = _read_lines(file_path)
     header, sections = _split_sections(lines)

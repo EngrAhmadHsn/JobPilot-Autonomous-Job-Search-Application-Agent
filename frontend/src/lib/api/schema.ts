@@ -1371,7 +1371,7 @@ export interface paths {
         put?: never;
         /**
          * Upload Resume
-         * @description Parse and persist an uploaded resume (DOCX/TXT/MD, <= 5 MB).
+         * @description Parse and persist an uploaded resume (DOCX/PDF/TXT/MD, <= 5 MB).
          *
          *     Returns the generated ``profile_id`` plus the deterministic validation
          *     warnings from the Phase-2 validation step. The upload is rejected with

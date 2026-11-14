@@ -42,7 +42,7 @@ describe("the resume screen", () => {
     // a browser; this drives the change event directly to prove the
     // console's own guard as well.
     const input = screen.getByLabelText("Résumé file")
-    fireEvent.change(input, { target: { files: [makeFile("resume.pdf")] } })
+    fireEvent.change(input, { target: { files: [makeFile("resume.exe")] } })
 
     expect(screen.getByText("This file will be refused")).toBeInTheDocument()
     expect(

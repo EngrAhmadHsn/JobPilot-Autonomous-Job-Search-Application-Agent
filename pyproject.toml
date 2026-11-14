@@ -32,6 +32,12 @@ dependencies = [
     "langgraph>=1.2.11",
     "playwright>=1.51.0",
     "pydantic>=2.13.5",
+    # WS-32: reading the text layer of a PDF résumé (`src/resume/parser.py`),
+    # the format ATS upload fields expect. Pure Python, no external binary —
+    # shelling out to `pdftotext` would add an OS-level dependency the
+    # deployment must provide, and nothing here writes PDFs, so a heavier
+    # toolkit (PyMuPDF) would be unjustified weight.
+    "pypdf>=5.0",
     # WS-14 · A1: the memory-hard password KDF, reached through
     # `fastapi_users.password.PasswordHelper`. The `argon2` extra pulls
     # the argon2-cffi binding.

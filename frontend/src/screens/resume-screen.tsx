@@ -28,7 +28,7 @@ import { chooseProfile } from "@/lib/profile"
  * the operator what is wrong before the upload starts — and the server's
  * answer is always the one that counts.
  */
-const ALLOWED_EXTENSIONS = [".docx", ".txt", ".md"]
+const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".txt", ".md"]
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 function checkFile(file: File): string | null {
@@ -97,8 +97,8 @@ function DropZone({
       </p>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        DOCX, TXT or MD · up to 5 MB · parsed on this machine, never sent to a
-        third party
+        DOCX, PDF, TXT or MD · up to 5 MB · parsed on this machine, never sent
+        to a third party
       </p>
 
       <label htmlFor="resume-file" className="sr-only">
@@ -108,7 +108,7 @@ function DropZone({
         ref={inputRef}
         id="resume-file"
         type="file"
-        accept=".docx,.txt,.md"
+        accept=".docx,.pdf,.txt,.md"
         className="sr-only"
         onChange={(event) => onFile(event.target.files?.[0] ?? null)}
       />

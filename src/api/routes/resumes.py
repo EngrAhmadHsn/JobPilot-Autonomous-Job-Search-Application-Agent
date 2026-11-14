@@ -64,7 +64,7 @@ def upload_resume(
     db: Annotated[Session, Depends(get_db)],
     scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ResumeUploadResponse:
-    """Parse and persist an uploaded resume (DOCX/TXT/MD, <= 5 MB).
+    """Parse and persist an uploaded resume (DOCX/PDF/TXT/MD, <= 5 MB).
 
     Returns the generated ``profile_id`` plus the deterministic validation
     warnings from the Phase-2 validation step. The upload is rejected with
