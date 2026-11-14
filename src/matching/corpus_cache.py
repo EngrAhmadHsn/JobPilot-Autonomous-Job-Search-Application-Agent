@@ -17,6 +17,13 @@ derived from, so a refresh that changed nothing keeps the cache, and a
 refresh that changed a description does not. It holds at most two entries,
 and a benign race under the API's thread pool may build an entry twice —
 never serve a wrong fingerprint.
+
+WS-24 §4a.2 makes a moved fingerprint **cheap**: the cache also keeps the
+per-row ``content_version`` map it built from, so the next build recomputes
+only the listings whose content actually moved and re-uses the rest by
+identity. Measured at 8,558 listings, the per-listing artifacts are 33.5 s of
+a 46 s rebuild; the global BM25 index is the remaining 12.8 s and is still
+rebuilt whole, because its document frequencies change when any document does.
 """
 
 from __future__ import annotations
@@ -52,7 +59,10 @@ _MAX_ENTRIES = 2
 #:
 #: 1 — WS-24/24b artifacts (terms, bars, classifications, phrase lists).
 #: 2 — WS-24c: adds ``seniority_ranks``, and hashes ``seniority``.
-_ARTIFACTS_VERSION = 2
+#: 3 — WS-24 §4a.2: the build is incremental, so the cache keeps the row map
+#:     it built from and re-uses an artifact only for an id whose
+#:     ``content_version`` did not move.
+_ARTIFACTS_VERSION = 3
 
 
 @dataclass
@@ -105,9 +115,18 @@ class CorpusArtifacts:
     #: must move the fingerprint or a stale rank would be served. See the
     #: ``_ARTIFACTS_VERSION`` note on the fingerprint for the general rule.
     seniority_ranks: dict[str, int | None] = field(default_factory=dict)
+    #: The ``content_version`` of every row this build read, by job id.
+    #:
+    #: WS-24 §4a.2. The fingerprint is a single digest, so it can say *that*
+    #: the corpus moved and nothing about *what* moved. Keeping the per-row
+    #: map lets the next build diff the two and recompute only the listings
+    #: whose content actually changed — measured, the per-listing artifacts
+    #: are 33.5 s of a 46 s rebuild at 8,558 listings, against 12.8 s for
+    #: the global BM25 index, which cannot go incremental.
+    row_versions: dict[str, str] = field(default_factory=dict)
 
 
-_CACHE: OrderedDict[tuple[str, int, str | None], CorpusArtifacts] = OrderedDict()
+_CACHE: OrderedDict[tuple[str, int, str], CorpusArtifacts] = OrderedDict()
 
 
 def clear_corpus_cache() -> None:
@@ -162,8 +181,53 @@ def corpus_fingerprint(session_factory) -> tuple[str, int, str]:
     return (_database_identity(session_factory), len(rows), digest.hexdigest())
 
 
+def _important_terms_for(job: JobListing) -> list[tuple[str, float]]:
+    """One listing's weighted important terms.
+
+    WS-24 §4a.2. A named seam, so the full build and the incremental update
+    call the same definition — a second implementation would be a second
+    answer — and so a test can count the work a rebuild actually did.
+    """
+    return _important_terms(job)
+
+
+def _role_for(job: JobListing):
+    """One listing's occupational-role classification."""
+    from src.matching.roles import classify_job_role
+
+    return classify_job_role(job)
+
+
+def _rank_for(job: JobListing) -> int | None:
+    """The seniority rank one listing states, in the title or the field."""
+    from src.matching.engine import _seniority_rank
+
+    return _seniority_rank(job.seniority) or _seniority_rank(job.title)
+
+
+def _bar_for(job: JobListing, stored: float | None, decided: bool) -> float | None:
+    """One listing's stated experience bar.
+
+    A row whose mining decision was recorded is taken as decided — including
+    when the answer is "no bar". A row from before the WS-28 marker is still
+    mined, so an un-migrated corpus scores correctly without a backfill.
+    """
+    return stored if decided else required_years(job)
+
+
+def _weight_total_for(terms: list[tuple[str, float]]) -> float:
+    """The summed weight of a listing's terms (the coverage denominator)."""
+    return sum(weight for _term, weight in terms)
+
+
 def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> CorpusArtifacts:
     """The artifacts for the current corpus state, building them once.
+
+    WS-24 §4a.2: when a previous entry exists for the same database, the
+    **per-listing** artifacts of the ids whose ``content_version`` did not
+    move are re-used as they are — the same objects, not copies. The global
+    ``Bm25Index`` is rebuilt whole, because its document frequencies change
+    when any document does.
 
     Args:
         session_factory: The sessionmaker to read through (defaults to the
@@ -187,6 +251,8 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
             statement = statement.limit(limit)
         rows = statement.all()
     jobs = [listing_from_row(row) for row in rows]
+    row_versions: dict[str, str] = {row.id: (row.content_version or "") for row in rows}
+
     # WS-23b: the bar is mined once at **write** time and stored, so the
     # rebuild reads a column instead of re-mining every description. The
     # mining was 9.5 s of the 32.56 s rebuild — the most expensive
@@ -199,44 +265,123 @@ def get_corpus_artifacts(*, session_factory=None, limit: int | None = None) -> C
     # every cold start across 6,741 such rows, for an answer that cannot change.
     mined_flags: dict[str, bool] = {row.id: bool(row.required_years_mined) for row in rows}
 
-    # WS-24c: the seniority ladder is imported here rather than at module
-    # scope because ``engine`` imports this module (``CorpusArtifacts``), so a
-    # top-level import would be circular. WS-24: the role classification is
-    # derived from the listing alone, so it is computed below with the
-    # listing's other derived artifacts and re-used by every search until the
-    # content changes.
-    from src.matching.engine import _seniority_rank
-    from src.matching.roles import classify_job_role
+    # WS-24 §4a.2: reuse whatever the previous build of **this database** can
+    # still answer. An id whose content_version is unchanged has the same
+    # terms, role, rank, phrases and weight total it had a moment ago, so
+    # recomputing them is work that cannot produce a different answer. An id
+    # that is new, changed, or was never built is not reusable and is
+    # computed below.
+    prior = _prior_entry(session_factory, fingerprint)
+    reusable = _reusable_ids(row_versions, prior)
 
-    lexical_terms = {job.id: _important_terms(job) for job in jobs}
+    lexical_terms: dict[str, list[tuple[str, float]]] = {}
+    required_bars: dict[str, float | None] = {}
+    roles: dict[str, object] = {}
+    seniority: dict[str, int | None] = {}
+    phrases: dict[str, list[str]] = {}
+    totals: dict[str, float] = {}
+
+    for job in jobs:
+        if job.id in reusable:
+            terms = prior.lexical_terms.get(job.id, [])
+            lexical_terms[job.id] = terms
+            totals[job.id] = prior.lexical_weight_totals.get(job.id, _weight_total_for(terms))
+            required_bars[job.id] = prior.required_years.get(job.id)
+            roles[job.id] = prior.role_classifications.get(job.id)
+            seniority[job.id] = prior.seniority_ranks.get(job.id)
+            phrases[job.id] = prior.required_phrases.get(job.id, [])
+            continue
+        terms = _important_terms_for(job)
+        lexical_terms[job.id] = terms
+        totals[job.id] = _weight_total_for(terms)
+        required_bars[job.id] = _bar_for(
+            job, stored_years.get(job.id), mined_flags.get(job.id, False)
+        )
+        roles[job.id] = _role_for(job)
+        seniority[job.id] = _rank_for(job)
+        phrases[job.id] = _required_phrases(job)
+
     artifacts = CorpusArtifacts(
         fingerprint=fingerprint,
         jobs=jobs,
+        # The index is global: its document frequencies change when any
+        # document does, so it is rebuilt whole. This is the half of §4a.2
+        # that cannot go incremental, and it is measured at 12.8 s of the
+        # 46 s rebuild — the per-listing maps above are the other 33.
         index=Bm25Index(jobs),
         lexical_terms=lexical_terms,
-        # WS-28: a decided row is not re-mined — including one whose correct
-        # answer is "no bar". A row from before the marker (``required_years
-        # _mined`` false) is still mined, so an un-migrated corpus scores
-        # correctly without a backfill having run.
-        required_years={
-            job.id: (stored_years.get(job.id) if mined_flags.get(job.id) else required_years(job))
-            for job in jobs
-        },
-        role_classifications={job.id: classify_job_role(job) for job in jobs},
-        # WS-24b: the sum over the terms just computed, cached beside
-        # them — it depends only on the listing.
-        lexical_weight_totals={
-            job_id: sum(weight for _term, weight in terms)
-            for job_id, terms in lexical_terms.items()
-        },
-        # WS-24b: the multi-word required phrases, split once.
-        required_phrases={job.id: _required_phrases(job) for job in jobs},
-        # WS-24c: the seniority rank the listing states, resolved once.
-        seniority_ranks={
-            job.id: _seniority_rank(job.seniority) or _seniority_rank(job.title) for job in jobs
-        },
+        required_years=required_bars,
+        role_classifications=roles,
+        lexical_weight_totals=totals,
+        required_phrases=phrases,
+        seniority_ranks=seniority,
+        row_versions=row_versions,
     )
     _CACHE[fingerprint] = artifacts
     while len(_CACHE) > _MAX_ENTRIES:
         _CACHE.popitem(last=False)
     return artifacts
+
+
+def _prior_entry(session_factory, fingerprint: tuple[str, int, str]) -> CorpusArtifacts | None:
+    """The most recent cached build of the **same database**, if any.
+
+    Deliberately not "the most recent entry": the cache holds two states, and
+    a second database's entry is not a source of this one's artifacts. The
+    database identity is the first component of the fingerprint, and the
+    content digest the third — so matching on the first is what makes reuse
+    safe across a content change.
+    """
+    identity = fingerprint[0]
+    for key in reversed(_CACHE):
+        if key[0] == identity:
+            return _CACHE[key]
+    return None
+
+
+def _reusable_ids(
+    row_versions: dict[str, str],
+    prior: CorpusArtifacts | None,
+) -> set[str]:
+    """The ids whose per-listing artifacts the previous build still answers.
+
+    An id is reusable when the previous build read it **with the same
+    ``content_version``** and produced an entry for each per-listing map. The
+    redundancy is not paranoia: a map that is missing an id because the
+    previous build's row was evicted mid-build would otherwise hand a later
+    search a ``None`` where a computed value belongs.
+
+    **An empty digest is never a match**, not even against another empty one.
+    A row written before WS-24 carries ``content_version IS NULL``, and the
+    cache stores that as ``""``; two absent digests are not evidence that two
+    rows are the same listing, and treating them as equal would re-use an
+    artifact for content that may have changed. Such a row is recomputed —
+    which is exactly what happened before this incremental path existed, so
+    the fallback costs the old behaviour and never a wrong answer. The
+    migration `d2e3f4a5b6c7` backfills the column and every write path sets
+    it, so this is a guard rather than a common case.
+
+    An id that is absent from ``prior`` or whose version moved is not
+    reusable. An id the previous build had and this one does not is simply
+    not in ``row_versions``, so it never enters the new maps — which is what
+    keeps a deleted listing from coming back.
+    """
+    if prior is None:
+        return set()
+    reusable: set[str] = set()
+    for job_id, version in row_versions.items():
+        if not version:
+            # No digest: no evidence. Never reuse.
+            continue
+        if prior.row_versions.get(job_id) != version:
+            continue
+        if (
+            job_id in prior.lexical_terms
+            and job_id in prior.required_years
+            and job_id in prior.role_classifications
+            and job_id in prior.seniority_ranks
+            and job_id in prior.required_phrases
+            and job_id in prior.lexical_weight_totals
+        ):
+            reusable.add(job_id)
+    return reusable
