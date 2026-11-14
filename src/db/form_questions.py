@@ -303,6 +303,31 @@ _CATEGORY_PROFILE_FIELDS: dict[str, tuple[str, ...]] = {
     "total_experience": ("total_experience_years",),
     "resume": ("resume",),
     "cover_letter": ("cover_letter",),
+    # WS-25b: the categories the taxonomy gained with the split name, the
+    # coordinates and the application profile. This map and
+    # ``CATEGORY_FACT_KEYS`` answer different questions — "does the profile
+    # hold it?" against "which value answers it?" — and they had drifted:
+    # a category with fact keys and no entry here fell through
+    # ``_coverage_for`` to ``not_in_profile``, which is the state the
+    # console renders as "you should answer this". A profile holding
+    # "Ada Lovelace" was therefore asked for a first name on every board
+    # that publishes a split name (30 sightings across 3 boards, measured).
+    # ``_profile_has`` already walks the nested application profile, so the
+    # right-hand names are the same ones the fact map uses.
+    "candidate_name": ("candidate_name", "name"),
+    "candidate_first_name": ("first_name", "candidate_name", "name"),
+    "candidate_last_name": ("last_name", "candidate_name", "name"),
+    # The coordinates stay a real gap: the profile has a location string and
+    # no latitude or longitude, and a computed coordinate is a fabrication.
+    # They are listed so the gap is *classified* rather than falling through.
+    "location_latitude": ("latitude",),
+    "location_longitude": ("longitude",),
+    "employment_type": ("employment_types",),
+    "work_mode": ("work_mode", "remote_preference"),
+    "skills": ("skills",),
+    "availability_date": ("availability_date",),
+    "pay_period": ("expected_period", "pay_period"),
+    "skill_experience": ("skill_experience_years",),
 }
 
 
@@ -325,6 +350,16 @@ def _profile_has(profile, field_name: str, depth: int = 0) -> bool:
     Walks the nested application profile, so a caller passes the whole
     ``CandidateProfile`` and this finds ``answers.compensation.
     expected_currency`` without each caller knowing the nesting.
+
+    WS-25b: the walk is over the profile's **own** nested objects, not a
+    hand-kept attribute list. The list this used to carry predated
+    ``CandidateProfile.work_preferences``, so a profile that stated its
+    employment types read as not holding them — and the gap read reported
+    "Employment type" as a question to answer when it was already answered.
+    A list of attribute names is a second, silent copy of the model's
+    shape: it goes stale the moment a field is added, and nothing fails.
+    Deriving the children from the model means a new nested field is
+    walked the day it exists.
     """
     if profile is None or depth > 6:
         return False
@@ -339,19 +374,31 @@ def _profile_has(profile, field_name: str, depth: int = 0) -> bool:
     value = getattr(profile, field_name, None)
     if _is_meaningful(value):
         return True
-    for attribute in (
-        "application_profile",
-        "answers",
-        "compensation",
-        "notice",
-        "preferences",
-        "professional",
-        "personal_information",
-    ):
-        nested = getattr(profile, attribute, None)
-        if nested is not None and _profile_has(nested, field_name, depth + 1):
+    for nested in _nested_profile_objects(profile):
+        if _profile_has(nested, field_name, depth + 1):
             return True
     return False
+
+
+def _nested_profile_objects(profile):
+    """The nested objects of a pydantic profile (a mapping, or its fields).
+
+    A model contributes the containers its own fields hold, so
+    ``work_preferences`` is walked without being named here. A plain
+    mapping contributes its values, which covers the application profile's
+    ``answers``/``compensation`` shape and any dict a caller passes.
+    """
+    from pydantic import BaseModel
+
+    if isinstance(profile, BaseModel):
+        for name in type(profile).model_fields:
+            nested = getattr(profile, name, None)
+            if nested is None or isinstance(nested, (str, int, float, bool, bytes)):
+                continue
+            yield nested
+        return
+    if isinstance(profile, dict):
+        yield from profile.values()
 
 
 def _is_meaningful(value) -> bool:
