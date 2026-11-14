@@ -302,7 +302,11 @@ def lookup_fact_key(label: str) -> str | None:
     return FIELD_MAP[winners[0]]
 
 
-def facts_with_provenance(profile: CandidateProfile) -> tuple[dict[str, str], dict[str, str]]:
+def facts_with_provenance(
+    profile: CandidateProfile,
+    *,
+    job_country: str | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
     """The facts a profile states, and where each one came from.
 
     Résumé-derived facts are labelled ``resume_derived``; values from the
@@ -312,6 +316,16 @@ def facts_with_provenance(profile: CandidateProfile) -> tuple[dict[str, str], di
     state: a profile with no dated experience yields no
     ``years_of_experience``, and the question becomes unresolved rather than
     "0".
+
+    ``job_country`` (WS-25c) is the country of the posting this application is
+    for, as an ISO 3166-1 alpha-2 code or ``None`` when unknown. It is what
+    makes the work-authorization fact **country-qualified**: the boards ask
+    "are you authorized to work in the country for which you apply?", and a
+    single boolean cannot answer it honestly — authorized in the UK is not
+    authorized in the US. When the country is known the fact is derived from
+    the candidate's country list; when it is unknown or unstated, the fact is
+    **withheld** rather than falling back to a blanket "yes", so the question
+    goes to a human.
     """
     info = profile.personal_information
     prefs = profile.work_preferences
@@ -352,11 +366,11 @@ def facts_with_provenance(profile: CandidateProfile) -> tuple[dict[str, str], di
     # These are the answers a résumé simply does not carry.
     app = getattr(profile, "application_profile", None)
     if app is not None:
-        _application_facts(app, put)
+        _application_facts(app, put, job_country=job_country)
     return facts, provenance
 
 
-def _application_facts(app, put) -> None:
+def _application_facts(app, put, *, job_country: str | None = None) -> None:
     """Add the application-profile facts (WS-20) via *put*."""
     from src.applications.questions import format_salary, notice_period_days
 
@@ -381,12 +395,7 @@ def _application_facts(app, put) -> None:
     if prefs.employment_types:
         put("employment_types", ", ".join(prefs.employment_types), confirmed)
 
-    wa = app.answers.work_authorization
-    if wa.legally_authorized is not None:
-        put("legally_authorized", "yes" if wa.legally_authorized else "no", confirmed)
-    if wa.requires_sponsorship is not None:
-        put("requires_sponsorship", "yes" if wa.requires_sponsorship else "no", confirmed)
-    put("citizenship_status", wa.citizenship_status or wa.status_category, confirmed)
+    _work_authorization_facts(app.answers.work_authorization, put, job_country=job_country)
 
     comp = app.answers.compensation
     if comp.expected_salary is not None:
@@ -412,9 +421,83 @@ def _application_facts(app, put) -> None:
         put("availability_date", notice.available_from.isoformat(), confirmed)
 
 
-def facts_from_profile(profile: CandidateProfile) -> dict[str, str]:
-    """The fact values a candidate profile states (no provenance)."""
-    values, _provenance = facts_with_provenance(profile)
+def _work_authorization_facts(wa, put, *, job_country: str | None = None) -> None:
+    """The authorization facts, **qualified by the job's country** (WS-25c).
+
+    The rule this function exists for: the boards ask "are you authorized to
+    work in the country for which you apply?", and the answer has to be a
+    function of *that country*. Before WS-25c the fact map emitted the
+    profile's single boolean as a blanket "yes" without knowing the job, so a
+    candidate who stated "authorized in the UK" had a "yes" filled into a US
+    posting's authorization question — a fabricated statement about their
+    legal right to work, on a form a human then submits.
+
+    The rules, and the two statements they distinguish:
+
+    * **A country list is a narrowing.** The user said which countries they
+      may work in, so it decides for a country it names (``yes``) and for one
+      it omits (``no`` — the candidate's own answer, not ours). When the job's
+      country is **unknown**, a narrowed statement cannot be applied to it, so
+      the fact is withheld and the question becomes a human's.
+    * **A bare ``legally_authorized`` is a statement about anywhere.** It
+      needs no country to apply, so it stands whether or not the job's country
+      is known. Withholding it would ask a question the candidate already
+      answered.
+    * **Neither stated -> nothing emitted**, so the question resolves to
+      ``needs_human`` and the flow stops with a named reason.
+    """
+    narrowed = bool(wa.authorized_countries)
+    outcome = wa.may_work_in(job_country)
+
+    if narrowed:
+        # The list decides — but only for a country we can actually name.
+        if outcome is not None:
+            put("legally_authorized", "yes" if outcome else "no", "user_confirmed")
+    elif wa.legally_authorized is not None:
+        # A statement about anywhere needs no country to apply.
+        put("legally_authorized", "yes" if wa.legally_authorized else "no", "user_confirmed")
+
+    # Sponsorship stays its own question and is **never inferred** — not from
+    # the country list, and not from eligibility. A candidate authorized in
+    # the UK may still need sponsorship for the US.
+    if wa.requires_sponsorship is not None:
+        put("requires_sponsorship", "yes" if wa.requires_sponsorship else "no", "user_confirmed")
+    put("citizenship_status", wa.citizenship_status or wa.status_category, "user_confirmed")
+
+
+def resolve_job_country(location: str | None) -> str | None:
+    """The country a job's location string states, or ``None``.
+
+    Thin on purpose: it is the one place the applications layer asks the
+    country resolver a question, so a caller reads as prose. The resolution
+    rules — and the reasons a location may honestly state no country — live in
+    :mod:`src.applications.countries`.
+
+    ``None`` is a real outcome and must be propagated, not defaulted: a
+    country-qualified authorization answer the poster's own field does not
+    support is exactly the fabrication WS-25c exists to prevent. ``"Remote"``
+    and ``"N/A"`` state no country, and 772 of the 8,558 live listings are in
+    that position.
+    """
+    from src.applications.countries import resolve_country
+
+    return resolve_country(location)
+
+
+def facts_from_profile(
+    profile: CandidateProfile,
+    *,
+    job_country: str | None = None,
+) -> dict[str, str]:
+    """The fact values a candidate profile states (no provenance).
+
+    ``job_country`` (WS-25c) qualifies the work-authorization fact: pass the
+    posting's country and the answer is derived for **that** country, omit it
+    (or pass ``None``) and a country-narrowed profile yields no
+    authorization fact at all rather than a blanket one. See
+    :func:`facts_with_provenance`.
+    """
+    values, _provenance = facts_with_provenance(profile, job_country=job_country)
     return values
 
 

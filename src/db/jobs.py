@@ -276,6 +276,57 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
     return persisted
 
 
+def location_for_application_url(
+    application_url: str | None,
+    session_factory: sessionmaker | None = None,
+) -> str | None:
+    """The stored location of the listing at *application_url*, or ``None``.
+
+    WS-25c. The prepare route is handed a ``job_url`` and needs the posting's
+    **country** to answer the boards' country-qualified authorization
+    questions honestly ("are you authorized to work in the country for which
+    you apply?"). The console does not send a location, and it should not have
+    to: the corpus already stores one for every listing we fetched, and the
+    application URL is what identifies the row.
+
+    ``application_url`` is unique across the live corpus (8,558 rows, 8,558
+    distinct values, measured 2026-11-13), so a match identifies one listing.
+    A URL that matches nothing — an application prepared against a posting
+    that was never ingested, or one the eviction removed — yields ``None``,
+    and the caller must treat that as "country unknown" rather than assuming
+    one: an authorization answer the posting's own field does not support is
+    exactly the fabrication WS-25c exists to prevent.
+
+    Failure to read is also ``None``, for the same reason a missing row is:
+    the caller's fallback is to withhold the answer, which is safe, and the
+    alternative (raising) would block a prepare over an enhancement.
+    """
+    if not application_url or not str(application_url).strip():
+        return None
+
+    from sqlalchemy import select
+
+    from src.db.session import SessionLocal
+
+    factory = session_factory or SessionLocal
+    try:
+        with factory() as session:
+            row = session.execute(
+                select(JobDB.location).where(JobDB.application_url == str(application_url).strip())
+            ).first()
+    except Exception:
+        # Deliberately the same outcome as "no row": the caller's fallback is
+        # to withhold the authorization answer, which is safe, and raising
+        # here would block a prepare over an enhancement.
+        logger.debug("Could not read the location for %s", application_url, exc_info=True)
+        return None
+
+    if row is None:
+        return None
+    location = row[0]
+    return str(location) if location else None
+
+
 def touch_jobs(
     session_factory: sessionmaker | None = None,
     *,
