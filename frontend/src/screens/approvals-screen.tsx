@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
+import type { BoardQuestion } from "@/lib/api/types"
 import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import { asString, asStringArray } from "@/lib/safe"
@@ -97,6 +98,66 @@ function Field({
         <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
       ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * The board's own application form, as measured (WS-25b).
+ *
+ * `prepared_summary.field_names` is **our** internal field map, sorted
+ * alphabetically on the server. The board's own question order arrives in
+ * `form_questions`, in the order the board publishes it, and it is the order
+ * the agent will walk — so the operator approves by reading the form they
+ * are about to have filled, not a re-sorted copy of our map.
+ *
+ * A board that publishes no schema, or one that timed out during the prepare
+ * (both fail soft on the server), returns an empty list and this renders
+ * nothing: the panel is unchanged where there is nothing measured to show.
+ */
+function BoardQuestions({
+  questions,
+  blockers,
+}: {
+  questions: BoardQuestion[]
+  blockers: string[]
+}) {
+  if (questions.length === 0) {
+    return null
+  }
+  const blocked = new Set(blockers)
+  return (
+    <div
+      data-testid="board-questions"
+      className="rounded-xl border border-forest/20 bg-card/60 p-3.5"
+    >
+      <p className="text-sm font-medium text-forest">
+        Questions this board asks
+      </p>
+      <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-forest/80">
+        As the board publishes them, in order — this is what the agent will
+        work through.
+      </p>
+      <ul className="space-y-1.5">
+        {questions.map((question) => (
+          <li
+            key={question.label}
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm"
+          >
+            <span className="font-medium text-forest">{question.label}</span>
+            {question.required ? (
+              <span className="rounded-full border border-forest/25 px-1.5 py-0.5 text-[10px] font-medium text-forest/80">
+                required
+              </span>
+            ) : null}
+            {blocked.has(question.label) ? (
+              <span className="rounded-full bg-terracotta-soft px-2 py-0.5 text-[11px] font-medium text-terracotta-foreground">
+                needs a human
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -572,6 +633,11 @@ export function ApprovalsScreen() {
                       executes exactly this payload — it is not rebuilt from the
                       form.
                     </p>
+
+                    <BoardQuestions
+                      questions={prepared.form_questions ?? []}
+                      blockers={prepared.blocking_questions ?? []}
+                    />
 
                     <FieldList
                       items={[

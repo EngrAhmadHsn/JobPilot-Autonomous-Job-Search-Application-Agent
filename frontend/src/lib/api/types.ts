@@ -51,6 +51,7 @@ export type ApprovalStatus = DeepRequired<
   components["schemas"]["ApprovalStatusResponse"]
 >
 export type AtsReport = DeepRequired<components["schemas"]["AtsReport"]>
+export type BoardQuestion = DeepRequired<components["schemas"]["BoardQuestion"]>
 export type CandidateProfile = DeepRequired<
   components["schemas"]["CandidateProfile"]
 >

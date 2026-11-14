@@ -1330,6 +1330,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profiles/countries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Countries
+         * @description The countries a profile may state, for a country picker (WS-25c).
+         *
+         *     The list comes from the **same table the write path validates against**
+         *     (:mod:`src.applications.countries`), so the console cannot offer a country
+         *     the model would refuse — a picker built from its own copy of the list
+         *     drifts, and the failure is a validation error on a value the UI just
+         *     suggested.
+         *
+         *     It is public in the sense that matters: no personal data is involved and
+         *     every authenticated operator needs it to fill a profile. It still requires
+         *     a credential, like every other profile route.
+         */
+        get: operations["list_countries_api_profiles_countries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/resumes": {
         parameters: {
             query?: never;
@@ -1710,9 +1740,7 @@ export interface components {
              * Form Questions
              * @description The board's form, with the agent's verdict per question
              */
-            form_questions?: {
-                [key: string]: unknown;
-            }[];
+            form_questions?: components["schemas"]["BoardQuestion"][];
             prepared_summary: components["schemas"]["PreparedSummary"];
             /**
              * Status
@@ -1911,6 +1939,56 @@ export interface components {
             access_token: string;
             /** Token Type */
             token_type: string;
+        };
+        /**
+         * BoardQuestion
+         * @description One question of the board's own published form (WS-25b).
+         *
+         *     This was ``list[dict]``, which made the response's most interesting field
+         *     unreadable by a typed client: the generated TypeScript said
+         *     ``{ [key: string]: unknown }[]`` and the console would have had to cast
+         *     to render it. Naming the shape is what lets the operator read the form
+         *     they are about to have filled.
+         */
+        BoardQuestion: {
+            /**
+             * Answer From
+             * @description The profile fact it is answered from
+             */
+            answer_from?: string | null;
+            /**
+             * Block
+             * @description The form section it appears in
+             * @default questions
+             */
+            block: string;
+            /**
+             * Category
+             * @description The taxonomy category, when classified
+             */
+            category?: string | null;
+            /**
+             * Fields
+             * @description The form fields the answer is written to
+             */
+            fields?: string[];
+            /**
+             * Label
+             * @description The board's own wording for the question
+             */
+            label: string;
+            /**
+             * Required
+             * @description Whether the board marks it required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Verdict
+             * @description answerable | needs_human | autofillable | skipped
+             * @default
+             */
+            verdict: string;
         };
         /** Body_auth_bearer_login_api_auth_token_login_post */
         Body_auth_bearer_login_api_auth_token_login_post: {
@@ -3206,6 +3284,16 @@ export interface components {
          *     ``requires_sponsorship`` for a future role or transfer. Filling one from
          *     the other would be a fabricated legal answer, so they are separate fields
          *     and each is only ever set by the user.
+         *
+         *     WS-25c adds the **per-country** dimension. The boards ask
+         *     country-qualified questions — "Are you authorized to work in the country
+         *     for which you apply?" is required on 12 live listings — and one boolean
+         *     cannot answer them: authorized in the UK is not authorized in the US, so
+         *     a blanket "yes" on a US posting would misstate the candidate's legal
+         *     position on a form a human then submits. ``authorized_countries`` is that
+         *     dimension, stored as canonical ISO 3166-1 alpha-2 codes (see
+         *     :mod:`src.applications.countries`) so an answer is derived by comparison
+         *     rather than by matching free text.
          */
         WorkAuthorizationInfo: {
             /** Authorized Countries */
@@ -5047,6 +5135,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_countries_api_profiles_countries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                 };
             };
         };

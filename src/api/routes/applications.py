@@ -141,6 +141,30 @@ class PreparedSummary(BaseModel):
     requires_manual_review: bool = False
 
 
+class BoardQuestion(BaseModel):
+    """One question of the board's own published form (WS-25b).
+
+    This was ``list[dict]``, which made the response's most interesting field
+    unreadable by a typed client: the generated TypeScript said
+    ``{ [key: string]: unknown }[]`` and the console would have had to cast
+    to render it. Naming the shape is what lets the operator read the form
+    they are about to have filled.
+    """
+
+    label: str = Field(..., description="The board's own wording for the question")
+    required: bool = Field(False, description="Whether the board marks it required")
+    block: str = Field("questions", description="The form section it appears in")
+    verdict: str = Field(
+        "",
+        description="answerable | needs_human | autofillable | skipped",
+    )
+    category: str | None = Field(None, description="The taxonomy category, when classified")
+    answer_from: str | None = Field(None, description="The profile fact it is answered from")
+    fields: list[str] = Field(
+        default_factory=list, description="The form fields the answer is written to"
+    )
+
+
 class ApplicationPrepareResponse(BaseModel):
     """Response body for a prepared application."""
 
@@ -151,9 +175,9 @@ class ApplicationPrepareResponse(BaseModel):
     prepared_summary: PreparedSummary
     application_id: str | None = Field(None, description="Id of the tracked application (WS-07)")
     #: WS-25b: the board's **own** application form, question by question,
-    #: with what the agent may do with each. Empty when the board publishes
-    #: no schema or could not be reached.
-    form_questions: list[dict] = Field(
+    #: in the order the board publishes it, with what the agent may do with
+    #: each. Empty when the board publishes no schema or could not be reached.
+    form_questions: list[BoardQuestion] = Field(
         default_factory=list,
         description="The board's form, with the agent's verdict per question",
     )
@@ -599,7 +623,11 @@ def _validated_custom_fields(custom_fields: dict) -> dict[str, str]:
     return validated
 
 
-def _profile_facts(db: Session, profile_id: str | None, scope: UserScope) -> dict[str, str]:
+def _profile_facts(
+    db: Session,
+    profile_id: str | None,
+    scope: UserScope,
+) -> dict[str, str]:
     """The grounded facts of a stored candidate profile (WS-08).
 
     The facts are derived from the profile the candidate uploaded — the
