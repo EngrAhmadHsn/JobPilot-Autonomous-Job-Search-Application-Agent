@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { api } from "@/lib/api/endpoints"
 import type { ApplicationProfileInput, EeoProfile } from "@/lib/api/types"
@@ -174,6 +175,89 @@ function MeasuredQuestionsCard({ profileId }: { profileId: string }) {
   )
 }
 
+/**
+ * The countries the candidate may work in (WS-25c).
+ *
+ * A native multi-select on purpose. The list is long, the values are opaque
+ * codes, and the native control gives keyboard selection, type-ahead and the
+ * `selectedOptions` semantics that a hand-rolled listbox has to re-earn. The
+ * options come from the **API**, which serves them from the same table the
+ * write path validates against, so the picker cannot offer a country the model
+ * would refuse — a picker with its own copy of the list drifts, and the failure
+ * is a validation error on a value the UI just suggested.
+ *
+ * Empty is a real state: it means "not stated", which is different from "no
+ * countries". Nothing here forces a selection, because forcing one would turn
+ * an unanswered question into a wrong answer.
+ */
+function AuthorizedCountries({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (countries: string[]) => void
+}) {
+  const query = useQuery({
+    queryKey: ["countries"],
+    queryFn: ({ signal }) => api.getCountries(signal),
+    // The list is a static reference table, so it does not need refetching on
+    // every focus. It is still served by the API rather than inlined, so the
+    // console and the model cannot disagree about what a country is.
+    staleTime: Infinity,
+  })
+
+  // The list is a dependency, not a decoration: rendering an empty picker
+  // would look like "your countries are gone" and, worse, a save from that
+  // state would clear the stored list. So the control is withheld until the
+  // options exist.
+  if (query.isPending) {
+    return <Skeleton className="h-24 w-full rounded-md" />
+  }
+  if (query.isError) {
+    return (
+      <div className={fieldClass}>
+        <span className={labelClass}>Countries you can work in</span>
+        <ErrorNotice error={query.error} onRetry={() => query.refetch()} />
+      </div>
+    )
+  }
+
+  return (
+    <label className={fieldClass}>
+      <span className={labelClass}>Countries you can work in</span>
+      <select
+        data-testid="authorized-countries"
+        multiple
+        size={4}
+        className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm"
+        value={value}
+        onChange={(e) =>
+          onChange(
+            Array.from(e.target.selectedOptions).map((option) => option.value)
+          )
+        }
+      >
+        {query.data.countries.map((country) => (
+          <option key={country.code} value={country.code}>
+            {country.name}
+          </option>
+        ))}
+      </select>
+      <span className="block text-xs leading-relaxed text-muted-foreground">
+        {/*
+          The reason the question exists: boards ask whether you may work in
+          the country you are applying to, so the answer is per-country.
+          Naming the countries also narrows the answer above — a job in a
+          country not listed is answered "no" rather than a blanket "yes".
+        */}
+        Each country you can work in. A form asks this for a specific job's
+        country, so listing them lets the agent answer correctly. Leave empty to
+        answer for any country.
+      </span>
+    </label>
+  )
+}
+
 /** The facts a form asks for, that a résumé does not carry. */
 function ApplicationAnswersCard({
   profile,
@@ -196,6 +280,7 @@ function ApplicationAnswersCard({
     portfolio: pro.portfolio_url ?? "",
     linkedin: pro.linkedin_url ?? "",
     authorized: tri.from(wa.legally_authorized),
+    authorizationCountries: wa.authorized_countries ?? [],
     sponsorship: tri.from(wa.requires_sponsorship),
     citizenship: wa.citizenship_status ?? "",
     currentSalary: comp.current_salary?.toString() ?? "",
@@ -226,6 +311,10 @@ function ApplicationAnswersCard({
         work_authorization: {
           ...wa,
           legally_authorized: tri.to(form.authorized),
+          // WS-25c: canonical codes, in the order the picker lists them —
+          // which is the order the API serves. The list is what makes the
+          // authorization answer country-qualified, so it must travel.
+          authorized_countries: form.authorizationCountries,
           requires_sponsorship: tri.to(form.sponsorship),
           citizenship_status: form.citizenship.trim() || null,
         },
@@ -311,7 +400,23 @@ function ApplicationAnswersCard({
               <option value="yes">Yes</option>
               <option value="no">No</option>
             </select>
+            <span className="block text-xs leading-relaxed text-muted-foreground">
+              Answers for any country, unless you name the countries below.
+            </span>
           </label>
+          {/*
+            WS-25c: the country-qualified answer. The boards ask "are you
+            authorized to work in the country you are applying to?", and a
+            single yes/no cannot answer it — authorized in the UK is not
+            authorized in the US. Selecting countries narrows the answer above,
+            so a US posting is answered "no" rather than a blanket "yes".
+          */}
+          <AuthorizedCountries
+            value={form.authorizationCountries}
+            onChange={(countries) =>
+              setForm((f) => ({ ...f, authorizationCountries: countries }))
+            }
+          />
           <label className={fieldClass}>
             <span className={labelClass}>Need visa sponsorship?</span>
             <select

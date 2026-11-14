@@ -310,6 +310,7 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `PUT /api/profiles/{profile_id}/eeo` | Upsert the voluntary EEO selections (requires opt-in) | WS-20 |
 | `DELETE /api/profiles/{profile_id}/eeo` | Delete the EEO selections outright | WS-20 |
 | `GET /api/profiles/{profile_id}/question-gaps` | The questions the boards actually ask that this profile cannot answer, ranked by frequency | WS-25b |
+| `GET /api/profiles/countries` | The countries a profile may state for work eligibility, for a country picker | WS-25c |
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |

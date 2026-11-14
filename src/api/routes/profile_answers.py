@@ -65,6 +65,19 @@ class ProfileUpdateAck(BaseModel):
     updated_fields: list[str] = Field(default_factory=list)
 
 
+class CountryOption(BaseModel):
+    """One selectable country (WS-25c)."""
+
+    code: str = Field(..., description="ISO 3166-1 alpha-2 code")
+    name: str = Field(..., description="The country's common English name")
+
+
+class CountriesResponse(BaseModel):
+    """The countries the profile may store, for a country picker."""
+
+    countries: list[CountryOption]
+
+
 def _require_profile(db: Session, scope: UserScope, profile_id: str):
     """The profile row, or a 404 (also for a foreign profile)."""
     row = access.get_profile(db, scope, profile_id)
@@ -97,6 +110,30 @@ class QuestionGapsResponse(BaseModel):
     #: already answers and excluding consent/EEO (which is never the
     #: agent's to answer).
     questions: list[QuestionGapResponse] = Field(default_factory=list)
+
+
+@router.get("/countries", response_model=CountriesResponse)
+def list_countries() -> CountriesResponse:
+    """The countries a profile may state, for a country picker (WS-25c).
+
+    The list comes from the **same table the write path validates against**
+    (:mod:`src.applications.countries`), so the console cannot offer a country
+    the model would refuse — a picker built from its own copy of the list
+    drifts, and the failure is a validation error on a value the UI just
+    suggested.
+
+    It is public in the sense that matters: no personal data is involved and
+    every authenticated operator needs it to fill a profile. It still requires
+    a credential, like every other profile route.
+    """
+    from src.applications.countries import COUNTRIES
+
+    return CountriesResponse(
+        countries=[
+            CountryOption(code=code, name=name)
+            for code, name in sorted(COUNTRIES.items(), key=lambda item: item[1])
+        ]
+    )
 
 
 @router.get("/{profile_id}/question-gaps", response_model=QuestionGapsResponse)

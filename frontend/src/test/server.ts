@@ -8,6 +8,7 @@ import {
   applicationProfileResponse,
   approvalDecision,
   auditResponse,
+  countriesResponse,
   healthResponse,
   identityResponse,
   jobDetail,
@@ -111,6 +112,12 @@ export const server = setupServer(
     HttpResponse.json(questionGapsResponse())
   ),
 
+  // The countries a profile may state (WS-25c). The API serves these from the
+  // same table the write path validates against, so the picker cannot offer a
+  // country the model would refuse.
+  http.get(`${BASE}/api/profiles/countries`, () =>
+    HttpResponse.json(countriesResponse())
+  ),
 
   http.post(`${BASE}/api/jobs/search`, () =>
     HttpResponse.json(jobSearchResponse())

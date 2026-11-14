@@ -27,6 +27,7 @@ import type {
   ApprovalDecisionRequest,
   ApprovalDecisionResponse,
   ApprovalStatus,
+  CountriesResponse,
   Health,
   AdminJobMetrics,
   Identity,
@@ -231,6 +232,18 @@ export const api = {
       `/api/profiles/${encodeURIComponent(profileId)}/question-gaps?limit=${limit}`,
       { signal, timeoutMs: 20_000 }
     ),
+
+  /**
+   * The countries a profile may state for work eligibility (WS-25c).
+   *
+   * Served by the API from the same table the write path validates against,
+   * so the picker cannot offer a country the model would refuse.
+   */
+  getCountries: (signal?: AbortSignal) =>
+    request<CountriesResponse>("/api/profiles/countries", {
+      signal,
+      timeoutMs: 20_000,
+    }),
 
   /** The caller's own model credential (WS-22) — masked, never the key. */
   getLlmCredentials: (signal?: AbortSignal) =>

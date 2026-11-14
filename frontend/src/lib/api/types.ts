@@ -42,6 +42,12 @@ export type ApplicationPrepareRequest =
 export type ApplicationPrepareResponse = DeepRequired<
   components["schemas"]["ApplicationPrepareResponse"]
 >
+export type CountriesResponse = DeepRequired<
+  components["schemas"]["CountriesResponse"]
+>
+export type CountryOption = DeepRequired<
+  components["schemas"]["CountryOption"]
+>
 export type ApprovalDecisionRequest =
   components["schemas"]["ApprovalDecisionRequest"]
 export type ApprovalDecisionResponse = DeepRequired<

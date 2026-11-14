@@ -2129,6 +2129,30 @@ export interface components {
             expected_salary?: number | null;
         };
         /**
+         * CountriesResponse
+         * @description The countries the profile may store, for a country picker.
+         */
+        CountriesResponse: {
+            /** Countries */
+            countries: components["schemas"]["CountryOption"][];
+        };
+        /**
+         * CountryOption
+         * @description One selectable country (WS-25c).
+         */
+        CountryOption: {
+            /**
+             * Code
+             * @description ISO 3166-1 alpha-2 code
+             */
+            code: string;
+            /**
+             * Name
+             * @description The country's common English name
+             */
+            name: string;
+        };
+        /**
          * CredentialDeleteAck
          * @description The result of removing a stored credential.
          */
@@ -5154,6 +5178,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["CountriesResponse"];
                 };
             };
         };

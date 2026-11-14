@@ -13,6 +13,7 @@ import type {
   AuditEvent,
   AuditPage,
   CandidateProfile,
+  CountriesResponse,
   JobListing,
   JobMatchPair,
   JobSearchResponse,
@@ -180,6 +181,27 @@ export function questionGapsResponse(): QuestionGapsResponse {
         block: "questions",
         coverage: "unclassified",
       },
+    ],
+  }
+}
+
+/**
+ * The countries the profile may state (WS-25c).
+ *
+ * A short slice of the real table, alphabetized by name like the API's, and
+ * it uses the codes the other factories and tests reference.
+ */
+export function countriesResponse(): CountriesResponse {
+  return {
+    countries: [
+      { code: "CA", name: "Canada" },
+      { code: "DE", name: "Germany" },
+      { code: "IN", name: "India" },
+      { code: "IE", name: "Ireland" },
+      { code: "NL", name: "Netherlands" },
+      { code: "SG", name: "Singapore" },
+      { code: "GB", name: "United Kingdom" },
+      { code: "US", name: "United States" },
     ],
   }
 }

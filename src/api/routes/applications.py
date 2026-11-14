@@ -489,7 +489,9 @@ def prepare_application(
         # WS-08: the grounded facts come from the **stored profile**, never
         # from the request body. A question the candidate's document does not
         # answer stays unanswered.
-        profile_facts=_profile_facts(db, req.profile_id, scope),
+        # WS-25c: the posting's URL is passed so the work-authorization fact is
+        # answered for **this** job's country, not in the abstract.
+        profile_facts=_profile_facts(db, req.profile_id, scope, job_url=req.job_url),
     )
 
     try:
@@ -627,6 +629,8 @@ def _profile_facts(
     db: Session,
     profile_id: str | None,
     scope: UserScope,
+    *,
+    job_url: str | None = None,
 ) -> dict[str, str]:
     """The grounded facts of a stored candidate profile (WS-08).
 
@@ -634,6 +638,14 @@ def _profile_facts(
     document itself — and never from the request body. A profile that does
     not exist yields no facts, which means the questions it would have
     answered stay *unresolved* rather than being invented.
+
+    ``job_url`` (WS-25c) makes the work-authorization fact **country-qualified**.
+    The boards ask "are you authorized to work in the country for which you
+    apply?", so the answer depends on the posting: the location is read from
+    the corpus by the listing's application URL, resolved to a country, and
+    handed to the fact map. When it cannot be resolved the fact is withheld
+    and the question goes to a human — never answered from a blanket
+    statement the posting's own field does not support.
     """
     if not profile_id:
         return {}
@@ -642,10 +654,34 @@ def _profile_facts(
         if row is None:
             logger.info("No candidate profile %r; the application has no profile facts", profile_id)
             return {}
-        return facts_from_profile(profile_from_row(row))
+        job_country = _job_country_for(db, job_url)
+        return facts_from_profile(profile_from_row(row), job_country=job_country)
     except Exception as exc:  # noqa: BLE001 - a missing profile must not block the flow
         logger.warning("The profile facts could not be derived: %s", exc)
         return {}
+
+
+def _job_country_for(db: Session, job_url: str | None) -> str | None:
+    """The country of the posting at *job_url*, or ``None`` when unknown.
+
+    A read-only lookup against the corpus the refresh already populated. It is
+    confined to *country resolution* and changes no answer by itself: when it
+    returns ``None`` the authorization fact is withheld, which is the same
+    outcome as a profile that states nothing.
+    """
+    if not job_url:
+        return None
+    from src.applications.form import resolve_job_country
+    from src.db.jobs import location_for_application_url
+
+    try:
+        location = location_for_application_url(job_url, session_factory=db.get_bind())
+    except Exception:
+        # An unknown country is safe here — it withholds the authorization
+        # answer — so a lookup failure must not fail the prepare.
+        logger.debug("Could not resolve the posting's location", exc_info=True)
+        return None
+    return resolve_job_country(location)
 
 
 def _track_prepare(
