@@ -7,8 +7,17 @@ from typing import TYPE_CHECKING
 
 from src.applications.contracts import ApplicationResult
 from src.applications.evidence import missing_evidence_files
+from src.applications.greenhouse_contract import (
+    CONTRACT_ADAPTERS,
+    validate_against_contract,
+)
 from src.db.evidence import ApplicationEvidence
 from src.db.users import LEGACY_OWNER_ID
+from src.security.audit import (
+    ACTION_SUBMIT,
+    OUTCOME_BLOCKED,
+    record_audit,
+)
 from src.security.registry_setup import get_registry
 
 if TYPE_CHECKING:
@@ -194,6 +203,14 @@ def submit_node(
     It calls adapter.submit(prepared_application) to execute the submission
     workflow (e.g., fill form, upload resume, click submit via Playwright).
 
+    Two gates run before the adapter is called, and both refuse **as a
+    result** (never an exception escaping the node): the least-privilege
+    check (WS-06 · SEC-08, ``status="permission_denied"``), and — for the
+    adapters whose payload follows the provider's documented contract
+    (WS-32 · Task 2, ``status="incomplete_payload"``) — the assembled
+    payload's completeness. The second one exists because Greenhouse does
+    not validate required fields itself.
+
     Args:
         state: Current workflow state (must include prepared_application and approval=True)
         adapter: The ApplicationAdapter instance
@@ -228,6 +245,79 @@ def submit_node(
         state.error = message
         state.error_details = {"exception": "PermissionError", "message": message}
         return state
+
+    # WS-32 · Task 2: the provider does not validate the payload for us.
+    # Greenhouse's documentation says it verbatim — it "will not reject
+    # applications that are missing required fields" — so an incomplete
+    # payload submits **successfully and incompletely**: the candidate
+    # believes they applied, the employer receives a blank, and nothing
+    # reports an error. The assembled payload is therefore checked against
+    # the provider's documented contract *before* the adapter is called, and
+    # an incomplete one is not submitted.
+    #
+    # The check is adapter-delegated: the documented names are Greenhouse's,
+    # and the local fake ATS's payload is a form-walk summary whose
+    # completeness its own WS-08 walker already protects (see
+    # ``src.applications.greenhouse_contract``).
+    #
+    # Consent is deliberately not passed here: the form plan that knows the
+    # board's consent questions is computed at prepare time and is not
+    # persisted on the approval row, so this gate enforces **completeness**
+    # only. Consent reporting belongs to callers that hold a schema.
+    if adapter.name in CONTRACT_ADAPTERS:
+        report = validate_against_contract(state.prepared_application)
+        if not report.is_complete:
+            message = (
+                "The prepared payload does not answer the fields the provider's "
+                f"application contract requires ({', '.join(report.missing)}); "
+                "it was not submitted."
+            )
+            logger.warning(
+                f"[{state.workflow_id}] Incomplete payload for adapter {adapter.name}: "
+                f"{', '.join(report.missing)}",
+                extra={
+                    "workflow_id": state.workflow_id,
+                    "adapter": adapter.name,
+                    "missing_fields": list(report.missing),
+                },
+            )
+            state.submission_result = ApplicationResult(
+                success=False,
+                status="incomplete_payload",
+                message=message,
+                metadata={
+                    "workflow_id": state.workflow_id,
+                    "adapter": adapter.name,
+                    "missing_fields": list(report.missing),
+                    "consent_unanswered": list(report.consent_unanswered),
+                },
+            )
+            state.error = message
+            # The same shape the permission branch above uses. The name is
+            # the refusal's own, not a raised exception's: a prepare-time
+            # defect is a reported outcome, never a crash.
+            state.error_details = {"exception": "IncompletePayloadError", "message": message}
+            # The audit row is written on its own session, the way every
+            # other audit call in this flow is: the refusal must not be able
+            # to leave a caller's request-scoped transaction half-written.
+            # The owner is the account the payload was prepared for
+            # (WS-14 · Phase B), so the account reads its own refusal.
+            record_audit(
+                ACTION_SUBMIT,
+                actor=adapter.name,
+                resource=state.approval_id or state.workflow_id,
+                outcome=OUTCOME_BLOCKED,
+                owner_id=state.prepared_application.owner_id or LEGACY_OWNER_ID,
+                metadata={
+                    "workflow_id": state.workflow_id,
+                    "adapter": adapter.name,
+                    "status": "incomplete_payload",
+                    "missing_fields": list(report.missing),
+                    "job_url": state.prepared_application.request.job_url,
+                },
+                workflow_id=state.workflow_id,
+            )
+            return state
 
     try:
         logger.info(
