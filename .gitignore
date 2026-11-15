@@ -249,3 +249,11 @@ DEV_CREDENTIALS.local.md
 *_scan.txt
 tmp_*.py
 temp_*
+
+# Agent-session scratch. Findings worth keeping are copied out (see
+# docs/evaluations/) and an instrument worth re-running is promoted to
+# scripts/probe_board.py; what stays here is throwaway — page dumps, probe
+# output, one-off scripts. It is ignored because it is easy to sweep into a
+# commit with `git add -A`, and a 3 MB screenshot of a third party's page does
+# not belong in the repository.
+.scratch/
