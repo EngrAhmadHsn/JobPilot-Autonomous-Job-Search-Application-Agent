@@ -647,3 +647,84 @@ def test_the_route_and_the_worker_resolve_adapters_from_one_registry() -> None:
         graph_executor.select_adapter_by_name("no-such-board")
     with pytest.raises(RuntimeError):
         graph_executor.select_adapter_for_url("https://unknown.example/1")
+
+
+def test_the_policy_is_rechecked_at_execution_not_only_at_accept(
+    client, approved_payload, db_session, run_worker_once, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A queued submission re-checks the policy, so a kill switch works.
+
+    WS-32 moved the execution off the request thread onto a durable queue,
+    which widened the window between the decision and the submission from
+    milliseconds to an unbounded queue delay. The policy was only ever read at
+    accept time, so an approval granted while submitting was allowed would
+    still submit after an operator flipped ``SUBMISSION_POLICY`` to
+    ``PREPARE_ONLY`` — the control the policy exists to be.
+
+    The check therefore runs where the submission actually happens.
+    """
+    from src.security import policy as submission_policy
+
+    _approve(client, approved_payload.approval_id)
+    counter = _CountingAdapter()
+    monkeypatch.setattr(
+        submission_policy,
+        "get_submission_policy",
+        lambda: submission_policy.SubmissionPolicy.PREPARE_ONLY,
+    )
+
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
+
+    assert counter.submit_calls == 0, (
+        "the policy forbids executing a prepared application, and the submission ran anyway"
+    )
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status != ApprovalStatus.EXECUTED, (
+        "a policy-refused submission must not read as executed"
+    )
+    assert row.result is None or row.result.get("success") is not True
+
+
+def test_the_policy_allowing_execution_does_not_break_the_happy_path(
+    client, approved_payload, db_session, run_worker_once
+) -> None:
+    """The new gate must not silently refuse a submission that is allowed.
+
+    A policy check added to the worker path is one ``if`` away from refusing
+    everything, so the allowed case is pinned beside the refused one.
+    """
+    _approve(client, approved_payload.approval_id)
+    counter = _CountingAdapter()
+
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
+
+    assert counter.submit_calls == 1
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status == ApprovalStatus.EXECUTED
+
+
+def test_an_unreadable_policy_configuration_refuses_rather_than_crashing(
+    client, approved_payload, db_session, run_worker_once, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A policy that cannot even be read must refuse the submission, not crash.
+
+    ``get_submission_policy`` raises ``PolicyError`` on an unknown configured
+    value. That is the same fail-closed outcome as a policy that forbids
+    submitting, and it must arrive as one: a worker that died on it would leave
+    the item to the lease reaper and look like an infrastructure fault.
+    """
+    from src.security import policy as submission_policy
+
+    _approve(client, approved_payload.approval_id)
+    counter = _CountingAdapter()
+
+    def _unreadable() -> submission_policy.SubmissionPolicy:
+        raise submission_policy.PolicyError("Unknown submission policy 'NONSENSE'")
+
+    monkeypatch.setattr(submission_policy, "get_submission_policy", _unreadable)
+
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
+
+    assert counter.submit_calls == 0
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status != ApprovalStatus.EXECUTED

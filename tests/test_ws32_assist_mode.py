@@ -25,7 +25,14 @@ from pathlib import Path
 
 import pytest
 
-from src.applications.assist_adapter import AssistAdapter, split_candidate_name
+from src.applications.assist_adapter import (
+    AWAITING_HUMAN_SUBMIT,
+    FORM_ERROR,
+    FORM_WAITING_STATUSES,
+    NEEDS_HUMAN,
+    AssistAdapter,
+    split_candidate_name,
+)
 from src.applications.contracts import (
     ApplicationAdapter,
     ApplicationRequest,
@@ -281,7 +288,7 @@ def test_a_question_it_cannot_answer_stops_the_run_and_keeps_the_page_open(
     result = adapter.submit(_prepared())
 
     assert result.success is False
-    assert result.status == "needs_human"
+    assert result.status == NEEDS_HUMAN
     assert result.metadata["questions"] == ["Have you served on a submarine?"]
     assert adapter.questions_unanswered == ["Have you served on a submarine?"]
     # Nothing was typed and nothing was submitted, but the browser is the
@@ -289,6 +296,22 @@ def test_a_question_it_cannot_answer_stops_the_run_and_keeps_the_page_open(
     assert page.filled == {}
     assert page.clicked == []
     assert adapter.browser_open is True
+
+
+def test_the_three_form_waiting_stops_are_the_ones_that_keep_the_browser_open() -> None:
+    """The one list the adapter and the pilot share, pinned as the contract.
+
+    The pilot used to read ``awaiting_human_submit`` alone and orphan the
+    window on the other two — and the likeliest stop on a real board is
+    ``needs_human``. The constants are the single source both sites read, so a
+    future stop added to the adapter is a stop the harness hands over for
+    without a second literal set to forget.
+    """
+    assert FORM_WAITING_STATUSES == {AWAITING_HUMAN_SUBMIT, NEEDS_HUMAN, FORM_ERROR}
+    # The two that are deliberately not, so the set is not "everything":
+    # their evidence is captured and the browser closed by the adapter itself.
+    assert "blocked_human_review" not in FORM_WAITING_STATUSES
+    assert "unsafe_navigation" not in FORM_WAITING_STATUSES
 
 
 def test_an_optional_question_it_cannot_answer_is_recorded_not_guessed(
@@ -771,15 +794,25 @@ class _StubAssistAdapter(ApplicationAdapter):
     It carries the real adapter's ``name``, so the matrix grants it PREPARE and
     ``prepare_application`` accepts it: the harness code under test is the code
     a real run executes, minus the browser.
+
+    ``status`` is what the stop reports, so the same stub covers the three
+    form-waiting stops the adapter hands over for — ``awaiting_human_submit``
+    (filled, ready to submit), ``needs_human`` (a question the agent could not
+    ground) and ``form_error`` (the page's own validation complained) — and the
+    stops it does not hand over for.
     """
 
     name = "assist-playwright"
 
-    def __init__(self, *, complete: bool = True) -> None:
+    def __init__(self, *, complete: bool = True, status: str = AWAITING_HUMAN_SUBMIT) -> None:
         self.complete = complete
+        self.status = status
         self.browser_open = False
         self.closed = False
         self.page = None
+        #: How many times the human's page was captured, so a test can tell
+        #: "the capture was attempted" from "the capture was skipped".
+        self.capture_calls = 0
 
     def supports_url(self, url: str) -> bool:
         return True
@@ -805,12 +838,19 @@ class _StubAssistAdapter(ApplicationAdapter):
         self.browser_open = True
         return ApplicationResult(
             success=False,
-            status="awaiting_human_submit",
-            message="The form was filled and left open for the human.",
-            metadata={"job_url": prepared.request.job_url, "questions_left_alone": []},
+            status=self.status,
+            message=f"The form is waiting on a person ({self.status}).",
+            metadata={
+                "job_url": prepared.request.job_url,
+                "questions": ["Have you served on a submarine?"]
+                if self.status == NEEDS_HUMAN
+                else [],
+                "questions_left_alone": [],
+            },
         )
 
     def capture_human_submission(self) -> ApplicationResult:
+        self.capture_calls += 1
         return ApplicationResult(
             success=True,
             status="human_submitted",
@@ -924,6 +964,154 @@ def test_a_run_with_no_human_returns_the_stop_and_claims_nothing(
     assert report.result.status == "awaiting_human_submit"
     assert report.evidence is None
     assert report.verified is None
+
+
+def test_the_pilot_hands_over_on_needs_human_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The likeliest stop on a real board is a question the profile cannot ground.
+
+    ``AssistAdapter`` deliberately leaves the browser open on three
+    form-waiting statuses, and ``needs_human`` is one of them. The pilot used
+    to hand over on ``awaiting_human_submit`` alone, so a ``needs_human`` run
+    skipped the human step, the capture and the verify, never reached
+    ``--close-when-done``, and exited with the page orphaned and a report
+    reading ``evidence: none`` — the pilot's whole purpose (measuring where it
+    stopped *and what the human did about it*) defeated on the stop most likely
+    to happen.
+    """
+    from scripts import pilot_assist
+
+    monkeypatch.setattr(get_settings(), "app_env", "development")
+    adapter = _StubAssistAdapter(status=NEEDS_HUMAN)
+    waited: list[object] = []
+
+    report = pilot_assist.run_pilot(
+        "http://127.0.0.1:8901/basic",
+        profile_id=None,
+        job_title="Backend Engineer",
+        company_name="Acme Labs",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 555 0101",
+        adapter=adapter,
+        human=lambda handed_over: waited.append(handed_over),
+        close_when_done=True,
+    )
+
+    assert waited == [adapter], "the human step was skipped on a form the agent left open"
+    assert adapter.capture_calls == 1, "the capture was skipped"
+    assert report.evidence is not None
+    assert report.verified is not None
+    assert report.verified.status == "verified"
+    # The record says which status was handed over, so the operator can tell
+    # "filled and ready to submit" from "stopped on a question you must answer".
+    assert report.result.status == NEEDS_HUMAN
+    assert report.as_dict()["status"] == NEEDS_HUMAN
+    assert report.as_dict()["handover_status"] == NEEDS_HUMAN
+    # And the close the operator asked for is reached.
+    assert adapter.closed is True
+
+
+def test_the_pilot_hands_over_on_form_error_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``form_error`` is the third form-waiting stop, and it is a hand-over.
+
+    The page's own validation complained, so the human sees why and finishes
+    it in the window the adapter left open. The pilot must take the same path:
+    human step, capture, verify.
+    """
+    from scripts import pilot_assist
+
+    monkeypatch.setattr(get_settings(), "app_env", "development")
+    adapter = _StubAssistAdapter(status=FORM_ERROR)
+    waited: list[object] = []
+
+    report = pilot_assist.run_pilot(
+        "http://127.0.0.1:8901/basic",
+        profile_id=None,
+        job_title="Backend Engineer",
+        company_name="Acme Labs",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 555 0101",
+        adapter=adapter,
+        human=lambda handed_over: waited.append(handed_over),
+        close_when_done=True,
+    )
+
+    assert waited == [adapter]
+    assert adapter.capture_calls == 1
+    assert report.evidence is not None
+    assert report.verified is not None
+    assert report.result.status == FORM_ERROR
+    assert report.as_dict()["handover_status"] == FORM_ERROR
+    assert adapter.closed is True
+
+
+def test_a_stop_that_is_not_a_form_is_not_handed_over(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the negative: the fix must not become "hand over on everything".
+
+    A challenge (``blocked_human_review``: SEC-09) and an unsafe navigation are
+    the stops where the *page* is the problem. The adapter captures their
+    evidence and closes the browser itself, so there is no window to hand to a
+    human and the pilot must not invent one.
+    """
+    from scripts import pilot_assist
+
+    monkeypatch.setattr(get_settings(), "app_env", "development")
+
+    for status in ("blocked_human_review", "unsafe_navigation"):
+        adapter = _StubAssistAdapter(status=status)
+        waited: list[object] = []
+
+        # The closure takes ``waited`` as a default argument so it binds THIS
+        # iteration's list: a bare closure would read the loop variable late and
+        # every iteration's append would land in the last list built.
+        def record_handover(handed_over: object, seen: list[object] = waited) -> None:
+            seen.append(handed_over)
+
+        report = pilot_assist.run_pilot(
+            "http://127.0.0.1:8901/basic",
+            profile_id=None,
+            job_title="Backend Engineer",
+            company_name="Acme Labs",
+            candidate_name="Ada Lovelace",
+            email="ada@example.com",
+            phone="+1 555 0101",
+            adapter=adapter,
+            human=record_handover,
+            close_when_done=True,
+        )
+
+        assert waited == [], f"{status} must not be handed to a human"
+        assert adapter.capture_calls == 0
+        assert report.evidence is None
+        assert report.verified is None
+        assert report.result.status == status
+        assert report.as_dict()["handover_status"] is None
+
+
+def test_the_handover_status_names_what_the_human_was_handed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The existing stop is unchanged, and its record names its status too."""
+    from scripts import pilot_assist
+
+    monkeypatch.setattr(get_settings(), "app_env", "development")
+    adapter = _StubAssistAdapter()  # the default: awaiting_human_submit
+
+    report = pilot_assist.run_pilot(
+        "http://127.0.0.1:8901/basic",
+        profile_id=None,
+        job_title="Backend Engineer",
+        company_name="Acme Labs",
+        candidate_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 555 0101",
+        adapter=adapter,
+        human=lambda handed_over: None,
+    )
+
+    assert report.result.status == AWAITING_HUMAN_SUBMIT
+    assert report.as_dict()["handover_status"] == AWAITING_HUMAN_SUBMIT
 
 
 # --------------------------------------------------------------------------
@@ -1159,4 +1347,3 @@ class _AdvancingLocator(FakeLocator):
         is_next = re.search(r"next|continue|proceed", names, re.IGNORECASE) is not None
         if is_next and not self.page.on_submit_page:
             self.page.advance()
-

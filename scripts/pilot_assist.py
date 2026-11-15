@@ -54,6 +54,19 @@ submit. The script prints what it could not answer, the operator finishes the
 form by hand and presses the form's own submit, and the script then captures the
 page they submitted on and verifies it. Nothing in this script clicks the submit
 button.
+
+**The hand-over is for every form the adapter leaves open**, not only the one
+that stopped at the button. ``AssistAdapter`` deliberately leaves the browser
+open on three statuses — ``awaiting_human_submit`` (filled, ready to submit),
+``needs_human`` (a question the agent could not ground) and ``form_error`` (the
+page's own validation complained) — and the harness runs the human step, the
+capture and the verify on all three, recording which one in
+:attr:`PilotReport.handover_status`. Reading a single status here once left the
+human a window that vanished at exit and a report with no evidence on
+``needs_human`` — the likeliest stop on a real board, and the measurement this
+harness exists to take. The two stops it does **not** hand over for are the ones
+where the *page* is the problem: a challenge and an unsafe navigation, whose
+evidence the adapter captures before it closes the browser itself.
 """
 
 from __future__ import annotations
@@ -72,7 +85,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.applications.assist_adapter import AssistAdapter
+from src.applications.assist_adapter import (
+    AWAITING_HUMAN_SUBMIT,
+    FORM_WAITING_STATUSES,
+    INCOMPLETE_PAYLOAD,
+    AssistAdapter,
+)
 from src.applications.contracts import (
     ApplicationAdapter,
     ApplicationRequest,
@@ -123,6 +141,14 @@ class PilotReport:
     evidence: SubmissionEvidence | None = None
     #: The verified result, or ``None`` when no human step happened.
     verified: ApplicationResult | None = None
+    #: Which of the adapter's form-waiting statuses the browser was handed over
+    #: for — ``awaiting_human_submit`` (filled, ready to submit),
+    #: ``needs_human`` (a question the agent could not ground) or
+    #: ``form_error`` (the page's own validation complained) — or ``None`` when
+    #: the stop was one the adapter closes the browser for. The operator's
+    #: record has to distinguish those, so the status is kept as its own field
+    #: rather than left to be inferred from ``result.status``.
+    handover_status: str | None = None
     #: The questions the walker could not answer: the run stopped there.
     questions_unanswered: list[str] = field(default_factory=list)
     #: The optional questions it left for the human.
@@ -137,6 +163,7 @@ class PilotReport:
             "profile_id": self.profile_id,
             "elapsed_seconds": round(self.elapsed_seconds, 2),
             "status": self.result.status,
+            "handover_status": self.handover_status,
             "success": self.result.success,
             "message": self.result.message,
             "questions_unanswered": self.questions_unanswered,
@@ -396,18 +423,29 @@ def run_pilot(
         unrecognised_widgets=list(result.metadata.get("unrecognised_widgets") or ()),
     )
 
-    if result.status == "incomplete_payload":
+    if result.status == INCOMPLETE_PAYLOAD:
         # The provider would have accepted an incomplete payload and reported
         # nothing. The pilot stops rather than measure a submission that was
         # never complete.
         raise PilotRefused(result.message)
 
-    if result.status != "awaiting_human_submit" or human is None:
+    if result.status not in FORM_WAITING_STATUSES or human is None:
+        # Not a form waiting for a person — an unsafe navigation, a challenge
+        # the adapter closed the browser for, or an unattended run — so there
+        # is no window to hand over and nothing may be claimed.
         report.elapsed_seconds = time.monotonic() - started
         return report
 
-    # The handover. The human's step is theirs; the capture reads the page they
-    # submitted on, and `verify` is what turns its text into a verified status.
+    # The handover, on **every** status the adapter leaves the browser open
+    # for: not only the filled-and-ready-to-submit stop but also the question
+    # the agent could not ground (``needs_human``, the likeliest stop on a
+    # real board) and the page's own validation complaint (``form_error``).
+    # Reading one status here left the human a window that vanished at exit and
+    # a report with no evidence on the stops most likely to happen, which
+    # defeats the measurement this harness exists to take. The human's step is
+    # theirs; the capture reads the page they submitted on, and `verify` is
+    # what turns its text into a verified status.
+    report.handover_status = result.status
     human(assist_adapter)
 
     capture = getattr(assist_adapter, "capture_human_submission", None)
@@ -473,6 +511,8 @@ def _print_report(report: PilotReport, *, as_json: bool) -> None:
     print()
     print("-" * 78)
     print(f"Assist run: {report.result.status}  ({report.elapsed_seconds:.1f}s)")
+    if report.handover_status is not None:
+        print(f"  Handed over for               : {report.handover_status}")
     print(f"  {report.result.message}")
     print(f"  Questions it could not answer : {report.questions_unanswered or '(none)'}")
     print(f"  Questions left for the human  : {report.questions_left_alone or '(none)'}")
@@ -522,9 +562,9 @@ def main(argv: list[str] | None = None) -> int:
         return 4
 
     _print_report(report, as_json=args.json)
-    if report.result.status == "awaiting_human_submit" and report.verified is None:
+    if report.result.status == AWAITING_HUMAN_SUBMIT and report.verified is None:
         print("The form is filled and unfinished by design; a human must press submit.")
-    return 0 if report.result.status == "awaiting_human_submit" else 1
+    return 0 if report.result.status == AWAITING_HUMAN_SUBMIT else 1
 
 
 if __name__ == "__main__":

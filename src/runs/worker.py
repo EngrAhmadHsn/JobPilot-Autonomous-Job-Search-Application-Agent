@@ -641,6 +641,62 @@ class Worker:
                 self._processed_since_heartbeat += 1
                 return
 
+            # The submission policy is re-checked **here**, where the
+            # submission actually happens, and not only at accept time. The
+            # route reads it before it enqueues, but WS-32 moved the execution
+            # off the request thread onto a durable queue: the gap between "the
+            # operator approved this" and "the adapter is called" is now an
+            # unbounded queue delay rather than a few milliseconds. Without this
+            # check an approval granted while submitting was allowed would still
+            # submit after ``SUBMISSION_POLICY`` was flipped to
+            # ``PREPARE_ONLY`` — and that policy is the kill switch, so the
+            # control has to be read where it binds.
+            #
+            # A refusal is an outcome, not a crash: the item settles as a
+            # permanent failure, the approval row is left untouched (a human
+            # decided it and the decision stands — only its execution was
+            # refused), and nothing is submitted. It sits before the attempt
+            # marker below on purpose: no submission attempt was started, so a
+            # later run must not escalate it as "outcome unknown".
+            from src.security.policy import (
+                AutoSubmitNotAllowed,
+                PolicyError,
+                assert_execution_allowed,
+                get_submission_policy,
+            )
+
+            submission_policy_name: str | None = None
+            try:
+                submission_policy = get_submission_policy()
+                submission_policy_name = submission_policy.value
+                assert_execution_allowed(submission_policy)
+            except (PolicyError, AutoSubmitNotAllowed) as exc:
+                message = (
+                    f"The submission policy refuses executing approval {approval_id!r}: {exc} "
+                    "Nothing was submitted."
+                )
+                logger.warning("Submission refused (policy): %s", message)
+                self._settle_submission(
+                    item,
+                    run_id=run.id,
+                    event="submission.refused",
+                    message=message,
+                    metadata={
+                        "approval_id": approval_id,
+                        "workflow_id": workflow_id,
+                        "reason": "policy_blocked",
+                        # ``get_submission_policy`` itself raises on an unknown
+                        # configured value, so this is ``None`` in that case and
+                        # carries the configured policy's value otherwise. The
+                        # exception's own message names what was wrong.
+                        "policy": submission_policy_name,
+                    },
+                    status=WORK_FAILED,
+                    error=message,
+                    error_kind=ERROR_PERMANENT,
+                )
+                return
+
             previous_attempt = _submission_attempt(run.extra_metadata)
             if previous_attempt is not None:
                 # Case 2: an attempt was started and no outcome was recorded.

@@ -6,14 +6,23 @@ SUCCEEDS and is silently incomplete — the candidate believes they applied and
 the employer receives a blank. The contract below is Greenhouse's own published
 field list, recovered from its documentation source; it is the only part of the
 researched material that survived verification against the live API.
+
+The module docstring is part of what is pinned here: consent reporting is
+built and tested but **inert** — no production caller supplies a schema — and
+a docstring that promises a caller is exactly the repo's named defect class
+(a reader relies on the prose instead of the code). The last block asserts the
+docstring's claim and trips if a caller ever appears.
 """
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
+from src.applications import greenhouse_contract
 from src.applications.contracts import (
     ApplicationRequest,
     ApplicationResult,
@@ -414,3 +423,117 @@ def test_the_refusal_is_recorded_in_the_audit_trail(
         "resume",
     }
     engine.dispose()
+
+
+# -- the docstring's claim, and the caller it must not promise -----------------
+#
+# The module docstring said consent reporting "belongs to callers that hold a
+# schema (the WS-32 assist pilot fetches one)". No caller fetches one: the
+# pilot passes neither ``schema=`` nor ``consent_required=``, so
+# ``consent_fields_from_schema`` and ``custom_question_fields`` have no caller
+# outside this file. A docstring a reader relies on instead of the code is the
+# repo's named defect class, and a maintainer reading it would believe consent
+# reporting is live on the one path that reaches a real board.
+
+
+def _sentences(text: str) -> list[str]:
+    """The docstring's sentences, with whitespace collapsed."""
+    return [part for part in re.split(r"(?<=[.!?])\s+", " ".join(text.split())) if part]
+
+
+#: The verb a docstring would use to claim a schema is being obtained.
+_FETCH = re.compile(r"(?i)\bfetch\w*")
+
+#: The words that turn a schema fetch into a statement of the truth.
+_NEGATIONS = ("no ", "not ", "never", "neither", "nothing", "without", "cannot")
+
+
+def _claims_a_schema_fetch(sentence: str) -> bool:
+    """Whether a sentence claims a schema is fetched, rather than denies it."""
+    lowered = sentence.lower()
+    for match in _FETCH.finditer(lowered):
+        window = lowered[max(0, match.start() - 50) : match.end() + 50]
+        if "schema" not in window:
+            continue
+        before = lowered[max(0, match.start() - 70) : match.start()]
+        if any(negation in before for negation in _NEGATIONS):
+            continue
+        return True
+    return False
+
+
+def test_the_docstring_does_not_promise_a_caller_that_fetches_a_schema() -> None:
+    """The claim is gone: no caller supplies a schema, so nothing is fetched.
+
+    This is the RED the docstring fix answers. A corrected docstring may say
+    "no caller supplies a schema" or that a future caller would make the
+    helpers live; what it may not do is keep the false claim.
+    """
+    claimed = [
+        sentence
+        for sentence in _sentences(greenhouse_contract.__doc__ or "")
+        if _claims_a_schema_fetch(sentence)
+    ]
+    assert claimed == [], (
+        "The module docstring claims a schema fetch no code performs: "
+        f"{claimed!r}. No caller supplies a schema today — the WS-32 assist pilot "
+        "fetches none and passes neither schema= nor consent_required= — so say "
+        "that consent reporting is built but inert."
+    )
+
+
+def test_the_docstring_says_consent_reporting_is_built_but_inert() -> None:
+    """The fix names the functions and what would make them live.
+
+    Deleting the paragraph would not do: the docstring has to carry the truth
+    a reader needs — the two helpers, that nothing supplies a schema today,
+    and that a caller passing one (or naming ``consent_required``) is what
+    would make consent reporting live.
+    """
+    doc = " ".join((greenhouse_contract.__doc__ or "").split())
+
+    assert "consent_fields_from_schema" in doc
+    assert "custom_question_fields" in doc
+    assert "consent_required" in doc
+    assert "no caller" in doc.lower()
+    # The accurate half survives: a missing consent is never reported as a
+    # *missing* field — it is a human's to give.
+    assert "a human's to give" in doc
+
+
+def test_consent_reporting_has_no_production_caller() -> None:
+    """A tripwire, not a proof: if this fails, the docstring is now wrong.
+
+    ``consent_fields_from_schema`` and ``custom_question_fields`` are built and
+    tested, and inert: the submit node hands over no schema and the pilot
+    fetches none, so no production code calls them. This scans ``src/`` and
+    ``scripts/`` for either name, skipping the module that defines them (whose
+    own ``validate_against_contract`` is the plumbing, not a caller with a
+    schema) and skipping the test tree — ``src`` and ``scripts`` are the only
+    trees scanned at all.
+
+    It is a text scan and therefore a tripwire rather than a proof: an
+    aliased import or a string-built name would evade it. When it trips, the
+    module docstring's "no caller supplies a schema today" is what to update.
+    """
+    root = Path(__file__).resolve().parents[1]
+    defining_module = Path(greenhouse_contract.__file__).resolve()
+    names = ("consent_fields_from_schema", "custom_question_fields")
+
+    offenders: list[str] = []
+    for package in ("src", "scripts"):
+        for path in sorted((root / package).rglob("*.py")):
+            if path.resolve() == defining_module:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if any(name in line for name in names):
+                    offenders.append(
+                        f"{path.relative_to(root).as_posix()}:{line_number}: {line.strip()}"
+                    )
+
+    assert offenders == [], (
+        "A caller of the contract's consent helpers appeared, so consent reporting "
+        "is no longer inert and the module docstring's claim must be updated: "
+        + "; ".join(offenders)
+    )

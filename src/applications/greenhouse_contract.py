@@ -40,15 +40,23 @@ question before anything is submitted. An unconditional gate would refuse the
 only live submission path. An adapter for a further provider must add one row
 to :data:`CONTRACT_ADAPTERS` to be covered.
 
-**Consent is the caller's to supply.** :func:`validate_against_contract`
-reports unanswered consent fields only when the caller names them — through
-``consent_required``, or by handing over the board's ``schema``, whose own
-consent questions are what the operator answers at approval time. The submit
-node passes neither, because the form plan that knows the board's questions is
-computed at prepare time and is not persisted on the approval row: **consent
-reporting is inert in the node** and belongs to callers that hold a schema (the
-WS-32 assist pilot fetches one). A missing consent is never reported as a
-*missing* field — it is a human's to give, not a defect in the agent's work.
+**Consent is the caller's to supply, and no caller supplies it today.**
+:func:`validate_against_contract` reports unanswered consent fields only when
+the caller names them — through ``consent_required``, or by handing over the
+board's ``schema``, whose own consent questions are what the operator answers
+at approval time. Nothing does either yet. The submit node passes neither,
+because the form plan that knows the board's questions is computed at prepare
+time and is not persisted on the approval row; and the WS-32 assist pilot
+passes neither, because it fetches no schema — it drives the page and hands it
+over, and the board's questions are read by the WS-08 walker, not by this
+module. So :func:`consent_fields_from_schema` and
+:func:`custom_question_fields` are **built and tested but inert**: their only
+callers are ``validate_against_contract``'s own plumbing and the tests that
+exercise them. They become live the moment a caller passes a ``schema`` or
+names ``consent_required`` fields — a caller that holds the board's form, which
+is the thing neither path holds today — and until then no run reports a
+consent question. A missing consent is never reported as a *missing* field —
+it is a human's to give, not a defect in the agent's work.
 """
 
 from __future__ import annotations

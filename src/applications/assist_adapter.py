@@ -127,6 +127,29 @@ logger = logging.getLogger(__name__)
 #: The status of a run that filled the form and stopped.
 AWAITING_HUMAN_SUBMIT = "awaiting_human_submit"
 
+#: The status of a run that met a question the candidate's evidence does not
+#: answer. The question is on the page for the human to answer there.
+NEEDS_HUMAN = "needs_human"
+
+#: The status of a run the page's own validation rejected. The human sees why
+#: and finishes the form in the window the agent left open.
+FORM_ERROR = "form_error"
+
+#: The three stops the browser is deliberately left open for, because a
+#: **form** is waiting for a person: filled and ready to submit
+#: (:data:`AWAITING_HUMAN_SUBMIT`), stopped on a question the agent could not
+#: ground (:data:`NEEDS_HUMAN`), or rejected by the page's own validation
+#: (:data:`FORM_ERROR`). This is the one list both the adapter's dispatches and
+#: the pilot's hand-over read — a second literal set is how the two drift, and
+#: the pilot read only the first of them for exactly that reason. The two stops
+#: deliberately **not** here are the ones where the *page* is the problem (a
+#: challenge, ``blocked_human_review``, and an unsafe navigation): their
+#: evidence is captured by the adapter, which then closes the browser, because
+#: a window sitting on a CAPTCHA is not a hand-over.
+FORM_WAITING_STATUSES: frozenset[str] = frozenset(
+    {AWAITING_HUMAN_SUBMIT, NEEDS_HUMAN, FORM_ERROR}
+)
+
 #: The status of the payload gate: a documented field the payload does not
 #: answer. The provider accepts such a payload as blank, so this adapter
 #: refuses it before a page is opened.
@@ -469,7 +492,7 @@ class AssistAdapter(FakeAtsPlaywrightAdapter):
                 )
                 self.close()
                 return result
-            if outcome.kind == "needs_human":
+            if outcome.kind == NEEDS_HUMAN:
                 # The measurement the pilot exists for: the questions the
                 # candidate's evidence does not cover, as the walker found them.
                 # The page is the allowlisted target the operator chose and a
@@ -479,7 +502,7 @@ class AssistAdapter(FakeAtsPlaywrightAdapter):
                 return self._needs_human_result(
                     page, outcome, trace, context, evidence_dir, workflow_id, prepared
                 )
-            if outcome.kind == "form_error":
+            if outcome.kind == FORM_ERROR:
                 return self._form_error_result(
                     page, outcome, trace, context, evidence_dir, workflow_id, prepared
                 )
@@ -846,7 +869,10 @@ class AssistAdapter(FakeAtsPlaywrightAdapter):
 
 __all__ = [
     "AWAITING_HUMAN_SUBMIT",
+    "FORM_ERROR",
+    "FORM_WAITING_STATUSES",
     "INCOMPLETE_PAYLOAD",
+    "NEEDS_HUMAN",
     "REQUEST_PLACEHOLDERS",
     "SUPPORTED_KINDS",
     "AssistAdapter",
