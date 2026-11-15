@@ -325,6 +325,10 @@ argues for becomes the next task's premise.
 | 5 | the human's submit produces the evidence `verify` reads (real Chromium) | `tests/test_ws32_assist_mode.py` |
 | 5 | `split_candidate_name` units; `prepare` emits the identity fields | `tests/test_ws32_assist_mode.py` |
 | 5 | a spy proves `submit` calls `require_capability(PREPARE)` | `tests/test_ws32_assist_mode.py` |
+| 3, 5 | the pilot hands over on every form-waiting stop, not only the happy one | `tests/test_ws32_assist_mode.py` |
+| 3 | the submission policy is re-checked at execution, so the kill switch binds | `tests/test_ws32_durable_submission.py` |
+| 2 | the contract docstring's consent claim is true, and no production caller exists | `tests/test_ws32_payload_contract.py` |
+| 3 | the console reads an accepted submission as accepted, with its run id | `frontend/src/screens/approvals-screen.test.tsx` |
 
 86 cases across the five WS-32 test files. For Tasks 1–4, each test was written before its
 implementation and run failing; those RED runs are recorded in the per-task reports under
@@ -351,24 +355,37 @@ are all existing machinery.
 1. **The pilot has not been run against a real posting.** §5.5 is the protocol; the
    findings section is empty on purpose. The task's measurement half is the human's
    next step.
-2. **The console still says "Approve and submit"** and its mock returns a 200-shaped
-   body with "Application submitted", while the route now answers 202 + a run id.
-   `frontend/src/lib/api/schema.ts` is stale (`npm run api:types` against a running
-   server, then prettier). Reported by Task 3 rather than guessed at; the frontend was
-   outside that task's file list.
-3. **`submission.uncertain` needs a surface.** The uncertain attempt is recorded as a
+2. **The `SUBMISSION_POLICY` was read only where the approval was accepted, and the
+   worker now re-reads it.** This was found by the whole-branch review and fixed in
+   this workstream's fix pass (`src/runs/worker.py`): moving execution onto the queue
+   widened the gap from milliseconds to an unbounded queue delay, so a policy flip
+   between the decision and the run would not have bound. Fixed, with the refused
+   case and the allowed case both pinned.
+3. **`src/api/routes/applications.py:685` hands `location_for_application_url` a
+   `Session.get_bind()` (an `Engine`) where a `sessionmaker` is expected**, so the
+   posting's country is always `None` and the country-qualified work-authorization
+   fact (WS-25c) is **inert on the API prepare path**. This is **pre-existing** — it
+   was committed with WS-25c (`a4f8673`) and is not WS-32's code; the pilot's identical
+   call was fixed in Task 5. It fails safe (the question goes to a human), which is
+   why nothing surfaced it. The fix is one line plus a test that drives the route with
+   a seeded listing, and it belongs to the next workstream.
+4. **The button still says "Approve and submit"** while the route now answers 202 + a
+   run id. The *result* rendering was fixed in this pass (the console distinguishes
+   accepted-and-queued from submitted, with the run id shown and the generated types
+   regenerated); the button's own copy is a residual wording item.
+5. **`submission.uncertain` needs a surface.** The uncertain attempt is recorded as a
    run event and the approval row stays `APPROVED`, so an operator looking only at the
    approvals list sees a decided approval — not that its outcome is unknown. Until the
    console surfaces the event where the operator decides, it will be missed in
    practice.
-4. **The at-most-once guard treats `FAILED` as "already submitted".** Correct under
+5. **The at-most-once guard treats `FAILED` as "already submitted".** Correct under
    the reading that a failed row cannot be safely retried, but it means no automatic
    path re-attempts a genuinely failed submission; recovery is a human act (prepare
    again, which creates a new approval).
-5. **`docs/PROJECT_PLAN.md` and `docs/implementation/06-security-preconditions.md`
+6. **`docs/PROJECT_PLAN.md` and `docs/implementation/06-security-preconditions.md`
    still under-describe the PDF support and the two-layer capability refusal** — the
    historical records were left as they are; README was corrected in Task 1.
-6. **Deferred minors** are listed per task in the SDD ledger
+7. **Deferred minors** are listed per task in the SDD ledger
    (`.superpowers/sdd/2026-11-14-submission-readiness/progress.md`): the mojibake
    threshold is a judgement call bounded by the fixtures; the encrypted fixture is not
    byte-reproducible; `enqueue_submission` is missing from `src/runs/service.py`'s
