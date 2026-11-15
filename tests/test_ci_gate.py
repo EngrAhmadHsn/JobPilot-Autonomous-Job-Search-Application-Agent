@@ -153,9 +153,9 @@ class TestTheBrowserTests:
         """The files that drive a real browser carry the marker.
 
         The list is the one the suite itself proved: with the browser
-        binaries pointed at an empty directory, exactly these two files
-        failed. A new browser test that is not marked still passes in the
-        gate job (Chromium is installed there), but it belongs here.
+        binaries pointed at an empty directory, exactly these files failed.
+        A new browser test that is not marked still passes in the gate job
+        (Chromium is installed there), but it belongs here.
         """
         marked = set()
         for path in (Path(__file__).parent).glob("test_*.py"):
@@ -164,7 +164,14 @@ class TestTheBrowserTests:
                 continue
             if "pytest.mark.browser" in path.read_text(encoding="utf-8"):
                 marked.add(path.name)
-        assert marked == {"test_browser_variants.py", "test_isolation.py"}
+        assert marked == {
+            "test_browser_variants.py",
+            "test_isolation.py",
+            # WS-32 · Task 5: the assist-mode file drives a real Chromium for
+            # one test — the human's own submit on the fake ATS — so it carries
+            # the marker and belongs in the browser job.
+            "test_ws32_assist_mode.py",
+        }
 
 
 # -- the migration check -------------------------------------------------------

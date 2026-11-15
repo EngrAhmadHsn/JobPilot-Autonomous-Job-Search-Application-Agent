@@ -73,8 +73,17 @@ class TestCapabilityMatrix:
         assert registry.capabilities("rogue-adapter") == frozenset()
 
     def test_matrix_is_declared_in_one_place(self) -> None:
-        assert set(ADAPTER_PERMISSIONS) == {"fake-ats-playwright", "greenhouse", "lever"}
+        assert set(ADAPTER_PERMISSIONS) == {
+            "fake-ats-playwright",
+            "assist-playwright",
+            "greenhouse",
+            "lever",
+        }
         assert CapabilityLevel.SUBMIT in ADAPTER_PERMISSIONS["fake-ats-playwright"]
+        # WS-32 · Task 5: the assist-mode pilot fills the form and stops, so
+        # PREPARE is the whole of its grant. Holding no SUBMIT is what makes the
+        # stop a capability rather than a convention.
+        assert ADAPTER_PERMISSIONS["assist-playwright"] == [CapabilityLevel.PREPARE]
 
     def test_registry_can_be_rebuilt(self) -> None:
         reset_registry()

@@ -8,6 +8,14 @@ Adapter      Capabilities              Why
 ============ ========================= ==================================
 fake-ats     prepare, submit, verify   The local fake ATS is the only
                                           submission target in this version.
+assist       prepare                   The WS-32 assist-mode pilot. The
+                                          agent fills the form and stops;
+                                          the **human** presses submit, so
+                                          this adapter must never hold
+                                          SUBMIT. Constructed directly by
+                                          ``scripts/pilot_assist.py``, not
+                                          selectable by an ordinary prepare
+                                          flow.
 greenhouse   prepare                   Preparing a Greenhouse payload is
                                           harmless; submitting is not
                                           implemented and must not be
@@ -24,6 +32,13 @@ implementation on the adapter base class, called first by every adapter's
 ``submit`` and ``verify``. Every adapter in this matrix — including the fake
 ATS, which holds ``SUBMIT`` — calls it, so the layer is uniform rather than a
 property of the two adapters that happen to fail without it.
+
+The capability each adapter asks for is the one it actually exercises, which is
+why the assist row reads the way it does: its ``submit`` fills a form and stops,
+so it asks for ``PREPARE`` (not ``SUBMIT``, which it must never hold), and its
+``verify`` reads the evidence of the human's own submission, so it asks for
+``PREPARE`` too — asking for ``VERIFY`` would make the one thing the pilot
+exists to verify unreachable.
 """
 
 from __future__ import annotations
@@ -36,6 +51,10 @@ ADAPTER_PERMISSIONS: dict[str, list[CapabilityLevel]] = {
         CapabilityLevel.SUBMIT,
         CapabilityLevel.VERIFY,
     ],
+    # WS-32 · Task 5: the assist-mode pilot fills the form and hands the browser
+    # to a human. PREPARE is the whole of its grant, and holding no SUBMIT is
+    # what makes the stop a capability rather than a convention.
+    "assist-playwright": [CapabilityLevel.PREPARE],
     "greenhouse": [CapabilityLevel.PREPARE],
     "lever": [CapabilityLevel.PREPARE],
 }
