@@ -98,14 +98,15 @@ describe("the approvals screen", () => {
     ).toBeInTheDocument()
   })
 
-  it("approves without naming an approver and shows the evidence", async () => {
+  it("approves without naming an approver, and names the run it queued", async () => {
     let sentBody: unknown = null
     server.use(
       http.post(
         `${BASE}/api/applications/:approvalId/approve`,
         async ({ request }) => {
           sentBody = await request.json()
-          return HttpResponse.json(approvalDecision())
+          // WS-32: the real route answers 202 with the queued run.
+          return HttpResponse.json(approvalDecision(), { status: 202 })
         }
       )
     )
@@ -125,7 +126,94 @@ describe("the approvals screen", () => {
     // The decision carries the reason only; the server attributes it to
     // the authenticated principal.
     expect(sentBody).toEqual({ reason: "Looks right" })
+    // The approval accepted the work; the run is how it is followed.
+    expect(
+      screen.getByText("The submission was accepted and queued")
+    ).toBeInTheDocument()
+    expect(screen.getByText("run-1")).toBeInTheDocument()
+  })
+
+  it("shows a completed execution as submitted, with its evidence", async () => {
+    /*
+      The other side of the same distinction: a response that reports a
+      **completed** execution (`success: true`) is rendered as submitted, with
+      its evidence. No route answers this shape for an approval any more — the
+      worker records the outcome later — but the rendering has to stay honest
+      for it: `success` alone still decides between "submitted" and a refusal.
+    */
+    server.use(
+      http.post(`${BASE}/api/applications/:approvalId/approve`, () =>
+        HttpResponse.json(
+          approvalDecision({
+            status: "verified",
+            success: true,
+            run_id: null,
+            message: "The application was submitted and verified.",
+            evidence: {
+              url: "http://127.0.0.1:8901/submitted",
+              confirmation_text: "Application submitted",
+              status: "submitted",
+              screenshot_path: "./data/evidence/workflow-1.png",
+              trace_path: "workflow-1.trace.json",
+            },
+          })
+        )
+      )
+    )
+    const user = setupUser()
+    renderApp({ route: "/app/approvals" })
+
+    await fillPrepareForm(user)
+    await user.click(
+      screen.getByRole("button", { name: "Prepare application" })
+    )
+    await screen.findByText("What will be submitted")
+
+    await user.click(screen.getByRole("button", { name: "Approve and submit" }))
+
+    expect(
+      await screen.findByText("The application was submitted")
+    ).toBeInTheDocument()
     expect(screen.getByText("Application submitted")).toBeInTheDocument()
+  })
+
+  it("shows an accepted submission as accepted, with the run it queued", async () => {
+    /*
+      WS-32: the approve route answers 202 with a run id and
+      `success: false` **by design** — nothing has been submitted yet; the
+      work runs on the queue. The screen must say accepted and queued, name
+      the run, and never the old "The application was not submitted", which
+      reads as a failure and sends the operator back to prepare the same job
+      again.
+
+      This test drives the **default** mocked server, not an override, so the
+      answer it renders is the one the shared double claims the API gives.
+    */
+    const user = setupUser()
+    renderApp({ route: "/app/approvals" })
+
+    await fillPrepareForm(user)
+    await user.click(
+      screen.getByRole("button", { name: "Prepare application" })
+    )
+    await screen.findByText("What will be submitted")
+
+    await user.click(screen.getByRole("button", { name: "Approve and submit" }))
+
+    expect(
+      await screen.findByText("The submission was accepted and queued")
+    ).toBeInTheDocument()
+    expect(screen.getByText("run-1")).toBeInTheDocument()
+    expect(
+      screen.queryByText("The application was not submitted")
+    ).not.toBeInTheDocument()
+    // There is no evidence yet, and the screen says why rather than
+    // reporting a missing-evidence defect.
+    expect(
+      screen.getByText(
+        /Nothing has been submitted yet, so there is no evidence/
+      )
+    ).toBeInTheDocument()
   })
 
   it("shows the unanswered questions of a needs_human result", async () => {
@@ -135,6 +223,9 @@ describe("the approvals screen", () => {
           approvalDecision({
             success: false,
             status: "needs_human",
+            // A refusal carries no run: nothing was queued. Without this the
+            // factory's default would read as an accepted submission.
+            run_id: null,
             message:
               "The form asks 1 question(s) the candidate's evidence does not answer: Years of experience.",
             evidence: null,
@@ -161,6 +252,10 @@ describe("the approvals screen", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("Years of experience")).toBeInTheDocument()
     expect(screen.getByText("Needs a human answer")).toBeInTheDocument()
+    // A refusal is a refusal: no run was queued, and the banner says so.
+    expect(
+      screen.getByText("The application was not submitted")
+    ).toBeInTheDocument()
   })
 
   it("rejects without submitting anything", async () => {
@@ -172,6 +267,8 @@ describe("the approvals screen", () => {
           approvalDecision({
             success: false,
             status: "rejected",
+            // The reject path queues nothing (WS-32), so there is no run.
+            run_id: null,
             message: "Not this one",
             evidence: null,
           })

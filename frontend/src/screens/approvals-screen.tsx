@@ -4,7 +4,7 @@ import { useFieldArray, useForm, useWatch } from "react-hook-form"
 import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
-import { Banner } from "@/components/common/banner"
+import { Banner, type BannerTone } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { DocumentPicker } from "@/components/documents/document-picker"
 import { FieldList } from "@/components/common/field-list"
@@ -135,8 +135,8 @@ function BoardQuestions({
         Questions this board asks
       </p>
       <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-forest/80">
-        As the board publishes them, in order — this is what the agent will
-        work through.
+        As the board publishes them, in order — this is what the agent will work
+        through.
       </p>
       <ul className="space-y-1.5">
         {questions.map((question) => (
@@ -185,6 +185,44 @@ function FormSection({
   )
 }
 
+/**
+ * What the decision actually says (WS-32).
+ *
+ * Approving no longer performs the submission inside the request: it records
+ * the decision, **accepts** the submission as durable work and answers `202`
+ * with the run a worker will execute. `success: false` is that contract, not
+ * a failure — nothing has been submitted yet — so reading `success` alone
+ * would present an accepted, queued submission as "not submitted", and an
+ * operator who reads that will prepare the same job again.
+ *
+ * Three cases, from the response alone:
+ *
+ * - **submitted** — a completed execution's own verdict (`success`);
+ * - **queued** — a run id came back and no execution has happened yet;
+ * - **refused** — everything else: a refusal, a rejected form, a challenge,
+ *   a failure. The questions, errors and evidence below carry the detail.
+ */
+type DecisionOutcome = "submitted" | "queued" | "refused"
+
+function decisionOutcome(result: ApprovalDecisionResponse): DecisionOutcome {
+  if (result.success) return "submitted"
+  if (result.run_id) return "queued"
+  return "refused"
+}
+
+const DECISION_BANNERS: Record<
+  DecisionOutcome,
+  { tone: BannerTone; title: string }
+> = {
+  submitted: { tone: "success", title: "The application was submitted" },
+  queued: {
+    tone: "info",
+    // "Accepted", never "submitted": the employer has not been reached yet.
+    title: "The submission was accepted and queued",
+  },
+  refused: { tone: "warning", title: "The application was not submitted" },
+}
+
 /** The result of a decision, with the evidence that came with it. */
 function DecisionResult({
   result,
@@ -193,6 +231,8 @@ function DecisionResult({
   result: ApprovalDecisionResponse
   applicationId: string | null
 }) {
+  const outcome = decisionOutcome(result)
+  const banner = DECISION_BANNERS[outcome]
   const metadata = result.metadata ?? {}
   const questions = asStringArray(metadata.questions)
   const errors = asStringArray(metadata.errors)
@@ -220,15 +260,17 @@ function DecisionResult({
 
         <StatusExplainer status={result.status} />
 
-        <Banner
-          tone={result.success ? "success" : "warning"}
-          title={
-            result.success
-              ? "The application was submitted"
-              : "The application was not submitted"
-          }
-        >
+        <Banner tone={banner.tone} title={banner.title}>
           <PlainText as="span">{result.message}</PlainText>
+          {outcome === "queued" && result.run_id ? (
+            // The run id is what the operator follows; without it the
+            // acceptance is a dead end. Nothing is claimed as done.
+            <p className="mt-1.5">
+              Run <code className="font-mono text-[11px]">{result.run_id}</code>{" "}
+              is waiting for a worker. Nothing has reached the employer yet —
+              the run shows what happens next.
+            </p>
+          ) : null}
         </Banner>
 
         {questions.length > 0 ? (
@@ -313,6 +355,14 @@ function DecisionResult({
               </figure>
             ) : null}
           </div>
+        ) : outcome === "queued" ? (
+          // An accepted submission has no evidence yet by definition: the
+          // worker has not reached the employer. Saying "no evidence" here
+          // would read as a defect rather than as the contract.
+          <p className="text-sm text-muted-foreground">
+            Nothing has been submitted yet, so there is no evidence to show. The
+            run carries the outcome when the worker finishes.
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             The result carried no evidence. Nothing is claimed on the strength

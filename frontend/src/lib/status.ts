@@ -121,6 +121,16 @@ const RESULT_STATUSES: Record<string, StatusPresentation> = {
     nextStep:
       "The page redirected to a host that is not on the allowlist. Nothing was submitted.",
   },
+  // WS-32: an approved submission is accepted as durable work and the
+  // answer carries the **run's** status, not the application's. `QUEUED` is
+  // not a failure and not a success: the work is recorded, a worker will
+  // perform it, and the run id is how the operator follows it.
+  QUEUED: {
+    label: "Accepted and queued",
+    tone: "info",
+    nextStep:
+      "The submission is accepted as background work and runs as soon as a worker is available. Follow it by its run id.",
+  },
 }
 
 const APPROVAL_STATUSES: Record<string, StatusPresentation> = {

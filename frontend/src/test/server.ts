@@ -151,11 +151,22 @@ export const server = setupServer(
       application_id: "application-1",
     })
   ),
+  // WS-32: approving **accepts** the submission as durable work. The route
+  // answers 202 with the run a worker will execute; `success: false` is the
+  // contract, not a failure — nothing has been submitted yet.
   http.post(`${BASE}/api/applications/:approvalId/approve`, () =>
-    HttpResponse.json(approvalDecision())
+    HttpResponse.json(approvalDecision(), { status: 202 })
   ),
+  // The reject route queues nothing, so there is no run id and no evidence.
   http.post(`${BASE}/api/applications/:approvalId/reject`, () =>
-    HttpResponse.json(approvalDecision())
+    HttpResponse.json(
+      approvalDecision({
+        status: "rejected",
+        run_id: null,
+        message: "Application rejected by the approver",
+        metadata: { approver: "user-1" },
+      })
+    )
   ),
   http.get(`${BASE}/api/applications/approvals/:approvalId`, () =>
     HttpResponse.json({

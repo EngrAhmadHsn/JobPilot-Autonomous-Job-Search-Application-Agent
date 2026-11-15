@@ -93,13 +93,15 @@ test("the operator can go from a resume to a tracked application", async ({
   await page.getByLabel("Reason").fill("Looks right")
   await page.getByRole("button", { name: "Approve and submit" }).click()
 
+  // WS-32: the approve **accepts** the submission as durable work — the route
+  // answers 202 with a run id and the run's own status. The console must say
+  // accepted and queued (never "was not submitted", which reads as a refusal),
+  // and name the run the operator follows.
   await expect(page.getByText("The decision")).toBeVisible({ timeout: 120_000 })
-  const decision = page.getByText("The decision").locator("..")
   await expect(
-    page.getByText(
-      /The application was submitted|The application was not submitted/
-    )
+    page.getByText("The submission was accepted and queued")
   ).toBeVisible()
+  await expect(page.getByText(/waiting for a worker/)).toBeVisible()
 
   // 6. The tracker holds the application and its history --------------------
   await page.getByRole("link", { name: "Tracker" }).click()
@@ -108,7 +110,6 @@ test("the operator can go from a resume to a tracked application", async ({
   await page.getByRole("link", { name: "AI Engineer" }).first().click()
   await expect(page.getByText(/History \(\d+\)/)).toBeVisible()
   await expect(page.getByText("Record a human outcome")).toBeVisible()
-  void decision
 })
 
 /**

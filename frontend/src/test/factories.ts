@@ -402,6 +402,17 @@ export function tailoredResponse(): StoredTailoring {
   return { ...tailorResponse(), created_at: "2026-10-21T10:00:00Z" }
 }
 
+/**
+ * The answer to a decision (WS-32).
+ *
+ * The approve route **accepts** the submission as durable work: it answers
+ * `202` with the run the work was queued onto, the run's own status
+ * (`QUEUED`) and `success: false` — not because anything failed, but because
+ * nothing has been submitted yet. A success-shaped body here would tell the
+ * operator the employer had been reached when all that happened is that a
+ * worker was handed the job. A test that simulates a refusal (no run) or a
+ * completed execution overrides from here.
+ */
 export function approvalDecision(
   overrides: Partial<ApprovalDecisionResponse> = {}
 ): ApprovalDecisionResponse {
@@ -409,17 +420,13 @@ export function approvalDecision(
     approval_id: "approval-1",
     workflow_id: "workflow-1",
     adapter_name: "fake-ats",
-    status: "verified",
-    success: true,
-    message: "The application was submitted and verified.",
-    evidence: {
-      url: "http://127.0.0.1:8901/submitted",
-      confirmation_text: "Application submitted",
-      status: "submitted",
-      screenshot_path: "./data/evidence/workflow-1.png",
-      trace_path: "workflow-1.trace.json",
-    },
-    metadata: { job_url: "http://127.0.0.1:8901/basic" },
+    status: "QUEUED",
+    success: false,
+    run_id: "run-1",
+    message:
+      "Approval recorded. The submission is queued and a background worker will perform it; track it with the run id.",
+    evidence: null,
+    metadata: null,
     ...overrides,
   }
 }

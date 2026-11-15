@@ -25,6 +25,8 @@ describe("the status vocabulary", () => {
       "approved",
       "executed",
       "failed",
+      // WS-32: the approve answer carries the run's own status.
+      "QUEUED",
     ]
     for (const status of known) {
       const presentation = describeStatus(status)

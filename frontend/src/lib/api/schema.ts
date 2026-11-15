@@ -480,23 +480,36 @@ export interface paths {
         put?: never;
         /**
          * Approve Application
-         * @description Approve a prepared application and execute it.
+         * @description Approve a prepared application and queue its submission (WS-32).
          *
-         *     The decision is recorded with the approver's identity and the time. The
-         *     payload that is executed is the persisted one.
+         *     Two things happen here and only two: the human's decision is recorded
+         *     durably, and the submission is **accepted** as background work. The
+         *     submission itself is performed by the worker, because a browser walk
+         *     against a real board takes tens of seconds and outlives the HTTP request
+         *     that asked for it — running it inline is how a proxy timeout or an API
+         *     restart loses a run and leaves the approval row mid-flight.
+         *
+         *     The payload that is executed is still the persisted one: the worker
+         *     restores it from this row, so *the approved payload is the submitted
+         *     payload*.
          *
          *     Args:
          *         approval_id: The approval request to approve.
-         *         req: The decision (approver identity and optional reason).
+         *         req: The decision (optional reason; the approver is the principal).
          *         db: The request-scoped database session.
          *
          *     Returns:
-         *         The result of the execution, with its evidence.
+         *         ``202 Accepted`` with the run id the caller polls. The status is the
+         *         run's (``QUEUED``), never "submitted" — the employer has not been
+         *         reached yet, and the response must not say otherwise.
          *
          *     Raises:
          *         HTTPException 403: The policy forbids executing the application.
          *         HTTPException 404: The approval request is unknown.
-         *         HTTPException 409: The request was already decided.
+         *         HTTPException 409: The request was already decided, the job is no
+         *             longer open, or its stored payload cannot be restored.
+         *         HTTPException 503: The background queue is at capacity. Nothing was
+         *             written and the approval is still pending, so the caller may retry.
          */
         post: operations["approve_application_api_applications__approval_id__approve_post"];
         delete?: never;
@@ -1850,6 +1863,15 @@ export interface components {
         /**
          * ApprovalDecisionResponse
          * @description Response body for an approval decision.
+         *
+         *     WS-32: an approval no longer carries a submission result, because the
+         *     submission no longer happens during the request. ``result``/``evidence``/
+         *     ``metadata`` are therefore optional — the *reject* path still fills
+         *     ``metadata``, and the approve path has nothing to report yet beyond the
+         *     accepted run. ``status`` is the **run's** vocabulary (``QUEUED``), not the
+         *     application's (``submitted``/``verified``): a response that said
+         *     "submitted" would claim the employer had been reached when all that
+         *     happened is that durable work was created.
          */
         ApprovalDecisionResponse: {
             /** Adapter Name */
@@ -1866,6 +1888,8 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             } | null;
+            /** Run Id */
+            run_id?: string | null;
             /** Status */
             status: string;
             /** Success */
@@ -3931,7 +3955,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
