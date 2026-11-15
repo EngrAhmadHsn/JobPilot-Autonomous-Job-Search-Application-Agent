@@ -1,0 +1,68 @@
+{
+  "url": "https://boards.greenhouse.io/cloudflare/jobs/8097321",
+  "filled": [
+    {
+      "label": "First Name*",
+      "value": "Ada"
+    },
+    {
+      "label": "Last Name*",
+      "value": "Lovelace"
+    },
+    {
+      "label": "Email*",
+      "value": "ada.lovelace@example.com"
+    },
+    {
+      "label": "Phone*",
+      "value": "+1 555 0100"
+    },
+    {
+      "label": "Location (City)*",
+      "value": "London, United Kingdom"
+    },
+    {
+      "label": "Legal Name (if different than above)*",
+      "value": "Ada Lovelace"
+    },
+    {
+      "label": "Would you like to include your LinkedIn profile, personal website or blog?",
+      "value": "https://www.linkedin.com/in/ada-lovelace-demo"
+    },
+    {
+      "label": "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*",
+      "value": "London, United Kingdom"
+    },
+    {
+      "label": "Please indicate your current city, state, and country.*",
+      "value": "United Kingdom"
+    }
+  ],
+  "fill_failed": [
+    {
+      "label": "Country*",
+      "error": "Error"
+    }
+  ],
+  "filled_count": 9,
+  "resume_uploaded": true,
+  "screenshot": "E:\\Study\\Supporting Study\\Job Agents\\Agentic Job Applier\\.scratch\\ws32_pilot\\fill_confirmed\\filled_form.png",
+  "dom_readback": {
+    "First Name": "Ada",
+    "Last Name": "Lovelace",
+    "Email": "ada.lovelace@example.com",
+    "Country*": "",
+    "Phone": "+1 555 0100",
+    "Location (City)*": "",
+    "Legal Name (if different than above)": "Ada Lovelace",
+    "Would you like to include your LinkedIn profile,": "https://www.linkedin.com/in/ada-lovelace-demo",
+    "How did you hear about this job?": "",
+    "Do you now or will you in the future require imm": "",
+    "This role requires that you live in one of the f": "",
+    "Please indicate your current city, state, and co": "United Kingdom",
+    "Gender": "",
+    "Are you Hispanic/Latino?": "",
+    "Veteran Status": ""
+  },
+  "submitted": false
+}

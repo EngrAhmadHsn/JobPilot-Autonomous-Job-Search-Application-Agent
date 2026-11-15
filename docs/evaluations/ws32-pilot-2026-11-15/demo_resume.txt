@@ -1,0 +1,27 @@
+Ada Lovelace
+Software Engineer
+ada.lovelace@example.com | +1 555 0100
+London, UK
+
+SUMMARY
+Software engineer with eight years of experience building data pipelines and
+backend services in Python.
+
+EXPERIENCE
+Senior Software Engineer | Analytical Engines Ltd
+2020 - Present
+- Built a streaming ingestion pipeline handling two million events a day.
+- Led the migration of a reporting service from a monolith to three services.
+- Mentored four engineers through their first production on-call rotations.
+
+Software Engineer | Difference Engine Co
+2017 - 2020
+- Wrote the scheduling service behind a batch analytics product.
+- Cut the nightly job runtime from nine hours to fifty minutes.
+
+EDUCATION
+BSc Computer Science | University of London
+2013 - 2016
+
+SKILLS
+Python, SQL, PostgreSQL, Docker, Kubernetes, Airflow, Spark, REST APIs, pytest

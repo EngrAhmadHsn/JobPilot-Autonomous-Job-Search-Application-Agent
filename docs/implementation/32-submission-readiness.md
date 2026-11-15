@@ -1,7 +1,8 @@
 # WS-32 · Submission Readiness: a PDF Résumé, a Validated Payload, a Durable Submission, and the Assist Pilot
 
-Status: **Code complete (2026-11-15) — Tasks 1–4 landed; the pilot's code and rehearsal are
-done and its first real run is awaiting the human** · Milestone: **M5** ·
+Status: **Code complete, and the pilot's first live run is done (2026-11-15, fill-only)**
+— Tasks 1–4 landed and §5.5 carries the measurement from a real Greenhouse form, taken with
+**nothing submitted**; the human-submit half remains the operator's · Milestone: **M5** ·
 Depends on: WS-06 (the allowlist, the approval gate and the evidence trail), WS-07
 (the tracking tables), WS-08 (the form walker and the fake-ATS variants), WS-18
 (the durable queue), WS-25/25b/25c (the provider depth, the board registry and the
@@ -266,40 +267,115 @@ Result: `awaiting_human_submit` in **1.3 s**, questions left for the human
 afterwards — the agent filled the form and did not submit it. (`--unattended` is for
 the rehearsal only; it claims no evidence and no verification.)
 
-### 5.5 The first live run — the protocol, and it has not happened yet
+### 5.5 The first live run — done 2026-11-15, fill-only
 
-**Status: awaiting the human's first live run.** No measurement of a real posting has
-been taken, and none is claimed here.
+**Status: the first live run has happened.** It was a **fill-only** run at the operator's
+instruction: the agent filled a real Greenhouse form and **`Submit application` was never
+clicked** — no application reached any employer. The measurement below is what it produced,
+and it is the deliverable the workstream existed for. The human-submit half is still the
+operator's, whenever they choose to take it.
+
+Target: `https://boards.greenhouse.io/cloudflare/jobs/8097321` (AI Security Research & Red
+Team Engineer, Cloudflare) and six other live corpus postings, with a demo candidate
+("Ada Lovelace", a clearly-fake address) and a demo `.txt` résumé.
 
 ```
-set ALLOWED_DOMAINS=boards.greenhouse.io,greenhouse.io
 set PLAYWRIGHT_HEADLESS=false
 env\Scripts\python.exe scripts\pilot_assist.py ^
     --url https://boards.greenhouse.io/<company>/jobs/<id> ^
-    --profile-id <stored profile id> --job-title "<the posting's title>" ^
-    --company "<the company>" --json
+    --job-title "<title>" --company "<company>" ^
+    --candidate-name "Ada Lovelace" --email "ada.lovelace@example.com" ^
+    --phone "+1 555 0100" --resume-path "<a demo resume.txt>" --json
 ```
 
-The operator adds the board's host to `ALLOWED_DOMAINS` **deliberately, per run**;
-without it the pilot prints `The pilot refused to start: …` and exits 3 before any
-browser exists. `PLAYWRIGHT_HEADLESS=false` is required — the whole point is a window
-the operator can finish the form in. `--close-when-done` stays off until the human has
-pressed submit.
+`greenhouse.io` is in the **default** `ALLOWED_DOMAINS`, so this board needed no
+configuration change. The pilot refuses a host outside the allowlist before a browser
+exists; that was verified in the fix round, not here.
 
-**To record** (the measurement the workstream exists for):
+#### What a real Greenhouse board is actually shaped like
 
-| What | Where it comes from in the report |
+| Finding | Evidence |
 |---|---|
-| elapsed time | `elapsed_seconds` |
-| the questions it could not answer | `questions_unanswered` |
-| the questions it left for the human | `questions_left_alone` |
-| the widgets it did not recognise | `unrecognised_widgets` |
-| whether the page's own validation complained | at the human's own submit — the browser's message, or `form_error` if the form was rejected before the handover |
-| the stop point | `evidence.url`, `evidence.screenshot_path` |
-| what the human's submit confirmed | `evidence.confirmation_text`, `verified_status` |
+| The form is **inline on the posting page** — no multi-step wizard, no "Apply" step that loads a new form | `job-boards.greenhouse.io/<company>/jobs/<id>` titles itself "Job Application for …" and carries all 22–35 controls at once |
+| A **closed** posting answers **200 + a redirect** to `<company>?error=true`; a live one stays on `/jobs/<id>` | 3 of 12 corpus postings probed were closed, 9 live. **Liveness cannot be read from the status code** |
+| The page carries **two** buttons the product classifies as submit: `Apply` (nav) and `Submit application` (the real one) | `SUBMIT_BUTTON` matches `apply`, so `_find_button` returns `Apply` — `is_submit=True` — at the top of the page |
+| The required-marker `*` is part of the **visible** label but **not** of the `aria-label` on the four most important fields | `First Name*` / `Last Name*` / `Email*` / `Phone*` have `aria-label="First Name"` etc.; `Country*` and `Location (City)*` have none |
+| The boards ask many bespoke questions, and a **file input** the planner counts as unanswered | 11–25 unresolved per board (below) |
 
-The run's findings belong in this document (a new section), and the board shape it
-argues for becomes the next task's premise.
+#### The measurement
+
+The pilot **as it ships** stops with `needs_human` after 3.7 s on the live board — 17
+questions it cannot answer — and **types nothing**, because `_drive_form` returns at
+`plan.unresolved` before `_fill_and_submit` is reached. That is the designed behaviour
+(§24: an ungrounded question is never guessed), and on a real board it means the walk
+never reaches the fill.
+
+Seven live boards, measured through the product's own planner
+(`build_form_plan(read_controls(page), facts)`):
+
+| Posting | known | unknown | unresolved |
+|---|---|---|---|
+| GitLab SRE, Cells Infra | 11 | 15 | 15 |
+| GitLab Strategic Account Executive | 10 | 13 | 13 |
+| GitLab Senior Solutions Architect | 12 | 15 | 15 |
+| Sourcegraph ML & Agentic Systems Engineer | 9 | 23 | 23 |
+| Sourcegraph Compliance Manager | 9 | 25 | 25 |
+| Figma AI Engineer, Internal Tools | 9 | 13 | 13 |
+| **Cloudflare AI Security Research** | 10 | 11 | **11** |
+
+Driving the same planner and the same `_fill_control` by hand, on Cloudflare's form:
+
+| | filled | failed |
+|---|---|---|
+| the shipped locator (`get_by_label("First Name*")`) | 4 | 6 — every one a `TimeoutError` |
+| the same locator with the trailing `*` stripped | **9** | 1 |
+
+The DOM was read back after the second run, and the values are in the controls:
+`First Name='Ada'`, `Last Name='Lovelace'`, `Email='ada.lovelace@example.com'`,
+`Phone='+1 555 0100'`, the LinkedIn URL, the legal name, and the current-country answer.
+The résumé was attached to the file input. `Submit application` was located and left alone
+(`submitted: False`). Screenshot:
+`.scratch/ws32_pilot/fill_confirmed/filled_form.png`.
+
+#### The defects this measurement establishes
+
+1. **The trailing required-marker breaks the label locator on the fields that matter most.**
+   `_label_locator` looks the label up verbatim, and the planner's label is the **visible**
+   text — `"First Name*"`. On a real Greenhouse form that accessible name does not exist
+   (`get_by_label("First Name*", exact=True)` → 0 matches; `get_by_label("First Name")` →
+   1). So the four identity fields — the ones Task 1's PDF work and Task 2's contract gate
+   were built to fill — time out. `Country*`/`Location (City)*` escape only because their
+   accessible name *is* the label element, star included: **the same bug is invisible on
+   half the form**, which is why no fake-ATS variant caught it.
+   *Fix shape:* normalise the required marker (and surrounding whitespace) out of the label
+   before the lookup, keeping the verbatim attempt first. Three lines in
+   `_label_locator`, plus a fake-ATS variant whose labels carry a `*` so the regression is
+   pinned — the existing eleven variants use bare labels, which is exactly why this shipped.
+7. **`SUBMIT_BUTTON` matches `apply`, and on a real board `Apply` is navigation.** The
+   assist walk stops at the first match, so the human's hand-over is the top of the page
+   with an empty form. The real submit is `Submit application`.
+   *Fix shape:* prefer an exact submit-shaped name (`submit`) over the loose pattern, and
+   make the assist adapter refuse to treat a button as the hand-over point until the form
+   has been filled.
+3. **A closed posting is a 200 with a redirect.** Any code that treats the HTTP status as
+   liveness will try to fill a job *list*.
+4. **`plan.unresolved` includes every `unknown` question, even an optional one** — so on
+   real boards the walk stops before it fills anything, with a working fill code path
+   never reached. `skipped` exists for the optional-unanswerable case; the optional
+   *unknown* case goes to `unresolved` instead. The reference behaviour is defensible
+   (an unrecognised question is not filled) but the *stop* is disproportionate: the run is
+   abandoned rather than filled-and-handed-over, which is what assist mode is for.
+5. **The selected board matters more than anything else.** The unresolved count runs from
+   11 to 25 on the same provider, so a board's bespoke questions decide whether an assist
+   run gets anywhere — and the résumé `Attach` input plus the unlabelled required hidden
+   controls lead every list. Which board to support first is a question the corpus can now
+   answer by measurement rather than guesswork.
+
+**Not measured, and not claimable:** what happens after a submit. The confirmation page,
+the board's own validation messages, the verification markers — all still unexercised,
+because nothing was submitted. `verify` remains fake-ATS-shaped (`CONFIRMATION_MARKERS`),
+so the first run that *does* submit should expect `verification_failed` and treat the
+confirmation text it captures as the finding.
 
 ## 6 — Acceptance
 
@@ -352,16 +428,25 @@ are all existing machinery.
 
 ## 8 — Open items
 
-1. **The pilot has not been run against a real posting.** §5.5 is the protocol; the
-   findings section is empty on purpose. The task's measurement half is the human's
-   next step.
-2. **The `SUBMISSION_POLICY` was read only where the approval was accepted, and the
+1. **The five defects §5.5 establishes are unfixed.** They were found by the live run
+   and are recorded there with their fix shapes: the trailing required-marker breaking
+   `_label_locator` on the four identity fields; `SUBMIT_BUTTON` matching the nav
+   `Apply`; liveness being a redirect rather than a status; the optional-unknown question
+   stopping the walk before it fills; and the résumé `Attach` input leading every
+   unresolved list. Each wants its own task, with a fake-ATS variant that pins it — the
+   existing eleven variants use bare labels and no `Apply` nav button, which is why all
+   five shipped.
+2. **The human-submit half of the pilot has not been run.** §5.5 measured the fill; the
+   confirmation page, the board's validation messages and the verification markers are
+   all unexercised, because nothing was submitted. `verify` is still fake-ATS-shaped, so
+   the first submitting run should expect `verification_failed`.
+3. **The `SUBMISSION_POLICY` was read only where the approval was accepted, and the
    worker now re-reads it.** This was found by the whole-branch review and fixed in
    this workstream's fix pass (`src/runs/worker.py`): moving execution onto the queue
    widened the gap from milliseconds to an unbounded queue delay, so a policy flip
    between the decision and the run would not have bound. Fixed, with the refused
    case and the allowed case both pinned.
-3. **`src/api/routes/applications.py:685` hands `location_for_application_url` a
+4. **`src/api/routes/applications.py:685` hands `location_for_application_url` a
    `Session.get_bind()` (an `Engine`) where a `sessionmaker` is expected**, so the
    posting's country is always `None` and the country-qualified work-authorization
    fact (WS-25c) is **inert on the API prepare path**. This is **pre-existing** — it
@@ -369,23 +454,23 @@ are all existing machinery.
    call was fixed in Task 5. It fails safe (the question goes to a human), which is
    why nothing surfaced it. The fix is one line plus a test that drives the route with
    a seeded listing, and it belongs to the next workstream.
-4. **The button still says "Approve and submit"** while the route now answers 202 + a
+5. **The button still says "Approve and submit"** while the route now answers 202 + a
    run id. The *result* rendering was fixed in this pass (the console distinguishes
    accepted-and-queued from submitted, with the run id shown and the generated types
    regenerated); the button's own copy is a residual wording item.
-5. **`submission.uncertain` needs a surface.** The uncertain attempt is recorded as a
+6. **`submission.uncertain` needs a surface.** The uncertain attempt is recorded as a
    run event and the approval row stays `APPROVED`, so an operator looking only at the
    approvals list sees a decided approval — not that its outcome is unknown. Until the
    console surfaces the event where the operator decides, it will be missed in
    practice.
-5. **The at-most-once guard treats `FAILED` as "already submitted".** Correct under
+7. **The at-most-once guard treats `FAILED` as "already submitted".** Correct under
    the reading that a failed row cannot be safely retried, but it means no automatic
    path re-attempts a genuinely failed submission; recovery is a human act (prepare
    again, which creates a new approval).
-6. **`docs/PROJECT_PLAN.md` and `docs/implementation/06-security-preconditions.md`
+8. **`docs/PROJECT_PLAN.md` and `docs/implementation/06-security-preconditions.md`
    still under-describe the PDF support and the two-layer capability refusal** — the
    historical records were left as they are; README was corrected in Task 1.
-7. **Deferred minors** are listed per task in the SDD ledger
+9. **Deferred minors** are listed per task in the SDD ledger
    (`.superpowers/sdd/2026-11-14-submission-readiness/progress.md`): the mojibake
    threshold is a judgement call bounded by the fixtures; the encrypted fixture is not
    byte-reproducible; `enqueue_submission` is missing from `src/runs/service.py`'s

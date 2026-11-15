@@ -1,0 +1,348 @@
+[
+  {
+    "url": "https://job-boards.greenhouse.io/gitlab/jobs/8867756002",
+    "closed": false,
+    "control_count": 26,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "LinkedIn Profile",
+      "Please choose the country in which you will be located if hired by GitLab.*",
+      "Will you now or in the future require sponsorship for a visa to remain in your current location?*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "What is your current country of residence?*"
+    ],
+    "classification_counts": {
+      "known": 11,
+      "mappable": 0,
+      "unknown": 15
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Attach",
+      "What's the name you'd prefer us to use throughout the interview process?",
+      "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?*",
+      "",
+      "It is important to us to create an accessible and inclusive interview experience. Please let us know if there are any adjustments we can make to assist you during the hiring and interview process.",
+      "",
+      "",
+      "",
+      "",
+      "Gender",
+      "Are you Hispanic/Latino?",
+      "Veteran Status"
+    ],
+    "unresolved_count": 15,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "Last Name*",
+      "LinkedIn Profile"
+    ]
+  },
+  {
+    "url": "https://job-boards.greenhouse.io/gitlab/jobs/8887399002",
+    "closed": false,
+    "control_count": 23,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Preferred First Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "LinkedIn Profile",
+      "Will you now or in the future require sponsorship for a visa to remain in your current location?*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "What is your current country of residence?*"
+    ],
+    "classification_counts": {
+      "known": 10,
+      "mappable": 0,
+      "unknown": 13
+    },
+    "unresolved": [
+      "",
+      "Attach",
+      "Attach",
+      "What's the name you'd prefer us to use throughout the interview process?",
+      "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?*",
+      "",
+      "It is important to us to create an accessible and inclusive interview experience. Please let us know if there are any adjustments we can make to assist you during the hiring and interview process.",
+      "",
+      "",
+      "",
+      "Gender",
+      "Are you Hispanic/Latino?",
+      "Veteran Status"
+    ],
+    "unresolved_count": 13,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "Last Name*",
+      "LinkedIn Profile"
+    ]
+  },
+  {
+    "url": "https://job-boards.greenhouse.io/gitlab/jobs/8829837002",
+    "closed": false,
+    "control_count": 27,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Preferred First Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "LinkedIn Profile",
+      "Please choose the country in which you are located.*",
+      "Will you now or in the future require sponsorship for a visa to remain in your current location?*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "What is your current country of residence?*"
+    ],
+    "classification_counts": {
+      "known": 12,
+      "mappable": 0,
+      "unknown": 15
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Attach",
+      "What's the name you'd prefer us to use throughout the interview process?",
+      "",
+      "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?*",
+      "",
+      "It is important to us to create an accessible and inclusive interview experience. Please let us know if there are any adjustments we can make to assist you during the hiring and interview process.",
+      "",
+      "",
+      "",
+      "Gender",
+      "Are you Hispanic/Latino?",
+      "Veteran Status"
+    ],
+    "unresolved_count": 15,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Have you previously worked at or consulted for GitLab?*",
+      "Last Name*",
+      "LinkedIn Profile"
+    ]
+  },
+  {
+    "url": "https://job-boards.greenhouse.io/sourcegraph91/jobs/6185008004",
+    "closed": false,
+    "control_count": 34,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "LinkedIn Profile*",
+      "We are an all-remote team distributed across the world. What location (city, country, zip code) will you work from for 51%+ of the time? *",
+      "Will you need employment visa sponsorship now or in the future to work in your current location?*"
+    ],
+    "classification_counts": {
+      "known": 9,
+      "mappable": 2,
+      "unknown": 23
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Attach",
+      "How did you hear about this position? *",
+      "Have you designed and shipped a multi-step agentic system that included production controls for reliability, observability, latency, and cost?*",
+      "",
+      "If so, please provide details.",
+      "Do you have professional experience shipping production software services and working across multiple parts of a modern application stack, such as backend services, APIs, databases, containers, or frontend applications?*",
+      "",
+      "If so, please provide details.",
+      "Have you personally built, evaluated, and operated a machine learning model or ML-powered system in a production environment?*",
+      "",
+      "If so, please provide details.",
+      "What about this role, and Sourcegraph as a company, aligns with what you\u2019re looking for next?*",
+      "What compensation are you targeting?*",
+      "",
+      "Gender *",
+      "",
+      "Race/ethnicity (mark all that apply): *",
+      "",
+      "Veteran Status *",
+      ""
+    ],
+    "unresolved_count": 23,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Last Name*",
+      "LinkedIn Profile*",
+      "Location (City)*"
+    ]
+  },
+  {
+    "url": "https://job-boards.greenhouse.io/sourcegraph91/jobs/6209697004",
+    "closed": false,
+    "control_count": 35,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "LinkedIn Profile*",
+      "We are an all-remote team distributed across the world. What location (city, country, zip code) will you work from for 51%+ of the time? *",
+      "Will you need employment visa sponsorship now or in the future to work in your current location?*"
+    ],
+    "classification_counts": {
+      "known": 9,
+      "mappable": 1,
+      "unknown": 25
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Attach",
+      "How did you hear about this position? *",
+      "Have you ever owned a SOC2 audit from start to finish?*",
+      "",
+      "If yes, please explain.",
+      "Have you owned compliance for a tech company?*",
+      "",
+      "If yes, please explain.",
+      "Have you owned a Risk Register?*",
+      "",
+      "If yes, please explain.",
+      "Have you worked with an ISMS?*",
+      "",
+      "If yes, please explain.",
+      "What compensation are you targeting?*",
+      "",
+      "Gender *",
+      "",
+      "Race/ethnicity (mark all that apply): *",
+      "",
+      "Veteran Status *",
+      ""
+    ],
+    "unresolved_count": 25,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Last Name*",
+      "LinkedIn Profile*",
+      "Location (City)*"
+    ]
+  },
+  {
+    "url": "https://boards.greenhouse.io/figma/jobs/6233043004",
+    "closed": false,
+    "control_count": 23,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "Preferred First Name",
+      "LinkedIn Profile",
+      "Other Website"
+    ],
+    "classification_counts": {
+      "known": 9,
+      "mappable": 1,
+      "unknown": 13
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Pronouns",
+      "Why do you want to join Figma?*",
+      "Additional Information",
+      "From where do you intend to work? *",
+      "",
+      "Have you ever worked for Figma before, as an employee or a contractor/consultant? *",
+      "",
+      "Gender",
+      "Are you Hispanic/Latino?",
+      "Veteran Status"
+    ],
+    "unresolved_count": 13,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Last Name*",
+      "LinkedIn Profile",
+      "Location (City)*"
+    ]
+  },
+  {
+    "url": "https://boards.greenhouse.io/cloudflare/jobs/8097321",
+    "closed": false,
+    "control_count": 22,
+    "known": [
+      "First Name*",
+      "Last Name*",
+      "Email*",
+      "Country*",
+      "Phone*",
+      "Location (City)*",
+      "Legal Name (if different than above)*",
+      "Would you like to include your LinkedIn profile, personal website or blog?",
+      "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*",
+      "Please indicate your current city, state, and country.*"
+    ],
+    "classification_counts": {
+      "known": 10,
+      "mappable": 1,
+      "unknown": 11
+    },
+    "unresolved": [
+      "",
+      "",
+      "Attach",
+      "Attach",
+      "How did you hear about this job?*",
+      "",
+      "",
+      "Gender",
+      "Are you Hispanic/Latino?",
+      "Veteran Status",
+      "Acknowledge/Confirm"
+    ],
+    "unresolved_count": 11,
+    "sample_answered": [
+      "Country*",
+      "Email*",
+      "First Name*",
+      "Last Name*",
+      "Legal Name (if different than above)*",
+      "Location (City)*"
+    ]
+  }
+]

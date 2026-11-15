@@ -1,0 +1,104 @@
+{
+  "url": "https://boards.greenhouse.io/cloudflare/jobs/8097321",
+  "resume": "E:\\Study\\Supporting Study\\Job Agents\\Agentic Job Applier\\.scratch\\ws32_pilot\\Ada_Lovelace_Demo_Resume.txt",
+  "screenshot_before": "E:\\Study\\Supporting Study\\Job Agents\\Agentic Job Applier\\.scratch\\ws32_pilot\\fill\\01_before.png",
+  "title": "Job Application for AI Security Research & Red Team Engineer at Cloudflare",
+  "control_count": 22,
+  "planned_answers": {
+    "Country*": "United Kingdom",
+    "Email*": "ada.lovelace@example.com",
+    "First Name*": "Ada",
+    "Last Name*": "Lovelace",
+    "Legal Name (if different than above)*": "Ada Lovelace",
+    "Location (City)*": "London, United Kingdom",
+    "Phone*": "+1 555 0100",
+    "Please indicate your current city, state, and country.*": "United Kingdom",
+    "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*": "London, United Kingdom",
+    "Would you like to include your LinkedIn profile, personal website or blog?": "https://www.linkedin.com/in/ada-lovelace-demo"
+  },
+  "unresolved": [
+    "",
+    "",
+    "Attach",
+    "Attach",
+    "How did you hear about this job?*",
+    "",
+    "",
+    "Gender",
+    "Are you Hispanic/Latino?",
+    "Veteran Status",
+    "Acknowledge/Confirm"
+  ],
+  "skipped": [
+    "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?*"
+  ],
+  "filled": [
+    {
+      "label": "Country*",
+      "value": "United Kingdom"
+    },
+    {
+      "label": "Location (City)*",
+      "value": "London, United Kingdom"
+    },
+    {
+      "label": "Would you like to include your LinkedIn profile, personal website or blog?",
+      "value": "https://www.linkedin.com/in/ada-lovelace-demo"
+    },
+    {
+      "label": "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*",
+      "value": "London, United Kingdom"
+    }
+  ],
+  "fill_failed": [
+    {
+      "label": "First Name*",
+      "kind": "text",
+      "error": "TimeoutError"
+    },
+    {
+      "label": "Last Name*",
+      "kind": "text",
+      "error": "TimeoutError"
+    },
+    {
+      "label": "Email*",
+      "kind": "text",
+      "error": "TimeoutError"
+    },
+    {
+      "label": "Phone*",
+      "kind": "tel",
+      "error": "TimeoutError"
+    },
+    {
+      "label": "Legal Name (if different than above)*",
+      "kind": "text",
+      "error": "TimeoutError"
+    },
+    {
+      "label": "Please indicate your current city, state, and country.*",
+      "kind": "text",
+      "error": "TimeoutError"
+    }
+  ],
+  "filled_count": 4,
+  "resume_uploaded": true,
+  "screenshot_after": "E:\\Study\\Supporting Study\\Job Agents\\Agentic Job Applier\\.scratch\\ws32_pilot\\fill\\02_after_fill.png",
+  "first_button_found": {
+    "text": "Apply",
+    "is_submit": true
+  },
+  "real_submit_button": {
+    "present": true,
+    "visible": true
+  },
+  "clicked_anything_submit": false,
+  "trace_actions": [
+    "fill:Country*",
+    "fill:Location (City)*",
+    "fill:Would you like to include your LinkedIn profile, personal website or blog?",
+    "fill:This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*",
+    "upload_resume"
+  ]
+}

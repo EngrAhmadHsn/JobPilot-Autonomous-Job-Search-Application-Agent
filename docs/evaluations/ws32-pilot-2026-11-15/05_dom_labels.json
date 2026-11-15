@@ -1,0 +1,399 @@
+{
+  "url": "https://boards.greenhouse.io/cloudflare/jobs/8097321",
+  "inputs": [
+    {
+      "index": 0,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "first_name",
+      "autocomplete": "given-name",
+      "labels": [
+        "First Name*"
+      ],
+      "ariaLabel": "First Name",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 1,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "last_name",
+      "autocomplete": "family-name",
+      "labels": [
+        "Last Name*"
+      ],
+      "ariaLabel": "Last Name",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 2,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "email",
+      "autocomplete": "email",
+      "labels": [
+        "Email*"
+      ],
+      "ariaLabel": "Email",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 3,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "country",
+      "autocomplete": "off",
+      "labels": [
+        "Country*"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "country-label",
+      "ariaLabelledbyText": [
+        "Country*"
+      ],
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 4,
+      "tag": "input",
+      "type": null,
+      "name": null,
+      "id": null,
+      "autocomplete": null,
+      "labels": [],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 5,
+      "tag": "input",
+      "type": "search",
+      "name": null,
+      "id": "iti-0__search-input",
+      "autocomplete": "off",
+      "labels": [],
+      "ariaLabel": "Search",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": "Search",
+      "required": false
+    },
+    {
+      "index": 6,
+      "tag": "input",
+      "type": "tel",
+      "name": null,
+      "id": "phone",
+      "autocomplete": "off",
+      "labels": [
+        "Phone*"
+      ],
+      "ariaLabel": "Phone",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 7,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "candidate-location",
+      "autocomplete": "off",
+      "labels": [
+        "Location (City)*"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "candidate-location-label",
+      "ariaLabelledbyText": [
+        "Location (City)*"
+      ],
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 8,
+      "tag": "input",
+      "type": null,
+      "name": null,
+      "id": null,
+      "autocomplete": null,
+      "labels": [],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 9,
+      "tag": "input",
+      "type": "file",
+      "name": null,
+      "id": "resume",
+      "autocomplete": null,
+      "labels": [
+        "Attach"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": false
+    },
+    {
+      "index": 10,
+      "tag": "input",
+      "type": "file",
+      "name": null,
+      "id": "cover_letter",
+      "autocomplete": null,
+      "labels": [
+        "Attach"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": false
+    },
+    {
+      "index": 11,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338703",
+      "autocomplete": null,
+      "labels": [
+        "Legal Name (if different than above)*"
+      ],
+      "ariaLabel": "Legal Name (if different than above)",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 12,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338704",
+      "autocomplete": null,
+      "labels": [
+        "Would you like to include your LinkedIn profile, personal website or blog?"
+      ],
+      "ariaLabel": "Would you like to include your LinkedIn profile, personal website or blog?",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": false
+    },
+    {
+      "index": 13,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338705",
+      "autocomplete": null,
+      "labels": [
+        "How did you hear about this job?*"
+      ],
+      "ariaLabel": "How did you hear about this job?",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 14,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338706",
+      "autocomplete": "off",
+      "labels": [
+        "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?*"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "question_68338706-label",
+      "ariaLabelledbyText": [
+        "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?*"
+      ],
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 15,
+      "tag": "input",
+      "type": null,
+      "name": null,
+      "id": null,
+      "autocomplete": null,
+      "labels": [],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 16,
+      "tag": "input",
+      "type": "checkbox",
+      "name": "question_68338707[]",
+      "id": "question_68338707[]_738777769",
+      "autocomplete": null,
+      "labels": [
+        "Acknowledge/Confirm"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 17,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338708",
+      "autocomplete": "off",
+      "labels": [
+        "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "question_68338708-label",
+      "ariaLabelledbyText": [
+        "This role requires that you live in one of the following hubs: Austin, TX or NYC. Are you currently located in one of the hub locations or willing to relocate?*"
+      ],
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 18,
+      "tag": "input",
+      "type": null,
+      "name": null,
+      "id": null,
+      "autocomplete": null,
+      "labels": [],
+      "ariaLabel": null,
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 19,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "question_68338709",
+      "autocomplete": null,
+      "labels": [
+        "Please indicate your current city, state, and country.*"
+      ],
+      "ariaLabel": "Please indicate your current city, state, and country.",
+      "ariaLabelledby": null,
+      "ariaLabelledbyText": null,
+      "placeholder": null,
+      "required": true
+    },
+    {
+      "index": 20,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "gender",
+      "autocomplete": "off",
+      "labels": [
+        "Gender"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "gender-label",
+      "ariaLabelledbyText": [
+        "Gender"
+      ],
+      "placeholder": null,
+      "required": false
+    },
+    {
+      "index": 21,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "hispanic_ethnicity",
+      "autocomplete": "off",
+      "labels": [
+        "Are you Hispanic/Latino?"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "hispanic_ethnicity-label",
+      "ariaLabelledbyText": [
+        "Are you Hispanic/Latino?"
+      ],
+      "placeholder": null,
+      "required": false
+    },
+    {
+      "index": 22,
+      "tag": "input",
+      "type": "text",
+      "name": null,
+      "id": "veteran_status",
+      "autocomplete": "off",
+      "labels": [
+        "Veteran Status"
+      ],
+      "ariaLabel": null,
+      "ariaLabelledby": "veteran_status-label",
+      "ariaLabelledbyText": [
+        "Veteran Status"
+      ],
+      "placeholder": null,
+      "required": false
+    }
+  ],
+  "get_by_label": {
+    "First Name": {
+      "exact": 1,
+      "loose": 1
+    },
+    "First Name*": {
+      "exact": 0,
+      "loose": 0
+    },
+    "Email": {
+      "exact": 1,
+      "loose": 1
+    },
+    "Email*": {
+      "exact": 0,
+      "loose": 0
+    }
+  },
+  "frames": [
+    "https://job-boards.greenhouse.io/cloudflare/jobs/8097321",
+    ""
+  ]
+}
