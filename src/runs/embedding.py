@@ -60,7 +60,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EMBED_WORK_TYPE",
+    "JOB_TYPE_SUBMISSION",
     "RECONCILE_WORK_TYPE",
+    "SUBMISSION_WORK_TYPE",
     "EmbeddingBatchResult",
     "EmbeddingPlan",
     "ReconcileReport",
@@ -75,11 +77,20 @@ __all__ = [
 
 EMBED_WORK_TYPE = "embed"
 RECONCILE_WORK_TYPE = "reconcile"
+#: WS-32: one approved application, executed as background work. The work type
+#: and the job type are the same string for this kind — a submission run holds
+#: exactly one submission item — and both constants are named so a reader of
+#: ``WorkSpec(work_type=...)`` and of a run's ``job_type`` sees the same word.
+SUBMISSION_WORK_TYPE = "submission"
 
 #: The job types the worker can execute.
 JOB_TYPE_EMBEDDING = "embedding"
 JOB_TYPE_REFRESH = "refresh"
 JOB_TYPE_RECONCILE = "reconcile"
+#: WS-32: an application the human approved, waiting for (or in) execution by
+#: the worker. It is a job type here, with the others, because this is the
+#: module that owns the worker's kind vocabulary.
+JOB_TYPE_SUBMISSION = "submission"
 
 
 @dataclass(frozen=True)

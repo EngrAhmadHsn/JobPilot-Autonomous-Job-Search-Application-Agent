@@ -22,21 +22,16 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
 from src.applications.contracts import (
-    ApplicationAdapter,
     ApplicationRequest,
-    ApplicationResult,
     PreparedApplication,
 )
-from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
 from src.applications.form import facts_from_profile
-from src.applications.greenhouse_adapter import GreenhouseAdapter
-from src.applications.lever_adapter import LeverAdapter
 from src.applications.tracking import (
     AGENT_ACTOR,
     EVENT_APPROVAL_GRANTED,
@@ -57,18 +52,20 @@ from src.db.approval import (
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.graph.executor import (
-    execute_approved,
     new_workflow_id,
     record_prepare_audit,
     select_adapter_for_url,
 )
 from src.graph.executor import prepare_application as build_prepared_application
+from src.runs import queue as run_queue
+from src.runs import service as run_service
 from src.security.allowlist import DisallowedDomainError, assert_job_url_allowed
 from src.security.audit import (
     ACTION_APPROVE,
     ACTION_REJECT,
     OUTCOME_BLOCKED,
     OUTCOME_DENIED,
+    OUTCOME_ERROR,
     OUTCOME_SUCCESS,
     Actor,
     record_audit,
@@ -86,13 +83,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
-# Adapters that may prepare an application. Only the fake ATS holds the
-# submit capability (src/security/registry_setup.py).
-AVAILABLE_ADAPTERS = [
-    FakeAtsPlaywrightAdapter(),
-    GreenhouseAdapter(),
-    LeverAdapter(),
-]
+# The adapter registry lives in ``src.graph.executor`` (WS-32), not here, and
+# this module does not keep a second copy of it. The worker resolves the adapter
+# an approval recorded from that same list, so a list here would be a second
+# truth: the route could approve a payload for an adapter the worker cannot
+# find, and the failure would surface on the worker thread after the operator
+# had been told the work was accepted. ``select_adapter_for_url`` and
+# ``select_adapter_by_name`` both read it at call time, so replacing the one
+# list changes what both callers resolve. Only the fake ATS holds the submit
+# capability (``src.security.registry_setup``).
 
 
 class ApplicationPrepareRequest(BaseModel):
@@ -209,7 +208,17 @@ class ApprovalDecisionRequest(BaseModel):
 
 
 class ApprovalDecisionResponse(BaseModel):
-    """Response body for an approval decision."""
+    """Response body for an approval decision.
+
+    WS-32: an approval no longer carries a submission result, because the
+    submission no longer happens during the request. ``result``/``evidence``/
+    ``metadata`` are therefore optional — the *reject* path still fills
+    ``metadata``, and the approve path has nothing to report yet beyond the
+    accepted run. ``status`` is the **run's** vocabulary (``QUEUED``), not the
+    application's (``submitted``/``verified``): a response that said
+    "submitted" would claim the employer had been reached when all that
+    happened is that durable work was created.
+    """
 
     approval_id: str
     workflow_id: str
@@ -219,6 +228,9 @@ class ApprovalDecisionResponse(BaseModel):
     message: str
     evidence: dict | None = None
     metadata: dict | None = None
+    #: WS-32: the durable run the worker will execute. ``None`` on the reject
+    #: path, which queues nothing.
+    run_id: str | None = None
 
 
 class ApprovalStatusResponse(BaseModel):
@@ -237,21 +249,6 @@ class ApprovalStatusResponse(BaseModel):
     decided_at: datetime | None = None
     success: bool | None = None
     message: str | None = None
-
-
-def _evidence_payload(result: ApplicationResult) -> dict | None:
-    """The evidence of a result, as a small JSON-safe dict."""
-    if result.evidence is None:
-        return None
-    return {
-        "url": result.evidence.url,
-        "confirmation_text": result.evidence.confirmation_text[:200]
-        if result.evidence.confirmation_text
-        else None,
-        "status": result.evidence.status,
-        "screenshot_path": result.evidence.screenshot_path,
-        "trace_path": result.evidence.trace_path,
-    }
 
 
 def _load_approval(approval_id: str, db: Session, scope: UserScope) -> ApprovalRequestDB:
@@ -344,7 +341,17 @@ def _job_liveness(row: ApprovalRequestDB) -> tuple[bool, str]:
 
 
 def _adapter_for_url(job_url: str):
-    """The application adapter that claims a URL, or ``None``."""
+    """The application adapter that claims a URL, or ``None``.
+
+    WS-32 fixed a one-argument call to a two-argument function here. The call
+    raised ``TypeError`` on every invocation, the ``except`` swallowed it, and
+    the liveness check the WS-25b approve path uses therefore **never ran**:
+    ``_job_liveness`` saw ``None`` and answered "the provider publishes no
+    liveness check" for every URL. The defect was invisible because its
+    documented outcome ("do not block") is the same as its failure outcome
+    ("could not verify"), which is exactly the shape the fail-soft design
+    hides.
+    """
     try:
         return select_adapter_for_url(job_url)
     except Exception:  # noqa: BLE001 - no adapter is a valid answer here
@@ -435,7 +442,7 @@ def prepare_application(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        adapter = select_adapter_for_url(req.job_url, AVAILABLE_ADAPTERS)
+        adapter = select_adapter_for_url(req.job_url)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=400,
@@ -792,30 +799,47 @@ def _rollback_tracking(db: Session) -> None:
         logger.error("Rollback after the tracking failure failed too: %s", exc)
 
 
-@router.post("/{approval_id}/approve", response_model=ApprovalDecisionResponse)
+@router.post(
+    "/{approval_id}/approve",
+    response_model=ApprovalDecisionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def approve_application(
     approval_id: str,
     req: ApprovalDecisionRequest,
     db: Annotated[Session, Depends(get_db)],
     scope: Annotated[UserScope, Depends(current_scope)],
 ) -> ApprovalDecisionResponse:
-    """Approve a prepared application and execute it.
+    """Approve a prepared application and queue its submission (WS-32).
 
-    The decision is recorded with the approver's identity and the time. The
-    payload that is executed is the persisted one.
+    Two things happen here and only two: the human's decision is recorded
+    durably, and the submission is **accepted** as background work. The
+    submission itself is performed by the worker, because a browser walk
+    against a real board takes tens of seconds and outlives the HTTP request
+    that asked for it — running it inline is how a proxy timeout or an API
+    restart loses a run and leaves the approval row mid-flight.
+
+    The payload that is executed is still the persisted one: the worker
+    restores it from this row, so *the approved payload is the submitted
+    payload*.
 
     Args:
         approval_id: The approval request to approve.
-        req: The decision (approver identity and optional reason).
+        req: The decision (optional reason; the approver is the principal).
         db: The request-scoped database session.
 
     Returns:
-        The result of the execution, with its evidence.
+        ``202 Accepted`` with the run id the caller polls. The status is the
+        run's (``QUEUED``), never "submitted" — the employer has not been
+        reached yet, and the response must not say otherwise.
 
     Raises:
         HTTPException 403: The policy forbids executing the application.
         HTTPException 404: The approval request is unknown.
-        HTTPException 409: The request was already decided.
+        HTTPException 409: The request was already decided, the job is no
+            longer open, or its stored payload cannot be restored.
+        HTTPException 503: The background queue is at capacity. Nothing was
+            written and the approval is still pending, so the caller may retry.
     """
     row = _load_approval(approval_id, db, scope)
     if row.status != ApprovalStatus.PENDING:
@@ -905,18 +929,74 @@ def approve_application(
         )
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
+    # The decision is written but **not committed yet**: it is committed
+    # together with the queued run below, so the two are one outcome.
     row.status = ApprovalStatus.APPROVED
     row.approver = approver
     row.decision_reason = req.reason
     row.decided_at = datetime.now(UTC)
-    db.commit()
 
-    prepared = PreparedApplication.model_validate(row.payload)
-    adapter = _adapter_for(row.adapter_name)
+    # WS-32: the decision and the queued run are **one transaction**. The
+    # APPROVED write above is only flushed by this commit, and the enqueue
+    # writes the run in the same session, so a QueueFull rolls the decision
+    # back with it: the operator is told to retry instead of being left with an
+    # approval that authorizes nothing and that no retry can reach, because the
+    # row would no longer read PENDING.
+    try:
+        accepted = run_service.enqueue_submission(
+            db,
+            approval_id=approval_id,
+            workflow_id=row.workflow_id,
+            owner_id=row.owner_id,
+            approver=approver,
+        )
+    except run_queue.QueueFull as exc:
+        db.rollback()
+        record_audit(
+            ACTION_APPROVE,
+            actor=Actor.user(approver),
+            resource=approval_id,
+            outcome=OUTCOME_BLOCKED,
+            owner_id=approver,
+            metadata={"reason": "the background queue is at capacity"},
+            workflow_id=row.workflow_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+
+    # The approved payload must still be valid — a row written by an older
+    # version, or one whose payload a migration could not carry, would
+    # otherwise fail on the worker thread where nobody is watching the request.
+    # This checks only; it submits nothing. An invalid payload rolls the
+    # decision back with the run, exactly as a full queue does.
+    try:
+        PreparedApplication.model_validate(row.payload)
+    except ValidationError as exc:
+        db.rollback()
+        record_audit(
+            ACTION_APPROVE,
+            actor=Actor.user(approver),
+            resource=approval_id,
+            outcome=OUTCOME_ERROR,
+            owner_id=approver,
+            metadata={"reason": "the stored payload failed validation"},
+            workflow_id=row.workflow_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Approval request {approval_id!r} stores a payload that no longer "
+                "validates, so it cannot be submitted. Prepare the application again."
+            ),
+        ) from exc
 
     # WS-07: the decision is an event in the tracked application's history.
     # The application itself stays in AWAITING_APPROVAL until the agent
-    # actually performs the submission.
+    # actually performs the submission — which is now the worker's job, so the
+    # transition to SUBMITTED happens there, with the evidence.
     application = access.get_application_by_approval(db, scope, approval_id)
     if application is not None:
         _record_tracking_event(
@@ -928,44 +1008,48 @@ def approve_application(
             metadata={"reason": req.reason, "approval_id": approval_id},
         )
 
-    result = execute_approved(
-        prepared,
-        adapter,
-        workflow_id=row.workflow_id,
-        approval_id=approval_id,
-        approver=approver,
-        decision_reason=req.reason or "",
-        session=db,
-        application_id=application.id if application is not None else None,
-    )
-
-    row.status = ApprovalStatus.EXECUTED if result.success else ApprovalStatus.FAILED
-    row.result = result.model_dump(mode="json")
     db.commit()
+    db.refresh(row)
 
     record_audit(
         ACTION_APPROVE,
         actor=Actor.user(approver),
         resource=approval_id,
-        outcome=OUTCOME_SUCCESS if result.success else OUTCOME_BLOCKED,
+        outcome=OUTCOME_SUCCESS,
         owner_id=approver,
         metadata={
             "workflow_id": row.workflow_id,
-            "status": result.status,
             "reason": req.reason,
+            "run_id": accepted.run_id,
+            "queued": True,
         },
         workflow_id=row.workflow_id,
     )
 
+    logger.info(
+        "[%s] Application approved by %s; submission queued as run %s",
+        row.workflow_id,
+        approver,
+        accepted.run_id,
+        extra={"workflow_id": row.workflow_id, "run_id": accepted.run_id},
+    )
+
+    # The answer is **accepted**, not submitted. The wording is the invariant:
+    # a 200 with a success-shaped body would tell the operator the application
+    # reached the employer when all that happened is that durable work was
+    # created. ``status`` mirrors the run's own vocabulary (the same
+    # ``QUEUED`` the refresh flow returns), so the console can render it.
     return ApprovalDecisionResponse(
         approval_id=approval_id,
         workflow_id=row.workflow_id,
         adapter_name=row.adapter_name,
-        status=result.status,
-        success=result.success,
-        message=result.message,
-        evidence=_evidence_payload(result),
-        metadata=result.metadata,
+        status=accepted.status,
+        success=False,
+        message=(
+            "Approval recorded. The submission is queued and a background worker "
+            "will perform it; track it with the run id."
+        ),
+        run_id=accepted.run_id,
     )
 
 
@@ -1095,15 +1179,4 @@ def get_approval(
         decided_at=row.decided_at,
         success=success,
         message=message,
-    )
-
-
-def _adapter_for(adapter_name: str) -> ApplicationAdapter:
-    """The registered adapter instance with this name."""
-    for adapter in AVAILABLE_ADAPTERS:
-        if adapter.name == adapter_name:
-            return adapter
-    raise HTTPException(
-        status_code=404,
-        detail=f"Adapter {adapter_name!r} is not available",
     )

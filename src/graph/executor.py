@@ -44,6 +44,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _build_available_adapters() -> list[ApplicationAdapter]:
+    """The adapters that may prepare or execute an application.
+
+    WS-32 moved this list here from the API route module. Two callers need it —
+    the route, which resolves the adapter for a URL it was handed, and the
+    worker, which resolves the adapter an approval row recorded — and only one
+    list may exist, or the two can drift. The runner-up was the worker
+    importing ``src.api.routes.applications``, which would make a request
+    handler a registry and invert the layering: nothing in ``src.runs`` should
+    depend on ``src.api``.
+
+    The adapter imports are inside the function so that the *builder* is
+    self-contained; :data:`AVAILABLE_ADAPTERS` still calls it once at import
+    time, exactly as the route module built its list. The cost is the
+    Playwright import (the fake ATS adapter needs it), which every consumer of
+    this module now pays once per process — the previous shape paid it in the
+    route module instead, so the total is unchanged.
+
+    Only the fake ATS holds the submit capability (``src.security
+    .registry_setup``); the other two are here so a prepare can build and
+    describe their payload, and the registry refuses their submissions.
+    """
+
+    from src.applications.fake_ats_adapter import FakeAtsPlaywrightAdapter
+    from src.applications.greenhouse_adapter import GreenhouseAdapter
+    from src.applications.lever_adapter import LeverAdapter
+
+    return [FakeAtsPlaywrightAdapter(), GreenhouseAdapter(), LeverAdapter()]
+
+
+#: The adapter registry: one list, built once at import, read at call time by
+#: both resolvers below. Replacing it (a test, a deployment) changes what both
+#: the route and the worker resolve.
+AVAILABLE_ADAPTERS: list[ApplicationAdapter] = _build_available_adapters()
+
+
 def new_workflow_id() -> str:
     """A short, human-quotable id for one application workflow."""
     return str(uuid.uuid4())[:8]
@@ -248,7 +284,9 @@ def record_prepare_audit(
     )
 
 
-def select_adapter_for_url(job_url: str, adapters: list[ApplicationAdapter]) -> ApplicationAdapter:
+def select_adapter_for_url(
+    job_url: str, adapters: list[ApplicationAdapter] | None = None
+) -> ApplicationAdapter:
     """Select the appropriate adapter for a given job URL.
 
     Iterates through available adapters and returns the first one that
@@ -256,7 +294,10 @@ def select_adapter_for_url(job_url: str, adapters: list[ApplicationAdapter]) -> 
 
     Args:
         job_url: The job URL to match
-        adapters: List of ApplicationAdapter instances to check
+        adapters: List of ApplicationAdapter instances to check. The module's
+            :data:`AVAILABLE_ADAPTERS` when omitted — read at call time, not
+            captured as a default value, so there is exactly one list in the
+            process and a caller cannot hold a stale copy of it.
 
     Returns:
         The first adapter that supports the URL
@@ -264,7 +305,8 @@ def select_adapter_for_url(job_url: str, adapters: list[ApplicationAdapter]) -> 
     Raises:
         RuntimeError: If no adapter supports the URL
     """
-    for adapter in adapters:
+    candidates = AVAILABLE_ADAPTERS if adapters is None else adapters
+    for adapter in candidates:
         if adapter.supports_url(job_url):
             logger.info(
                 f"Selected adapter '{adapter.name}' for URL {job_url}",
@@ -272,5 +314,41 @@ def select_adapter_for_url(job_url: str, adapters: list[ApplicationAdapter]) -> 
             )
             return adapter
 
-    supported = ", ".join(a.name for a in adapters)
+    supported = ", ".join(a.name for a in candidates)
     raise RuntimeError(f"No adapter supports URL {job_url}. Available: {supported}")
+
+
+def select_adapter_by_name(
+    adapter_name: str, adapters: list[ApplicationAdapter] | None = None
+) -> ApplicationAdapter:
+    """The registered adapter with this name — the resolution the worker needs.
+
+    WS-32. The approve route selects by URL, because a request names a URL. The
+    worker does not: it has an approval row that recorded *which* adapter the
+    human reviewed, so it resolves by name, and it must resolve through the
+    **same** list the route selected from. A second list would be a second
+    truth, and the drift would be silent: the route could approve a payload for
+    an adapter the worker cannot find, and the submission would fail with a
+    configuration error at exactly the wrong moment.
+
+    Args:
+        adapter_name: The adapter name recorded on the approval row.
+        adapters: The candidate list; the module's :data:`AVAILABLE_ADAPTERS`
+            when omitted. The default is read at call time, not captured, so
+            the list can be replaced (a test's, or a deployment's).
+
+    Returns:
+        The adapter with that name.
+
+    Raises:
+        LookupError: No adapter in the list carries that name. The caller
+            decides the HTTP status (404) or the work outcome (a refusal);
+            this layer does not know about either.
+    """
+    candidates = AVAILABLE_ADAPTERS if adapters is None else adapters
+    for adapter in candidates:
+        if adapter.name == adapter_name:
+            return adapter
+
+    supported = ", ".join(adapter.name for adapter in candidates) or "none"
+    raise LookupError(f"Adapter {adapter_name!r} is not available. Available: {supported}")

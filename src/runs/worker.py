@@ -31,15 +31,16 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.runs import JobRunDB
 from src.runs import queue
 from src.runs.embedding import (
     EMBED_WORK_TYPE,
     RECONCILE_WORK_TYPE,
+    SUBMISSION_WORK_TYPE,
     _classify,
     _retry_outcome,
     process_embedding_items,
@@ -55,8 +56,17 @@ from src.runs.state import (
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from src.applications.contracts import ApplicationResult
+    from src.db.approval import ApprovalRequestDB
+
 __all__ = ["Worker", "default_worker_id", "main"]
 
+#: The refresh work type. (``SUBMISSION_WORK_TYPE``, WS-32, is imported from
+#: ``src.runs.embedding`` instead of being redeclared here: the enqueue helper,
+#: the dispatch below and the queue's item identity all match on that string,
+#: and a second literal would be a second truth. ``REFRESH_WORK_TYPE`` predates
+#: that rule and stays where the dispatch reads it.)
 REFRESH_WORK_TYPE = "refresh"
 
 #: How often the reaper runs, even when the queue is busy.
@@ -71,6 +81,23 @@ def default_worker_id() -> str:
     if configured:
         return configured
     return f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+
+
+def _submission_summary(result: Any) -> dict[str, Any]:
+    """The operator-facing summary of one submission, for the run's metadata.
+
+    Deliberately small: the status, whether it succeeded, and the evidence's
+    URL — no candidate field values, no resume contents. The run row is a
+    progress record an operator reads in the console, and the full result
+    (which does carry the evidence) is on the approval row where it belongs.
+    """
+    evidence = getattr(result, "evidence", None)
+    return {
+        "status": getattr(result, "status", "unknown"),
+        "success": bool(getattr(result, "success", False)),
+        "message": getattr(result, "message", ""),
+        "evidence_url": getattr(evidence, "url", None) if evidence is not None else None,
+    }
 
 
 class Worker:
@@ -330,6 +357,8 @@ class Worker:
                 self._execute_refresh(item)
             elif item.work_type == RECONCILE_WORK_TYPE:
                 self._execute_reconcile(item)
+            elif item.work_type == SUBMISSION_WORK_TYPE:
+                self._execute_submission(item)
             else:
                 queue.settle_work_items(
                     run_id=item.run_id,
@@ -451,6 +480,307 @@ class Worker:
             now=self._now(),
         )
         self._processed_since_heartbeat += 1
+
+    def _execute_submission(self, item: queue.ClaimedWork) -> None:
+        """Execute one approved application — the same call the route used to make.
+
+        WS-32. The route now only *accepts* the work; this is where the payload
+        is restored, the adapter is resolved and ``execute_approved`` runs. The
+        call is unchanged, so everything the graph enforced inside the request
+        (the submit capability gate, the payload contract check, the form walk,
+        the verification, the WS-07 tracking writes) still applies — it just
+        applies in the worker, where a crash is survivable.
+
+        **At-most-once, and the guard is the row.** The queue hands out
+        at-least-once delivery: a lease can expire mid-run and the item can be
+        claimed again. For an embedding that is harmless — the work is
+        idempotent. For an application submission it is not: applying twice is
+        a real harm to a real candidate, not a duplicated batch. So the worker
+        refuses to submit an approval whose row already records a submission.
+
+        The two cases below look similar and must not be conflated:
+
+        - **Crashed before the row was written** (this process died during the
+          walk, or was killed before the result was committed): the row still
+          reads ``APPROVED`` and there is no ``result``. Nothing is known to
+          have reached the board, so **the retry must run**. Anything else
+          would leave an approved application that never gets applied.
+        - **The row already records a submission** (``EXECUTED``/``FAILED``, or
+          a ``result`` payload): a previous attempt, or a previous worker, got
+          far enough to commit the outcome. The board may already have the
+          application, so **the retry must refuse**. This is the case that
+          makes applying twice impossible.
+
+        The distinction is a property of the durable record, not of the lease:
+        the lease says who may write, the row says what already happened, and
+        only the row survives a crash.
+        """
+        run = self._load_run(item.run_id)
+        if run is None:
+            self._settle_failure(item, error="The run row no longer exists.")
+            return
+
+        metadata = dict(run.extra_metadata or {})
+        # The approval id is the work item's job_id, and it is also on the run
+        # metadata; either is authoritative. The item is read first because it
+        # is the thing this worker actually claimed.
+        approval_id = item.job_id or str(metadata.get("approval_id") or "")
+        workflow_id = str(metadata.get("workflow_id") or run.correlation_id or "")
+        if not approval_id:
+            self._settle_failure(
+                item,
+                error="The submission work item carries no approval id.",
+                retryable=False,
+            )
+            return
+
+        from src.db.approval import ApprovalRequestDB, ApprovalStatus
+        from src.db.session import SessionLocal
+
+        factory = self._session_factory or SessionLocal
+        # The worker opens **its own** session. It must not take a
+        # request-scoped one: there is no request, the work outlives any that
+        # existed, and the tracking writes ``execute_approved`` performs belong
+        # to this run, not to whoever approved it.
+        with factory() as session:
+            row = session.get(ApprovalRequestDB, approval_id)
+            if row is None:
+                # The approval the run names is gone. There is nothing to
+                # submit and nothing to submit it *for*, so the item is failed
+                # permanently — a retry would look for the same missing row.
+                message = (
+                    f"The approval {approval_id!r} named by run {run.id} no longer exists; "
+                    "nothing was submitted."
+                )
+                logger.error("Submission refused: %s", message)
+                self._settle_submission(
+                    item,
+                    run_id=run.id,
+                    event="submission.refused",
+                    message=message,
+                    metadata={"approval_id": approval_id, "reason": "approval_missing"},
+                    status=WORK_FAILED,
+                    error=message,
+                    error_kind=ERROR_PERMANENT,
+                )
+                return
+            if row.status in (ApprovalStatus.EXECUTED, ApprovalStatus.FAILED) or row.result:
+                # The at-most-once guard. A previous attempt committed an
+                # outcome, so the board may already hold this application and
+                # this item must NOT submit again. The item is *completed*
+                # rather than failed: the work this item represents is done —
+                # by the earlier attempt — and failing it would make the run
+                # look broken and invite a recovery that would re-submit.
+                message = (
+                    f"The approval {approval_id!r} already records a submission "
+                    f"({row.status}); the retry did not submit again."
+                )
+                logger.warning("Submission refused (at-most-once): %s", message)
+                self._settle_submission(
+                    item,
+                    run_id=run.id,
+                    event="submission.refused",
+                    message=message,
+                    metadata={
+                        "approval_id": approval_id,
+                        "reason": "already_submitted",
+                        "approval_status": row.status,
+                    },
+                    status=WORK_COMPLETED,
+                )
+                self._processed_since_heartbeat += 1
+                return
+
+            result = self._submit_approved_application(
+                row,
+                workflow_id=workflow_id,
+                approval_id=approval_id,
+                session=session,
+            )
+            self._record_submission_outcome(session, row, result)
+
+        self._update_run_metadata(run.id, {"submission": _submission_summary(result)})
+        # The item's status tracks the submission's outcome, because the run's
+        # status is derived from its items. A submission that failed settles
+        # ``FAILED`` (permanent), so the run reads ``FAILED`` and an operator
+        # sees that this needs a human — a run reading ``COMPLETED`` while the
+        # approval row reads ``FAILED`` would be the run lying about what
+        # happened.
+        #
+        # ``FAILED`` here does **not** mean "retry it": the retry is refused
+        # below by the at-most-once guard, for the reason the guard exists. A
+        # failure is often ambiguous about whether the board received the
+        # application — ``verification_failed`` means the form *was* submitted
+        # and the confirmation could not be read — so retrying could apply
+        # twice. The human decides, from the recorded result and evidence.
+        if result.success:
+            self._settle_submission(
+                item,
+                run_id=run.id,
+                event="submission.completed",
+                message=(
+                    f"Submission for approval {approval_id}: {result.status} ({result.message})"
+                ),
+                metadata={
+                    "approval_id": approval_id,
+                    "workflow_id": workflow_id,
+                    "status": result.status,
+                    "success": True,
+                },
+                status=WORK_COMPLETED,
+            )
+            self._processed_since_heartbeat += 1
+            return
+
+        self._settle_submission(
+            item,
+            run_id=run.id,
+            event="submission.failed",
+            message=(f"Submission for approval {approval_id}: {result.status} ({result.message})"),
+            metadata={
+                "approval_id": approval_id,
+                "workflow_id": workflow_id,
+                "status": result.status,
+                "success": False,
+            },
+            status=WORK_FAILED,
+            error=f"{result.status}: {result.message}",
+            error_kind=ERROR_PERMANENT,
+        )
+        self._failed_since_heartbeat += 1
+        logger.warning(
+            "Worker %s: submission %s for approval %s did not succeed: %s",
+            self.worker_id,
+            workflow_id,
+            approval_id,
+            result.message,
+        )
+
+    def _submit_approved_application(
+        self,
+        row: ApprovalRequestDB,
+        *,
+        workflow_id: str,
+        approval_id: str,
+        session: Session,
+    ) -> ApplicationResult:
+        """Restore the approved payload, resolve the adapter, execute it.
+
+        The three steps the approve route used to perform in the request
+        thread, unchanged — the payload is the **persisted** one (so the
+        submitted application is the one the human reviewed), and the adapter
+        is resolved from the one shared registry (so the route and the worker
+        cannot disagree about which adapter exists).
+        """
+        from src.applications.contracts import PreparedApplication
+        from src.db import access
+        from src.graph.executor import execute_approved, select_adapter_by_name
+
+        prepared = PreparedApplication.model_validate(row.payload)
+        try:
+            adapter = select_adapter_by_name(row.adapter_name)
+        except LookupError as exc:
+            # An approval built for an adapter this deployment no longer
+            # registers. Retrying cannot fix it, so it is a permanent failure
+            # and the row is left for a human rather than silently retried.
+            from src.applications.contracts import ApplicationResult
+
+            logger.error("Submission for approval %s refused: %s", approval_id, exc)
+            return ApplicationResult(
+                success=False,
+                status="adapter_unavailable",
+                message=str(exc),
+                metadata={"workflow_id": workflow_id, "adapter": row.adapter_name},
+            )
+
+        # The tracking write needs a scope, and the worker has no caller: it is
+        # the system acting on a decision that was already attributed to
+        # ``row.approver``. ``LEGACY_SCOPE`` is the platform-wide view (a
+        # superuser scope), which is what "no tenant" means here — the
+        # approval's own owner is carried by the row, and the *authority* for
+        # the submission is the recorded human decision, not this process.
+        application = access.get_application_by_approval(session, access.LEGACY_SCOPE, approval_id)
+        return execute_approved(
+            prepared,
+            adapter,
+            workflow_id=workflow_id,
+            approval_id=approval_id,
+            approver=row.approver or "",
+            decision_reason=row.decision_reason or "",
+            session=session,
+            application_id=application.id if application is not None else None,
+        )
+
+    def _record_submission_outcome(
+        self,
+        session: Session,
+        row: ApprovalRequestDB,
+        result: ApplicationResult,
+    ) -> None:
+        """Commit the submission's outcome onto the approval row.
+
+        This is the write that makes the work durable, and it is deliberately a
+        separate method: it is the last thing that happens before the work item
+        is settled, so it is the point a crash must be simulated at to prove
+        the at-most-once guard (a test subclasses this method and raises after
+        the commit).
+
+        The status is written **only here**, after the work ran. Nothing in
+        this module writes ``EXECUTED`` for an approval that was merely
+        accepted — a row that says executed while the work is queued is a lie
+        in the audit trail, which is the one place this system promises not to
+        lie.
+        """
+        from src.db.approval import ApprovalStatus
+
+        row.status = ApprovalStatus.EXECUTED if result.success else ApprovalStatus.FAILED
+        row.result = result.model_dump(mode="json")
+        session.commit()
+
+    def _settle_submission(
+        self,
+        item: queue.ClaimedWork,
+        *,
+        run_id: str,
+        event: str,
+        message: str,
+        metadata: dict[str, Any],
+        status: str,
+        error: str | None = None,
+        error_kind: str | None = None,
+    ) -> None:
+        """Settle a submission item, turning a lost lease into a warning.
+
+        The same contract as the other handlers, with one addition: a refused
+        or completed submission is recorded as one outcome, and a ``LeaseLost``
+        means another worker now owns this item and this one's verdict must not
+        land.
+        """
+        try:
+            queue.settle_work_items(
+                run_id=run_id,
+                outcomes=[
+                    queue.ItemOutcome(
+                        item_id=item.id,
+                        lease_token=item.lease_token,
+                        status=status,
+                        error=error,
+                        error_kind=error_kind,
+                    )
+                ],
+                worker_id=self.worker_id,
+                session_factory=self._session_factory,
+                event=event,
+                message=message,
+                metadata=metadata,
+                now=self._now(),
+            )
+        except queue.LeaseLost:
+            logger.warning(
+                "Worker %s lost the lease on submission item %s; its verdict was discarded",
+                self.worker_id,
+                item.id,
+            )
 
     def _load_run(self, run_id: str) -> JobRunDB | None:
         from src.db.session import SessionLocal

@@ -108,7 +108,15 @@ __all__ = [
 ]
 
 #: Priorities. Lower is claimed first.
+#:
+#: A submission outranks every scheduled drain (:data:`PRIORITY_SUBMISSION`),
+#: and it sits just below :data:`PRIORITY_RECOVERY` so an administrator's
+#: explicit recovery is still claimed ahead of it. The ordering is the point:
+#: an approved application is a human waiting on an irreversible action they
+#: already authorized, while a refresh is a background drain that is equally
+#: correct an hour from now.
 PRIORITY_RECOVERY = 10
+PRIORITY_SUBMISSION = 15
 PRIORITY_EMBEDDING = 20
 PRIORITY_REFRESH = 30
 PRIORITY_RECONCILE = 40

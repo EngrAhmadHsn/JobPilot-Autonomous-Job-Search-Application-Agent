@@ -33,7 +33,13 @@ from src.db.access import UserScope
 from src.db.jobs import JobDB
 from src.db.runs import JobRunDB, JobWorkItemDB
 from src.runs import queue
-from src.runs.embedding import JOB_TYPE_EMBEDDING, JOB_TYPE_RECONCILE, JOB_TYPE_REFRESH
+from src.runs.embedding import (
+    JOB_TYPE_EMBEDDING,
+    JOB_TYPE_RECONCILE,
+    JOB_TYPE_REFRESH,
+    JOB_TYPE_SUBMISSION,
+    SUBMISSION_WORK_TYPE,
+)
 from src.runs.state import (
     ACTIVE_RUN_STATUSES,
     WORK_CANCELLED,
@@ -176,6 +182,70 @@ def enqueue_reconcile(
     run = db.get(JobRunDB, accepted.run_id)
     assert run is not None
     return run, True
+
+
+def enqueue_submission(
+    db: Session,
+    *,
+    approval_id: str,
+    workflow_id: str,
+    owner_id: str,
+    approver: str,
+) -> queue.EnqueuedRun:
+    """Accept an approved application for execution by the worker (WS-32).
+
+    This is the durable half of the approve route. The whole submission — a
+    browser walk against a real board, tens of seconds of network — used to
+    run inside the request that asked for it, so a proxy timeout, a client
+    disconnect or a crash lost the run while the approval row sat mid-flight.
+    The work is now a row rather than a call: the request accepts it and the
+    worker performs it, and the request's answer is "accepted", not
+    "submitted".
+
+    **Ordering is the invariant, not a detail.** The caller writes the
+    approval decision in this same transaction and commits once, so either
+    both the decision and the queued run are durable or neither is. That is
+    what makes :class:`src.runs.queue.QueueFull` safe to propagate: a refused
+    enqueue rolls the decision back with it, and the operator is told to retry
+    instead of being left with an approval the system silently dropped. A
+    separate commit for the decision would make "decided but never queued" a
+    reachable state — an approval that authorizes nothing and that no retry can
+    reach, because the row no longer reads PENDING.
+
+    Returns:
+        The durable identity of the accepted run. The caller commits (see
+        :func:`src.runs.queue.enqueue_run`).
+
+    Raises:
+        queue.QueueFull: The bounded queue is at capacity. Nothing was written;
+            the caller answers 503 with a ``Retry-After``.
+    """
+    return queue.enqueue_run(
+        db,
+        job_type=JOB_TYPE_SUBMISSION,
+        # The workflow id is the correlation id: it is the id every audit row
+        # for this application already carries, so the run and the trail are
+        # findable by the same value.
+        correlation_id=workflow_id,
+        owner_id=owner_id,
+        priority=queue.PRIORITY_SUBMISSION,
+        items=[
+            queue.WorkSpec(
+                # The approval id travels as the item's job_id: the worker's
+                # unit of work is one approval, and this is the id it loads to
+                # reconstruct the payload it must submit.
+                job_id=approval_id,
+                work_type=SUBMISSION_WORK_TYPE,
+                content_hash="",
+            )
+        ],
+        metadata={
+            "approval_id": approval_id,
+            "workflow_id": workflow_id,
+            "owner_id": owner_id,
+            "approver": approver,
+        },
+    )
 
 
 def get_run_for_scope(db: Session, scope: UserScope, run_id: str) -> JobRunDB | None:

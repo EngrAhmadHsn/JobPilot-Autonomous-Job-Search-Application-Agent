@@ -2,6 +2,16 @@
 
 The API is the outer edge of the approval gate, so the tests are written from
 the outside: what a caller can and cannot do over HTTP.
+
+**WS-32 split the flow across two processes.** ``POST /approve`` records the
+human decision and *accepts* the submission as durable work; the worker then
+performs it. So the HTTP-level tests here assert the decision, the acceptance
+and the guards, and the assertions that used to read the submission's result
+off the approve response now read it off the approval row after the queue has
+been drained (``_drain_submissions``). The properties they existed for — the
+approved payload is the submitted payload, the decision is attributed to the
+principal, a denied adapter never reaches submit — are all still asserted; only
+the process that performs the call changed.
 """
 
 from __future__ import annotations
@@ -13,7 +23,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.api.routes import applications as applications_route
 from src.applications.contracts import (
     ApplicationAdapter,
     ApplicationRequest,
@@ -29,7 +38,9 @@ from src.db.evidence import ApplicationEvidence
 from src.db.jobs import JobDB
 from src.db.session import get_db
 from src.db.users import LEGACY_OWNER_ID
+from src.graph import executor as graph_executor
 from src.main import app
+from src.runs.worker import Worker
 
 
 class StubAdapter(ApplicationAdapter):
@@ -99,9 +110,37 @@ def session_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def stub_adapter(monkeypatch: pytest.MonkeyPatch) -> StubAdapter:
+    """Install one stub as the whole adapter registry (WS-32).
+
+    The registry lives in ``src.graph.executor`` now, and both the route and
+    the worker resolve from it, so replacing it here is what makes the
+    ``prepare`` request and the later ``drain`` call agree about the adapter —
+    which is the property the two-call flow depends on.
+    """
     adapter = StubAdapter()
-    monkeypatch.setattr(applications_route, "AVAILABLE_ADAPTERS", [adapter])
+    monkeypatch.setattr(graph_executor, "AVAILABLE_ADAPTERS", [adapter])
     return adapter
+
+
+@pytest.fixture
+def drain(session_factory):
+    """Run the real worker once, performing any queued submission (WS-32).
+
+    This is the second process the approve route now defers to. The tests call
+    it explicitly so that "the request accepted the work" and "the work was
+    done" stay separate assertions — the distinction the whole task exists for.
+    """
+
+    def run() -> None:
+        worker = Worker(
+            worker_id="w-submit-api",
+            session_factory=session_factory,
+            sleep=lambda _seconds: None,
+            lease_seconds=0.0,
+        )
+        worker.run_once()
+
+    return run
 
 
 @pytest.fixture
@@ -185,10 +224,16 @@ class TestPrepareEndpoint:
 
 
 class TestApproveEndpoint:
-    """Only an approved record may execute."""
+    """Only an approved record may execute — and the request only *accepts* it.
 
-    def test_approve_executes_the_approved_payload(
-        self, client, session_factory, stub_adapter
+    WS-32: the approve returns 202 with the accepted run, and the submission
+    happens when the worker drains the queue. The tests below therefore make
+    two calls where they used to make one: ``approve`` (the decision) and
+    ``drain`` (the execution).
+    """
+
+    def test_approve_accepts_the_submission_and_the_worker_executes_it(
+        self, client, session_factory, stub_adapter, drain
     ) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
 
@@ -197,24 +242,39 @@ class TestApproveEndpoint:
             json={"approver": "operator", "reason": "looks good"},
         )
 
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["success"] is True
-        assert body["status"] == "verified"
-        assert body["evidence"]["confirmation_text"] == "Application submitted"
-        # The submitted payload is the approved one.
-        assert stub_adapter.submitted is not None
-        assert stub_adapter.submitted.prepared_fields == {"candidate_name": "Ada Lovelace"}
+        # The request accepts: 202 and a run id, and nothing has been submitted.
+        assert response.status_code == 202, response.text
+        accepted = response.json()
+        assert accepted["run_id"]
+        assert accepted["success"] is False
+        assert "submitted" not in accepted["status"].lower()
+        assert stub_adapter.submitted is None, (
+            "the request thread submitted the application; that is the behaviour WS-32 removed"
+        )
+
+        # The decision is durable before the work is done.
+        with session_factory() as session:
+            row = session.get(ApprovalRequestDB, prepared["approval_id"])
+            assert row.status == ApprovalStatus.APPROVED
+            assert row.result is None
+            # WS-14 · A2 (T2): the approver is the **authenticated
+            # principal**, not the name the body supplied.
+            assert row.approver == LEGACY_OWNER_ID
+            assert row.decision_reason == "looks good"
+            assert row.decided_at is not None
+
+        drain()
 
         with session_factory() as session:
             row = session.get(ApprovalRequestDB, prepared["approval_id"])
             assert row.status == ApprovalStatus.EXECUTED
-            # WS-14 · A2 (T2): the approver is the **authenticated
-            # principal**, not the name the body supplied. The body's
-            # "operator" is ignored.
-            assert row.approver == LEGACY_OWNER_ID
-            assert row.decision_reason == "looks good"
-            assert row.decided_at is not None
+            assert row.result is not None
+            assert row.result["status"] == "verified"
+            assert row.result["evidence"]["confirmation_text"] == "Application submitted"
+        # The submitted payload is the approved one — the worker restores the
+        # payload from the approval row, so this is the WS-06 property intact.
+        assert stub_adapter.submitted is not None
+        assert stub_adapter.submitted.prepared_fields == {"candidate_name": "Ada Lovelace"}
 
     def test_a_body_supplied_approver_is_ignored(
         self, client, session_factory, stub_adapter
@@ -232,14 +292,14 @@ class TestApproveEndpoint:
             json={"approver": "somebody-else", "reason": "looks good"},
         )
 
-        assert response.status_code == 200, response.text
+        assert response.status_code == 202, response.text
         with session_factory() as session:
             row = session.get(ApprovalRequestDB, prepared["approval_id"])
             assert row.approver == LEGACY_OWNER_ID
             assert row.approver != "somebody-else"
 
     def test_an_approval_without_a_body_approver_is_accepted(
-        self, client, session_factory, stub_adapter
+        self, client, session_factory, stub_adapter, drain
     ) -> None:
         """The approver is no longer a required field: the principal is
         always there, so asking for it in the body is redundant."""
@@ -249,17 +309,20 @@ class TestApproveEndpoint:
             f"/api/applications/{prepared['approval_id']}/approve", json={"reason": "looks good"}
         )
 
-        assert response.status_code == 200, response.text
-        assert stub_adapter.submitted is not None
+        assert response.status_code == 202, response.text
         with session_factory() as session:
             row = session.get(ApprovalRequestDB, prepared["approval_id"])
             assert row.approver == LEGACY_OWNER_ID
 
+        drain()
+        assert stub_adapter.submitted is not None
+
     def test_a_second_decision_is_refused(self, client, session_factory, stub_adapter) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
-        client.post(
+        first = client.post(
             f"/api/applications/{prepared['approval_id']}/approve", json={"approver": "operator"}
         )
+        assert first.status_code == 202, first.text
 
         response = client.post(
             f"/api/applications/{prepared['approval_id']}/approve", json={"approver": "operator"}
@@ -275,22 +338,36 @@ class TestApproveEndpoint:
 
         assert response.status_code == 404
 
-    def test_an_adapter_without_submit_permission_is_denied(
-        self, client, session_factory, monkeypatch
+    def test_an_adapter_without_submit_permission_never_reaches_submit(
+        self, client, session_factory, monkeypatch, drain
     ) -> None:
+        """The capability gate still refuses — now on the worker thread.
+
+        WS-06 · SEC-08 is enforced in the submit node, which the worker runs,
+        so this is where the refusal lands. The work is accepted (the queue
+        does not know about capabilities) and the *submission* is refused: the
+        approval row ends ``FAILED`` with the permission_denied status, and the
+        adapter is never asked to submit.
+        """
         denied = DeniedAdapter()
-        monkeypatch.setattr(applications_route, "AVAILABLE_ADAPTERS", [denied])
+        monkeypatch.setattr(graph_executor, "AVAILABLE_ADAPTERS", [denied])
 
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
         response = client.post(
             f"/api/applications/{prepared['approval_id']}/approve", json={"approver": "operator"}
         )
 
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["success"] is False
-        assert body["status"] == "permission_denied"
+        assert response.status_code == 202, response.text
         assert denied.submitted is None
+
+        drain()
+
+        assert denied.submitted is None, "an adapter without the capability was asked to submit"
+        with session_factory() as session:
+            row = session.get(ApprovalRequestDB, prepared["approval_id"])
+            assert row.status == ApprovalStatus.FAILED
+            assert row.result is not None
+            assert row.result["status"] == "permission_denied"
 
 
 class TestRejectEndpoint:
@@ -361,7 +438,7 @@ class TestTrackedApplication:
             assert job.application_url == _payload()["job_url"]
 
     def test_the_application_traverses_the_whole_lifecycle(
-        self, client, session_factory, stub_adapter
+        self, client, session_factory, stub_adapter, drain
     ) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
 
@@ -369,7 +446,16 @@ class TestTrackedApplication:
             f"/api/applications/{prepared['approval_id']}/approve",
             json={"approver": "operator", "reason": "looks good"},
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code == 202, response.text
+        # The decision is recorded, but the application is not submitted yet:
+        # the agent has not performed the submission, so it stays where it was
+        # when the human approved it.
+        with session_factory() as session:
+            row = session.get(ApplicationDB, prepared["application_id"])
+            assert row.status == ApplicationStatus.AWAITING_APPROVAL.value
+            assert row.submitted_at is None
+
+        drain()
 
         with session_factory() as session:
             row = session.get(ApplicationDB, prepared["application_id"])
@@ -396,13 +482,14 @@ class TestTrackedApplication:
             assert any(event.event_type == "evidence_recorded" for event in events)
 
     def test_the_evidence_row_is_linked_to_the_application(
-        self, client, session_factory, stub_adapter
+        self, client, session_factory, stub_adapter, drain
     ) -> None:
         prepared = client.post("/api/applications/prepare", json=_payload()).json()
         client.post(
             f"/api/applications/{prepared['approval_id']}/approve",
             json={"approver": "operator"},
         )
+        drain()
 
         with session_factory() as session:
             evidence = session.scalars(select(ApplicationEvidence)).one()

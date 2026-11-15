@@ -135,8 +135,19 @@ def _payload(job_url: str, **extra) -> dict:
     return payload
 
 
-def _run(client: TestClient, job_url: str, **extra) -> dict:
-    """The whole flow: prepare, then approve (which executes the submission)."""
+def _run(client: TestClient, session_factory, job_url: str, **extra) -> dict:
+    """The whole flow: prepare, approve, then drain the queue.
+
+    WS-32 split this across two processes: ``POST /approve`` records the
+    decision and accepts the submission as durable work (202), and the worker
+    performs the browser walk. The helper drives both and returns the
+    **approval row's stored result**, which is where the outcome and the
+    evidence live now — exactly what a real operator reads after approving and
+    watching the run.
+    """
+    from src.db.approval import ApprovalRequestDB
+    from src.runs.worker import Worker
+
     prepared = client.post("/api/applications/prepare", json=_payload(job_url, **extra))
     assert prepared.status_code == 200, prepared.text
     approval_id = prepared.json()["approval_id"]
@@ -145,8 +156,26 @@ def _run(client: TestClient, job_url: str, **extra) -> dict:
         f"/api/applications/{approval_id}/approve",
         json={"approver": "human:ada", "reason": "reviewed"},
     )
-    assert approved.status_code == 200, approved.text
-    return approved.json()
+    assert approved.status_code == 202, approved.text
+    assert approved.json()["run_id"]
+
+    # The real worker, in this test process, against the suite's database. One
+    # pass is enough: the queue holds exactly this submission.
+    worker = Worker(
+        worker_id="w-browser-variants",
+        session_factory=session_factory,
+        sleep=lambda _seconds: None,
+        lease_seconds=0.0,
+    )
+    worker.run_once()
+
+    with session_factory() as session:
+        row = session.get(ApprovalRequestDB, approval_id)
+        assert row is not None
+        assert row.result is not None, (
+            "the worker did not record a submission outcome on the approval row"
+        )
+        return {**row.result, "approval_status": row.status}
 
 
 class TestSuccessfulVariants:
@@ -172,7 +201,7 @@ class TestSuccessfulVariants:
     def test_the_variant_is_submitted_and_verified(
         self, client, session_factory, workspace, ats, path, extra
     ) -> None:
-        result = _run(client, f"{ats}{path}", custom_fields=extra)
+        result = _run(client, session_factory, f"{ats}{path}", custom_fields=extra)
 
         assert result["success"] is True, result
         assert result["status"] == "verified", result
@@ -202,6 +231,7 @@ class TestSuccessfulVariants:
     def test_the_widget_values_reach_the_server(self, client, session_factory, ats) -> None:
         _run(
             client,
+            session_factory,
             f"{ats}/widgets",
             custom_fields={
                 "country": "Germany",
@@ -221,6 +251,7 @@ class TestSuccessfulVariants:
     def test_the_multipage_values_reach_the_server(self, client, session_factory, ats) -> None:
         _run(
             client,
+            session_factory,
             f"{ats}/multipage",
             custom_fields={"years_of_experience": "7", "work_authorization": "yes"},
         )
@@ -234,7 +265,7 @@ class TestSuccessfulVariants:
     def test_the_upload_variant_attaches_the_resume(
         self, client, session_factory, workspace, ats, resume
     ) -> None:
-        result = _run(client, f"{ats}/upload-required", resume_path=resume)
+        result = _run(client, session_factory, f"{ats}/upload-required", resume_path=resume)
 
         assert result["success"] is True, result
         assert result["status"] == "verified", result
@@ -249,7 +280,7 @@ class TestNeedsHuman:
     def test_the_unknown_question_is_surfaced(
         self, client, session_factory, workspace, ats
     ) -> None:
-        result = _run(client, f"{ats}/unknown")
+        result = _run(client, session_factory, f"{ats}/unknown")
 
         assert result["success"] is False
         assert result["status"] == "needs_human"
@@ -259,7 +290,7 @@ class TestNeedsHuman:
         assert (workspace / result["evidence"]["screenshot_path"]).exists()
 
     def test_nothing_was_submitted(self, client, session_factory, ats) -> None:
-        _run(client, f"{ats}/unknown")
+        _run(client, session_factory, f"{ats}/unknown")
 
         last = httpx.get(f"{ats}/_last", timeout=10).json()
 
@@ -267,7 +298,7 @@ class TestNeedsHuman:
         assert last["path"] == "/unknown"
 
     def test_the_application_is_not_marked_as_submitted(self, client, session_factory, ats) -> None:
-        _run(client, f"{ats}/unknown")
+        _run(client, session_factory, f"{ats}/unknown")
 
         with session_factory() as session:
             application = session.scalars(select(ApplicationDB)).one()
@@ -285,7 +316,7 @@ class TestChallenge:
     def test_the_challenge_stops_the_submission(
         self, client, session_factory, workspace, ats
     ) -> None:
-        result = _run(client, f"{ats}/captcha")
+        result = _run(client, session_factory, f"{ats}/captcha")
 
         assert result["success"] is False
         assert result["status"] == "blocked_human_review"
@@ -293,7 +324,7 @@ class TestChallenge:
         assert (workspace / result["evidence"]["screenshot_path"]).exists()
 
     def test_the_challenge_was_never_posted_to(self, client, session_factory, ats) -> None:
-        _run(client, f"{ats}/captcha")
+        _run(client, session_factory, f"{ats}/captcha")
 
         last = httpx.get(f"{ats}/_last", timeout=10).json()
 
@@ -305,7 +336,7 @@ class TestFormError:
     """A rejected form is retried once, and then fails with the message."""
 
     def test_the_rejection_is_captured(self, client, session_factory, workspace, ats) -> None:
-        result = _run(client, f"{ats}/validation")
+        result = _run(client, session_factory, f"{ats}/validation")
 
         assert result["success"] is False
         assert result["status"] == "form_error"
@@ -315,7 +346,7 @@ class TestFormError:
         assert (workspace / result["evidence"]["screenshot_path"]).exists()
 
     def test_the_application_is_not_marked_as_submitted(self, client, session_factory, ats) -> None:
-        _run(client, f"{ats}/validation")
+        _run(client, session_factory, f"{ats}/validation")
 
         with session_factory() as session:
             application = session.scalars(select(ApplicationDB)).one()
