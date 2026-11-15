@@ -240,7 +240,7 @@ def load_profile_request(
                     f"No candidate profile {profile_id!r} is readable by this account; the "
                     "pilot will not run against a board without the candidate's own data."
                 )
-            facts = _facts_for(profile_from_row(row), job_url, session)
+            facts = _facts_for(profile_from_row(row), job_url, SessionLocal)
 
     return ApplicationRequest(
         job_title=job_title,
@@ -260,19 +260,27 @@ def _legacy_owner_id() -> str:
     return LEGACY_OWNER_ID
 
 
-def _facts_for(profile, job_url: str, session) -> dict[str, str]:
+def _facts_for(profile, job_url: str, session_factory) -> dict[str, str]:
     """The grounded facts of a profile, with the posting's country applied.
 
     WS-25c: the boards ask "are you authorized to work in the country for which
     you apply?", so the work-authorization fact is qualified by the posting's
     own location — read from the corpus by the listing's application URL. An
     unresolvable location withholds the fact, which is the safe direction.
+
+    ``session_factory`` is a **sessionmaker**, because
+    :func:`location_for_application_url` opens its own session with it. It used
+    to be handed ``session.get_bind()`` — an ``Engine`` — and ``Engine()`` is
+    not callable, so the lookup's broad ``except`` turned every posting's
+    country into ``None``: the country-qualified authorization fact was
+    withheld on every run, and the question went to a human who should never
+    have seen it.
     """
     from src.applications.form import facts_from_profile, resolve_job_country
     from src.db.jobs import location_for_application_url
 
     try:
-        location = location_for_application_url(job_url, session_factory=session.get_bind())
+        location = location_for_application_url(job_url, session_factory=session_factory)
     except Exception:  # an unknown country withholds the answer, safely
         logger.debug("The posting's location could not be resolved", exc_info=True)
         location = None

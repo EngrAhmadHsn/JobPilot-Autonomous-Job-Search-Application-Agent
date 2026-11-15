@@ -326,9 +326,16 @@ argues for becomes the next task's premise.
 | 5 | `split_candidate_name` units; `prepare` emits the identity fields | `tests/test_ws32_assist_mode.py` |
 | 5 | a spy proves `submit` calls `require_capability(PREPARE)` | `tests/test_ws32_assist_mode.py` |
 
-83 cases across the five WS-32 test files. Each was written before its implementation
-and run failing; the RED runs are recorded in the per-task reports under
-`.superpowers/sdd/2026-11-14-submission-readiness/`.
+86 cases across the five WS-32 test files. For Tasks 1–4, each test was written before its
+implementation and run failing; those RED runs are recorded in the per-task reports under
+`.superpowers/sdd/2026-11-14-submission-readiness/`. Task 5 is the exception: its tests were
+found already passing and its report records no RED for them. What Task 5 does have is the
+fix round's reproducing tests, written and run failing before their fixes: the submit-click
+window in `_fill_and_submit` (the walk delegated to a parent click path that re-read the
+button — `test_a_page_whose_button_changes_between_lookups_is_never_submitted`) and the
+pilot's country lookup (`_facts_for` handed `location_for_application_url` an `Engine`, so
+every stored posting's country read as `None`). Both RED runs are recorded in the Task 5
+report's fix-round section.
 
 ## 7 — New dependencies
 

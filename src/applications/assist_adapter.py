@@ -31,15 +31,22 @@ and overrides exactly these things:
     Name" questions, so the parts are emitted alongside the full name the
     walker's own field map asks for.
 ``_fill_and_submit``
-    **The whole of the stop.** Everything else in the walk is inherited: the
-    per-page allowlist check, the challenge stop, ``build_form_plan``, the
-    unanswered-question stop, ``_fill_control``/``_upload_resume``,
-    ``_find_button``, ``_collect_errors`` and the one-retry-on-rejection
-    behaviour. The override looks for the page's button *first*; when it
-    **submits**, the page is filled and a new outcome kind —
-    ``awaiting_human_submit`` — is returned **without clicking it**. When the
-    button only advances a wizard, the parent's implementation runs unchanged,
-    so a multi-step form still advances.
+    **The whole of the stop**, and the only place in this class that clicks —
+    for a button it has just read as *not* a submit button. Everything else in
+    the walk is inherited: the per-page allowlist check, the challenge stop,
+    ``build_form_plan``, the unanswered-question stop, ``_fill_control``/
+    ``_upload_resume``, ``_find_button``, ``_collect_errors`` and the
+    traversal ceiling. The override fills the page, looks the page's button up,
+    and stops there: a button that **submits** — or no button at all — returns
+    the new outcome kind ``awaiting_human_submit`` **without a click**, while a
+    button that only advances a wizard is clicked and the page's own validation
+    read, retrying once on a rejected page exactly as the parent does. It does
+    **not** delegate back to the parent's click path: that path looks the button
+    up a second time and clicks whatever it finds, so a page whose button set
+    changes between the fill and the lookup (a validation re-render, a step that
+    reveals an ``Apply`` button) reached a submit click. The loop re-reads the
+    button after every click instead, which is what makes the claim below true
+    of the code rather than of the intent.
 ``submit`` / ``verify`` / ``capture_human_submission`` / ``close``
     ``submit`` keeps the parent's skeleton and its four outcome dispatches,
     with two differences: the ``finally`` that closes the context and shuts the
@@ -54,10 +61,12 @@ and overrides exactly these things:
 The dispatches on the other outcome kinds are delegated to the parent's
 ``_*_result`` methods unchanged, so a challenge, an unsafe redirect, an
 unanswered question and a rejected form read exactly as they do on the fake-ATS
-path. What changes is that the browser is left open on those stops too: a human
-sitting in front of the window can answer the question the agent could not, or
-clear the CAPTCHA itself. **The agent still never solves a challenge** — a
-challenge ends the agent's part of the run.
+path. The human hand-over is for a **form** — filled, or partly filled, with a
+question the agent could not answer — not for a page that is itself the problem:
+a **challenge** and an **unsafe navigation** capture their evidence and then
+close the browser, because a window sitting on a CAPTCHA is not a hand-over, and
+**the agent never solves a challenge** (SEC-09): a challenge ends the agent's
+part of the run.
 
 **The evidence chain.** ``submit`` captures the stop point (a screenshot and
 the trace so far) but deliberately does **not** stop the Playwright trace: the
@@ -102,11 +111,12 @@ from src.applications.contracts import (
     SubmissionEvidence,
 )
 from src.applications.fake_ats_adapter import (
+    MAX_SUBMIT_ATTEMPTS,
     FakeAtsPlaywrightAdapter,
     NavigationTrace,
     _StepOutcome,
 )
-from src.applications.form import FormPlan
+from src.applications.form import FormPlan, build_form_plan, read_controls
 from src.applications.greenhouse_contract import validate_against_contract
 from src.config.settings import ensure_dir, get_settings
 from src.security.allowlist import DisallowedDomainError, has_allowed_scheme
@@ -369,12 +379,20 @@ class AssistAdapter(FakeAtsPlaywrightAdapter):
             A result whose ``status`` is ``awaiting_human_submit`` on the happy
             path — ``success=False`` on purpose: nothing was submitted. A
             challenge, an unsafe redirect, an unanswered question and a
-            rejected form keep the statuses the fake-ATS adapter reports. On
-            every one of those stops the browser is left open on the page the
-            run reached, so a human sitting in front of the window can finish
-            what the agent must not (answer the question, clear the challenge,
-            press submit); only an unexpected failure closes it, because a
-            broken run has no coherent page to hand over.
+            rejected form keep the statuses the fake-ATS adapter reports.
+
+            Which stops are **handed over** is deliberate. The browser is left
+            open on the three where a *form* is waiting for a person:
+            ``awaiting_human_submit``, ``needs_human`` (the question the agent
+            could not answer is on the page for the human to answer there) and
+            ``form_error`` (the page's own validation complained; the human sees
+            why and finishes it). It is **closed** on the two where the *page*
+            is the problem — a challenge (``blocked_human_review``: SEC-09, the
+            agent never cooperates with one, and a window sitting on a CAPTCHA
+            is not a hand-over) and an unsafe navigation (``unsafe_navigation``:
+            the host is not the one the operator allowlisted). Both capture
+            their evidence first. Only an unexpected failure closes as well,
+            because a broken run has no coherent page to hand over.
         """
         self.require_capability(CapabilityLevel.PREPARE)
 
@@ -503,40 +521,84 @@ class AssistAdapter(FakeAtsPlaywrightAdapter):
         prepared: PreparedApplication,
         trace: NavigationTrace,
     ) -> _StepOutcome:
-        """Fill the page; stop the walk when this page's button *submits*.
+        """Fill the page and advance it, but **never** click a submit button.
 
         This is the entire behavioural difference from the WS-08 walker, and it
-        is deliberately narrow:
+        is a loop rather than a delegation on purpose. The earlier shape looked
+        the page's button up once and handed a non-submit page to the parent's
+        implementation — which looks the button up **again** and clicks what it
+        finds. A page whose button set changes between the two lookups (a
+        validation re-render, a step that reveals an ``Apply``/``Submit``/
+        ``Send`` button once the fields are answered) therefore reached
+        ``click()`` on a submit button. That is the one thing this adapter must
+        never do, so the loop below is the only code path the assist walk has,
+        and its click is guarded by the same ``is_submit`` flag it re-reads
+        after every click:
 
-        * the page's button is looked for **before** the fill (the parent fills
-          first) — the same two patterns, the same semantic locator, no CSS;
-        * when the button **submits**, the page is filled and the walk returns
-          :data:`AWAITING_HUMAN_SUBMIT` without ever calling ``click``. Nothing
-          checks what the page's own validation would have complained about —
-          the human finds out, which is exactly what the pilot measures;
-        * when the button only **advances** a wizard, and when there is no
-          button at all, the parent's implementation runs unchanged: it fills,
-          clicks, reads the page's own validation errors, retries once against
-          a re-rendered page, and returns ``next``/``form_error``/
-          ``needs_human`` exactly as the fake-ATS path does.
+        * fill the page, then look the button up — the same two patterns
+          (:data:`SUBMIT_BUTTON` / :data:`NEXT_BUTTON`), the same semantic
+          locator, no CSS;
+        * **a submit button, or no button at all** → the walk stops:
+          :data:`AWAITING_HUMAN_SUBMIT` is returned without a ``click``. The
+          human presses the page's own button, and the page's own validation is
+          what they find out about — which is exactly what the pilot measures;
+        * **a next button** → click, wait for the page that led to, collect the
+          page's own validation errors, and keep the parent's one-remediation
+          retry (a rejected page is re-planned and filled once more). The
+          re-look-up happens at the top of the next iteration, so a page that
+          reveals a submit button after the click stops there.
+
+        The parent's ``submitted`` outcome is unreachable here — nothing in this
+        method can produce it — and the traversal ceiling is the parent's
+        :data:`~src.applications.fake_ats_adapter.MAX_PAGES`.
 
         The optional questions it could not ground and the widgets it does not
         support, on the pages it filled, are accumulated on the adapter: they
         are the pilot's finding and the operator has to read them.
         """
-        _button, is_submit = self._find_button(page)
-        if not is_submit:
-            return super()._fill_and_submit(page, plan, facts, prepared, trace)
+        current_plan = plan
 
-        self._fill_plan(page, plan, prepared, trace)
-        self._record_what_was_left_alone(plan)
-        trace.record("filled_form_stopped_before_submit", page.url)
-        logger.info(
-            "[%s] The form is filled and the submit button was not pressed; the browser is "
-            "left open for the human.",
-            self._workflow_id,
-        )
-        return _StepOutcome(kind=AWAITING_HUMAN_SUBMIT)
+        for attempt in range(MAX_SUBMIT_ATTEMPTS):
+            self._fill_plan(page, current_plan, prepared, trace)
+            self._record_what_was_left_alone(current_plan)
+
+            button, is_submit = self._find_button(page)
+            if button is None or is_submit:
+                # The whole of the stop. ``is_submit`` is read at the moment of
+                # the decision, so a page that changed between the fill and the
+                # lookup stops here rather than being handed to a click path.
+                trace.record("filled_form_stopped_before_submit", page.url)
+                logger.info(
+                    "[%s] The form is filled and the submit button (%s) was not pressed; the "
+                    "browser is left open for the human.",
+                    self._workflow_id,
+                    "present" if is_submit else "absent",
+                )
+                return _StepOutcome(kind=AWAITING_HUMAN_SUBMIT)
+
+            # A non-submit button only: this is the sole ``click`` in the assist
+            # walk, and ``is_submit`` is False on the path that reaches it.
+            trace.record("click_next", page.url)
+            button.click()
+            self._wait_for_page(page)
+
+            errors = self._collect_errors(page)
+            if not errors:
+                logger.info("[%s] Advanced to the next page of the form", self._workflow_id)
+                return _StepOutcome(kind="next")
+
+            if attempt + 1 < MAX_SUBMIT_ATTEMPTS:
+                # The parent's one-remediation retry: the server rejected the
+                # page, so the prepared data is applied to the re-rendered page.
+                logger.info("The form was rejected (%s); retrying once", "; ".join(errors))
+                current_plan = build_form_plan(read_controls(page), facts)
+                if current_plan.unresolved:
+                    return _StepOutcome(kind="needs_human", questions=list(current_plan.unresolved))
+                continue
+
+            return _StepOutcome(kind="form_error", errors=errors)
+
+        return _StepOutcome(kind="form_error", errors=["The form was not advanced."])
 
     def _record_what_was_left_alone(self, plan: FormPlan) -> None:
         """Remember the questions and widgets this page's fill did not answer."""

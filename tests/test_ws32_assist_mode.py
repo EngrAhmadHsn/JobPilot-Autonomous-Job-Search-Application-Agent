@@ -360,6 +360,41 @@ def test_a_twizard_step_is_advanced_and_only_the_last_page_is_left_alone(
     assert "Submit application" not in page.clicked
 
 
+def test_a_page_whose_button_changes_between_lookups_is_never_submitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The window the two-lookup delegation opened, closed.
+
+    ``AssistAdapter._fill_and_submit`` used to look the page's button up once and,
+    when it was not a submit button, hand the walk to the parent's implementation
+    — which looks the button up **again** and clicks whatever it finds. A page
+    whose button set changes between those two lookups therefore reached a
+    ``click()`` on a submit button, which is the one thing this adapter must never
+    do: ``SUBMIT_BUTTON`` matches ``submit|apply|send``, so a validation re-render
+    or a wizard step that reveals an *Apply* button is not a contrived shape.
+
+    This fake models exactly that: the first button lookup sees ``Continue``
+    (a *next* button), and every lookup after the fill sees ``Apply now`` — a
+    submit button. The adapter must stop before it, not click it.
+    """
+    adapter = AssistAdapter()
+    page = _RerenderedButtonPage()
+    monkeypatch.setattr(adapter, "_open_page", lambda url: page)
+
+    result = adapter.submit(_prepared())
+
+    # The assertion the window fails: no submit button was ever clicked.
+    for label in page.clicked:
+        assert not re.search(r"submit|apply|send", label, re.IGNORECASE), (
+            f"the agent clicked the submit button {label!r}"
+        )
+    assert result.status == "awaiting_human_submit"
+    assert "filled" in result.message.lower()
+    # And the page was still filled: the stop is a hand-over, not a no-op.
+    assert page.filled["Full name"] == "Ada Lovelace"
+    assert adapter.browser_open is True
+
+
 def test_an_incomplete_payload_is_refused_before_the_browser_opens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -620,6 +655,109 @@ def test_the_local_fake_ats_passes_the_guard_in_development_only(
     monkeypatch.setattr(settings, "app_env", "production")
     with pytest.raises(DisallowedDomainError):
         assert_job_url_allowed(local)  # a production deployment cannot submit locally
+
+
+# --------------------------------------------------------------------------
+# The pilot's facts: the posting's country is read, not lost
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def corpus_db():
+    """A throwaway corpus the pilot's country lookup reads from.
+
+    The pilot resolves the posting's location from the **stored listing** by
+    its application URL (WS-25c), so the test needs the real ``jobs`` table.
+    ``Base`` already carries every model (``tests/conftest.py`` imports them),
+    and the in-memory engine keeps the test off any real database.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db.base import Base
+
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    yield sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    engine.dispose()
+
+
+def _uk_only_profile():
+    """The WS-25c candidate: authorized in the UK, and only the UK."""
+    from src.resume.application_profile import ApplicationProfile
+    from src.resume.profile import CandidateProfile, PersonalInformation
+
+    return CandidateProfile(
+        personal_information=PersonalInformation(name="Ada Lovelace"),
+        application_profile=ApplicationProfile.model_validate(
+            {
+                "answers": {
+                    "work_authorization": {
+                        "legally_authorized": True,
+                        "requires_sponsorship": False,
+                        "authorized_countries": ["GB"],
+                    }
+                }
+            }
+        ),
+    )
+
+
+def test_the_pilot_reads_the_postings_country_before_it_answers(corpus_db) -> None:
+    """The country lookup must reach the corpus — it used to die on an Engine.
+
+    ``pilot_assist._facts_for`` resolves the posting's location by application
+    URL and the country from it (WS-25c). The lookup takes a **sessionmaker**
+    (``location_for_application_url`` opens its own session with it), and the
+    pilot used to hand it ``session.get_bind()`` — an ``Engine``. ``Engine()``
+    is not callable, the lookup's broad ``except`` swallowed the ``TypeError``,
+    and the country came back ``None`` on every run: the country-qualified
+    authorization fact was silently withheld from every application, and the
+    question went to a human who should never have seen it.
+
+    With ``Toronto, Canada`` stored for the target, a UK-only candidate must
+    get the **country-qualified** answer — ``"no"`` for Canada is the
+    profile's own statement, and its presence is the proof the country was
+    read. When the lookup fails, ``job_country`` is ``None`` and a narrowed
+    profile emits no fact at all, which is the defect this test pins.
+    """
+    from scripts import pilot_assist
+    from src.db.jobs import JobDB
+
+    url = "https://boards.greenhouse.io/acme/jobs/ca-1"
+    with corpus_db() as session:
+        session.add(
+            JobDB(
+                id=f"greenhouse:{url}",
+                source="greenhouse",
+                source_job_id=url,
+                title="Backend Engineer",
+                company="Acme",
+                location="Toronto, Canada",
+                application_url=url,
+            )
+        )
+        session.commit()
+
+    facts = pilot_assist._facts_for(_uk_only_profile(), url, corpus_db)
+
+    assert facts.get("legally_authorized") == "no"
+
+
+def test_a_posting_it_cannot_read_withholds_the_answer(corpus_db) -> None:
+    """The safe direction, pinned: a posting it cannot find states no country.
+
+    "No row" and "the read failed" are the same outcome by design — the
+    authorization fact is withheld — so the fix above must not turn a missing
+    listing into a fabricated "yes" for a narrowed profile.
+    """
+    from scripts import pilot_assist
+
+    facts = pilot_assist._facts_for(
+        _uk_only_profile(), "https://boards.greenhouse.io/acme/jobs/never-seen", corpus_db
+    )
+
+    assert "legally_authorized" not in facts
 
 
 # --------------------------------------------------------------------------
@@ -906,6 +1044,57 @@ def test_a_human_submit_after_the_run_produces_verifiable_evidence(
         assert adapter.browser_open is True
         adapter.close()
         assert adapter.browser_open is False
+
+
+class _RerenderedButtonPage(FakePage):
+    """A page whose button set changes once its form has been filled.
+
+    The real shape this models: a form that renders a *next* button until the
+    fields are answered — or that re-renders after a validation error — and then
+    reveals the button that submits. The adapter looks the button up more than
+    once on such a page, and every lookup after the fill sees ``Apply now``.
+
+    ``_find_button`` narrows the locator with ``.first``, so the locator
+    subclass here keeps its identity through ``first``/``nth`` the same way
+    :class:`_AdvancingLocator` does, and reports the current button set.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            url="http://localhost:8901/reveal",
+            body="Answer the questions to continue",
+            controls=[FakeControl(label="Full name", kind="text", required=True)],
+            buttons=["Continue"],
+        )
+
+    def _revealed(self) -> bool:
+        """Whether the form has been filled and the submit button shown."""
+        return bool(self.filled)
+
+    def get_by_role(self, role: str, name=None) -> FakeLocator:
+        if role != "button":
+            return super().get_by_role(role, name)
+        pattern = name if isinstance(name, re.Pattern) else None
+        buttons = ["Apply now"] if self._revealed() else ["Continue"]
+        names = [button for button in buttons if pattern is None or pattern.search(button)]
+        return _RerenderedLocator(self, [{"name": button} for button in names], pattern)
+
+
+class _RerenderedLocator(FakeLocator):
+    """A button locator that keeps its page's button set live across lookups."""
+
+    def __init__(self, page: FakePage, targets: list[dict], pattern: re.Pattern | None) -> None:
+        super().__init__(page, targets)
+        self.pattern = pattern
+
+    def nth(self, index: int) -> FakeLocator:
+        if index >= len(self.targets):
+            return _RerenderedLocator(self.page, [], self.pattern)
+        return _RerenderedLocator(self.page, [self.targets[index]], self.pattern)
+
+    @property
+    def first(self) -> FakeLocator:
+        return self.nth(0)
 
 
 class _WizardPage(FakePage):
