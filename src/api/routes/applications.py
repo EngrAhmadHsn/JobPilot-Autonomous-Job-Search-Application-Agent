@@ -993,6 +993,17 @@ def approve_application(
             ),
         ) from exc
 
+    # WS-32: the acceptance is committed **before** the tracking write. The
+    # tracking tables are observability, and ``_record_tracking_event`` is
+    # best-effort — it swallows its exception and calls ``db.rollback()``. When
+    # it ran before this commit, that rollback discarded the APPROVED write and
+    # the run and item rows the enqueue had flushed, and the handler still
+    # answered 202 with a run id no worker could ever claim, because the run had
+    # been rolled back out of existence. Ordering the commit first is what makes
+    # a tracking failure harmless: it can lose an event, never the acceptance.
+    db.commit()
+    db.refresh(row)
+
     # WS-07: the decision is an event in the tracked application's history.
     # The application itself stays in AWAITING_APPROVAL until the agent
     # actually performs the submission — which is now the worker's job, so the
@@ -1007,9 +1018,6 @@ def approve_application(
             actor=human_actor(approver),
             metadata={"reason": req.reason, "approval_id": approval_id},
         )
-
-    db.commit()
-    db.refresh(row)
 
     record_audit(
         ACTION_APPROVE,

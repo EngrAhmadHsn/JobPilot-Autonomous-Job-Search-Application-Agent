@@ -38,7 +38,7 @@ from src.applications.contracts import (
 )
 from src.db.approval import ApprovalRequestDB, ApprovalStatus, build_approval_row
 from src.db.base import Base
-from src.db.runs import JobWorkItemDB
+from src.db.runs import JobRunDB, JobRunEventDB, JobWorkItemDB
 from src.db.session import get_db
 from src.db.users import LEGACY_OWNER_ID
 from src.graph import executor as graph_executor
@@ -120,9 +120,11 @@ class _TestWorker(Worker):
 
     ``crash_after_claim`` kills the process after the claim and before any
     work — the item is left RUNNING with a lease, and only the lease reaper can
-    recover it. ``crash_after_submit`` kills it after the durable record of the
-    submission exists and before the work item is settled, which is the shape a
-    real crash takes: what was committed is kept, what was not is lost.
+    recover it. ``crash_after_submit`` kills it **after the board accepted the
+    application and before the outcome is committed**: the adapter really ran,
+    the employer may already hold the application, and the approval row still
+    reads ``APPROVED``. ``crash_after_outcome`` kills it after the outcome was
+    committed, which is the other side of the window.
     """
 
     def __init__(
@@ -130,11 +132,13 @@ class _TestWorker(Worker):
         *args: Any,
         crash_after_claim: bool = False,
         crash_after_submit: bool = False,
+        crash_after_outcome: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.crash_after_claim = crash_after_claim
         self.crash_after_submit = crash_after_submit
+        self.crash_after_outcome = crash_after_outcome
         #: What this worker was actually handed, so a test can tell "nothing
         #: was claimed" (which would be a false pass) from "the right work was
         #: claimed".
@@ -147,9 +151,17 @@ class _TestWorker(Worker):
         super()._execute(items)
 
     def _record_submission_outcome(self, session, row, result) -> None:
-        super()._record_submission_outcome(session, row, result)
+        # The seam is exactly the window the plan names. This method is called
+        # as soon as ``_submit_approved_application`` returns — so raising
+        # *before* ``super()`` is a death that lands after the adapter ran and
+        # before any outcome is durable. Raising *after* ``super()`` is the
+        # easier side: the row already records what happened, so the existing
+        # guard alone would catch it.
         if self.crash_after_submit:
-            raise _Crash("simulated crash after the submission was recorded")
+            raise _Crash("simulated crash after the submission, before the outcome was recorded")
+        super()._record_submission_outcome(session, row, result)
+        if self.crash_after_outcome:
+            raise _Crash("simulated crash after the outcome was recorded")
 
 
 @pytest.fixture
@@ -246,6 +258,7 @@ def run_worker_once(session_factory, monkeypatch: pytest.MonkeyPatch):
         adapter: ApplicationAdapter | None = None,
         crash_after_claim: bool = False,
         crash_after_submit: bool = False,
+        crash_after_outcome: bool = False,
     ) -> None:
         if adapter is not None:
             # The worker resolves by the name the approval row carries, from
@@ -258,8 +271,9 @@ def run_worker_once(session_factory, monkeypatch: pytest.MonkeyPatch):
             lease_seconds=0.0,
             crash_after_claim=crash_after_claim,
             crash_after_submit=crash_after_submit,
+            crash_after_outcome=crash_after_outcome,
         )
-        if crash_after_claim or crash_after_submit:
+        if crash_after_claim or crash_after_submit or crash_after_outcome:
             with pytest.raises(_Crash):
                 worker.run_once()
         else:
@@ -287,6 +301,29 @@ def expire_lease(session_factory):
         queue.reap_expired_leases(session_factory=session_factory)
 
     return expire
+
+
+@pytest.fixture
+def run_events(session_factory):
+    """The lifecycle events of the submission run for a workflow id."""
+
+    def read(workflow_id: str):
+        with session_factory() as session:
+            run = session.execute(
+                select(JobRunDB).where(JobRunDB.correlation_id == workflow_id)
+            ).scalar_one()
+            events = list(
+                session.execute(
+                    select(JobRunEventDB)
+                    .where(JobRunEventDB.run_id == run.id)
+                    .order_by(JobRunEventDB.id)
+                ).scalars()
+            )
+            for event in events:
+                session.expunge(event)
+            return events
+
+    return read
 
 
 def _item_for(session_factory, approval_id: str) -> JobWorkItemDB:
@@ -368,10 +405,15 @@ def test_the_worker_executes_the_queued_submission(
     assert row.approver == LEGACY_OWNER_ID
 
 
-def test_a_submission_that_crashes_mid_run_is_reclaimable(
+def test_a_submission_that_crashes_before_anything_was_attempted_is_retried(
     client, approved_payload, db_session, run_worker_once, expire_lease
 ) -> None:
-    """The lease expires, the run is retried, and the row never reads EXECUTED."""
+    """No attempt marker means nothing reached the board, so the retry runs.
+
+    This is the first of the three cases, and the one where refusing would be
+    wrong: an approved application that is never applied is its own failure, and
+    a crash *before* the submission carries no evidence that anything was sent.
+    """
     _approve(client, approved_payload.approval_id)
     counter = _CountingAdapter()
 
@@ -388,23 +430,73 @@ def test_a_submission_that_crashes_mid_run_is_reclaimable(
     assert row.status == ApprovalStatus.EXECUTED
 
 
-def test_a_retried_submission_does_not_submit_twice(
-    client, approved_payload, db_session, run_worker_once
+def test_a_submission_that_crashes_after_the_board_accepted_is_not_resubmitted(
+    client, approved_payload, db_session, run_worker_once, expire_lease, run_events
 ) -> None:
-    """At-most-once matters: a double submission is a real harm, not a nuisance.
+    """At-most-once, on the window that actually matters.
 
-    The crash lands *after* the board accepted the application, so the retry
-    must refuse rather than apply again.
+    The crash lands **after the adapter submitted** and **before the outcome was
+    committed** — so the employer may already hold the application, and the
+    approval row still reads ``APPROVED`` with no result. That is the state a
+    lease reaper requeues and an administrator's resume re-runs, and a system
+    that cannot tell it from "nothing happened yet" applies twice.
+
+    So the retry refuses: it settles the item with a ``submission.uncertain``
+    event and leaves the row ``APPROVED`` (decided, outcome unknown) for a human
+    to check. The row must not claim ``EXECUTED`` — nothing was confirmed — and
+    must not claim ``FAILED`` either, because that would assert the application
+    was not sent, which nobody knows.
     """
     _approve(client, approved_payload.approval_id)
     counter = _CountingAdapter()
 
     run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter, crash_after_submit=True)
+    assert counter.submit_calls == 1, "the crash must land after a real submission"
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status == ApprovalStatus.APPROVED, "the crash happened before the outcome was written"
+    assert row.result is None
+
+    # The lease expires (as it would on a killed process) and the item is
+    # requeued — the same path an administrator's resume drives.
+    expire_lease()
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
+
+    assert counter.submit_calls == 1, "the retry submitted the application a second time"
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status == ApprovalStatus.APPROVED
+    assert row.result is None
+
+    refusal = run_events(approved_payload.workflow_id)
+    assert any(event.event == "submission.uncertain" for event in refusal), (
+        "the refusal must be recorded on the run, visible to the operator"
+    )
+    message = " ".join(event.message or "" for event in refusal)
+    assert "may or may not" in message and "check" in message, (
+        f"the event must say plainly that a human has to check; it said: {message!r}"
+    )
+
+
+def test_a_submission_whose_outcome_was_recorded_is_not_resubmitted(
+    client, approved_payload, db_session, run_worker_once
+) -> None:
+    """The outcome is durable, so the retry refuses from the row alone.
+
+    The third case: the board accepted and the result was committed, then the
+    process died before the item was settled. Nothing is ambiguous here — the
+    record says what happened — and the refusal must not touch the row.
+    """
+    _approve(client, approved_payload.approval_id)
+    counter = _CountingAdapter()
+
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter, crash_after_outcome=True)
+    assert counter.submit_calls == 1
+
     run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
 
     assert counter.submit_calls == 1
     row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
     assert row.status == ApprovalStatus.EXECUTED
+    assert row.result is not None
 
 
 def test_a_full_queue_refuses_the_approval_without_stranding_it(
@@ -430,6 +522,87 @@ def test_a_full_queue_refuses_the_approval_without_stranding_it(
     assert row.status == ApprovalStatus.PENDING, (
         "the approval was recorded but never queued, so the operator's decision was dropped"
     )
+
+
+def test_a_tracking_failure_cannot_discard_the_accepted_run(
+    client,
+    approved_payload,
+    db_session,
+    session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    run_worker_once,
+) -> None:
+    """Tracking is best-effort; the acceptance is not.
+
+    ``_record_tracking_event`` swallows its exception and calls ``db.rollback``.
+    When it ran *before* the request's single commit, a failure there discarded
+    the APPROVED write and the run and item rows the enqueue had flushed — and
+    the handler still returned 202 with a ``run_id`` no worker would ever see,
+    because the run had been rolled back out of existence. The acceptance must
+    survive a tracking failure, so the order is: commit the decision and the
+    run, then record the tracking event.
+
+    A mid-flight ``database is locked`` on SQLite (a worker writing at the same
+    moment) is the plausible trigger. The stub below reproduces **both** shapes
+    of the failure: the real helper's own recovery (a ``db.rollback()`` that
+    discards whatever the shared session has pending) and an outright raise.
+    The assertion that matters is the consequence, not the mechanism: does the
+    run the operator was promised actually execute?
+
+    The tracked application is seeded explicitly, because the tracking write
+    only happens when one exists — without it this test would pass without ever
+    reaching the code it is about.
+
+    The stub reproduces the real helper's **silent** shape, which is what makes
+    the finding dangerous: it rolls the shared session back and then swallows
+    the error, so nothing propagates and the handler answers 202 as if all were
+    well. The damage is checked where it lands — on the run.
+    """
+    from src.api.routes import applications as applications_route
+    from src.applications.tracking import create_application
+
+    with session_factory() as session:
+        row = session.get(ApprovalRequestDB, approved_payload.approval_id)
+        create_application(
+            session,
+            owner_id=LEGACY_OWNER_ID,
+            workflow_id=row.workflow_id,
+            adapter_name=row.adapter_name,
+            job_url=row.job_url,
+            job_title=row.job_title,
+            company_name=row.company_name,
+            approval_id=approved_payload.approval_id,
+        )
+        session.commit()
+
+    tracking_calls: list[int] = []
+    logged: list[str] = []
+
+    def fail(db, *_args, **_kwargs):
+        tracking_calls.append(1)
+        db.rollback()
+        logged.append("database is locked")  # what the real helper logs
+
+    monkeypatch.setattr(applications_route, "_record_tracking_event", fail)
+
+    response = client.post(f"/api/applications/{approved_payload.approval_id}/approve", json={})
+
+    assert tracking_calls, "the tracking path was never reached, so this test proves nothing"
+    assert logged, "the failure must be recorded, not silently ignored"
+    assert response.status_code == 202, response.text
+    run_id = response.json()["run_id"]
+    assert run_id
+
+    # The run really exists and a worker can claim and execute it.
+    with session_factory() as session:
+        assert queue.get_run(session, run_id) is not None
+
+    counter = _CountingAdapter()
+    run_worker_once(kind=SUBMISSION_WORK_TYPE, adapter=counter)
+
+    assert counter.submit_calls == 1
+    row = db_session.get(ApprovalRequestDB, approved_payload.approval_id)
+    assert row.status == ApprovalStatus.EXECUTED
 
 
 def test_no_code_path_executes_a_submission_inside_a_request_thread() -> None:

@@ -83,6 +83,33 @@ def default_worker_id() -> str:
     return f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
 
 
+def _submission_attempt(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The recorded attempt of a submission run, when there is one.
+
+    WS-32 writes ``{"submission": {"attempt_started_at": ..., "approval_id":
+    ..., "workflow_id": ...}}`` into the run's ``extra_metadata`` **before** the
+    adapter is reached. The record survives a failure and a success (a success
+    extends it with the outcome summary), so this helper answers "has an attempt
+    ever been started for this run?" — which is only half the question the guard
+    asks.
+
+    The other half is on the approval row, and it is asked **first**: a row with
+    a recorded outcome is never read as "outcome unknown". So this mapping being
+    present alongside a committed result is not a false positive — the guard
+    reaches case 3 before it reaches case 2.
+
+    Returns ``None`` when no attempt was ever recorded.
+    """
+    if not metadata:
+        return None
+    submission = metadata.get("submission")
+    if not isinstance(submission, dict):
+        return None
+    if not submission.get("attempt_started_at"):
+        return None
+    return submission
+
+
 def _submission_summary(result: Any) -> dict[str, Any]:
     """The operator-facing summary of one submission, for the run's metadata.
 
@@ -90,6 +117,12 @@ def _submission_summary(result: Any) -> dict[str, Any]:
     URL — no candidate field values, no resume contents. The run row is a
     progress record an operator reads in the console, and the full result
     (which does carry the evidence) is on the approval row where it belongs.
+
+    The attempt marker is **kept** alongside the summary rather than replaced by
+    it: ``attempt_started_at`` is the record that this attempt ran, and an
+    operator reading the run after a failure wants to see when it began. It is
+    also what makes the guard's case 3 distinguishable in the audit trail
+    rather than only in the code.
     """
     evidence = getattr(result, "evidence", None)
     return {
@@ -491,29 +524,46 @@ class Worker:
         the verification, the WS-07 tracking writes) still applies — it just
         applies in the worker, where a crash is survivable.
 
-        **At-most-once, and the guard is the row.** The queue hands out
-        at-least-once delivery: a lease can expire mid-run and the item can be
-        claimed again. For an embedding that is harmless — the work is
-        idempotent. For an application submission it is not: applying twice is
-        a real harm to a real candidate, not a duplicated batch. So the worker
-        refuses to submit an approval whose row already records a submission.
+        **At-most-once, and the guards are durable records.** The queue hands
+        out at-least-once delivery: a lease can expire mid-run and the item can
+        be claimed again — by the reaper, or by an administrator's resume. For
+        an embedding that is harmless, because the work is idempotent. For an
+        application submission it is not: applying twice is a real harm to a
+        real candidate, not a duplicated batch.
 
-        The two cases below look similar and must not be conflated:
+        The guarantee therefore is **not** "a submission is never attempted
+        twice", which no record written around the attempt can promise: there
+        is always a moment between the board accepting the application and the
+        outcome being committed, and a process can die in it. The guarantee is:
 
-        - **Crashed before the row was written** (this process died during the
-          walk, or was killed before the result was committed): the row still
-          reads ``APPROVED`` and there is no ``result``. Nothing is known to
-          have reached the board, so **the retry must run**. Anything else
-          would leave an approved application that never gets applied.
-        - **The row already records a submission** (``EXECUTED``/``FAILED``, or
-          a ``result`` payload): a previous attempt, or a previous worker, got
-          far enough to commit the outcome. The board may already have the
-          application, so **the retry must refuse**. This is the case that
-          makes applying twice impossible.
+        - **A recorded outcome is never submitted again.** One row says what
+          happened, and it outlives the process.
+        - **An attempt whose outcome was never recorded is escalated to a
+          human**, never re-sent. The system cannot know whether the board
+          accepted it, so it stops and says so.
 
-        The distinction is a property of the durable record, not of the lease:
-        the lease says who may write, the row says what already happened, and
-        only the row survives a crash.
+        Three cases, and they must not be conflated — the difference is what the
+        durable records say, not what the lease says:
+
+        1. **No attempt marker and no outcome** — nothing was ever started (or
+           the process died before the marker was committed, which is the same
+           thing: the marker is written *before* the adapter is reached). The
+           retry **runs**. Refusing here would leave an approved application
+           that never gets applied, which is its own failure.
+        2. **An attempt marker with no recorded outcome** — the previous
+           attempt reached the adapter and died before the outcome was durable.
+           The board may or may not hold the application. The retry **refuses
+           and escalates**: the item settles with ``submission.uncertain``, and
+           the row is left ``APPROVED`` — decided, outcome unknown, which is
+           the truth. It is deliberately *not* written ``FAILED`` (that would
+           assert the application was not sent, which nobody knows) and *not*
+           ``EXECUTED`` (nothing was confirmed).
+        3. **A recorded outcome** (``EXECUTED``/``FAILED``, or a ``result``) —
+           the application was submitted and the result is on the row. The
+           retry **refuses**; there is nothing left to do.
+
+        The lease says who may write; these records say what already happened,
+        and only they survive a crash.
         """
         run = self._load_run(item.run_id)
         if run is None:
@@ -565,12 +615,12 @@ class Worker:
                 )
                 return
             if row.status in (ApprovalStatus.EXECUTED, ApprovalStatus.FAILED) or row.result:
-                # The at-most-once guard. A previous attempt committed an
-                # outcome, so the board may already hold this application and
-                # this item must NOT submit again. The item is *completed*
-                # rather than failed: the work this item represents is done —
-                # by the earlier attempt — and failing it would make the run
-                # look broken and invite a recovery that would re-submit.
+                # Case 3: the outcome is durable, so the board has the
+                # application and this item must NOT submit again. The item is
+                # *completed* rather than failed: the work this item represents
+                # is done — by the earlier attempt — and failing it would make
+                # the run look broken and invite a recovery that would
+                # re-submit.
                 message = (
                     f"The approval {approval_id!r} already records a submission "
                     f"({row.status}); the retry did not submit again."
@@ -591,6 +641,55 @@ class Worker:
                 self._processed_since_heartbeat += 1
                 return
 
+            previous_attempt = _submission_attempt(run.extra_metadata)
+            if previous_attempt is not None:
+                # Case 2: an attempt was started and no outcome was recorded.
+                # This is the window a crash can land in — after the adapter
+                # submitted and before the result was committed — so the system
+                # cannot know whether the board holds the application. It
+                # refuses and hands the decision to a person rather than
+                # guessing in either direction.
+                started = previous_attempt.get("attempt_started_at") or "an earlier attempt"
+                message = (
+                    f"An earlier submission attempt for approval {approval_id!r} started at "
+                    f"{started} and never recorded an outcome. It may or may not have reached "
+                    "the board, so nothing was re-sent. A person must check the application "
+                    "with the employer before it is submitted again."
+                )
+                logger.warning("Submission escalated (attempt outcome unknown): %s", message)
+                self._settle_submission(
+                    item,
+                    run_id=run.id,
+                    event="submission.uncertain",
+                    message=message,
+                    metadata={
+                        "approval_id": approval_id,
+                        "workflow_id": workflow_id,
+                        "reason": "attempt_uncertain",
+                        "previous_attempt": previous_attempt,
+                    },
+                    status=WORK_COMPLETED,
+                )
+                self._processed_since_heartbeat += 1
+                return
+
+            # Case 1 (nothing was attempted) and the window of case 2 are
+            # separated by this marker. It is committed **before** the adapter
+            # is reached, which is what makes the distinction decidable after a
+            # crash: a marker with no outcome means "the adapter may have run",
+            # and no marker means "it cannot have run".
+            attempt_started_at = utcnow().isoformat()
+            self._update_run_metadata(
+                run.id,
+                {
+                    "submission": {
+                        "attempt_started_at": attempt_started_at,
+                        "approval_id": approval_id,
+                        "workflow_id": workflow_id,
+                    }
+                },
+            )
+
             result = self._submit_approved_application(
                 row,
                 workflow_id=workflow_id,
@@ -599,7 +698,23 @@ class Worker:
             )
             self._record_submission_outcome(session, row, result)
 
-        self._update_run_metadata(run.id, {"submission": _submission_summary(result)})
+        # The summary **extends** the attempt marker rather than replacing it:
+        # ``_update_run_metadata`` merges one level deep, so a bare summary would
+        # drop ``attempt_started_at`` and erase the record that this attempt ran.
+        # Keeping it is safe for the guard, because the recorded-outcome case is
+        # checked before the uncertain-attempt case — a row with a result is
+        # never read as "outcome unknown".
+        self._update_run_metadata(
+            run.id,
+            {
+                "submission": {
+                    "attempt_started_at": attempt_started_at,
+                    "approval_id": approval_id,
+                    "workflow_id": workflow_id,
+                    **_submission_summary(result),
+                }
+            },
+        )
         # The item's status tracks the submission's outcome, because the run's
         # status is derived from its items. A submission that failed settles
         # ``FAILED`` (permanent), so the run reads ``FAILED`` and an operator
