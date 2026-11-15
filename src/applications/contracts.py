@@ -6,6 +6,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# ``src.security.permissions`` imports only the standard library
+# (``collections.abc`` and ``enum``), and nothing in ``src.security`` imports
+# ``src.applications``, so this import cannot form a cycle. The *runtime*
+# lookup of the process-wide registry is imported lazily in
+# :meth:`ApplicationAdapter.require_capability` instead: that would pull in
+# ``src.security.registry_setup``, the registration table, and the contracts
+# module is imported very early by the suite.
+from src.security.permissions import CapabilityLevel, PermissionRegistry
+
 
 class ApplicationRequest(BaseModel):
     job_title: str
@@ -62,6 +71,40 @@ class ApplicationResult(BaseModel):
 
 class ApplicationAdapter(ABC):
     name: str = "application-adapter"
+
+    def require_capability(
+        self, level: CapabilityLevel, registry: PermissionRegistry | None = None
+    ) -> None:
+        """Refuse when this adapter does not hold *level*.
+
+        The registry is consulted before an adapter is called (the submit and
+        verify nodes), and this is the **second** layer: an adapter called
+        directly — a script, a test, a future caller — still refuses what it
+        was not granted. One implementation lives here rather than one per
+        adapter, because a check that is copied is a check the next adapter
+        forgets (WS-32).
+
+        Args:
+            level: The capability the caller is about to exercise.
+            registry: The registry to consult. ``None`` means the process-wide
+                one from :func:`src.security.registry_setup.get_registry`.
+
+        Raises:
+            PermissionError: The adapter does not hold *level*. The message
+                names the adapter and the capability so an operator reading
+                the log knows what was refused.
+        """
+        if registry is None:
+            # Imported lazily: ``registry_setup`` would couple this module to
+            # the security package's setup module (and its registration
+            # table), and the contracts module is imported very early.
+            from src.security.registry_setup import get_registry
+
+            registry = get_registry()
+        if not registry.can(self.name, level):
+            raise PermissionError(
+                f"{level.value} capability not granted for adapter {self.name!r}"
+            )
 
     @abstractmethod
     def supports_url(self, url: str) -> bool:

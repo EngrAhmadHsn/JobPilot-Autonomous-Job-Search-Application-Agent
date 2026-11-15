@@ -54,6 +54,7 @@ from src.applications.form import (
 from src.config.settings import ensure_dir, get_settings
 from src.security.allowlist import DisallowedDomainError, assert_navigation_allowed
 from src.security.page_guards import inspect_page
+from src.security.permissions import CapabilityLevel
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +200,17 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
     def submit(self, prepared: PreparedApplication) -> ApplicationResult:
         """Submit the application and capture the evidence of the outcome.
 
+        WS-32: the adapter refuses a submit it was not granted, first — the
+        same one-implementation check every other adapter calls. The registry
+        refuses the call before it arrives; this is the second layer, and it is
+        what a new adapter copied from this one inherits.
+
         Returns:
             The result of the submission. Any of the failure modes is a
             *result* with a specific status — never an exception and never a
             success without evidence.
         """
+        self.require_capability(CapabilityLevel.SUBMIT)
         workflow_id = prepared.workflow_id or uuid.uuid4().hex[:8]
         # WS-14 · Phase B: the evidence belongs to the account the run
         # was made for, so it is written into that account's own
@@ -745,6 +752,11 @@ class FakeAtsPlaywrightAdapter(ApplicationAdapter):
         return self.verify(result)
 
     def verify(self, result: ApplicationResult) -> ApplicationResult:
+        # WS-32: the verify capability is granted separately from submit, so
+        # it is checked separately. This is also the path ``_submitted_result``
+        # calls at the end of a run, so a run that was granted SUBMIT but not
+        # VERIFY reports its refusal rather than claiming a verification.
+        self.require_capability(CapabilityLevel.VERIFY)
         if result.evidence is None:
             return ApplicationResult(
                 success=False,

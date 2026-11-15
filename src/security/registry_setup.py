@@ -17,8 +17,13 @@ lever        prepare                   Same as Greenhouse.
 
 An adapter that is not listed here holds **no** capability, so an
 unregistered adapter can neither prepare nor submit. The registry is consulted
-in the submit and verify nodes; the adapters themselves refuse a submit they
-were not granted as a second layer.
+in the submit and verify nodes; the adapters themselves refuse a submit or a
+verify they were not granted as a second layer. That refusal is
+:meth:`~src.applications.contracts.ApplicationAdapter.require_capability`, one
+implementation on the adapter base class, called first by every adapter's
+``submit`` and ``verify``. Every adapter in this matrix — including the fake
+ATS, which holds ``SUBMIT`` — calls it, so the layer is uniform rather than a
+property of the two adapters that happen to fail without it.
 """
 
 from __future__ import annotations
