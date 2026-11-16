@@ -24,8 +24,9 @@ import { stagger } from "@/lib/stagger"
 
   - Home            → `/app`
   - Discover        → `/app/matches` and `/app/matches/:jobId`
-  - Applications    → `/app/tracker*` and `/app/approvals`
-  - Resume Studio   → `/app/tailor*`
+  - Applications    → `/app/tracker`, `/app/tracker/:applicationId`
+                    and `/app/approvals`
+  - Resume Studio   → `/app/tailor` and `/app/tailor/:jobId`
   - Profile & Docs  → `/app/profile` and `/app/resume`
   - Activity        → `/app/activity`
   - System: Operations → `/app/operations`; Administration → `/app/admin`
@@ -39,9 +40,11 @@ import { stagger } from "@/lib/stagger"
 */
 
 /**
- * One `matchPath` pattern. A bare string matches by prefix (so
- * `"/app/tracker"` covers the detail route too); `{ end: true }` pins the
- * pattern to the exact path.
+ * One `matchPath` pattern. Both spellings are **exact** matches: react-router
+ * compiles a bare string with `end: true` unless it ends in a wildcard, so
+ * `"/app/tracker"` does **not** cover the detail route — a detail route is
+ * listed as its own pattern (`"/app/tracker/:applicationId"`, the Discover
+ * precedent). `{ path, end: true }` is the same exact match, spelled out.
  */
 type NavPattern = string | { path: string; end: true }
 
@@ -102,7 +105,9 @@ export const PRIMARY_DESTINATIONS: NavDestination[] = [
     to: "/app/tracker",
     label: "Applications",
     icon: Briefcase,
-    match: ["/app/tracker", "/app/approvals"],
+    // The detail route is listed explicitly: a bare `matchPath` string is
+    // an exact match, so "/app/tracker" alone would light nothing on it.
+    match: ["/app/tracker", "/app/tracker/:applicationId", "/app/approvals"],
     children: [
       { to: "/app/tracker", label: "Tracker", match: ["/app/tracker"] },
       { to: "/app/approvals", label: "Approvals", match: ["/app/approvals"] },
@@ -114,7 +119,7 @@ export const PRIMARY_DESTINATIONS: NavDestination[] = [
     to: "/app/tailor",
     label: "Resume Studio",
     icon: FilePenLine,
-    match: ["/app/tailor"],
+    match: ["/app/tailor", "/app/tailor/:jobId"],
     children: [
       {
         to: "/app/tailor",

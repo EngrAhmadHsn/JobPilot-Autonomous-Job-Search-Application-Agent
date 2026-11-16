@@ -123,6 +123,39 @@ describe("the application shell", () => {
     )
   })
 
+  it("marks a tracker detail route as its destination", async () => {
+    renderApp({ route: "/app/tracker/app-1" })
+
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    // The application detail route has no child of its own; Applications,
+    // which covers the tracker's index and detail routes, is the current
+    // destination — and still the only one claiming the page.
+    expect(
+      within(nav).getByRole("link", { name: "Applications" })
+    ).toHaveAttribute("aria-current", "page")
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .filter((link) => link.getAttribute("aria-current") === "page")
+    ).toHaveLength(1)
+  })
+
+  it("marks a tailor detail route as its destination", async () => {
+    renderApp({ route: "/app/tailor/job-1" })
+
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    // The same rule as the tracker's detail route: Resume Studio covers
+    // both tailor routes, so the destination — not any child — is current.
+    expect(
+      within(nav).getByRole("link", { name: "Resume Studio" })
+    ).toHaveAttribute("aria-current", "page")
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .filter((link) => link.getAttribute("aria-current") === "page")
+    ).toHaveLength(1)
+  })
+
   it("hides Administration from an ordinary account", async () => {
     renderApp({ route: "/app/resume" })
 

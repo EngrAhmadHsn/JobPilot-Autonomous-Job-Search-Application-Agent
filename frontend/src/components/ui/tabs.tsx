@@ -41,9 +41,12 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
         "relative inline-flex h-9 items-center gap-1.5 rounded-t-md px-3 text-sm text-muted-foreground transition-colors duration-150 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 data-active:font-medium data-active:text-foreground",
         /*
           The underline sits on the list's own hairline, so it never
-          double-draws where the two meet.
+          double-draws where the two meet. It paints only on the active
+          tab: the ::after starts transparent (a bare `after:bg-primary`
+          here drew the underline on every tab), and `data-active` turns
+          it into the underline.
         */
-        "after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary data-active:after:bg-primary",
+        "after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-transparent data-active:after:bg-primary",
         className
       )}
       {...props}
