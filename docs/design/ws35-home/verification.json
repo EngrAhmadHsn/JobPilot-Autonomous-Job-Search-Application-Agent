@@ -1,0 +1,107 @@
+[
+  {
+    "name": "sign-in through the UI reaches /app",
+    "ok": true,
+    "detail": "http://localhost:5181/app"
+  },
+  {
+    "name": "profile handle set from the account's own document library",
+    "ok": true,
+    "detail": "ffa31746fb5b"
+  },
+  {
+    "name": "1440x1000: no horizontal scroll",
+    "ok": true,
+    "detail": "scrollWidth 1440 vs clientWidth 1440"
+  },
+  {
+    "name": "1440: featured opportunity leads, then attention",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1440: attention tile first in the strip",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1440: the next action is named",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1280x800: no horizontal scroll",
+    "ok": true,
+    "detail": "scrollWidth 1280 vs clientWidth 1280"
+  },
+  {
+    "name": "1280: featured opportunity leads, then attention",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1280: attention tile first in the strip",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "390x844: no horizontal scroll",
+    "ok": true,
+    "detail": "scrollWidth 390 vs clientWidth 390"
+  },
+  {
+    "name": "390: featured opportunity leads, then attention",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "390: attention tile first in the reading order",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "390: the next action is named",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "360x800: no horizontal scroll",
+    "ok": true,
+    "detail": "scrollWidth 360 vs clientWidth 360"
+  },
+  {
+    "name": "360: featured opportunity leads, then attention",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "360: attention tile first in the reading order",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "focus is visible on keyboard travel",
+    "ok": true,
+    "detail": "{\"tag\":\"A\",\"text\":\"JobPilot\",\"outline\":\"none 2px\"}"
+  },
+  {
+    "name": "empty account signed in",
+    "ok": true,
+    "detail": "http://localhost:5181/app"
+  },
+  {
+    "name": "1440: empty state has no horizontal scroll",
+    "ok": true,
+    "detail": "1440/1440"
+  },
+  {
+    "name": "390: empty state has no horizontal scroll",
+    "ok": true,
+    "detail": "390/390"
+  },
+  {
+    "name": "no illustrative elements rendered",
+    "ok": true,
+    "detail": "{\"live\":false,\"proPlan\":false,\"companyFit\":false,\"arcPercent\":false}"
+  }
+]

@@ -13,7 +13,7 @@ import { isRunTerminal } from "@/components/observability/run-progress"
  * |---------------------------|---------|--------------|
  * | health                    | 30 s    | 2            |
  * | audit (activity)          | 30 s    | 2            |
- * | applications + audit (overview) | 30 s | 4           |
+ * | applications + audit (overview) | 30 s | 8            |
  * | one active run            | 6 s     | 10           |
  * | active parent while its child runs | 15 s | 4        |
  * | runs list, something running | 20 s | 3            |
