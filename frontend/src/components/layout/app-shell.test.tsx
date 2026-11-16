@@ -1,43 +1,154 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
 
 import { setCurrentProfileId } from "@/lib/profile"
+import { server } from "@/test/server"
 import { renderApp } from "@/test/render"
 
+const BASE = "http://api.test"
+
+/*
+  The application shell (WS-34).
+
+  The shell's navigation moved from a horizontal header into the deep
+  forest sidebar of the approved reference (and, below `lg`, into a top
+  bar + bottom bar + drawer). What the tests still hold it to: every
+  destination reachable, one selected destination at a time, the account
+  menu opening, and — above all — the identity gate, which must keep the
+  console chrome invisible to a caller with no session.
+*/
 describe("the application shell", () => {
   it("offers the console screens", async () => {
     renderApp({ route: "/app/resume" })
 
+    /*
+      WS-34 renamed and regrouped the destinations per the approved
+      information architecture: the journey group (Home, Discover,
+      Applications, Resume Studio, Profile & Documents, Activity) with
+      its indented pages, and the System group beneath it. The drawer is
+      closed, so the sidebar's nav is the only "Screens" navigation in
+      the tree.
+    */
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    const sidebar = within(nav)
     for (const label of [
-      "Overview",
-      "Resume",
+      "Home",
+      "Discover",
       "Matches",
-      "Tailor",
-      "Approvals",
+      "Applications",
       "Tracker",
+      "Approvals",
+      "Resume Studio",
+      "Tailor",
+      "Profile & Documents",
+      "Profile",
+      "Documents",
       "Activity",
-      "Operations",
     ]) {
-      expect(
-        await screen.findByRole("link", { name: label })
-      ).toBeInTheDocument()
+      expect(sidebar.getByRole("link", { name: label })).toBeInTheDocument()
     }
+
+    // Operations and Administration are their own labelled System group.
+    const system = await screen.findByRole("navigation", { name: "System" })
+    expect(
+      within(system).getByRole("link", { name: "Operations" })
+    ).toBeInTheDocument()
   })
 
   it("shows each destination exactly once", async () => {
     renderApp({ route: "/app/resume" })
 
-    await screen.findByRole("link", { name: "Overview" })
-    // The Overview group has no heading, precisely so "Overview" is not
-    // rendered twice (once as a group label, once as the link).
-    expect(screen.getAllByRole("link", { name: "Overview" })).toHaveLength(1)
+    /*
+      The old test pinned "Overview" appearing once — the group label
+      must not repeat the item beneath it. WS-34 renamed the destination
+      "Home", and the phone chrome (the bottom bar) renders its own
+      subset of the same destinations at other widths, so uniqueness is
+      asserted inside the sidebar's own navigations, where it belongs.
+    */
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    const sidebar = within(nav)
+    await sidebar.findByRole("link", { name: "Home" })
+    for (const label of [
+      "Home",
+      "Discover",
+      "Matches",
+      "Applications",
+      "Tracker",
+      "Approvals",
+      "Resume Studio",
+      "Tailor",
+      "Profile & Documents",
+      "Profile",
+      "Documents",
+      "Activity",
+    ]) {
+      expect(sidebar.getAllByRole("link", { name: label })).toHaveLength(1)
+    }
+
+    const system = await screen.findByRole("navigation", { name: "System" })
+    expect(
+      within(system).getAllByRole("link", { name: "Operations" })
+    ).toHaveLength(1)
+  })
+
+  it("marks exactly one destination as the current page", async () => {
+    renderApp({ route: "/app/tracker" })
+
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    const sidebar = within(nav)
+
+    // The page in view is the Tracker page of the Applications
+    // destination: the child carries aria-current, the parent brightens
+    // without claiming the page.
+    expect(sidebar.getByRole("link", { name: "Tracker" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    const applications = sidebar.getByRole("link", { name: "Applications" })
+    expect(applications).toHaveAttribute("data-active")
+    expect(applications).not.toHaveAttribute("aria-current")
+  })
+
+  it("marks a detail route as its destination", async () => {
+    renderApp({ route: "/app/matches/job-1" })
+
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    // The job detail route has no child of its own; Discover, which
+    // covers both matches routes, is the current destination.
+    expect(within(nav).getByRole("link", { name: "Discover" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
   })
 
   it("hides Administration from an ordinary account", async () => {
     renderApp({ route: "/app/resume" })
 
-    await screen.findByRole("link", { name: "Operations" })
-    expect(screen.queryByRole("link", { name: "Administration" })).toBeNull()
+    const system = await screen.findByRole("navigation", { name: "System" })
+    await within(system).findByRole("link", { name: "Operations" })
+    expect(
+      within(system).queryByRole("link", { name: "Administration" })
+    ).toBeNull()
+  })
+
+  it("opens the account menu from the shell", async () => {
+    const user = userEvent.setup()
+    renderApp({ route: "/app/resume" })
+
+    // Both account triggers (sidebar footer and phone top bar) are in
+    // the DOM at this viewport in jsdom; either opens the same menu.
+    const trigger = screen
+      .getAllByRole("button", {
+        name: "Account and display settings",
+      })
+      .at(0)
+    expect(trigger).toBeDefined()
+    await user.click(trigger!)
+
+    expect(await screen.findByText("Operator console")).toBeInTheDocument()
+    expect(screen.getByText("Sign out")).toBeInTheDocument()
   })
 
   it("says when no profile is selected", async () => {
@@ -60,5 +171,25 @@ describe("the application shell", () => {
     await waitFor(() => {
       expect(screen.getByText(/API online/i)).toBeInTheDocument()
     })
+  })
+
+  it("hides the console chrome from an unauthenticated caller", async () => {
+    // WS-14: every protected route refuses a caller with no session, so
+    // the shell asks the server who it is. With no identity, the shell
+    // renders the sign-in screen and none of the console chrome — the
+    // restyle must not have moved the gate.
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
+      )
+    )
+    renderApp({ route: "/app/resume" })
+
+    expect(
+      await screen.findByRole("heading", { name: "Sign in" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "Screens" })).toBeNull()
+    expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull()
+    expect(screen.queryByRole("complementary")).toBeNull()
   })
 })

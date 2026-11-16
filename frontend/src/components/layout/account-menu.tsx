@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChevronDownIcon } from "lucide-react"
+import { cn } from "cn"
 
 import { useTheme } from "@/components/theme-provider"
 import { api } from "@/lib/api/endpoints"
@@ -29,8 +31,20 @@ import { useCurrentProfileId } from "@/lib/profile"
  * sign-out that ends the session **server-side**, not merely in the
  * browser: a session is a row, and a row that is only forgotten by the
  * browser is still a live credential.
+ *
+ * WS-34 restyles the trigger into the shell's account areas: at desktop
+ * widths it sits in the forest sidebar's footer (`surface="sidebar"`),
+ * on narrow screens in the top bar (`surface="bar"`). The menu's
+ * contents — and therefore the behavior the tests pin — are the same on
+ * both surfaces, and the popover opens upward from a footer.
  */
-export function AccountMenu() {
+export function AccountMenu({
+  surface = "bar",
+  className,
+}: {
+  surface?: "bar" | "sidebar"
+  className?: string
+}) {
   const { theme, setTheme } = useTheme()
   const motion = useMotionPreference()
   const profileId = useCurrentProfileId()
@@ -48,15 +62,23 @@ export function AccountMenu() {
     },
   })
 
+  const onSidebar = surface === "sidebar"
+
   return (
     <DropdownMenu>
       {/*
-        `h-11` is 44px. This trigger is the only path to sign out, the theme
-        switch and the motion control, so it has to be easy to hit with a
-        thumb. It was `h-9`.
+        `h-11`/`size-11` is 44px. This trigger is the only path to sign
+        out, the theme switch and the motion control, so it has to be
+        easy to hit with a thumb. It was `h-9`.
       */}
       <DropdownMenuTrigger
-        className="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm transition-colors duration-150 hover:bg-accent/60"
+        className={cn(
+          "inline-flex h-11 items-center gap-2 rounded-lg border px-2.5 text-sm transition-colors duration-150",
+          onSidebar
+            ? "border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-hover"
+            : "border-border bg-card text-foreground hover:bg-accent/60",
+          className
+        )}
         aria-label="Account and display settings"
       >
         <span
@@ -65,12 +87,27 @@ export function AccountMenu() {
         >
           {profileId ? "OP" : "—"}
         </span>
-        <span className="hidden text-muted-foreground sm:inline">
+        <span
+          className={cn(
+            "hidden min-w-0 truncate text-muted-foreground sm:inline",
+            onSidebar && "text-sidebar-muted"
+          )}
+        >
           {identity?.email ?? "Operator"}
         </span>
+        {onSidebar ? (
+          <ChevronDownIcon
+            aria-hidden="true"
+            className="size-4 shrink-0 text-sidebar-muted"
+          />
+        ) : null}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent
+        align={onSidebar ? "start" : "end"}
+        side={onSidebar ? "top" : "bottom"}
+        className="w-64"
+      >
         {/*
           The label is a *group* label in Base UI, and a group label needs
           a group: without this wrapper the menu throws the moment it

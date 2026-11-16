@@ -1,259 +1,428 @@
+import {
+  Briefcase,
+  Compass,
+  FilePenLine,
+  History,
+  House,
+  ServerCog,
+  ShieldCheck,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react"
+import { Link, matchPath, useLocation } from "react-router-dom"
 import { cn } from "cn"
-import { NavLink } from "react-router-dom"
 
 import { stagger } from "@/lib/stagger"
 
-/**
- * The navigation, grouped by what the operator is doing.
- *
- * The groups are the workflow: **overview** (where you are), **discover**
- * (find work), **prepare** (build an application), **track** (follow what
- * happened, and watch the agent). Operations and Administration are a
- * separate, quieter cluster — they maintain the platform rather than being
- * part of the operator's own workflow, so they should not read as equal
- * steps in it.
- *
- * Every destination is under `/app`, because the console now lives behind
- * a public landing page. It has two shapes: a horizontal bar on a wide
- * screen, and the items of a drawer on a narrow one. The grouping and the
- * wording are the same in both; only the arrangement changes.
- */
-export const NAV_GROUPS = [
-  {
-    /*
-      The first group has no heading: its one item is "Overview", and a
-      heading that repeats the item beneath it is noise. An empty label
-      renders no heading at all, in either shape.
-    */
-    label: "",
-    items: [{ to: "/app", label: "Overview", end: true }],
-  },
-  {
-    label: "Discover",
-    items: [
-      { to: "/app/resume", label: "Resume" },
-      { to: "/app/profile", label: "Profile" },
-      { to: "/app/matches", label: "Matches" },
-      { to: "/app/tailor", label: "Tailor" },
-    ],
-  },
-  {
-    label: "Prepare",
-    items: [{ to: "/app/approvals", label: "Approvals" }],
-  },
-  {
-    label: "Track",
-    items: [
-      { to: "/app/tracker", label: "Tracker" },
-      { to: "/app/activity", label: "Activity" },
-    ],
-  },
-] as const
+/*
+  The navigation (WS-34), mapped onto the master prompt's §5 information
+  architecture — the six destinations of the job-search journey, and the
+  two technical surfaces in a secondary **System** group.
 
-export const ADMIN_NAV = [
-  { to: "/app/operations", label: "Operations" },
-  { to: "/app/admin", label: "Administration", superuserOnly: true },
-] as const
+  The conceptual destinations are mapped onto the routes that already
+  exist, so **no deep link changes**:
+
+  - Home            → `/app`
+  - Discover        → `/app/matches` and `/app/matches/:jobId`
+  - Applications    → `/app/tracker*` and `/app/approvals`
+  - Resume Studio   → `/app/tailor*`
+  - Profile & Docs  → `/app/profile` and `/app/resume`
+  - Activity        → `/app/activity`
+  - System: Operations → `/app/operations`; Administration → `/app/admin`
+
+  Where one destination owns more than one page, its pages render as
+  indented children beneath it, so every route that existed yesterday is
+  still exactly one click away. The active treatment follows the URL:
+  exactly one row — the deepest match — carries `aria-current="page"` and
+  the filled pill; the destination above it merely brightens, so there is
+  always **one** clearly rendered selected item.
+*/
 
 /**
- * The groups with each destination's index in the whole list.
- *
- * The index is the item's place in the sequence, and the sequence is what
- * the drawer's arrival is built on — the destinations rise one after
- * another, in the order they are read. It is computed once, at module
- * level, because the groups never change.
+ * One `matchPath` pattern. A bare string matches by prefix (so
+ * `"/app/tracker"` covers the detail route too); `{ end: true }` pins the
+ * pattern to the exact path.
  */
-const INDEXED_GROUPS = NAV_GROUPS.map((group, groupIndex) => {
-  const first = NAV_GROUPS.slice(0, groupIndex).reduce(
-    (total, earlier) => total + earlier.items.length,
-    0
-  )
-  return {
-    label: group.label,
-    items: group.items.map((item, index) => ({
-      ...item,
-      index: first + index,
-    })),
-  }
-})
+type NavPattern = string | { path: string; end: true }
 
-type NavVariant = "horizontal" | "vertical"
-
-function NavItem({
-  to,
-  label,
-  variant,
-  onNavigate,
-  className,
-  index,
-  end,
-}: {
+/** A page inside a destination (rendered indented under its parent). */
+export interface NavChild {
   to: string
   label: string
-  variant: NavVariant
+  /** `matchPath` patterns; the child is current when one matches. */
+  match: NavPattern[]
+}
+
+export interface NavDestination {
+  to: string
+  label: string
+  icon: LucideIcon
+  /** `matchPath` patterns; the destination is active when one matches. */
+  match: NavPattern[]
+  /** Pages of this destination, shown indented beneath it. */
+  children?: NavChild[]
+  /**
+   * A courtesy, not a control: hiding the link stops a curious click,
+   * and the route behind it refuses a non-superuser on the **server**
+   * regardless of what this renders.
+   */
+  superuserOnly?: boolean
+  /** Include in the mobile bottom navigation (≤5 destinations). */
+  inBottomNav?: boolean
+  /** The shortened label the bottom navigation's slots can hold. */
+  bottomNavLabel?: string
+}
+
+export const PRIMARY_DESTINATIONS: NavDestination[] = [
+  {
+    to: "/app",
+    label: "Home",
+    icon: House,
+    // The exact route only — every other /app path belongs elsewhere.
+    match: [{ path: "/app", end: true }],
+    inBottomNav: true,
+    bottomNavLabel: "Home",
+  },
+  {
+    to: "/app/matches",
+    label: "Discover",
+    icon: Compass,
+    match: ["/app/matches", "/app/matches/:jobId"],
+    children: [
+      {
+        to: "/app/matches",
+        label: "Matches",
+        match: [{ path: "/app/matches", end: true }],
+      },
+    ],
+    inBottomNav: true,
+    bottomNavLabel: "Discover",
+  },
+  {
+    to: "/app/tracker",
+    label: "Applications",
+    icon: Briefcase,
+    match: ["/app/tracker", "/app/approvals"],
+    children: [
+      { to: "/app/tracker", label: "Tracker", match: ["/app/tracker"] },
+      { to: "/app/approvals", label: "Approvals", match: ["/app/approvals"] },
+    ],
+    inBottomNav: true,
+    bottomNavLabel: "Apply",
+  },
+  {
+    to: "/app/tailor",
+    label: "Resume Studio",
+    icon: FilePenLine,
+    match: ["/app/tailor"],
+    children: [
+      {
+        to: "/app/tailor",
+        label: "Tailor",
+        match: [{ path: "/app/tailor", end: true }],
+      },
+    ],
+    inBottomNav: true,
+    bottomNavLabel: "Studio",
+  },
+  {
+    to: "/app/profile",
+    label: "Profile & Documents",
+    icon: UserRound,
+    match: ["/app/profile", "/app/resume"],
+    children: [
+      {
+        to: "/app/profile",
+        label: "Profile",
+        match: [{ path: "/app/profile", end: true }],
+      },
+      { to: "/app/resume", label: "Documents", match: ["/app/resume"] },
+    ],
+    inBottomNav: true,
+    bottomNavLabel: "Profile",
+  },
+  {
+    to: "/app/activity",
+    label: "Activity",
+    icon: History,
+    match: ["/app/activity"],
+  },
+]
+
+/*
+  The technical surfaces (§5): they maintain the platform rather than
+  being part of the operator's own workflow, so they read as a labelled
+  secondary group, never as equal steps in the journey.
+*/
+export const SYSTEM_DESTINATIONS: NavDestination[] = [
+  {
+    to: "/app/operations",
+    label: "Operations",
+    icon: ServerCog,
+    match: ["/app/operations"],
+  },
+  {
+    to: "/app/admin",
+    label: "Administration",
+    icon: ShieldCheck,
+    match: ["/app/admin"],
+    superuserOnly: true,
+  },
+]
+
+/** The destinations the mobile bottom navigation holds (≤5). */
+export const BOTTOM_NAV_DESTINATIONS = PRIMARY_DESTINATIONS.filter(
+  (destination) => destination.inBottomNav
+)
+
+/** Does the pathname match any of the patterns? */
+export function navMatches(patterns: NavPattern[], pathname: string): boolean {
+  return patterns.some((pattern) => matchPath(pattern, pathname) !== null)
+}
+
+/*
+  The rows.
+
+  Both shapes — the forest sidebar and the paper drawer — render the same
+  destinations with the same wording and the same "you are here" marker;
+  only the surface's colours change. On the forest sidebar the theme's
+  `--ring` (forest) would be invisible, so focus moves to the sidebar's
+  own lime ring token.
+*/
+
+function DestinationRow({
+  label,
+  to,
+  icon: Icon,
+  onNavigate,
+  surface,
+  child,
+  active,
+  current,
+  index,
+}: {
+  label: string
+  to: string
+  icon?: LucideIcon
   onNavigate?: () => void
-  className?: string
+  surface: "forest" | "paper"
+  /** Rendered as an indented child row. */
+  child?: boolean
+  active: boolean
+  current: boolean
   index?: number
-  end?: boolean
 }) {
-  const vertical = variant === "vertical"
+  const forest = surface === "forest"
 
   return (
-    <NavLink
+    <Link
       to={to}
-      end={end}
-      /*
-        The View Transitions API animates between the two screens: the
-        browser captures the old one and the new one and crossfades them,
-        so the exit runs even though the router has already swapped the
-        tree. React Router turns it on per link and falls back to an
-        instant swap where the browser has no such API.
-      */
       viewTransition
       onClick={onNavigate}
-      className={({ isActive }) =>
-        cn(
-          "relative inline-flex items-center rounded-lg transition-colors duration-150",
-          vertical ? "h-11 w-full px-3 text-[15px]" : "h-9 px-3 text-sm",
-          vertical ? stagger(index ?? 0).className : undefined,
-          isActive
-            ? "bg-accent font-medium text-primary"
-            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-          className
-        )
-      }
-    >
-      {({ isActive }) => (
-        <>
-          {label}
-          {!vertical && isActive ? (
-            <span
-              aria-hidden="true"
-              className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-primary"
-            />
-          ) : null}
-        </>
+      aria-current={current ? "page" : undefined}
+      data-active={active || undefined}
+      className={cn(
+        "relative flex items-center rounded-lg transition-colors duration-150 outline-none",
+        forest
+          ? cn(
+              "mx-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring",
+              child
+                ? "h-8 gap-2 pr-3 pl-9 text-[13px]"
+                : "h-10 gap-2.5 px-3 text-sm",
+              current
+                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                : active
+                  ? "font-medium text-sidebar-foreground"
+                  : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+            )
+          : cn(
+              child ? "h-8 pr-3 pl-9 text-[13px]" : "h-11 px-3 text-[15px]",
+              current
+                ? "bg-accent font-medium text-primary"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            ),
+        index !== undefined && !child ? stagger(index).className : undefined
       )}
-    </NavLink>
+    >
+      {Icon && !child ? (
+        <Icon
+          aria-hidden="true"
+          className="size-[18px] shrink-0"
+          strokeWidth={current || active ? 2 : 1.8}
+        />
+      ) : null}
+      <span className="truncate">{label}</span>
+    </Link>
   )
 }
 
-/** The navigation, in one of its two shapes. */
-export function NavGroups({
-  variant = "horizontal",
+function Destination({
+  destination,
   onNavigate,
-  className,
+  surface,
+  pathname,
+  index,
 }: {
-  variant?: NavVariant
+  destination: NavDestination
   onNavigate?: () => void
-  className?: string
+  surface: "forest" | "paper"
+  pathname: string
+  index?: number
 }) {
-  const vertical = variant === "vertical"
-
-  if (vertical) {
-    /*
-      The drawer arrives as a sequence: the destinations rise one after
-      another, so the operator's eye follows the panel in rather than
-      meeting a list that is simply there.
-    */
-    return (
-      <nav aria-label="Screens" className={cn("space-y-5", className)}>
-        {INDEXED_GROUPS.map((group) => (
-          <div key={group.label || "primary"} className="space-y-1">
-            {group.label ? (
-              <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
-                {group.label}
-              </p>
-            ) : null}
-            {group.items.map((item) => (
-              <NavItem
-                key={item.to}
-                to={item.to}
-                label={item.label}
-                variant={variant}
-                onNavigate={onNavigate}
-                index={item.index}
-                end={"end" in item ? item.end : undefined}
-              />
-            ))}
-          </div>
-        ))}
-      </nav>
-    )
-  }
+  const children = destination.children ?? []
+  const currentChild = children.find((child) =>
+    navMatches(child.match, pathname)
+  )
+  const selfMatch = navMatches(destination.match, pathname)
+  // The parent defers to its child when a child is the page in view, so
+  // exactly one row in the group carries the pill and aria-current.
+  const current = selfMatch && !currentChild
+  const active = selfMatch || currentChild !== undefined
 
   return (
-    <nav
-      aria-label="Screens"
-      className={cn("flex flex-wrap items-center gap-x-1 gap-y-1", className)}
-    >
-      {NAV_GROUPS.map((group, index) => (
-        <div key={group.label || "primary"} className="flex flex-wrap items-center gap-1">
-          {index > 0 ? (
-            <span aria-hidden="true" className="mx-2 h-4 w-px bg-border" />
-          ) : null}
-          {group.label ? (
-            <span className="text-xs font-medium text-muted-foreground/80">
-              {group.label}
-            </span>
-          ) : null}
-          {group.items.map((item) => (
-            <NavItem
-              key={item.to}
-              to={item.to}
-              label={item.label}
-              variant={variant}
-              onNavigate={onNavigate}
-              end={"end" in item ? item.end : undefined}
-            />
+    <li className="space-y-0.5">
+      <DestinationRow
+        label={destination.label}
+        to={destination.to}
+        icon={destination.icon}
+        onNavigate={onNavigate}
+        surface={surface}
+        active={active}
+        current={current}
+        index={index}
+      />
+      {children.length > 0 ? (
+        <ul className="space-y-0.5">
+          {children.map((child) => (
+            <li key={`${child.to} ${child.label}`}>
+              <DestinationRow
+                label={child.label}
+                to={child.to}
+                onNavigate={onNavigate}
+                surface={surface}
+                child
+                active={navMatches(child.match, pathname)}
+                current={currentChild === child}
+              />
+            </li>
           ))}
-        </div>
-      ))}
+        </ul>
+      ) : null}
+    </li>
+  )
+}
+
+function VerticalNav({
+  destinations,
+  onNavigate,
+  surface,
+  label,
+  groupLabel,
+  staggerItems = false,
+  className,
+}: {
+  destinations: NavDestination[]
+  onNavigate?: () => void
+  surface: "forest" | "paper"
+  label: string
+  /** An optional visible group heading (the System group's label). */
+  groupLabel?: string
+  staggerItems?: boolean
+  className?: string
+}) {
+  const { pathname } = useLocation()
+
+  return (
+    <nav aria-label={label} className={cn("space-y-1", className)}>
+      {groupLabel ? (
+        <p
+          className={cn(
+            "px-3 pt-4 pb-1 text-xs font-medium",
+            surface === "forest"
+              ? "text-sidebar-muted"
+              : "text-muted-foreground/80"
+          )}
+        >
+          {groupLabel}
+        </p>
+      ) : null}
+      <ul className="space-y-0.5">
+        {destinations.map((destination, index) => (
+          <Destination
+            key={`${destination.to} ${destination.label}`}
+            destination={destination}
+            onNavigate={onNavigate}
+            surface={surface}
+            pathname={pathname}
+            index={staggerItems ? index : undefined}
+          />
+        ))}
+      </ul>
     </nav>
   )
 }
 
 /**
- * The maintenance cluster, kept out of the operator's workflow.
+ * The primary group, in the sidebar (forest) or the drawer (paper).
  *
- * The **Administration** destination is shown only to a superuser. That is
- * a courtesy, not a control: hiding a link stops a curious click, and the
- * route behind it refuses a non-superuser on the **server** regardless of
- * what this renders. A frontend flag that *was* the control would be a
- * frontend flag that could be edited in a console.
+ * The destinations rise one after another in the **drawer** — the panel
+ * arrives as a sequence and the operator's eye follows it in. The
+ * persistent sidebar does not animate: navigation chrome is seen every
+ * minute, and a re-entrance on every mount is motion that performs
+ * rather than answers.
  */
-export function AdminNav({
-  variant = "horizontal",
+export function NavGroups({
   onNavigate,
+  surface = "paper",
+  staggerItems = false,
   className,
-  showAdmin = false,
 }: {
-  variant?: NavVariant
   onNavigate?: () => void
+  surface?: "forest" | "paper"
+  staggerItems?: boolean
   className?: string
-  showAdmin?: boolean
 }) {
-  const vertical = variant === "vertical"
-  const items = ADMIN_NAV.filter((item) => !("superuserOnly" in item) || showAdmin)
+  return (
+    <VerticalNav
+      destinations={PRIMARY_DESTINATIONS}
+      onNavigate={onNavigate}
+      surface={surface}
+      label="Screens"
+      staggerItems={staggerItems}
+      className={className}
+    />
+  )
+}
+
+/**
+ * The System group (WS-34): Operations and Administration, set apart from
+ * the journey. `showAdmin` filters the Administration link for a
+ * non-superuser; the server's authorization stays the real control.
+ */
+export function SystemNav({
+  onNavigate,
+  surface = "paper",
+  showAdmin = false,
+  className,
+}: {
+  onNavigate?: () => void
+  surface?: "forest" | "paper"
+  showAdmin?: boolean
+  className?: string
+}) {
+  const destinations = SYSTEM_DESTINATIONS.filter(
+    (destination) => !destination.superuserOnly || showAdmin
+  )
+  if (destinations.length === 0) return null
 
   return (
-    <nav
-      aria-label="Administration"
-      className={cn(
-        vertical ? "space-y-1" : "flex items-center gap-1",
-        className
-      )}
-    >
-      {items.map((item) => (
-        <NavItem
-          key={item.to}
-          to={item.to}
-          label={item.label}
-          variant={variant}
-          onNavigate={onNavigate}
-          className={vertical ? undefined : "text-muted-foreground/80"}
-        />
-      ))}
-    </nav>
+    <VerticalNav
+      destinations={destinations}
+      onNavigate={onNavigate}
+      surface={surface}
+      label="System"
+      groupLabel="System"
+      className={className}
+    />
   )
 }

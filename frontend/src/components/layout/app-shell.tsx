@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query"
-import { cn } from "cn"
 import { useRef } from "react"
 import { Link, Outlet } from "react-router-dom"
 
@@ -12,50 +11,29 @@ import { SignInScreen } from "@/screens/sign-in-screen"
 
 import { AccountMenu } from "./account-menu"
 import { ProfileChip } from "./profile-chip"
+import { ApiStatus } from "./api-status"
 import { BrandMark } from "./brand-mark"
-import { AdminNav, NavGroups } from "./nav-groups"
+import { NavGroups, SystemNav } from "./nav-groups"
+import { BottomNav } from "./bottom-nav"
 import { NavDrawer } from "./nav-drawer"
 
-/** Whether the API answers. Refreshed every 30 seconds. */
-function ApiStatus() {
-  const { data, isError, isPending } = useQuery({
-    queryKey: ["health"],
-    queryFn: ({ signal }) => api.health(signal),
-    refetchInterval: 30_000,
-    retry: false,
-  })
+/*
+  The application shell (WS-34).
 
-  if (isPending) {
-    return (
-      <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:inline-flex">
-        <span className="size-1.5 rounded-full bg-border" />
-        Checking the API
-      </span>
-    )
-  }
+  The frame is the reference image's: at desktop widths a **deep forest
+  sidebar** holds the brand, the grouped destinations and the account
+  footer over the ivory canvas; below `lg` it swaps for a compact top
+  bar, a five-slot bottom navigation and the drawer for everything else.
+  The two shapes are never both in the accessibility tree at once — the
+  sidebar is `hidden lg:flex` and the phone chrome is `lg:hidden` — so a
+  screen reader never meets the same destination twice.
 
-  return (
-    <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:inline-flex">
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-1.5 rounded-full",
-          isError ? "bg-destructive" : "bg-primary"
-        )}
-      />
-      {isError ? "API unreachable" : `API online · ${data?.environment ?? "?"}`}
-    </span>
-  )
-}
-
-/**
- * The application shell.
- *
- * A refined horizontal header: the product mark, the workflow grouped by
- * what the operator is doing, the maintenance cluster set apart, and the
- * account menu. The current profile is always visible, because every
- * other screen works against it.
- */
+  What the redesign did not touch: the identity gate below (a caller with
+  no session sees the sign-in screen, never the console chrome), the lazy
+  routes that render inside `<Outlet />`, the `viewTransition` on every
+  nav link, the skip link as the first tab stop, or the published
+  `--header-height` the sticky offsets read.
+*/
 export function AppShell() {
   const profileId = useCurrentProfileId()
   const headerRef = useRef<HTMLElement>(null)
@@ -79,67 +57,97 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-background">
       {/*
-        First in the tab order, before the header's nav row, the account menu
-        and the profile chip. `#main-content` is on the `<main>` below, and its
-        `scroll-mt` clears the sticky header so the jump lands on visible
-        content.
+        First in the tab order, before the sidebar nav, the bottom bar
+        and the account menus. `#main-content` is on the `<main>` below,
+        and its `scroll-mt` clears the phone's sticky top bar so the
+        jump lands on visible content.
       */}
       <SkipToContent />
+
+      {/*
+        The desktop sidebar: forest, full height, its own scroll. Fixed
+        rather than sticky so the canvas scrolls under it without the
+        sidebar repainting.
+      */}
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-sidebar text-sidebar-foreground lg:flex">
+        <div className="flex items-center gap-3 px-4 pt-5 pb-2">
+          <BrandMark variant="sidebar" />
+          <div className="min-w-0 leading-tight">
+            <Link
+              to="/app"
+              viewTransition
+              className="block font-heading text-[17px] font-semibold tracking-tight text-sidebar-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring"
+            >
+              JobPilot
+            </Link>
+            <p className="truncate text-[11px] text-sidebar-muted">
+              The agentic job applier
+            </p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto overscroll-contain pt-2 pb-4">
+          <NavGroups surface="forest" />
+          <SystemNav surface="forest" showAdmin={isSuperuser} />
+        </div>
+
+        {/*
+          The account footer, as in the reference: the API's pulse, the
+          profile the console works against, and the account menu. The
+          menu opens upward from here.
+        */}
+        <div className="flex flex-col gap-2 border-t border-sidebar-border px-4 py-3">
+          <ApiStatus surface="sidebar" />
+          <ProfileChip
+            profileId={profileId}
+            surface="sidebar"
+            className="w-full"
+          />
+          <AccountMenu surface="sidebar" className="w-full justify-start" />
+        </div>
+      </aside>
+
+      {/*
+        The phone chrome. The top bar carries the drawer trigger, the
+        brand and the account menu; the bottom bar carries the five
+        journey destinations; the drawer holds everything else.
+      */}
       <header
         ref={headerRef}
-        className="console-header sticky top-0 z-40 border-b border-border bg-card"
+        className="sticky top-0 z-40 border-b border-border bg-card lg:hidden"
       >
-        <div className="console-container">
-          <div className="flex h-16 items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              {/*
-                On a narrow screen the navigation lives in a drawer; on a
-                wide one it is the horizontal bar below. The drawer and the
-                bar are never both in the DOM, so a screen reader never
-                meets the same destination twice.
-              */}
-              <NavDrawer showAdmin={isSuperuser} />
+        <div className="flex h-14 items-center justify-between gap-2 px-2 sm:px-3">
+          <div className="flex min-w-0 items-center gap-1">
+            <NavDrawer showAdmin={isSuperuser} />
+            <Link
+              to="/app"
+              viewTransition
+              className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
               <BrandMark />
-              <div className="leading-tight">
-                <Link
-                  to="/app"
-                  className="font-heading text-[15px] font-semibold tracking-tight text-foreground"
-                >
-                  JobPilot
-                </Link>
-                <p className="hidden text-[11px] text-muted-foreground sm:block">
-                  The agentic job applier
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <ApiStatus />
-              <ProfileChip profileId={profileId} />
-              <AccountMenu />
-            </div>
+              <span className="font-heading text-[15px] font-semibold tracking-tight text-foreground">
+                JobPilot
+              </span>
+            </Link>
           </div>
-
-          {/*
-            One navigation row. On a narrow screen the items wrap onto a
-            second line: a scrollable nav would need a scrollbar, and a
-            scrollbar in a header is a control the operator did not ask
-            for.
-          */}
-          <div className="hidden flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border py-1.5 lg:flex">
-            <div className="min-w-0 flex-1">
-              <NavGroups />
-            </div>
-            <AdminNav showAdmin={isSuperuser} />
-          </div>
+          <AccountMenu />
         </div>
       </header>
 
+      <BottomNav className="lg:hidden" />
+
       <main
         id="main-content"
-        className="console-container scroll-mt-[calc(var(--header-height,4rem)+1rem)] py-8"
+        className="min-w-0 scroll-mt-[calc(var(--header-height,3.5rem)+1rem)] lg:pl-60"
       >
-        <Outlet />
+        {/*
+          The container centres inside the remaining width, and the
+          phone keeps a generous bottom padding so no content or focus
+          hides behind the fixed bottom bar.
+        */}
+        <div className="console-container py-8 pb-28 lg:py-10 lg:pb-12">
+          <Outlet />
+        </div>
       </main>
     </div>
   )
