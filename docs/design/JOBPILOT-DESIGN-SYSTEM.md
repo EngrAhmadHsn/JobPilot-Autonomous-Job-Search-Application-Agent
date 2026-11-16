@@ -190,7 +190,9 @@ Mapping highlights (full table lives in `status.ts:27-162`): `awaiting_approval`
 → warning ("a human must approve…"); `submitted` → **progress**, labelled
 "Submitted, not yet verified" — never success; `verified` → success; approval
 `QUEUED` → info, labelled "Accepted and queued" (`status.ts:128-134`); human
-outcomes `interview/offer` → success, `withdrawn` → neutral, `rejected` →
+outcomes `interview/offer` → **warning** (corrected post-audit: WS-34's tone
+law colours a human outcome terracotta — lime is the agent's mark;
+`status.ts:91-109`), `withdrawn` → neutral, `rejected` →
 danger; `blocked_human_review` → warning ("nothing was bypassed — finish it by
 hand").
 
