@@ -338,9 +338,14 @@ function VerticalNav({
         <p
           className={cn(
             "px-3 pt-4 pb-1 text-xs font-medium",
+            /*
+              Full `text-muted-foreground`: the /80 wash measured 3.55:1 on
+              ivory (WS-33 audit) — under the 4.5:1 a 12px label needs. The
+              full token measures 5.38:1.
+            */
             surface === "forest"
               ? "text-sidebar-muted"
-              : "text-muted-foreground/80"
+              : "text-muted-foreground"
           )}
         >
           {groupLabel}
