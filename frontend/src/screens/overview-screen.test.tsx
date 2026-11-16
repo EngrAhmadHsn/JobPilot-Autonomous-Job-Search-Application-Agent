@@ -51,11 +51,14 @@ function tileFor(label: string): HTMLElement {
 }
 
 /**
- * The applications list, answering each of the three reads the screen polls:
- * the unfiltered totals read, the awaiting-approval page and the submitted
- * page — each with its own server `total`, deliberately **larger than the
- * page it returns**, so a screen that counted loaded rows instead of the
- * server's total fails here visibly.
+ * The applications list, answering each of the reads the screen polls: the
+ * unfiltered totals read, the awaiting-approval page, the prepared page and
+ * the submitted page — each with its own server `total`, deliberately
+ * **larger than the page it returns**, so a screen that counted loaded rows
+ * instead of the server's total fails here visibly. A resting `prepared`
+ * application is a real backend state (the row is created PREPARED and only
+ * then moved to AWAITING_APPROVAL), so it counts toward "need your
+ * attention" exactly like an awaiting one.
  */
 function useSplitApplicationTotals() {
   server.use(
@@ -73,16 +76,34 @@ function useSplitApplicationTotals() {
                 verified_at: null,
                 submitted_at: null,
               }),
+            ],
+            1,
+            10
+          )
+        )
+      }
+      if (status === "prepared") {
+        return HttpResponse.json(
+          listPage(
+            [
               applicationWith({
-                id: "application-a2",
+                id: "application-p1",
+                job_title: "Platform Engineer",
+                company_name: "Helios",
+                status: "prepared",
+                verified_at: null,
+                submitted_at: null,
+              }),
+              applicationWith({
+                id: "application-p2",
                 job_title: "Data Engineer",
                 company_name: "DataForge",
-                status: "awaiting_approval",
+                status: "prepared",
                 verified_at: null,
                 submitted_at: null,
               }),
             ],
-            5,
+            2,
             10
           )
         )
@@ -123,18 +144,19 @@ describe("the Home dashboard", () => {
         within(tileFor("Tracked applications")).getByText("7")
       ).toBeInTheDocument()
     })
-    // The awaiting page returns two rows; the server says five — and the
-    // attention tile aggregates that server total with the trail's count.
+    // The awaiting page returns one row and the prepared page two; the
+    // server says 1 + 2 = 3 applications await a decision — and the
+    // attention tile aggregates those server totals with the trail's count.
     expect(
-      within(tileFor("Need your attention")).getByText("6")
+      within(tileFor("Need your attention")).getByText("4")
     ).toBeInTheDocument()
     expect(tileFor("Need your attention")).toHaveTextContent(
-      "5 awaiting approval"
+      "3 awaiting a decision"
     )
-    // The attention summary row also speaks the server total, not the two
-    // rows that happen to be loaded.
+    // The attention summary row also speaks the server total, not the rows
+    // that happen to be loaded.
     expect(
-      await screen.findByText("5 applications awaiting your approval")
+      await screen.findByText("3 applications awaiting your approval")
     ).toBeInTheDocument()
     // The submitted page returns one row; the server says three.
     expect(
@@ -151,7 +173,8 @@ describe("the Home dashboard", () => {
 
     // The awaiting applications render as their own rows, through the one
     // status presentation — the badge shows `describeStatus`'s label, and
-    // each row links to the application's tracker page.
+    // each row links to the application's tracker page. A resting
+    // `prepared` application renders the same way, alongside them.
     const rowA1 = (await screen.findByText("Backend Engineer")).closest("a")
     expect(rowA1).toHaveAttribute("href", "/app/tracker/application-a1")
     const badge = within(rowA1 as HTMLElement).getByText("Awaiting approval")
@@ -163,8 +186,14 @@ describe("the Home dashboard", () => {
     expect(badge.closest("[data-status]")?.getAttribute("data-status")).toBe(
       "awaiting_approval"
     )
-    const rowA2 = screen.getByText("Data Engineer").closest("a")
-    expect(rowA2).toHaveAttribute("href", "/app/tracker/application-a2")
+    const rowP2 = screen.getByText("Data Engineer").closest("a")
+    expect(rowP2).toHaveAttribute("href", "/app/tracker/application-p2")
+    const preparedBadge = within(rowP2 as HTMLElement).getByText("Prepared")
+    expect(
+      preparedBadge.closest("[data-status]")?.getAttribute("data-status")
+    ).toBe("prepared")
+    const rowP1 = screen.getByText("Platform Engineer").closest("a")
+    expect(rowP1).toHaveAttribute("href", "/app/tracker/application-p1")
 
     // The summary rows lead to the screens that resolve them.
     const approvalsLink = screen.getByRole("link", {
@@ -188,6 +217,42 @@ describe("the Home dashboard", () => {
       "href",
       "/app/profile"
     )
+  })
+
+  it("never claims all-clear while an attention source is unreadable", async () => {
+    // Every clean source answers zero; the measured question gaps fail.
+    setCurrentProfileId("profile-1")
+    server.use(
+      http.get(`${BASE}/api/applications`, () =>
+        HttpResponse.json(listPage([], 0))
+      ),
+      http.get(`${BASE}/api/audit`, () =>
+        HttpResponse.json({ events: [], count: 0 })
+      ),
+      http.get(`${BASE}/api/profiles/:profileId/question-gaps`, () =>
+        HttpResponse.json(
+          { detail: "The server failed to handle the request." },
+          { status: 500 }
+        )
+      ),
+      http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
+        HttpResponse.json({ profile_id: "profile-1", matches: [] })
+      )
+    )
+    renderScreen(<OverviewScreen />)
+
+    // The failure is named, with the way back…
+    expect(
+      await screen.findByText("Employer questions couldn't be read")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Try again/ })
+    ).toBeInTheDocument()
+    // …and the empty state never claims a clean bill of health while a
+    // source is unknown.
+    expect(
+      screen.queryByText("Nothing needs you right now")
+    ).not.toBeInTheDocument()
   })
 
   it("renders every section honestly when the account is empty", async () => {

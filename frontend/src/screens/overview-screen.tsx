@@ -17,6 +17,7 @@ import { ActivityFeed } from "@/screens/overview/activity-feed"
 import {
   AttentionSection,
   type AttentionApplication,
+  type AttentionFailure,
   type AttentionItem,
 } from "@/screens/overview/attention-section"
 import {
@@ -41,21 +42,24 @@ import type { JobListing } from "@/lib/api/types"
   - the application counts are the **server's totals** (the list response's
     `total` field), not the length of a loaded page — the previous screen
     counted a `limit: 200` page and silently undercounted past it;
-  - "need your attention" is approvals-waiting (a server total) plus the
-    trail entries that need a human eye — the trail part is the **newest
-    100 events**, because that is the page the audit endpoint returns, and
-    the tile and the feed both say so instead of implying a whole history;
+  - "need your attention" is applications awaiting a decision — the
+    `awaiting_approval` **and** the resting `prepared` statuses, each a
+    server total — plus the trail entries that need a human eye; the trail
+    part is the **newest 100 events**, because that is the page the audit
+    endpoint returns, and the tile and the feed both say so instead of
+    implying a whole history;
   - the featured job and the shortlist are the profile's **ranked match
     history** and the listings behind it, or they are not rendered;
   - there is no "Live" badge, no trend deltas, no progress chart, no plan
     name, no logos — nothing the API cannot prove (see the WS-33 audit §7,
     whose grounded-vs-illustrative list this screen follows).
 
-  Polling stays on the shared overview budget: the four application/audit
-  reads refetch every `OVERVIEW_POLL_MS`, pause while the tab is hidden
-  (TanStack's default), and everything else (matches, listings, question
-  gaps, the profile) is a per-mount read cached under the keys the other
-  screens use.
+  Polling stays on the shared overview budget: the five application/audit
+  reads refetch every `OVERVIEW_POLL_MS` (5 per cycle = 10 requests/minute,
+  exactly the console's documented cap for one polled resource), pause while
+  the tab is hidden (TanStack's default), and everything else (matches,
+  listings, question gaps, the profile) is a per-mount read cached under the
+  keys the other screens use.
 */
 
 /**
@@ -141,6 +145,20 @@ export function OverviewScreen() {
       ),
     refetchInterval: OVERVIEW_POLL_MS,
   })
+  // A `prepared` application rests in that state whenever the transition to
+  // `awaiting_approval` did not land (the tracked row is created PREPARED
+  // and only then moved, in a separate write that can fail and roll back),
+  // and the status vocabulary itself says `prepared` is "waiting for an
+  // approval decision" — so it counts toward "need your attention" and
+  // renders exactly like the awaiting ones. (A multi-status call cannot
+  // merge these: the backend silently ignores a filter with more than one
+  // status, so each status is its own single-status read.)
+  const prepared = useQuery({
+    queryKey: ["applications", "overview", "prepared"],
+    queryFn: ({ signal }) =>
+      api.listApplications({ status: ["prepared"], limit: 10 }, signal),
+    refetchInterval: OVERVIEW_POLL_MS,
+  })
   const submitted = useQuery({
     queryKey: ["applications", "overview", "submitted"],
     queryFn: ({ signal }) =>
@@ -203,19 +221,23 @@ export function OverviewScreen() {
 
   const trackedTotal = tracked.data?.total
   const awaitingTotal = awaiting.data?.total
+  const preparedTotal = prepared.data?.total
   const submittedTotal = submitted.data?.total
   const rankedCount = ranked.data?.matches.length
-  // The attention count aggregates two real sources. It renders only when
-  // **both** have answered — a number built from half its sources would be
-  // a made-up number wearing a real one's clothes.
-  const attentionReady = awaiting.isSuccess && audit.isSuccess
+  // The attention count aggregates three real sources. It renders only when
+  // **all** have answered — a number built from half its sources would be a
+  // made-up number wearing a real one's clothes.
+  const attentionReady =
+    awaiting.isSuccess && prepared.isSuccess && audit.isSuccess
+  const awaitingDecisionTotal = (awaitingTotal ?? 0) + (preparedTotal ?? 0)
   const attentionValue = attentionReady
-    ? (awaitingTotal ?? 0) + trail.attention
+    ? awaitingDecisionTotal + trail.attention
     : undefined
 
   const lastRead = Math.max(
     tracked.dataUpdatedAt,
     awaiting.dataUpdatedAt,
+    prepared.dataUpdatedAt,
     submitted.dataUpdatedAt,
     audit.dataUpdatedAt,
     0
@@ -235,10 +257,10 @@ export function OverviewScreen() {
       label: hasDocuments ? "Choose a document" : "Go to Resume",
     })
   }
-  if ((awaitingTotal ?? 0) > 0) {
+  if (awaitingDecisionTotal > 0) {
     attentionItems.push({
       key: "approvals",
-      title: `${awaitingTotal} application${awaitingTotal === 1 ? "" : "s"} awaiting your approval`,
+      title: `${awaitingDecisionTotal} application${awaitingDecisionTotal === 1 ? "" : "s"} awaiting your approval`,
       body: "Prepared applications are held until a person approves or rejects them. Nothing is submitted without that decision.",
       to: "/app/approvals",
       label: "Review approvals",
@@ -264,9 +286,30 @@ export function OverviewScreen() {
     })
   }
 
-  const attentionApplications: AttentionApplication[] = (
-    awaiting.data?.items ?? []
-  )
+  // A source that could not be read is not a clean bill of health: it gets
+  // its own failure row (with the way back), and the section's all-clear is
+  // withheld until every source has actually answered.
+  const attentionFailures: AttentionFailure[] = []
+  if (gaps.isError) {
+    attentionFailures.push({
+      key: "gaps",
+      title: "Employer questions couldn't be read",
+      body: "The measured question gaps did not answer, so what the boards ask and the profile covers is unknown right now.",
+      onRetry: () => void gaps.refetch(),
+    })
+  }
+  // Every attention source answered successfully (a source the account
+  // cannot have — the question gaps need a profile — counts as answered).
+  const attentionSourcesReady =
+    awaiting.isSuccess &&
+    prepared.isSuccess &&
+    audit.isSuccess &&
+    (Boolean(profileId) ? gaps.isSuccess : true)
+
+  const attentionApplications: AttentionApplication[] = [
+    ...(awaiting.data?.items ?? []),
+    ...(prepared.data?.items ?? []),
+  ]
     .slice(0, ATTENTION_ROWS)
     .filter((item) => typeof item.id === "string")
     .map((item) => ({
@@ -287,7 +330,7 @@ export function OverviewScreen() {
     })
 
   const applicationsError =
-    tracked.error ?? awaiting.error ?? submitted.error ?? null
+    tracked.error ?? awaiting.error ?? prepared.error ?? submitted.error ?? null
 
   // The greeting is derived locally (the clock and the profile's name); it
   // is a hello, not a metric, so no server claim rides on it. It leads the
@@ -327,6 +370,7 @@ export function OverviewScreen() {
           onRetry={() => {
             void tracked.refetch()
             void awaiting.refetch()
+            void prepared.refetch()
             void submitted.refetch()
           }}
         />
@@ -340,11 +384,11 @@ export function OverviewScreen() {
           label="Need your attention"
           variant="attention"
           value={attentionValue ?? "—"}
-          loading={awaiting.isPending || audit.isPending}
+          loading={awaiting.isPending || prepared.isPending || audit.isPending}
           hint={
             attentionReady
-              ? `${awaitingTotal ?? 0} awaiting approval · ${trail.attention} in the trail's newest ${AUDIT_PAGE_SIZE}`
-              : "Awaiting approvals plus trail events that need a human"
+              ? `${awaitingDecisionTotal} awaiting a decision · ${trail.attention} in the trail's newest ${AUDIT_PAGE_SIZE}`
+              : "Applications awaiting a decision plus trail events that need a human"
           }
           to="/app/approvals"
         />
@@ -442,6 +486,8 @@ export function OverviewScreen() {
             <AttentionSection
               items={attentionItems}
               applications={attentionApplications}
+              failures={attentionFailures}
+              sourcesReady={attentionSourcesReady}
             />
           </Section>
 

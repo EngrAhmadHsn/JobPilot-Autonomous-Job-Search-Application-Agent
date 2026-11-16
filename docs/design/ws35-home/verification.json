@@ -80,9 +80,29 @@
     "detail": ""
   },
   {
-    "name": "focus is visible on keyboard travel",
+    "name": "focus-visible paints on the attention stat tile (screen-owned)",
     "ok": true,
-    "detail": "{\"tag\":\"A\",\"text\":\"JobPilot\",\"outline\":\"none 2px\"}"
+    "detail": "{\"tag\":\"A\",\"text\":\"Need your attention22 awaiting a decisio\",\"matchesFocusVisible\":true,\"outlineStyle\":\"solid\",\"outlineWidth\":\"2px\",\"outlineColor\":\"rgb(23, 61, 50)\",\"outlineOffset\":\"2px\",\"boxShadow\":\"none\"}"
+  },
+  {
+    "name": "focus-visible paints on an attention application row (screen-owned)",
+    "ok": true,
+    "detail": "{\"tag\":\"A\",\"text\":\"Awaiting approvalML Platform EngineerNor\",\"matchesFocusVisible\":true,\"outlineStyle\":\"solid\",\"outlineWidth\":\"2px\",\"outlineColor\":\"oklab(0.328682 -0.04734 0.0069519 / 0.5)\",\"outlineOffset\":\"2px\",\"boxShadow\":\"none\"}"
+  },
+  {
+    "name": "SHELL: sidebar nav row focus ring (evidence)",
+    "ok": false,
+    "detail": "{\"tag\":\"A\",\"text\":\"Matches\",\"matchesFocusVisible\":true,\"outlineStyle\":\"none\",\"outlineWidth\":\"2px\",\"outlineColor\":\"oklab(0.328682 -0.04734 0.0069519 / 0.5)\",\"outlineOffset\":\"2px\",\"boxShadow\":\"none\"}"
+  },
+  {
+    "name": "SHELL: LinkButton focus ring (evidence)",
+    "ok": false,
+    "detail": "{\"tag\":\"A\",\"text\":\"Review approvals\",\"matchesFocusVisible\":true,\"outlineStyle\":\"none\",\"outlineWidth\":\"2px\",\"outlineColor\":\"rgb(23, 61, 50)\",\"outlineOffset\":\"2px\",\"boxShadow\":\"rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px\"}"
+  },
+  {
+    "name": "SHELL: brand link focus ring (evidence)",
+    "ok": false,
+    "detail": "{\"tag\":\"A\",\"text\":\"JobPilot\",\"matchesFocusVisible\":true,\"outlineStyle\":\"none\",\"outlineWidth\":\"2px\",\"outlineColor\":\"rgb(217, 243, 106)\",\"outlineOffset\":\"2px\",\"boxShadow\":\"none\"}"
   },
   {
     "name": "empty account signed in",
