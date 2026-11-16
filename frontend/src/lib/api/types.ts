@@ -45,9 +45,7 @@ export type ApplicationPrepareResponse = DeepRequired<
 export type CountriesResponse = DeepRequired<
   components["schemas"]["CountriesResponse"]
 >
-export type CountryOption = DeepRequired<
-  components["schemas"]["CountryOption"]
->
+export type CountryOption = DeepRequired<components["schemas"]["CountryOption"]>
 export type ApprovalDecisionRequest =
   components["schemas"]["ApprovalDecisionRequest"]
 export type ApprovalDecisionResponse = DeepRequired<
@@ -168,7 +166,8 @@ export type ApplicationProfile = DeepRequired<
   components["schemas"]["ApplicationProfile"]
 >
 /** The write shape: every field is optional, so a partial update is valid. */
-export type ApplicationProfileInput = components["schemas"]["ApplicationProfile"]
+export type ApplicationProfileInput =
+  components["schemas"]["ApplicationProfile"]
 export type ApplicationProfileResponse = DeepRequired<
   components["schemas"]["ApplicationProfileResponse"]
 >
@@ -184,12 +183,15 @@ export type EeoResponse = DeepRequired<components["schemas"]["EeoResponse"]>
  * **masked**. The API never returns the key, and there is no field here that
  * could carry it.
  */
-export type LlmCredentialState = DeepRequired<components["schemas"]["CredentialState"]>
+export type LlmCredentialState = DeepRequired<
+  components["schemas"]["CredentialState"]
+>
 export type LlmCredentialStatus = DeepRequired<
   components["schemas"]["LlmCredentialStatus"]
 >
 export type LlmCredentialInput = components["schemas"]["LlmCredentialInput"]
-export type LlmCredentialDeleteAck = components["schemas"]["CredentialDeleteAck"]
+export type LlmCredentialDeleteAck =
+  components["schemas"]["CredentialDeleteAck"]
 export type LlmCredentialTestResult = DeepRequired<
   components["schemas"]["CredentialTestResult"]
 >

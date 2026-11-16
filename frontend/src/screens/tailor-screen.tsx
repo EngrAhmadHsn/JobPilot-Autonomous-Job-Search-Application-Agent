@@ -146,9 +146,7 @@ function RenderPanel({ render }: { render: TailorResponse["render"] }) {
           {render.mode === "in_place" ? (
             <p>
               {render.edits} passage{render.edits === 1 ? "" : "s"} rewritten
-              {render.appended > 0
-                ? `, ${render.appended} added`
-                : ""}
+              {render.appended > 0 ? `, ${render.appended} added` : ""}
               {render.removed > 0 ? `, ${render.removed} cleared` : ""}. Your
               fonts, section order and page setup are unchanged.
             </p>
@@ -191,17 +189,17 @@ function StylePanel({ style }: { style: TailorResponse["style"] }) {
       <CardHeader>
         <CardTitle>Style report</CardTitle>
         <CardDescription>
-          Plain-language check on the wording: AI jargon, filler phrases and
-          how many bullets carry a number. It reports — it never rewrites.
+          Plain-language check on the wording: AI jargon, filler phrases and how
+          many bullets carry a number. It reports — it never rewrites.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {style.findings.length === 0 ? (
           <Banner tone="success" title="No jargon or filler found">
             <p>
-              None of the checked phrases — the AI jargon and the weak
-              filler verbs in the style policy — appear in the summary, the
-              cover letter or the bullets.
+              None of the checked phrases — the AI jargon and the weak filler
+              verbs in the style policy — appear in the summary, the cover
+              letter or the bullets.
             </p>
           </Banner>
         ) : (

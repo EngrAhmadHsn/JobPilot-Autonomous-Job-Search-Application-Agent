@@ -50,7 +50,9 @@ describe("the credential card on the profile screen", () => {
     const { container } = renderScreen(<ProfileScreen />)
 
     // Both are on the page.
-    expect(await screen.findByRole("button", { name: "Save key" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Save key" })
+    ).toBeInTheDocument()
     const resumeToggle = await screen.findByText("See the full résumé profile")
 
     /*
@@ -78,12 +80,20 @@ describe("the credential card on the profile screen", () => {
     */
     setCurrentProfileId(null)
     stubCredentials()
-    server.use(http.get(`${BASE}/api/documents`, () => HttpResponse.json({ documents: [] })))
+    server.use(
+      http.get(`${BASE}/api/documents`, () =>
+        HttpResponse.json({ documents: [] })
+      )
+    )
 
     renderScreen(<ProfileScreen />)
 
-    expect(await screen.findByRole("button", { name: "Save key" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Your model" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Save key" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Your model" })
+    ).toBeInTheDocument()
     // And the page still explains the missing profile — once the document
     // list resolves and the hook stops being pending.
     expect(await screen.findByText("No profile yet")).toBeInTheDocument()
@@ -93,7 +103,11 @@ describe("the credential card on the profile screen", () => {
     /* The reorder must not have pushed the answer cards off the page. */
     setCurrentProfileId("profile-1")
     stubCredentials()
-    server.use(http.get(`${BASE}/api/resumes/:profileId`, () => HttpResponse.json(profileResponse())))
+    server.use(
+      http.get(`${BASE}/api/resumes/:profileId`, () =>
+        HttpResponse.json(profileResponse())
+      )
+    )
 
     renderScreen(<ProfileScreen />)
 

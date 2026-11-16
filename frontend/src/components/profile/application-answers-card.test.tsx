@@ -65,9 +65,13 @@ describe("the measured questions card", () => {
 
     const card = await screen.findByTestId("measured-questions")
     const items = within(card).getAllByRole("listitem")
-    const firstName = items.find((item) => item.textContent?.includes("First Name"))
+    const firstName = items.find((item) =>
+      item.textContent?.includes("First Name")
+    )
     expect(firstName).toBeDefined()
-    expect(within(firstName as HTMLElement).getByText(/required/i)).toBeInTheDocument()
+    expect(
+      within(firstName as HTMLElement).getByText(/required/i)
+    ).toBeInTheDocument()
   })
 
   it("renders no card when no board has published a schema", async () => {

@@ -14,7 +14,9 @@ describe("the overview screen", () => {
   it("counts what the server returned", async () => {
     renderApp({ route: "/app" })
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("heading", { name: "Overview" })
+    ).toBeInTheDocument()
     // One application in the mocked list, and it is verified.
     expect(await screen.findByText("Tracked applications")).toBeInTheDocument()
     expect(screen.getByText("Verified submissions")).toBeInTheDocument()
@@ -34,6 +36,8 @@ describe("the overview screen", () => {
   it("shows the recent trail", async () => {
     renderApp({ route: "/app" })
 
-    expect(await screen.findByText(/uploaded and parsed a résumé/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/uploaded and parsed a résumé/i)
+    ).toBeInTheDocument()
   })
 })

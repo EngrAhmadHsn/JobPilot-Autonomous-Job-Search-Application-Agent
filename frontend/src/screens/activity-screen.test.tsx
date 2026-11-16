@@ -22,7 +22,9 @@ describe("the agent activity screen", () => {
     expect(
       await screen.findByRole("heading", { name: "Agent activity" })
     ).toBeInTheDocument()
-    expect(await screen.findByText(/uploaded and parsed a résumé/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/uploaded and parsed a résumé/i)
+    ).toBeInTheDocument()
   })
 
   it("says plainly that it is not a live stream", async () => {
@@ -36,15 +38,17 @@ describe("the agent activity screen", () => {
   it("groups the trail into executions by workflow", async () => {
     renderApp({ route: "/app/activity" })
 
-    expect(
-      (await screen.findAllByText(/workflow-1/i)).length
-    ).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/workflow-1/i)).length).toBeGreaterThan(
+      0
+    )
   })
 
   it("can filter down to what needs attention", async () => {
     renderApp({ route: "/app/activity" })
 
-    const toggle = await screen.findByRole("button", { name: /needs attention/i })
+    const toggle = await screen.findByRole("button", {
+      name: /needs attention/i,
+    })
     expect(toggle).toBeInTheDocument()
   })
 
@@ -88,6 +92,8 @@ describe("the agent activity screen", () => {
     // Every one of them starts closed.
     const disclosures = Array.from(document.querySelectorAll("details"))
     expect(disclosures.length).toBeGreaterThan(0)
-    expect(disclosures.every((element) => !element.hasAttribute("open"))).toBe(true)
+    expect(disclosures.every((element) => !element.hasAttribute("open"))).toBe(
+      true
+    )
   })
 })

@@ -1,6 +1,11 @@
 import { cn } from "cn"
 
-import { ApiError, AbortedError, NetworkError, TimeoutError } from "@/lib/api/client"
+import {
+  ApiError,
+  AbortedError,
+  NetworkError,
+  TimeoutError,
+} from "@/lib/api/client"
 import { describeError } from "@/lib/errors"
 
 import { Banner } from "./banner"
@@ -73,7 +78,8 @@ function toneFor(error: unknown): "neutral" | "warning" | "danger" {
   if (error instanceof AbortedError) return "neutral"
   if (error instanceof TimeoutError) return "warning"
   if (error instanceof NetworkError) return "danger"
-  if (error instanceof ApiError) return error.status >= 500 ? "danger" : "warning"
+  if (error instanceof ApiError)
+    return error.status >= 500 ? "danger" : "warning"
   return "danger"
 }
 

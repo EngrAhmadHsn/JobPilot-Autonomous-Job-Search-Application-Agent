@@ -229,7 +229,8 @@ export function ModelCredentialsCard() {
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
-              {provider === "google" || VENDOR_DEFAULT_PROVIDERS.has(provider) ? (
+              {provider === "google" ||
+              VENDOR_DEFAULT_PROVIDERS.has(provider) ? (
                 <span className="block text-xs text-muted-foreground">
                   Leave empty to use this provider's default endpoint.
                 </span>
@@ -243,7 +244,10 @@ export function ModelCredentialsCard() {
         {test.isError ? <ErrorNotice error={test.error} /> : null}
 
         {test.data ? (
-          <Banner tone={test.data.ok ? "success" : "danger"} title={test.data.ok ? "The key works" : "The key did not work"}>
+          <Banner
+            tone={test.data.ok ? "success" : "danger"}
+            title={test.data.ok ? "The key works" : "The key did not work"}
+          >
             {test.data.ok ? (
               <p>
                 {test.data.provider} · {test.data.model} answered in{" "}

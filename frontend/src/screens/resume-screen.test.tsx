@@ -107,7 +107,8 @@ describe("the resume screen", () => {
     */
     server.use(
       http.get(`${BASE}/api/resumes/:profileId`, async ({ params }) => {
-        if (params.profileId !== "gone") return HttpResponse.json(profileResponse())
+        if (params.profileId !== "gone")
+          return HttpResponse.json(profileResponse())
         await new Promise((resolve) => setTimeout(resolve, 80))
         return HttpResponse.json(
           { detail: "Profile 'gone' not found" },
@@ -188,7 +189,9 @@ describe("the resume screen", () => {
     // Nothing to fall back to: the screen is the upload prompt, not an
     // error about a profile the operator cannot see anyway.
     expect(
-      await screen.findByRole("heading", { name: /Let's build your career profile/ })
+      await screen.findByRole("heading", {
+        name: /Let's build your career profile/,
+      })
     ).toBeInTheDocument()
     await waitFor(() => expect(getCurrentProfileId()).toBeNull())
     expect(

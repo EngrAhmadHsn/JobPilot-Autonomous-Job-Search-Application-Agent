@@ -185,8 +185,12 @@ describe("the administration screen", () => {
     expect(
       await screen.findByText("Resume this embedding run?")
     ).toBeInTheDocument()
-    expect(screen.getByText(/20 of 50 completed, 30 remaining/)).toBeInTheDocument()
-    expect(screen.getByText(/google\/embeddinggemma-2@int8/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/20 of 50 completed, 30 remaining/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/google\/embeddinggemma-2@int8/)
+    ).toBeInTheDocument()
 
     await user.click(
       screen.getByRole("button", { name: "Resume outstanding work" })
@@ -243,9 +247,7 @@ describe("the administration screen", () => {
     // The administration panel is where the raw answer is wanted: the
     // status and the server's own words, verbatim.
     expect(
-      screen.getByText(
-        "HTTP 409 · This run embedded with a different model."
-      )
+      screen.getByText("HTTP 409 · This run embedded with a different model.")
     ).toBeInTheDocument()
   })
 
@@ -289,9 +291,7 @@ describe("the administration screen", () => {
     // Wait for the control state to load before asserting the button, so the
     // assertion is about the loaded screen and not about the first paint.
     expect(await screen.findByText(/Up to 4 at once/)).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Start a worker" })
-    ).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Start a worker" })).toBeEnabled()
     // The queued run is listed, with the state a person can act on.
     expect(await screen.findByText("reconcile")).toBeInTheDocument()
     expect(screen.getByText(/Waiting for a worker/)).toBeInTheDocument()
@@ -309,7 +309,9 @@ describe("the administration screen", () => {
       http.get(`${BASE}/api/admin/health/workers`, () =>
         HttpResponse.json(workersResponse(1))
       ),
-      http.get(`${BASE}/api/admin/runs`, () => HttpResponse.json(runsResponse([]))),
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(runsResponse([]))
+      ),
       http.post(`${BASE}/api/admin/workers`, async ({ request }) => {
         calls.push(`start ${JSON.stringify(await request.json())}`)
         return HttpResponse.json(
@@ -339,7 +341,9 @@ describe("the administration screen", () => {
     const [firstStop] = screen.getAllByRole("button", { name: "Stop" })
     expect(firstStop).toBeDefined()
     await userEvent.click(firstStop as HTMLElement)
-    expect(await screen.findByText(/will stop after the job/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/will stop after the job/)
+    ).toBeInTheDocument()
 
     expect(calls).toEqual(["start {}", "stop worker-1"])
   })
@@ -506,15 +510,19 @@ describe("the administration screen", () => {
     expect(
       await screen.findByRole("heading", { name: /^Active/ })
     ).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: /^Inactive/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: /^Inactive/ })
+    ).toBeInTheDocument()
 
     // An interrupted run is unfinished work, not history: its Resume lives
     // in the Active group, next to the run that is actually running.
     const activeHeading = screen.getByRole("heading", { name: /^Active/ })
     const activeSection = activeHeading.closest("section")!
-    expect(activeSection).toHaveTextContent("Interrupted — needs an administrator")
+    expect(activeSection).toHaveTextContent(
+      "Interrupted — needs an administrator"
+    )
     expect(
-      activeSection.querySelector('button[aria-label], button') &&
+      activeSection.querySelector("button[aria-label], button") &&
         Array.from(activeSection.querySelectorAll("button")).some(
           (button) => button.textContent === "Resume"
         )
@@ -542,15 +550,17 @@ describe("the administration screen", () => {
       http.get(`${BASE}/api/admin/health/workers`, () =>
         HttpResponse.json(workersResponse(1))
       ),
-      http.get(`${BASE}/api/admin/runs`, () => HttpResponse.json(runsResponse(runs)))
+      http.get(`${BASE}/api/admin/runs`, () =>
+        HttpResponse.json(runsResponse(runs))
+      )
     )
 
     renderApp({ route: "/app/admin" })
     const user = userEvent.setup()
 
-    const inactive = (await screen.findByRole("heading", { name: /^Inactive/ })).closest(
-      "section"
-    )!
+    const inactive = (
+      await screen.findByRole("heading", { name: /^Inactive/ })
+    ).closest("section")!
 
     // Five rows, not seven: the counter says what is on screen.
     expect(inactive.querySelectorAll("tbody tr")).toHaveLength(5)

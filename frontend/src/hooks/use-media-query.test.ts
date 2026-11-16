@@ -15,7 +15,9 @@ describe("the media-query hooks", () => {
   it("asks whether *any* fine pointer is available, not the primary one", () => {
     const spy = vi.spyOn(window, "matchMedia")
     renderHook(() => usePointerCapable())
-    expect(spy).toHaveBeenCalledWith("(any-hover: hover) and (any-pointer: fine)")
+    expect(spy).toHaveBeenCalledWith(
+      "(any-hover: hover) and (any-pointer: fine)"
+    )
     spy.mockRestore()
   })
 

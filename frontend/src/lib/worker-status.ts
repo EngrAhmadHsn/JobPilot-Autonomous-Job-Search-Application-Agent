@@ -58,7 +58,9 @@ export function describeWorkerStatus(
 }
 
 /** The tailwind text colour for a worker status tone. */
-export function workerStatusToneClass(tone: WorkerStatusPresentation["tone"]): string {
+export function workerStatusToneClass(
+  tone: WorkerStatusPresentation["tone"]
+): string {
   switch (tone) {
     case "ok":
       return "text-forest"

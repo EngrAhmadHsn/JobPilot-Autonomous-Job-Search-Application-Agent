@@ -23,14 +23,23 @@ export interface ActionPresentation {
 const ACTIONS: Record<string, ActionPresentation> = {
   "resume.upload": { label: "Uploaded and parsed a résumé", attention: false },
   "job.search": { label: "Searched the job corpus", attention: false },
-  "match.compute": { label: "Scored listings against the profile", attention: false },
+  "match.compute": {
+    label: "Scored listings against the profile",
+    attention: false,
+  },
   "application.prepare": { label: "Prepared an application", attention: false },
   "application.approve": { label: "Approved an application", attention: false },
   "application.reject": { label: "Rejected an application", attention: false },
   "application.submit": { label: "Submitted an application", attention: false },
   "application.verify": { label: "Verified a submission", attention: false },
-  "application.transition": { label: "Changed an application's status", attention: false },
-  "application.event": { label: "Recorded an application event", attention: false },
+  "application.transition": {
+    label: "Changed an application's status",
+    attention: false,
+  },
+  "application.event": {
+    label: "Recorded an application event",
+    attention: false,
+  },
   "application.permission_denied": {
     label: "Refused a permission request",
     attention: true,
@@ -43,7 +52,10 @@ const ACTIONS: Record<string, ActionPresentation> = {
     label: "Stopped at a CAPTCHA or multi-factor prompt",
     attention: true,
   },
-  "allowlist.violation": { label: "Blocked a domain not on the allowlist", attention: true },
+  "allowlist.violation": {
+    label: "Blocked a domain not on the allowlist",
+    attention: true,
+  },
   "llm.usage": { label: "Used the model provider", attention: false },
   auth: { label: "Authenticated", attention: false },
   retention: { label: "Ran the retention pass", attention: false },
@@ -68,13 +80,17 @@ const OUTCOMES: Record<string, string> = {
 
 /** A human label for an outcome. Unknown outcomes are shown verbatim. */
 export function describeOutcome(outcome: string): string {
-  return (Object.hasOwn(OUTCOMES, outcome) ? OUTCOMES[outcome] : undefined) ?? outcome
+  return (
+    (Object.hasOwn(OUTCOMES, outcome) ? OUTCOMES[outcome] : undefined) ??
+    outcome
+  )
 }
 
 /** The tone of an event, from its actor and its outcome. */
 export function eventTone(event: AuditEvent): EventTone {
   if (event.outcome === "error") return "failure"
-  if (event.outcome === "blocked" || event.outcome === "denied") return "attention"
+  if (event.outcome === "blocked" || event.outcome === "denied")
+    return "attention"
   if (event.actor_kind === "agent") return "agent"
   if (event.actor_kind === "user") return "human"
   return "system"
@@ -83,7 +99,11 @@ export function eventTone(event: AuditEvent): EventTone {
 /** True when the event is not a clean success — the ones a human cares about. */
 export function needsAttention(event: AuditEvent): boolean {
   const tone = eventTone(event)
-  return tone === "failure" || tone === "attention" || describeAction(event.action).attention
+  return (
+    tone === "failure" ||
+    tone === "attention" ||
+    describeAction(event.action).attention
+  )
 }
 
 /**

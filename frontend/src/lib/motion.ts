@@ -102,7 +102,11 @@ export function subscribeToMotion(listener: () => void): () => void {
 
 /** The chosen preference, as a reactive value. */
 export function useMotionPreference(): MotionPreference {
-  return useSyncExternalStore(subscribeToMotion, getMotionPreference, () => "system")
+  return useSyncExternalStore(
+    subscribeToMotion,
+    getMotionPreference,
+    () => "system"
+  )
 }
 
 /**

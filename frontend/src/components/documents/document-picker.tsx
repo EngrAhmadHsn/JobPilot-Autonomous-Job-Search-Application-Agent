@@ -107,9 +107,7 @@ function DocumentRow({
         {...stagger(
           index,
           "flex items-center gap-3 rounded-xl border px-3 py-2.5 " +
-            (selected
-              ? "border-primary bg-accent/50"
-              : "border-border bg-card")
+            (selected ? "border-primary bg-accent/50" : "border-border bg-card")
         )}
       >
         {content}

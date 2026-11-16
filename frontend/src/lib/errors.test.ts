@@ -49,12 +49,12 @@ describe("the friendly error copy", () => {
     expect(
       describeError(apiError(400, "REGISTER_USER_ALREADY_EXISTS")).title
     ).toBe("That account already exists")
-    expect(
-      describeError(apiError(400, "RESET_PASSWORD_BAD_TOKEN")).title
-    ).toBe("That link has expired")
-    expect(
-      describeError(apiError(400, "LOGIN_USER_NOT_VERIFIED")).title
-    ).toBe("Verify your email first")
+    expect(describeError(apiError(400, "RESET_PASSWORD_BAD_TOKEN")).title).toBe(
+      "That link has expired"
+    )
+    expect(describeError(apiError(400, "LOGIN_USER_NOT_VERIFIED")).title).toBe(
+      "Verify your email first"
+    )
   })
 
   it("keeps a detail the backend wrote for a human", () => {
@@ -69,9 +69,9 @@ describe("the friendly error copy", () => {
     const detail =
       "The background queue is at its run limit (25). Wait for the current work to finish, then retry."
     expect(describeError(apiError(503, detail)).message).toBe(detail)
-    expect(describeError(apiError(503, "Server busy. Please retry shortly.")).message).toBe(
-      "Server busy. Please retry shortly."
-    )
+    expect(
+      describeError(apiError(503, "Server busy. Please retry shortly.")).message
+    ).toBe("Server busy. Please retry shortly.")
   })
 
   it("replaces the framework's own phrases", () => {
@@ -99,8 +99,9 @@ describe("the friendly error copy", () => {
 
     expect(described.message).toMatch(/30 seconds/)
     expect(
-      describeError(apiError(429, "Too many requests.", { retryAfterSeconds: 1 }))
-        .message
+      describeError(
+        apiError(429, "Too many requests.", { retryAfterSeconds: 1 })
+      ).message
     ).toMatch(/1 second\./)
     expect(describeError(apiError(429, "")).message).toMatch(/a few seconds/)
   })
@@ -125,7 +126,9 @@ describe("the friendly error copy", () => {
   })
 
   it("speaks plainly for the transport failures too", () => {
-    expect(describeError(new NetworkError()).title).toBe("Can't reach the server")
+    expect(describeError(new NetworkError()).title).toBe(
+      "Can't reach the server"
+    )
     expect(describeError(new TimeoutError(30_000)).message).toMatch(
       /stopped waiting after 30 seconds/
     )

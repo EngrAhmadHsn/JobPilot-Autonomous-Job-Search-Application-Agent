@@ -247,7 +247,10 @@ export const api = {
 
   /** The caller's own model credential (WS-22) — masked, never the key. */
   getLlmCredentials: (signal?: AbortSignal) =>
-    request<LlmCredentialState>("/api/llm/credentials", { signal, timeoutMs: 20_000 }),
+    request<LlmCredentialState>("/api/llm/credentials", {
+      signal,
+      timeoutMs: 20_000,
+    }),
 
   /** Register or replace the caller's own provider key (WS-22). */
   putLlmCredentials: (body: LlmCredentialInput, signal?: AbortSignal) =>

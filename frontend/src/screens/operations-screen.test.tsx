@@ -25,7 +25,9 @@ describe("the operations screen", () => {
           run: runDetail({
             id: String(params.runId),
             metadata:
-              String(params.runId) === "run-embed-1" ? {} : runSummary().metadata,
+              String(params.runId) === "run-embed-1"
+                ? {}
+                : runSummary().metadata,
           }),
         })
       )
@@ -37,9 +39,7 @@ describe("the operations screen", () => {
 
     expect(await screen.findByText("Refresh accepted")).toBeInTheDocument()
     expect(await screen.findByText("Latest run")).toBeInTheDocument()
-    expect(
-      (await screen.findAllByText(/Finished/)).length
-    ).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/Finished/)).length).toBeGreaterThan(0)
     // The report comes from the run's persisted metadata, not a response body.
     expect(await screen.findByText("The refresh report")).toBeInTheDocument()
     expect(screen.getByText("Persisted")).toBeInTheDocument()
@@ -171,7 +171,8 @@ describe("the operations screen", () => {
     await user.click(screen.getByRole("button", { name: "Queue the refresh" }))
 
     expect(
-      (await screen.findAllByText(/Interrupted — needs an administrator/)).length
+      (await screen.findAllByText(/Interrupted — needs an administrator/))
+        .length
     ).toBeGreaterThan(0)
   })
 
@@ -223,6 +224,8 @@ describe("the operations screen", () => {
       screen.getAllByText(/Interrupted — needs an administrator/).length
     ).toBeGreaterThan(0)
     // Every row can be opened into the same progress panel.
-    expect(screen.getAllByRole("button", { name: /Show|Showing/ }).length).toBe(2)
+    expect(screen.getAllByRole("button", { name: /Show|Showing/ }).length).toBe(
+      2
+    )
   })
 })

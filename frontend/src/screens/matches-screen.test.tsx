@@ -289,9 +289,7 @@ describe("the matches screen while a search is running", () => {
 
     // The placeholder is on screen, and the region says it is busy.
     await waitFor(() => {
-      expect(
-        container.querySelector('[aria-busy="true"]')
-      ).toBeInTheDocument()
+      expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
     })
     expect(
       container.querySelectorAll('[data-slot="skeleton"]').length
@@ -321,12 +319,12 @@ describe("the matches screen while a search is running", () => {
 
     await user.click(screen.getByRole("button", { name: "Search" }))
     await waitFor(() => {
-      expect(
-        container.querySelector('[aria-busy="true"]')
-      ).toBeInTheDocument()
+      expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
     })
     expect(container.textContent).not.toMatch(/\d+s elapsed/)
-    expect(screen.queryByText("This takes a few seconds.")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("This takes a few seconds.")
+    ).not.toBeInTheDocument()
 
     release()
     await screen.findByText("AI Engineer")

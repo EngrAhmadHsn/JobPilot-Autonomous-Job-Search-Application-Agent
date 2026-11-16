@@ -286,7 +286,9 @@ describe("the Model credentials card", () => {
   })
 
   it("renders the required mode as a demand, and the disabled mode as a fact", async () => {
-    serveState(state({ mode: "required", platform_configured: false, using: "none" }))
+    serveState(
+      state({ mode: "required", platform_configured: false, using: "none" })
+    )
     const first = renderScreen(<ModelCredentialsCard />, {
       route: "/app/profile",
     })
@@ -310,7 +312,9 @@ describe("the Model credentials card", () => {
   })
 
   it("says so when the deployment has no encryption key material", async () => {
-    serveState(state({ available: false, encryption: "none", using: "platform" }))
+    serveState(
+      state({ available: false, encryption: "none", using: "platform" })
+    )
 
     renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
 

@@ -256,7 +256,9 @@ describe("the tailor screen", () => {
     )
 
     expect(await screen.findByText("Left untouched")).toBeInTheDocument()
-    expect(screen.getByText(/1 table\(s\) were left untouched/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/1 table\(s\) were left untouched/)
+    ).toBeInTheDocument()
   })
 
   it("renders a factuality failure as content, not as an error", async () => {

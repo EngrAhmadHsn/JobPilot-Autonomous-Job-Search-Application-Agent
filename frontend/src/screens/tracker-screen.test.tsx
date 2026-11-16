@@ -14,9 +14,7 @@ describe("the tracker list", () => {
     renderScreen(<TrackerScreen />)
 
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
-    expect(
-      screen.getByText(/1 application · showing 1–1/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/1 application · showing 1–1/)).toBeInTheDocument()
     expect(screen.getAllByText("Verified").length).toBeGreaterThan(0)
   })
 

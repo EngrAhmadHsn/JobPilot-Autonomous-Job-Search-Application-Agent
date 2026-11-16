@@ -221,7 +221,9 @@ export default defineConfig(({ mode }) => {
     "utf8"
   )
   const themeScriptHashes = [
-    ...sourceHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi),
+    ...sourceHtml.matchAll(
+      /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi
+    ),
   ]
     .map((match) => match[1] ?? "")
     .filter((body) => body.trim().length > 0)

@@ -37,7 +37,9 @@ function ruleMentioning(needle: string): string {
   const rules = stylesheet.match(/[^{}]+\{[^}]*\}/gs) ?? []
   return (
     rules.find(
-      (rule) => (rule.split("{")[0] ?? "").includes(needle) && /cursor:\s*pointer/.test(rule)
+      (rule) =>
+        (rule.split("{")[0] ?? "").includes(needle) &&
+        /cursor:\s*pointer/.test(rule)
     ) ?? ""
   )
 }
@@ -57,10 +59,15 @@ describe("the console's pointer affordance", () => {
     // Base UI renders some controls as a non-<button> element with
     // `role="button"`; `<select>`, checkboxes and radios are interactive
     // without being buttons at all.
-    for (const selector of ['[role="button"]', "select", 'input[type="checkbox"]']) {
-      expect(ruleMentioning(selector), `${selector} should get the pointer cursor`).not.toBe(
-        ""
-      )
+    for (const selector of [
+      '[role="button"]',
+      "select",
+      'input[type="checkbox"]',
+    ]) {
+      expect(
+        ruleMentioning(selector),
+        `${selector} should get the pointer cursor`
+      ).not.toBe("")
     }
   })
 })

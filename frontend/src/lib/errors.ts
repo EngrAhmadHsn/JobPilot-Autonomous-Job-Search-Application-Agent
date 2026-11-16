@@ -95,10 +95,7 @@ const ACCOUNT_ERRORS: Record<string, { title: string; message: string }> = {
 }
 
 /** Headlines and fallbacks by status, when the server said nothing useful. */
-const STATUS_COPY: Record<
-  number,
-  { title: string; message: string }
-> = {
+const STATUS_COPY: Record<number, { title: string; message: string }> = {
   400: {
     title: "That didn't go through",
     message:
@@ -162,7 +159,8 @@ function copyForStatus(status: number): { title: string; message: string } {
   }
   return {
     title: "The server refused that request",
-    message: "It did not explain why. Try again, and tell an administrator if it keeps happening.",
+    message:
+      "It did not explain why. Try again, and tell an administrator if it keeps happening.",
   }
 }
 

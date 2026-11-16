@@ -19,10 +19,7 @@ import {
 describe("the match gap chips", () => {
   it("groups matched and missing requirements", () => {
     render(
-      <MatchGapChips
-        matched={["Python", "SQL"]}
-        missing={["Kubernetes"]}
-      />
+      <MatchGapChips matched={["Python", "SQL"]} missing={["Kubernetes"]} />
     )
     expect(screen.getByText("Matched requirements")).toBeInTheDocument()
     expect(screen.getByText("Missing requirements")).toBeInTheDocument()

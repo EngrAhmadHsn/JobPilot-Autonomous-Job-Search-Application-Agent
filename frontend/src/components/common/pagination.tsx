@@ -33,7 +33,8 @@ export function Pagination({
   return (
     <div
       className={
-        "flex flex-wrap items-center justify-between gap-3 pt-1 " + (className ?? "")
+        "flex flex-wrap items-center justify-between gap-3 pt-1 " +
+        (className ?? "")
       }
     >
       <p className="text-xs text-muted-foreground tabular-nums">

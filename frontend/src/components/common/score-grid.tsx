@@ -86,7 +86,7 @@ function UnknownBar({ label, reason }: { label: string; reason: string }) {
         <span className="text-xs font-medium text-muted-foreground">
           {label}
         </span>
-        <span className="text-[11px] italic text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground italic">
           {reason}
         </span>
       </div>

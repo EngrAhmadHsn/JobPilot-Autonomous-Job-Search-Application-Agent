@@ -212,7 +212,10 @@ export function ColorField({ className }: { className?: string }) {
         // A screen-width of travel in one move is "fast"; map it into 0..1
         // and keep only a fraction, so the brightness breathes rather than
         // flashing.
-        energy = Math.min(1, energy + distance / (Math.max(width, 1) * 0.5) * 0.5)
+        energy = Math.min(
+          1,
+          energy + (distance / (Math.max(width, 1) * 0.5)) * 0.5
+        )
       }
       pointerX = nextX
       pointerY = nextY
@@ -226,9 +229,7 @@ export function ColorField({ className }: { className?: string }) {
     }
 
     const observer =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(resize)
-        : null
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null
     observer?.observe(host)
     resize()
 

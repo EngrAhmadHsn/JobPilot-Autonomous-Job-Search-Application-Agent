@@ -170,7 +170,9 @@ describe("the approval panel's board questions", () => {
     const user = setupUser()
     await prepare(user)
 
-    expect(await screen.findByText("What will be submitted")).toBeInTheDocument()
+    expect(
+      await screen.findByText("What will be submitted")
+    ).toBeInTheDocument()
     expect(screen.queryByTestId("board-questions")).not.toBeInTheDocument()
   })
 })

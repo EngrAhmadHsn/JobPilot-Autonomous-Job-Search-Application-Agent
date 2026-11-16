@@ -25,7 +25,9 @@ describe("the observability vocabulary", () => {
   })
 
   it("shows an unknown action verbatim", () => {
-    expect(describeAction("some.future.action").label).toBe("some.future.action")
+    expect(describeAction("some.future.action").label).toBe(
+      "some.future.action"
+    )
   })
 
   it("does not fall for a prototype key", () => {
@@ -45,7 +47,9 @@ describe("the observability vocabulary", () => {
     expect(needsAttention(auditEvent({ outcome: "success" }))).toBe(false)
     // A guard action is attention even when its outcome is "success".
     expect(
-      needsAttention(auditEvent({ action: "allowlist.violation", outcome: "success" }))
+      needsAttention(
+        auditEvent({ action: "allowlist.violation", outcome: "success" })
+      )
     ).toBe(true)
   })
 
