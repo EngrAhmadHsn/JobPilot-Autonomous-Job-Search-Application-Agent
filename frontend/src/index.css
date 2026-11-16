@@ -184,6 +184,37 @@
   --sidebar-ring: #d9f36a;
 }
 
+/*
+    One focus treatment for the whole console: a visible ring, always.
+
+    This rule is deliberately UNLAYERED. While it lived inside `@layer base`,
+    any element carrying a utilities-layer `outline-none` legally overrode it
+    — the later layer wins regardless of specificity — and the WS-35 keyboard
+    sweep caught the result: nav rows, buttons and links matched
+    `:focus-visible` while computing `outline-style: none`, so keyboard users
+    had no visible focus anywhere the utilities also silenced the default.
+    Unlayered CSS beats every layer, so the ring now survives whatever the
+    component classes do to the default outline. (WS-34's ring-3 box-shadow on
+    buttons still stacks on top of it harmlessly.)
+  */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+    Inside the forest sidebar, forest-on-forest would hide that ring — the
+    reason WS-34 introduced the lime `--sidebar-ring` token. Scoping `--ring`
+    to the sidebar's own token keeps the single unlayered treatment and lets
+    it resolve to the visible colour per surface. (The dark theme already
+    remaps `--ring` to lime; the paper surfaces keep the forest ring, which
+    measures 10.0:1 and higher on ivory and paper.)
+  */
+aside.bg-sidebar {
+  --ring: var(--sidebar-ring);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -247,12 +278,10 @@
     }
   }
 
-  /* One focus treatment for the whole console: a visible ring, always. */
-  :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-    border-radius: 4px;
-  }
+  /*
+    (The console's one focus treatment lives out at the top level, unlayered —
+    see the `:focus-visible` rule outside this block for why.)
+  */
 
   /*
     Interactive elements keep the pointer cursor.

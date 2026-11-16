@@ -227,10 +227,16 @@ function DestinationRow({
       aria-current={current ? "page" : undefined}
       data-active={active || undefined}
       className={cn(
-        "relative flex items-center rounded-lg transition-colors duration-150 outline-none",
+        /*
+          `outline-none` silences the browser default, but a ring must take
+          its place — the WS-35 keyboard sweep found the paper rows computing
+          `outline-style: none` with nothing painted, so the treatment moved
+          here for both surfaces and only the colour branches per surface.
+        */
+        "relative flex items-center rounded-lg transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:outline-offset-2",
         forest
           ? cn(
-              "mx-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring",
+              "mx-2 focus-visible:outline-sidebar-ring",
               child
                 ? "h-8 gap-2 pr-3 pl-9 text-[13px]"
                 : "h-10 gap-2.5 px-3 text-sm",
@@ -242,6 +248,7 @@ function DestinationRow({
             )
           : cn(
               child ? "h-8 pr-3 pl-9 text-[13px]" : "h-11 px-3 text-[15px]",
+              "focus-visible:outline-ring",
               current
                 ? "bg-accent font-medium text-primary"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
