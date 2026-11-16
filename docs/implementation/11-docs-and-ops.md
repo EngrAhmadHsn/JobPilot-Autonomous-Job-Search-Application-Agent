@@ -54,7 +54,7 @@ Every setting from 01/02/03/06/10 with comments: `GREENHOUSE_BOARDS`, `LEVER_COM
 ### 6. Repo hygiene
 
 - Verify `.gitignore` covers `data/`, `app.db`, evidence artifacts, golden eval outputs that shouldn't be committed (reports themselves are committed by design).
-- Decide and execute the commit strategy for the currently uncommitted modules + this roadmap (separate commits per workstream area; requires explicit user instruction per AGENTS.md).
+- Decide and execute the commit strategy for the then-uncommitted modules + this roadmap (separate commits per workstream area). — **Done 2026-10-22**: the nine per-area commits are recorded in P4.6 below.
 
 ## Acceptance criteria
 
@@ -388,15 +388,23 @@ workstream table, so the folder says which workstreams shipped.
 
 ## S13. The commit strategy
 
-AGENTS.md requires an explicit instruction before committing. This workstream therefore
-**changes files and leaves the commit to an explicit instruction**. When that instruction comes,
-the commits are discrete and per-area, following the convention of WS-06…WS-12:
+This workstream **changes files and leaves the commit to an explicit instruction**, following the
+convention of WS-06…WS-12, so the commits are discrete and per-area:
 
 1. `docs: the env example file matches the code` (`.env.example`, the adapter change, the env test)
 2. `docs: the README describes the system that exists` (`README.md`, the accuracy test, the demo script)
 3. `docs: the architecture document is reconciled` (`docs/ARCHITECTURE.md`)
 4. `docs: the plan gets its reconciliation appendix` (`docs/PROJECT_PLAN.md`, `docs/SECURITY.md`)
 5. `docs: the roadmap records WS-11` (the two `docs/implementation/` files)
+
+> **Correction (2026-11-16).** This section originally read "AGENTS.md requires an explicit
+> instruction before committing". That rule was never in AGENTS.md, and never in the
+> `CLAUDE.md` / `.cursor` originals it was converted from. AGENTS.md said something narrower:
+> the *then-uncommitted modules* must not be modified or reverted without instruction — a
+> constraint on editing those paths, not on committing. That constraint is now moot: every
+> module it named is committed. Kept as history. The nine commits that actually landed on
+> 2026-10-22 are recorded in P4.6 below (README.md was committed by a concurrent WS-13
+> session, so item 2 above did not land as its own commit).
 
 ---
 

@@ -22,7 +22,7 @@ and the retrieval half of plan Phase 3–4.
 ## Current state
 
 - `src/jobs/contracts.py` — `JobSource` protocol (`async search`, `async get_job`) and the canonical `JobListing` model: **keep both unchanged**.
-- `src/jobs/linkedin_adapter.py` — placeholder returning `[]`. Stays in the tree but is **not registered** (AGENTS.md forbids modifying uncommitted modules without instruction; it is simply bypassed).
+- `src/jobs/linkedin_adapter.py` — placeholder returning `[]`. Stays in the tree but is deliberately **not registered** in `src/jobs/registry.py`: LinkedIn has no public API and scraping it is out of scope (see [00-OVERVIEW.md](00-OVERVIEW.md), "Explicitly out of scope"), so the adapter is simply bypassed.
 - `src/jobs/deduplicate.py` — real, tested; becomes the single dedup entry point for `search_all`.
 - `src/db/jobs.py` — `JobDB` model exists; nothing writes to it in a live path. `id` is a free string — we standardize on `"{source}:{source_job_id}"` so re-searches upsert instead of duplicating.
 - No HTTP client layer, no search planner, no source registry.

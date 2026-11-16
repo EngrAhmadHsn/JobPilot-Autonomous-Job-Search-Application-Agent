@@ -34,16 +34,18 @@ This document intentionally distinguishes between:
 
 ## 2. Current implementation status
 
-_Reconciled 2026-10-22 (WS-14). This section used to describe the 2026-10-11 state — a minimal
-FastAPI app and the Cursor configuration — while §5 and §12 in this same file described the
-present. The document contradicted itself; the present is below.
+_Reconciled 2026-11-16 (through WS-32). This section was rewritten by WS-14 on 2026-10-22,
+which in turn replaced a description of the 2026-10-11 state. The two updates since are WS-15
+(attack surface, round two) and WS-32 (submission readiness): the
+browser-facing form now has a real-board variant, and the payload it would submit is validated
+against the ATS's own published contract before anything is enqueued._
 
 **The multi-user change.** WS-14 changed the threat model: the caller is
 no longer assumed to be the operator. §6.16 is the review that change
 required — what is shared, what is per-tenant, what is platform-wide, and
 what the residual risks are. The controls it names are implemented and
-tested; the entries under "planned" and "not yet implemented" above are
-the ones that are not._
+tested; the entries under "planned" and "not yet implemented" below are
+the ones that are not.
 
 ### Implemented
 
@@ -112,6 +114,58 @@ the ones that are not._
   cookie or storage survives it (`src/applications/fake_ats_adapter.py`,
   `src/applications/form.py`; proven by `tests/test_isolation.py`)
 
+**The multi-user controls (WS-14).**
+
+- an identity behind every route: registration, two transports (session cookie and bearer
+  token), argon2 hashing, server-side sessions with revocation, CSRF, password reset and
+  e-mail verification (`src/auth/`; SEC-23)
+- per-user data isolation: a scoped accessor is the only way a route reaches a user-scoped row,
+  and a foreign resource is a byte-identical `404` rather than a `403` (`src/db/access.py`,
+  `src/api/scope.py`; SEC-22)
+- per-user storage: every artifact lives under `data/users/{user_id}/…`, with the containment
+  check made against the caller's **own** directory (`src/storage/paths.py`)
+- the actor is a **principal** (kind + id), and stored strings are stripped of control
+  characters, so an audit row cannot be forged by a newline (`src/security/audit.py`)
+- retention, the deletion cascade and the purge, with the audit rows anonymized rather than
+  deleted (`src/retention.py`, `scripts/purge_expired.py`; SEC-15)
+- the per-tenant provider quota, so one tenant cannot spend the platform's whole daily budget
+  (`src/llm/tenant.py`)
+
+**The second attack-surface pass (WS-15, 2026-10-22).**
+
+- a single-pass **linear** HTML neutralizer with a bounded input — the first version's lazy
+  regex was quadratic, so one 500 KB field of a board's `<script>` burned minutes of CPU
+- the embedding budget counts **cache misses**, so a flood of already-embedded listings can no
+  longer starve the legitimate new ones of their vectors
+- a persistent daily embedding work budget, because the default local provider has no quota of
+  its own
+- **corpus eviction**: the cap used to be a one-way door — once full, nothing was ever admitted
+  from any source again; the oldest listings are now evicted to make room
+- the scope dependency on the last two unauthenticated routes (`POST /api/jobs/refresh`, a
+  state-changing and expensive operation, and `GET /api/jobs/{job_id}`)
+- every untrusted field inside the nonce fence in both the research and the tailoring prompt —
+  the header fields and the requirements block had been outside it, so the "untrusted block"
+  claim did not hold for them
+- the in-flight pile-up cap (`MAX_INFLIGHT_REQUESTS`), and the console's own policy, headers,
+  safe-link handling and broader lint sinks
+
+**The submission controls (WS-32, 2026-11-15).**
+
+- the submission payload is validated against the ATS's **own published contract**, at the
+  adapter and fail-closed — because Greenhouse does not reject an application that omits a
+  required field (SEC-24)
+- approve enqueues onto the WS-18 durable queue and returns `202` with a run id, so a submission
+  executes **at most once** and a second approval cannot re-run it
+- a durable attempt marker closes the double-submission window that a crash after the board's
+  acceptance would otherwise open; an attempt that may have reached the board is escalated as
+  `submission.uncertain` to a human, never retried and never reported
+- every adapter asks for the capability it actually exercises
+  (`ApplicationAdapter.require_capability`); the assist pilot holds `PREPARE` only, so its
+  refusal to click submit is a **capability**, not a convention
+- a PDF résumé is read through its text layer, with four distinct refusals — no extractable
+  text, unreadable text, encrypted, or unparseable — so a scan or a broken font encoding cannot
+  silently build a profile out of control characters
+
 **The development-time tooling.**
 
 - `.cursor/mcp.json` includes a Playwright MCP configuration for development-time browser
@@ -121,7 +175,6 @@ the ones that are not._
 
 ### Planned for implementation
 
-- runtime secret management with a secret scanning policy
 - malware scanning of uploaded resumes and job pages
 - per-tenant encryption keys, and encryption at rest for the shared stores
 - an SMTP provider for the password-reset and verification tokens (the flow
@@ -129,8 +182,11 @@ the ones that are not._
 
 ### Not yet implemented
 
-- browser automation runtime for a real (non-fake) ATS
-- end-to-end verification and replay capability for a real ATS
+- **the submit half of the real-ATS path**: the WS-32 pilot has filled a live Greenhouse form and
+  handed the browser to a human; it has never clicked submit, so nothing has been sent to a real
+  board and real-ATS verification and replay are unproven end to end
+- an operator surface for `submission.uncertain` (the escalation exists and is durable; the
+  console does not yet present it)
 - resume redaction and PII minimization inside the stored documents
 - production secret management (vault or encrypted secrets store)
 - malicious content scanning for uploaded resumes and job pages
@@ -207,15 +263,16 @@ Each control below records:
 | SEC-12 | Resume privacy / PII handling | exposure of personal data | `src/security/redaction.py` (audit metadata), `src/core/logging.py` (`PiiMaskingFilter`) | Partial — PII is masked in logs and audit rows; resumes are still stored in cleartext and the retention policy is SEC-15 | `tests/test_audit.py` |
 | SEC-13 | Audit logging | non-repudiation and investigation | `src/db/audit.py` (append-only table), `src/security/audit.py` (`record_audit`), wired into resume upload, job search, match, prepare, approve, reject, submit, verify and every guard trip | **Implemented** | `tests/test_audit.py`, live run in `scripts/verify_ws06.py` |
 | SEC-14 | Submission verification | false claim of application submitted | `src/applications/evidence.py`, `src/applications/fake_ats_adapter.py` (screenshot + action trace + Playwright archive), `src/graph/nodes.py::verify_node` (evidence-existence check) | **Implemented** | `tests/test_evidence.py` (16 tests) |
-| SEC-15 | Data retention policy | stale or excessive data retention | not implemented — resumes, evidence and audit rows are kept until the operator deletes them | Planned | — |
+| SEC-15 | Data retention policy | stale or excessive data retention | `src/retention.py` (the windows, the deletion cascade, the audit anonymization instead of deletion), `scripts/purge_expired.py` (the operator-scheduled entry point), `RETENTION_*` settings | **Implemented** (WS-14 · Phase D) — profiles 365 d, tailored résumés and evidence 180 d, applications 730 d, sessions 30 d, with a 30-day grace between a deletion request and the irreversible purge. The purge is **operator-scheduled, not an in-process timer**, so the runbook carries it rather than the lifespan | `tests/test_retention.py` (14 tests), `tests/test_production_posture.py` (the runbook documents the purge) |
 | SEC-16 | Failure-safe shutdown | unsafe state after failures | `src/graph/nodes.py` (every guard produces a status, never an exception), `src/graph/conditionals.py`, `src/graph/application_workflow.py` (the failure reason survives) | **Implemented** for the application path | `tests/test_evidence.py::TestFailureStatusPreservation`, `tests/test_permissions.py` |
 | SEC-17 | API abuse and resource exhaustion | DDoS, request floods, resource exhaustion via one expensive endpoint | `src/security/limits.py` (every bound in one place), `src/security/rate_limit.py` (per-client limiter, bounded client table), `src/api/middleware.py` (rate limit → 429, body cap → 413, concurrency gate → 503, response headers), `src/main.py` (wired; the interactive docs are disabled outside development) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestRateLimiter`, `::TestRateLimitMiddleware`, `::TestBodySizeLimit`, `::TestConcurrencyGate` |
 | SEC-18 | Corpus and embedding-budget bounds | a flood of fake listings exhausting the provider quota, the embedding cache, or the corpus — and with them the **legitimate** listings that arrive later | `src/jobs/spam.py` (the deterministic fake-job screen), `src/security/admission.py` (per-source, per-refresh and corpus caps), `src/llm/embeddings.py` (the cache is bounded and prunes oldest-first), `src/rag/chroma_store.py` (the full-corpus scan is paged and capped), `src/graph/job_executor.py` (the per-refresh embedding budget; every drop is counted) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestSpamScreen`, `::TestAdmissionControl`, `::TestEmbeddingCacheBound`, `::TestBoundedCorpusScan` |
 | SEC-19 | Stored-payload neutralization (XSS) | a board returning HTML that is stored, served, and rendered | `src/security/html.py` (the neutralizer — dangerous elements removed with their content, then every tag, then the entities), applied at the contract in `src/jobs/contracts.py` so no adapter can forget it; `src/api/middleware.py` (`nosniff` and the other response headers) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestHtmlNeutralization`, `::TestListingNeutralization`, `::TestSecurityHeaders` |
 | SEC-20 | Prompt boundary and factuality gaps | a listing impersonating the prompt's scaffolding; an injected sentence reaching the deliverable; an invented job title | `src/security/injection.py` (the nonce-fenced untrusted block and the rules that explain it), `src/research/engine.py` and `src/resume/tailor.py` (the fence, the prompt cap, the PII minimisation, the injection strip on **every** bullet including project bullets, the exact job-title check) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPromptFencing`, `::TestTailoringInjectionControls`, `::TestResearchPrompt` |
 | SEC-21 | Path containment and malformed input | a request pointing the browser at a file outside the application's directories (the browser uploads it to a third party); a zip bomb; a malformed board payload | `src/security/paths.py` (the containment check, on the *resolved* path), enforced at the API boundary in `src/api/routes/applications.py`; `src/api/validation.py` (the zip-bomb guard); `src/jobs/normalize.py::job_records` (the type-safe payload accessor) | **Implemented** (WS-12, 2026-10-21) | `tests/test_ws12_hardening.py::TestPathContainment`, `::TestZipBombGuard`, `::TestMalformedPayloads` |
-| SEC-22 | Tenant data isolation | one user reading another's data by changing an id (IDOR); a foreign resource acting as an existence oracle; a cross-user audit or evidence read | `src/db/users.py` (the principal), `owner_id` on every user-scoped table (`NOT NULL`, indexed), `src/db/access.py` (the scoped accessors — the only way a route may reach a user-scoped row), `src/api/scope.py` (the one dependency every route takes its scope from) | **Spine landed (WS-13 · A0, 2026-10-21); the identity that keys it is not yet in place** — the routes act as the legacy owner until WS-13 A2, so the mechanism is present and tested while the behaviour is still single-tenant | `tests/test_tenant_isolation.py` (17 tests: the two-user matrix, the "not yours" ≡ "does not exist" check, and a grep that fails if a route ever queries a user-scoped table directly — it found five such bypasses when written) |
-| SEC-23 | Authentication and account lifecycle | an unauthenticated caller reaching a protected endpoint; an unverified identity; an unrevocable session | planned — WS-13 A1 (`fastapi-users`: registration, login, logout, argon2 password hashing, cookie **and** bearer transports, CSRF) and A3 (password change, session revocation, account deletion) | **Planned** — the API is currently open, and the rate limit bounds abuse without identifying the caller | — |
+| SEC-22 | Tenant data isolation | one user reading another's data by changing an id (IDOR); a foreign resource acting as an existence oracle; a cross-user audit or evidence read | `src/db/users.py` (the principal), `owner_id` on every user-scoped table (`NOT NULL`, indexed), `src/db/access.py` (the scoped accessors — the only way a route may reach a user-scoped row), `src/api/scope.py` (the one dependency every route takes its scope from) | **Implemented** (WS-14 · A0–C, 2026-10-22) — the identity landed in A1, so the mechanism is no longer running single-tenant: the caller's own principal keys every read, and eleven route modules take their scope from `current_scope` | `tests/test_tenant_isolation.py`, `tests/test_tenant_isolation_api.py`, `tests/test_tenant_privacy.py` (the two-user matrix, the "not yours" ≡ "does not exist" check, and a grep that fails if a route ever queries a user-scoped table directly — it found five such bypasses when written) |
+| SEC-23 | Authentication and account lifecycle | an unauthenticated caller reaching a protected endpoint; an unverified identity; an unrevocable session | `src/auth/` — registration, login and logout in two transports (an HttpOnly session cookie for the browser, a bearer token for scripts), argon2 password hashing, server-side sessions with revocation, the CSRF double-submit check, password reset and e-mail verification | **Implemented** (WS-14 · A1/A3, 2026-10-22) — every route except `/` and `/api/health` requires a credential; an anonymous caller gets `401` | `tests/test_auth.py` (41 tests: both transports, CSRF, the session and account lifecycles), `tests/test_docs_accuracy.py` |
+| SEC-24 | Submission integrity against a real ATS | a payload the board silently accepts while a required field is missing (a partial application that looks submitted); a **double submission** when the process dies after the board accepted the form; a false claim that an unprovable submission succeeded | `src/applications/greenhouse_contract.py` (the provider's published contract used as a **validator**, fail-closed, at the adapter), `src/applications/greenhouse_forms.py`, `src/db/approval.py` (the durable attempt marker), `src/runs/queue.py` (at-most-once execution on the WS-18 queue), the `submission.uncertain` escalation | **Implemented** (WS-32, 2026-11-15) — the payload is validated before enqueue; an attempt that may have reached the board is escalated to a human rather than retried or reported, because either would be a guess | `tests/test_ws32_payload_contract.py`, `tests/test_ws32_durable_submission.py`, `tests/test_ws32_adapter_selfcheck.py` |
 
 ## 6. Threat-by-threat controls
 
@@ -749,19 +806,25 @@ When a new feature is added, the relevant section must be updated with:
 - verification status
 - failing conditions
 
-Example update pattern:
+Example update pattern (illustrative — the paths are placeholders, not real files):
 
 ```text
 Control: Browser domain allowlist
 Threat: malicious redirect to fake ATS page
-Implemented in: src/browser/policy.py
+Implemented in: <the module that enforces it>
 Allow-list: jobs.example.com, careers.company.com
 Block-list: localhost, 127.0.0.1, metadata.google.internal
-Test: domain_redirect_policy_test.py
-Status: planned
+Test: <the test that fails if the control is removed>
+Status: implemented | planned
 ```
 
+A real entry, as this document now writes them, is SEC-06 in §5: it names
+`src/security/allowlist.py`, the values (the `ALLOWED_DOMAINS` default and the block list, both
+spelled out in §14.1), and `tests/test_allowlist.py`.
+
 ## 12. Current security status summary
+
+_Reconciled 2026-11-16 (through WS-32)._
 
 ### Implemented
 
@@ -771,30 +834,42 @@ Status: planned
 - Playwright MCP development-time integration
 - audit hook scripts for MCP operations and Python formatting
 - browser runtime domain allowlist and internal-host blocking
-- adapter permission model (prepare / submit / verify)
-- two-phase human approval gate with a persisted decision
-- submission verification with screenshot, trace and an evidence check
-- resume file validation and PII masking in logs and audit rows
+- adapter permission model (prepare / submit / verify), with each adapter holding only the
+  capability it exercises (SEC-08, tightened by WS-32)
+- two-phase human approval gate with a persisted decision (SEC-05)
+- retainment of the human: the assist-mode pilot cannot submit, because it is not granted the
+  capability to (SEC-24)
+- submission integrity: the payload validated against the ATS contract, approve on the durable
+  queue with at-most-once execution, and an uncertain attempt escalated rather than guessed
+  (SEC-24, WS-32)
+- submission verification with screenshot, trace and an evidence check (SEC-14)
+- identity and the account lifecycle: two transports, server-side sessions, CSRF, argon2
+  (SEC-23, WS-14)
+- per-user data isolation and per-user storage, with a foreign resource indistinguishable from a
+  missing one (SEC-22, WS-14)
+- retention, the deletion cascade and the purge, with audit rows anonymized rather than deleted
+  (SEC-15, WS-14)
+- resume file validation (including the PDF's own magic number and its four read refusals) and
+  PII masking in logs and audit rows
 - SSRF protections and prompt-injection filters in the runtime app logic
-- append-only runtime audit events
+- append-only runtime audit events, with the actor as a principal (SEC-13, WS-14)
 - API abuse controls: a per-client rate limit, a request-body cap, a
-  concurrency gate on the expensive endpoints, and the interactive API
-  docs disabled outside development (SEC-17, WS-12)
+  concurrency gate on the expensive endpoints, the in-flight pile-up cap, and the interactive
+  API docs disabled outside development (SEC-17, WS-12; WS-15 added the pile-up cap)
 - corpus and embedding-budget bounds: the fake-job screen, the admission
-  control, the bounded embedding cache, and the paged corpus scan
-  (SEC-18, WS-12)
+  control, the bounded embedding cache, the miss-counting daily budget, corpus eviction, and the
+  paged corpus scan (SEC-18, WS-12; WS-15 closed the one-way door and the cache-hit starvation)
 - stored-payload neutralization: board HTML is neutralized at the
-  contract, and every response carries the hardening headers
-  (SEC-19, WS-12)
-- a nonce-fenced prompt boundary, the injection strip on every bullet,
-  the exact job-title check, and PII minimisation before the prompt
-  (SEC-20, WS-12)
+  contract with a **linear** pass over a bounded input, and every response carries the hardening
+  headers (SEC-19, WS-12; WS-15 removed the quadratic behaviour)
+- a nonce-fenced prompt boundary around **every** untrusted field, the injection strip on every
+  bullet, the exact job-title check, and PII minimisation before the prompt
+  (SEC-20, WS-12; WS-15 moved the last two fields inside the fence)
 - path containment for request-supplied files, the zip-bomb guard, and
   the type-safe board-payload accessor (SEC-21, WS-12)
 
 ### Planned
 
-- secure browser session handling beyond one context per submission
 - malware scanning of uploads
 - production secret vault integration
 - per-tenant encryption keys and encryption at rest for the shared stores
@@ -803,15 +878,18 @@ Status: planned
 
 ### Not yet implemented
 
-- browser submission workflow for a real ATS (the fake ATS only)
-- end-to-end verification and replay capability
-- malware scanning of uploads
+- **the submit half of the real-ATS path** — the pilot fills a real form and hands over; no live
+  board has ever received an application
+- end-to-end verification and replay capability for a real ATS
+- an operator surface for the `submission.uncertain` escalation
 - resume redaction and PII minimisation inside the stored documents
 - per-tenant encryption keys, and encryption at rest for the shared stores
 
 ## 13. Final security statement
 
-This system must not treat website content as trusted operational instruction. Browser automation must be constrained to approved domains, isolated sessions, explicit human approval, and evidence-based verification. Until those controls exist, the application submission layer must remain out of scope.
+This system must not treat website content as trusted operational instruction. Browser automation must be constrained to approved domains, isolated sessions, explicit human approval, and evidence-based verification.
+
+**Status of that statement (2026-11-16).** Every control it names now exists: the allowlist is enforced at the API, the browser and the adapter (SEC-06), sessions are isolated per run (SEC-07), approval is a persisted decision with an identity behind it (SEC-05), and every result is verified against stored evidence (SEC-14). The constraint that remains is the one this document has always stated as the gate: **no autonomous submission**. What the system does today is *assistive* — it fills a real board's form and gives the browser back to a human, holding no capability to submit (SEC-24). `AUTO_SUBMIT` is still an unreachable enum value. The submission layer is therefore not "out of scope" in the sense of unbuilt; it is **deliberately withheld from the agent and left with the human**, which is the stronger position.
 
 ## 14. Autonomous submission: security preconditions
 
@@ -827,17 +905,18 @@ Before any live autonomous submission is enabled, the following security precond
 
 Additions to the control register must include the implementation location (file path), allow/block list values, and associated tests. This ensures that the autonomous submission capability is gated by verifiable, tested security controls.
 
-### 14.1 Precondition status (WS-06, 2026-10-21)
+### 14.1 Precondition status (WS-06, 2026-10-21; extended by WS-32, 2026-11-15)
 
 | Precondition | Status | Where | Verified by |
 |---|---|---|---|
-| Domain allowlist | **Met** | `src/security/allowlist.py`; enforced in `src/api/routes/applications.py` and `src/applications/fake_ats_adapter.py` | `tests/test_allowlist.py`, live run of `scripts/verify_ws06.py` |
-| Permission registry (read / prepare / submit / verify) | **Met** | `src/security/permissions.py`, `src/security/registry_setup.py` | `tests/test_permissions.py` |
+| Domain allowlist | **Met** | `src/security/allowlist.py`; enforced in `src/api/routes/applications.py`, `src/applications/fake_ats_adapter.py` and `src/applications/assist_adapter.py` | `tests/test_allowlist.py`, live run of `scripts/verify_ws06.py` |
+| Permission registry (read / prepare / submit / verify) | **Met** — and tightened: the assist pilot holds `PREPARE` only | `src/security/permissions.py`, `src/security/registry_setup.py` | `tests/test_permissions.py`, `tests/test_ws32_adapter_selfcheck.py` |
 | Evidence capture + append-only persistence | **Met** | `src/applications/evidence.py`, `src/applications/fake_ats_adapter.py`, `src/db/audit.py` | `tests/test_evidence.py`, `tests/test_audit.py` |
-| Human approval default (`REQUIRE_APPROVAL`) | **Met** | `src/security/policy.py`, `src/db/approval.py`, `src/api/routes/applications.py` | `tests/test_approval_flow.py`, `tests/test_submit_api.py`, `tests/test_policy.py` |
+| Human approval default (`REQUIRE_APPROVAL`) | **Met** — strengthened by WS-32: approve returns `202` and enqueues, so execution is durable and at-most-once | `src/security/policy.py`, `src/db/approval.py`, `src/api/routes/applications.py`, `src/db/runs.py` (the attempt marker) | `tests/test_approval_flow.py`, `tests/test_submit_api.py`, `tests/test_policy.py`, `tests/test_ws32_durable_submission.py` |
 | CAPTCHA/MFA detection and stop | **Met** | `src/security/page_guards.py` | `tests/test_page_guards.py`, live run |
-| File upload validation | **Met** (type, size, real-file check; **malware scanning is not implemented**) | `src/api/validation.py` | `tests/test_upload_validation.py` |
+| File upload validation | **Met** (type, size, real-file check, the PDF magic number and its four read refusals; **malware scanning is not implemented**) | `src/api/validation.py`, `src/resume/parser.py` | `tests/test_upload_validation.py`, `tests/test_ws32_pdf_resume.py` |
 | SSRF and internal-host blocking | **Met** | `src/jobs/http_client.py`, `src/security/allowlist.py` | `tests/test_http_client.py`, `tests/test_allowlist.py` |
+| Submission payload valid against the ATS contract | **Met** (added by WS-32) | `src/applications/greenhouse_contract.py`, `src/applications/greenhouse_forms.py` | `tests/test_ws32_payload_contract.py` |
 
 **Allow list (browser navigation and application targets).** Configured by `ALLOWED_DOMAINS`; the
 default is `greenhouse.io, lever.co, workday.com, ashbyhq.com, smartrecruiters.com, icims.com`.
@@ -850,14 +929,27 @@ fake ATS.
 `fe80::/10`), RFC 1918 private ranges, CGNAT (`100.64.0.0/10`), and the cloud metadata
 endpoints (`169.254.169.254`, `169.254.170.2`, `100.100.100.200`, `metadata.google.internal`).
 
-**Remaining gaps (explicitly not covered by WS-06).** Malware scanning of uploaded files
-(the validator checks type, size and real-file structure only), data retention and purge
-(SEC-15), and PII minimisation inside stored resumes (SEC-12). Browser session isolation
-(SEC-07) was closed by WS-08: every run now gets an explicit, fresh browser context, and two
-consecutive runs are proven to share neither a cookie nor browser storage
+**Remaining gaps (the honest list, as of 2026-11-16).** Malware scanning of uploaded files (the
+validator checks type, size and real-file structure only), and PII minimisation inside stored
+resumes (SEC-12) — though SEC-15 retention and the deletion cascade are now implemented. Browser
+session isolation (SEC-07) was closed by WS-08: every run now gets an explicit, fresh browser
+context, and two consecutive runs are proven to share neither a cookie nor browser storage
 (`tests/test_isolation.py`, `scripts/verify_ws08.py`).
+
+**The gap that matters most.** Every precondition above is met for the **fake ATS**, and WS-32
+met them for a real board's **form** — the pilot filled a live Greenhouse application and handed
+the browser to a human. What has never happened is a **submission** to a real board. The
+`AssistAdapter` holds `PREPARE` and nothing else, so it *cannot* submit; that is the control, and
+it is why the pilot's first live run is a fill-only measurement rather than a submission. Until a
+real submission is performed with a human in the loop and verified with evidence, the "real ATS"
+half of these preconditions is **tested against fixtures and a live form, not against a live
+submission**.
 
 **Live verification.** `scripts/verify_ws06.py` runs the whole flow against a real HTTP server
 and a real Chromium browser: 12/12 checks passed on 2026-10-21 (allowlist refusal, prepare →
 approve → submit → verify with three evidence artifacts on disk, the removed single-call
-submit route, the CAPTCHA stop, the permission denial, and the audit trail).
+submit route, the CAPTCHA stop, the permission denial, and the audit trail). The WS-32 pilot
+(`docs/implementation/32-submission-readiness.md` §5.5, evidence in
+`docs/evaluations/ws32-pilot-2026-11-15/`) is the real-board counterpart: a live Greenhouse form
+fetched, filled, and left unsubmitted — and the five defects it found are recorded there rather
+than smoothed over.

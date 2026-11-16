@@ -4,9 +4,9 @@ Workspace instructions for ZCode, converted from `.cursor/rules/project.mdc` and
 
 ## Project
 
-This repository is the **Autonomous AI Job Application Agent**: a production-oriented system that parses resumes into structured candidate profiles, searches and normalizes job listings, matches and ranks jobs with hybrid scoring, tailors resumes with factuality validation, and — only with human approval and evidence-based verification — submits applications through controlled browser automation.
+This repository is the **Autonomous AI Job Application Agent**: a production-oriented system that parses resumes into structured candidate profiles, searches and normalizes job listings, matches and ranks jobs with hybrid scoring, and tailors resumes with factuality validation. Its application path is **human-in-the-loop and evidence-based**: it fills a real job site's form and hands the browser to a person, who submits. Autonomous submission does not exist — the real-board adapter holds no `submit` capability, and the only end-to-end submit flow runs against the local fake ATS.
 
-Authoritative planning documents: `docs/PROJECT_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`.
+Authoritative planning documents: `docs/PROJECT_PLAN.md` (intent and the plan-to-reality reconciliation in §53), `docs/ARCHITECTURE.md` (the system that exists), `docs/SECURITY.md` (the threat model and control register), and `docs/implementation/00-OVERVIEW.md` (the live forward plan — one document per workstream). The operator-facing documents are `README.md` and `docs/RUNBOOK.md`.
 
 ## Core principles
 
@@ -44,26 +44,27 @@ Authoritative planning documents: `docs/PROJECT_PLAN.md`, `docs/ARCHITECTURE.md`
 
 - Prefer semantic accessibility selectors for browsers.
 - Keep logs sanitized and remove secrets before writing them.
-- Make human approval mandatory before any irreversible application submission in early versions.
+- Human approval is mandatory before any irreversible application submission: the approval is a persisted decision with an identity behind it, and the real-board adapter is granted no `submit` capability at all.
 - Keep evidence of actions in structured audit records.
 - Fail safely when a job source or browser flow is ambiguous or unsafe.
+- Never claim an outcome that cannot be proven. A submission whose result is unestablished is escalated as `submission.uncertain` to a human, never retried blindly and never reported as success.
 
 ## Phase gates
 
-- Phase 0 (environment audit) and Phase 1 (foundation) are complete; LangGraph workflow work and footprint modules for later phases exist (see `docs/PROJECT_PLAN.md` for status).
-- Follow the phase order in `docs/PROJECT_PLAN.md`; do not skip the security preconditions in `docs/SECURITY.md` before enabling autonomous submission.
+- Phases 0–13 are complete, and `docs/PROJECT_PLAN.md` §53 is the plan-to-reality reconciliation (what shipped, what deviated, what is still open). The **live forward plan is [`docs/implementation/00-OVERVIEW.md`](docs/implementation/00-OVERVIEW.md)** — one document per workstream, WS-01…WS-32 delivered, and its status line names the open items.
+- Follow the phase order in `docs/PROJECT_PLAN.md`; do not skip the security preconditions in `docs/SECURITY.md` before enabling autonomous submission. As of WS-32 there is no autonomous submission to enable: the real-board path fills a form and hands the browser to a human, and that adapter holds no `submit` capability.
 
 ## Repository rules
 
 - Keep code explainable and testable; write tests for critical workflows.
 - Protect auditability and verification for every external step.
-- Several recent modules are **not yet committed** to git (`src/graph/`, `src/jobs/`, `src/matching/`, `src/security/`, `src/rag/`, `src/research/`, `src/resume/`, `src/db/evidence.py`, `src/db/jobs.py`, most `tests/`, and doc updates) — do not modify or revert them without explicit instruction.
 - `reference_project/` is a separate project placed in this workspace for later reference; ignore it unless instructed otherwise.
+- `.scratch/` is git-ignored local scratch space — never commit its contents.
 
 ## Development environment
 
 - The Python virtual environment is at `env/` (not `.venv/`). Always use `env\Scripts\python.exe` on Windows.
-- `pytest` is NOT on the system PATH. Run tests with `cmd.exe /c "env\Scripts\python.exe -m pytest ..."`. PowerShell `activate.bat` does not propagate PATH correctly in non-interactive sessions; prefer `cmd.exe /c` for all Python commands.
+- `pytest` is NOT on the system PATH. Run tests with the venv interpreter directly: `./env/Scripts/python.exe -m pytest ...`. PowerShell `activate.bat` does not propagate PATH correctly in non-interactive sessions. **Do not wrap Python commands in `cmd.exe /c`.** Through Git Bash, MSYS rewrites the `/c` argument into a path, so `cmd` launches *interactively*, runs nothing, and exits 0 with only a banner on stdout — silent success looks exactly like silent failure. If `cmd.exe` is genuinely needed, the working form is `cmd.exe //c "env\Scripts\python.exe -m pytest ..."` (double slash, whole command quoted, backslashes).
 - The local embedding model is EmbeddingGemma-2 (via fastembed/ONNX). Max input is 8,000 characters. The previous cloud Gemini embedding model is no longer used.
 - Batch embedding of more than ~8 jobs at once can OOM the ONNX runtime. For small gap-fills, embed one job at a time.
 - The 6 Remotive test failures (`tests/test_remotive*.py`) are a **known DNS flake** — the SSRF guard resolves real DNS under `httpx.MockTransport`, and transient `gaierror` on `remotive.com` causes `SSRFBlockedError`. This is environmental, not a regression. Do not debug or attempt to fix unless explicitly asked.

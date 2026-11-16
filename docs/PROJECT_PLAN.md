@@ -2534,6 +2534,11 @@ The finished system should conceptually look like:
 
 # 51. IMMEDIATE NEXT ACTION
 
+*Recorded 2026-10-11, and kept as the record of how the project started. **It is not the current
+next action** — Phase 0 and Phase 1 completed that day, and the live next-action list is
+[`docs/implementation/00-OVERVIEW.md`](implementation/00-OVERVIEW.md), whose status line names
+the open items.*
+
 Do NOT start implementing the entire application.
 
 Start with **Phase 0 — Environment Audit**.
@@ -2748,6 +2753,13 @@ Do not proceed to broad autonomous submission on live sites without human-in-the
 
 **DONE** - Sept 14, 2026
 
+> **Superseded in part (recorded 2026-11-16).** This is the record written on the day. Two
+> things in it are no longer true of the system: the `POST /api/applications/submit` endpoint it
+> delivered was **removed** by WS-06 (SEC-05 forbids a single-call submit carrying an
+> `approval: bool`), and the "approval gate uses a pre-set approval_status flag" note was
+> replaced by a persisted decision with an approver identity. See §53.2 (the §41 Phase 10 row)
+> and §53.3 deviation 8.
+
 Implemented LangGraph orchestration for the application workflow:
 
 ### Components Delivered
@@ -2805,6 +2817,13 @@ Will add:
 ## PHASE 8 (PARTIAL) COMPLETION STATUS
 
 **DONE (PARTIAL)** - Oct 11, 2026
+
+> **Superseded in part (recorded 2026-11-16).** The gaps this section lists as open were closed
+> long ago: the phase order was restored (WS-01…WS-04 did Phases 3–7 in order — §53.3 deviation
+> 3), PDF support and the ATS/keyword analysis both landed (§53.3 deviation 2; `src/resume/ats.py`
+> with WS-05), the tailoring metrics were measured (`docs/evaluations/`), and profile persistence
+> is wired. The record is kept as written, because it is the account of a deliberate, user-directed
+> deviation.
 
 Implemented the core of Phase 8 (Resume Tailoring) plus the real parser from Phase 2, at user
 direction to enable the first live scenario test. Phases 3-7 real implementations remain
@@ -2870,7 +2889,7 @@ footprints; this phase-order deviation was user-directed and accepted.
 
 ---
 
-# 53. Plan-to-Reality Reconciliation (added 2026-10-21 — WS-11)
+# 53. Plan-to-Reality Reconciliation (added 2026-10-21 — WS-11; extended 2026-11-16 through WS-32)
 
 This appendix is the **backward-looking** record: what the plan above said, what was actually
 built, and where the two differ. The plan's own sections are left exactly as they were
@@ -2878,6 +2897,11 @@ written, because they are the only record of the intent; this section does not r
 
 The **forward-looking** plan is [`docs/implementation/00-OVERVIEW.md`](implementation/00-OVERVIEW.md),
 one document per workstream, with the file-level tasks, the acceptance criteria and the tests.
+
+> **Read this appendix with its date.** It was written on 2026-10-21, when the project had
+> shipped WS-01…WS-12. Fifteen more workstreams have landed since (WS-13…WS-32), so the tables
+> below carry the WS-11 reading and §53.6 records what changed after it. Where the two disagree,
+> §53.6 is the present.
 
 ## 53.1 How to read the table
 
@@ -2893,22 +2917,22 @@ one document per workstream, with the file-level tasks, the acceptance criteria 
 |---|---|---|---|
 | §41 Phase 0 — environment audit | Done | The audit that produced `docs/implementation/` (2026-10-11) | None |
 | §41 Phase 1 — project foundation | Done | `src/config/settings.py`, `src/db/base.py`, `migrations/versions/171f645abf1a`, `tests/test_settings.py`, `tests/test_migrations.py` | The plan assumed a PostgreSQL-first stack; the runtime supports both, and the dev default is SQLite |
-| §41 Phase 2 — resume intelligence | Done | `src/resume/parser.py`, `src/resume/profile.py`, `src/api/routes/resumes.py`, `tests/test_resume_parser.py`; extraction metrics all **1.0000** (`docs/evaluations/report-2026-10-21.md`) | **PDF parsing is not implemented** (DOCX, TXT and Markdown are) — see §53.3, deviation 2 |
+| §41 Phase 2 — resume intelligence | Done | `src/resume/parser.py`, `src/resume/profile.py`, `src/api/routes/resumes.py`, `tests/test_resume_parser.py`, `tests/test_ws32_pdf_resume.py`; extraction metrics all **1.0000** (`docs/evaluations/report-2026-10-21.md`) | **PDF parsing was open at the WS-11 reading and closed 2026-11-15** (WS-32) — see §53.3, deviation 2 |
 | §41 Phase 3 — job source abstraction | Done | `src/jobs/contracts.py`, `greenhouse_adapter.py`, `lever_adapter.py`, `ashby_adapter.py`, `remotive_adapter.py`, `tests/test_jobs.py` | The **LinkedIn placeholder remains unregistered**: LinkedIn has no public board API — see §53.3, deviation 5 |
 | §41 Phase 4 — normalization + deduplication | Done | `src/jobs/normalize.py`, `src/jobs/deduplicate.py`, `src/db/jobs.py`, `tests/test_deduplicate.py`; dedup precision/recall/F1 = **1.0000** | None |
-| §41 Phase 5 — matching engine | Done | `src/matching/engine.py` (six scorers), `src/matching/weights.py`, `src/rag/chroma_store.py`, `tests/test_matching.py`; nDCG@10 = **0.7537**, precision@5 = **0.4000** | The semantic channel uses a **local** embedding model by default (FU-7) rather than the cloud one — see §53.3, deviation 6 |
+| §41 Phase 5 — matching engine | Done | `src/matching/engine.py` (**eight** scorers), `src/matching/weights.py`, `src/matching/roles.py`, `src/rag/chroma_store.py`, `tests/test_matching.py`; nDCG@10 = **0.7537**, precision@5 = **0.4000** | The semantic channel uses a **local** embedding model by default (FU-7) rather than the cloud one — see §53.3, deviation 6. The scorer count grew from the six this table was written with: WS-20 added `lexical` (BM25 over the whole posting) and WS-21 added `role`, each a **breaking** weight-set change |
 | §41 Phase 6 — LangGraph | Done | `src/graph/job_workflow.py`, `src/graph/job_executor.py`, `tests/test_job_workflow.py`, `tests/test_workflow_e2e.py`; M1 verified live over HTTP on 2026-10-11 | None |
 | §41 Phase 7 — research + RAG | Done (partial) | `src/rag/chroma_store.py`, `src/research/engine.py`, `tests/test_research.py`, `tests/test_chroma_store.py` | **URL fetching is still deferred** behind the SSRF controls; the research engine is grounded in the listing text only |
 | §41 Phase 8 — resume tailoring | Done | `src/resume/tailor.py`, `src/jobs/requirements.py`, `tests/test_tailor.py`; tailoring factuality agreement = **1.0000**, violation recall = **1.0000** | Built **before** Phases 3–7 were real — see §53.3, deviation 3 |
 | §26 ATS analysis | Done | `src/resume/ats.py`, `src/resume/render.py`, `tests/test_ats.py`, `tests/test_render.py`; ATS mean score = **87.0** | Not a phase in the plan; it arrived with WS-05 — see §53.3, deviation 4 |
-| §41 Phase 9 — browser application agent | Done (fake ATS) | `src/applications/fake_ats_adapter.py`, `src/applications/form.py`, `tests/test_browser_variants.py`; WS-08 live-verified **25/25** against a real browser | A **real-ATS adapter does not exist yet**: the M5 pilot — see §53.3, deviation 7 |
-| §41 Phase 10 — human approval | Done | `src/db/approval.py`, `src/security/policy.py`, `src/api/routes/applications.py`, `tests/test_approval_flow.py`; WS-06 live-verified **12/12** | The plan's Phase 2 #3 route took an `approval: bool` flag; that design was **removed** in WS-06 — see §53.3, deviation 8 |
-| §41 Phase 11 — verification | Done (fake ATS) | `src/applications/evidence.py`, `src/graph/nodes.py` (the verify node), `tests/test_evidence.py` | Evidence is captured for the fake ATS; the real-ATS path is unproven |
+| §41 Phase 9 — browser application agent | Done (fake ATS + a real board's **form**) | `src/applications/fake_ats_adapter.py`, `src/applications/form.py`, `src/applications/assist_adapter.py`; WS-08 live-verified **25/25** against a real browser; the WS-32 pilot filled a live Greenhouse form on 2026-11-15 (fill-only) | **The submit half does not exist**: no live board has received an application — see §53.3, deviation 7 |
+| §41 Phase 10 — human approval | Done | `src/db/approval.py`, `src/security/policy.py`, `src/api/routes/applications.py`, `tests/test_approval_flow.py`; WS-06 live-verified **12/12**; WS-32 added the durable enqueue and the at-most-once execution | The plan's Phase 2 #3 route took an `approval: bool` flag; that design was **removed** in WS-06 — see §53.3, deviation 8 |
+| §41 Phase 11 — verification | Done (fake ATS + the pilot's hand-over) | `src/applications/evidence.py`, `src/graph/nodes.py` (the verify node), `tests/test_evidence.py`, `tests/test_ws32_durable_submission.py` | Evidence is captured for the fake ATS and for the pilot's fill; an unprovable submission is escalated as `submission.uncertain` rather than claimed, and the real-ATS submit path is unproven end to end |
 | §41 Phase 12 — application tracking | Done | `src/applications/tracking.py`, `src/db/applications.py`, `src/api/routes/tracking.py`, `tests/test_tracking.py`; WS-07 live-verified **21/21** | The tracking surface was designed here, beyond the plan's detail — see §53.3, deviation 9 |
 | §41 Phase 13 — evaluation | Done | `src/evaluation/`, `scripts/run_eval.py`, `tests/test_eval_runner.py`, `docs/evaluations/report-2026-10-21.md`; WS-09 live-verified **34/34** | Not a phase in the plan's original list in this shape; it arrived with WS-09 — see §53.3, deviation 4 |
 | §23 Human-in-the-loop | Done | `src/security/policy.py` (`REQUIRE_APPROVAL` is the default; `AUTO_SUBMIT` is unreachable) | None |
 | §24 Unknown application questions | Done | `src/applications/form.py` (the answer rule), `src/applications/fake_ats_adapter.py` (`needs_human`) | None |
-| §28 Security model | Done (with open rows) | `src/security/allowlist.py`, `permissions.py`, `audit.py`, `injection.py`, `limits.py`, `paths.py`, `page_guards.py`; `docs/SECURITY.md` §14.1 | **Retention, malware scanning, PII minimisation inside stored resumes and API authentication are still open** (§53.4) |
+| §28 Security model | Done (with open rows) | `src/security/` (allowlist, permissions, audit, injection, limits, paths, page_guards, html, secrets, rate_limit, admission), `src/auth/`, `src/db/access.py`, `src/api/scope.py`, `src/storage/paths.py`, `src/retention.py`; `docs/SECURITY.md` §5 (SEC-01…SEC-24) and §14.1 | **Malware scanning, PII minimisation inside stored resumes, per-tenant encryption keys and real-ATS submission remain open** (§53.4). API authentication and retention were open at the WS-11 reading and are now implemented — see §53.6 |
 | §35 Failure recovery, §34 observability | Done | `src/llm/resilience.py`, `src/llm/usage.py`, the `degraded` / `quota_exhausted` reporting in the refresh report; WS-10 live-verified **14/14** | The live run found the SDK's own retry layer sleeping 14 hours on a `Retry-After` header; both internal retry layers are now off |
 | §47 Avoid over-engineering | Honoured | The modular monolith; retries, rate limiting, SSRF guards and audit sanitization are hand-rolled, not dependencies | None |
 | §50 Final architectural principle | Honoured | Business logic lives in deterministic Python, not in prompts; the LLM drafts and nothing else | None |
@@ -2923,9 +2947,15 @@ Each one is: what the plan said → what the code does → why → and whether i
    *Closed.* The plan's own §2 pipeline (parse → profile → validate) is now what the code
    does: `src/resume/parser.py` → `src/resume/profile.py` → `validate_candidate_profile()`.
    The deviation is closed, not merely noted.
-2. **PDF resume support.** *Open.* The plan says "PDF/DOCX as appropriate"; the parser handles
-   DOCX, TXT and Markdown. PDF needs a parser that does not lie about its text layer, and no
-   such dependency was added without justification.
+2. **PDF resume support.** *Closed 2026-11-15 (WS-32).* The plan says "PDF/DOCX as appropriate";
+   the parser now handles DOCX, TXT, Markdown and **PDF**. The PDF reader reads the document's
+   **text layer** and never a rendering of the page, and it refuses in four distinct cases
+   rather than returning a plausible-looking failure: no extractable text (a scan or an
+   image-only export), text that is not readable (more than 20% of its non-whitespace characters
+   unreachable — a CID font with a broken or absent `/ToUnicode` table, which would otherwise
+   yield a profile built from control characters), an encrypted file (a user problem with a user
+   fix, so it must not read like a corrupt one), and a file pypdf cannot open at all. The
+   dependency is `pypdf`: pure Python, and the justification is in `pyproject.toml`.
 3. **Phase 8 shipped before Phases 3–7 were real.** *Closed, and the order was restored.*
    The tailoring stage was built first, on user direction, to make one vertical proof of the
    factuality-first principle: one real resume, one real listing, one real draft, zero
@@ -2943,15 +2973,32 @@ Each one is: what the plan said → what the code does → why → and whether i
    cloud model to a local one (EmbeddingGemma-2 int8, 768 dimensions, no quota). The model
    identity and its dimension are persisted with the vectors, and the store raises
    `VectorStoreMismatch` rather than mixing two embedding spaces — so the switch is safe, and
-   the cloud path stays selectable for A/B and fallback.
-7. **A real-ATS adapter.** *Open.* The browser layer is proven against the local fake ATS
-   (eleven page variants). The M5 pilot — one real posting, `PREPARE_ONLY` first, then
-   `REQUIRE_APPROVAL` with a human in the loop — is the gate for the real adapter, and
-   `docs/SECURITY.md` §14 is the gate for that.
+   the cloud path stays selectable. The cost of the local default is real and accepted: the
+   query embedding is the **only large lever left** on search latency (~0.45 ms per character
+   for a real candidate's composed query), and it is now gated on the WS-09 evaluation rather
+   than on engineering preference (`docs/implementation/28-cold-search-and-residual-latency.md`).
+   The provider is no longer a single choice either: WS-30 added a fallback chain for the
+   **generation** calls (Groq / TokenHarbor / Pollinations behind the primary), while the
+   embedding provider remains one of the two above.
+7. **A real-ATS adapter.** *Half closed 2026-11-15 (WS-32); the submit half is open.* The
+   browser layer is proven against the local fake ATS (eleven page variants) **and now against a
+   real board's form**: the assist-mode pilot (`src/applications/assist_adapter.py`) fetches a
+   live Greenhouse application, fills it through the same accessibility-tree walker, and stops —
+   it never clicks submit, and it holds no capability to. Its first live run (2026-11-15,
+   fill-only) found five defects, recorded in `docs/implementation/32-submission-readiness.md`
+   §5.5 with the evidence in `docs/evaluations/ws32-pilot-2026-11-15/`.
+   What remains open is a **submission**: no live board has ever received an application from
+   this system, so real-ATS verification and replay are unproven end to end. `docs/SECURITY.md`
+   §14 remains the gate for that.
 8. **The single-call submit route.** *Closed.* The Phase 2 #3 design exposed
    `POST /api/applications/submit` with an `approval: bool` flag. That is exactly the hole
    SEC-05 forbids, so WS-06 removed the route and replaced it with a persisted two-phase
    flow. Every submission now provably has an approved decision row behind it.
+   **WS-32 then moved `approve` itself onto the durable queue** — it returns `202` with a run id
+   and executes at most once, because the WS-06 version could be re-run from a stale client and
+   a crash after the board accepted the form left a double-submission window. The route's
+   contract therefore differs from both the plan and the WS-06 version: the approval is the
+   *decision*, and the execution is a durable job behind it.
 9. **The tracking and approval surface grew beyond the plan's detail.** *Closed.* WS-07 added
    the `applications` and `application_events` tables, a transition matrix with an actor rule
    (a human outcome is only settable by a human), and the tracking API.
@@ -2966,15 +3013,22 @@ Each one is: what the plan said → what the code does → why → and whether i
 
 ## 53.4 What is still open
 
+*As of 2026-11-16 (through WS-32). The WS-11 reading of this table — API authentication, data
+retention, PII minimisation — is superseded: the first two are implemented (see §53.6).*
+
 | Item | Where it is tracked |
 |---|---|
-| The real-ATS adapter and the M5 live pilot | `docs/implementation/00-OVERVIEW.md`, `docs/SECURITY.md` §14.1 |
-| Data retention and purge (SEC-15) | `docs/SECURITY.md` §12 |
+| **The submit half of the real-ATS path** — no live board has received an application | `docs/implementation/32-submission-readiness.md` §5.5, `docs/SECURITY.md` §14 |
+| The five defects the pilot's first live run found | `docs/implementation/32-submission-readiness.md` §5.5 |
+| An operator surface for the `submission.uncertain` escalation | `docs/implementation/00-OVERVIEW.md` |
 | Malware scanning of uploads and job pages | `docs/SECURITY.md` §12 |
 | PII minimisation inside the stored resume documents (SEC-12) | `docs/SECURITY.md` §12 |
-| API authentication | `docs/SECURITY.md` §12 |
-| PDF resume parsing | this appendix, deviation 2 |
+| Per-tenant encryption keys, and encryption at rest for the shared stores | `docs/SECURITY.md` §6.16 |
+| An SMTP provider for the account tokens (the flow works; delivery is a mailbox file) | `docs/SECURITY.md` §6.16 |
 | URL-based web research behind the SSRF controls | `docs/implementation/00-OVERVIEW.md` |
+| WS-26 Phases 3–6: source proposals, the robots policy, the tier-A adapters | `docs/implementation/26-source-expansion.md` |
+| The WS-30 fallback links are inactive until vendor keys are added; one model id is unconfirmed | `docs/implementation/30-llm-provider-fallback.md` |
+| `src/api/routes/applications.py:685` passes a `Session.get_bind()` where a `sessionmaker` is expected, so WS-25c's country-qualified work-authorization is inert on the API prepare path | `docs/implementation/32-submission-readiness.md` §5.5 (pre-existing, one line) |
 
 ## 53.5 The forward plan
 
@@ -2982,3 +3036,44 @@ Each one is: what the plan said → what the code does → why → and whether i
 table, the dependency graph, the risk register and the milestone sequence. Each workstream
 document carries its own goal, its current state, its file-level tasks, its acceptance criteria
 and its tests, and — once executed — its implementation notes.
+
+## 53.6 What changed after the WS-11 reading (2026-11-16)
+
+This appendix was written when WS-01…WS-12 had shipped. Fifteen workstreams have landed since,
+and three of them changed something the plan itself specified rather than adding to it. The
+rest — the operator console, durable execution, the matching and search work, the provider
+depth, the front-end passes — is in `docs/implementation/` and is not this document's subject.
+
+**The multi-user change (WS-13/14).** The plan's §30 describes a single-operator tool. The
+system now has **identity**: registration, two transports (a browser session cookie and a bearer
+token for scripts), argon2 hashing, server-side sessions with revocation, CSRF, password reset
+and e-mail verification. Every route except `/` and `/api/health` requires a credential.
+**Authorization lives in the data layer**, not in each route: a scoped accessor is the only way a
+route reaches a user-scoped row, and a foreign resource is a byte-identical `404` rather than a
+`403`, so an id cannot be used as an existence oracle. Every artifact lives under
+`data/users/{user_id}/…`. This closes two items this appendix once listed as open — **API
+authentication** and **data retention** (SEC-15: profiles 365 d, tailored résumés and evidence
+180 d, applications 730 d, sessions 30 d, with a 30-day grace before the irreversible purge).
+
+**The submission surface moved twice.** The plan's Phase 2 #3 exposed a single-call
+`POST /api/applications/submit` with an `approval: bool` flag; WS-06 removed it (deviation 8).
+WS-32 then moved the surviving `approve` route **onto the durable queue**: it returns `202` with
+a run id, the submission executes at most once, and a crash after the board's acceptance raises
+`submission.uncertain` for a human rather than retrying or claiming success. The plan's
+"APIs before browser automation" principle was also tested against reality and **refuted**: the
+ATS platforms do not accept third-party API submissions — Greenhouse's submission key belongs to
+the *employer*, `POST` without it is `401`, and Ashby and Lever are the same. Greenhouse's
+published field list survives as a **validator** instead (SEC-24), which matters because
+Greenhouse will not reject an application missing a required field.
+
+**Two stages arrived that the plan never listed.** The **evaluation harness** (WS-09) and the
+**React operator console** (WS-13/17, in `/frontend` as its own package). The console was
+explicitly out of scope when this appendix was written; the scope was lifted by a documented
+decision, and the constraint that replaced it is that the console consumes the existing API over
+HTTP and the runtime backend stays in `src/`.
+
+**What the plan got right, and is worth saying.** The modular monolith held — no microservices,
+no message broker, no Kubernetes. Deterministic Python over model reasoning held: the LLM drafts
+and a deterministic validator decides, and the matching engine is arithmetic over stored data.
+The evidence rule held hardest, and it is what the pilot is built on: the system has never
+claimed an outcome it could not prove.

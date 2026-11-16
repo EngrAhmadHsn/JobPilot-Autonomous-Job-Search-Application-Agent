@@ -1,15 +1,24 @@
 # Autonomous AI Job Application Agent - Architecture Document
 
-Status: **reconciled 2026-10-21 (WS-11)** · Supersedes the status sections written on 2026-09-13
+Status: **reconciled 2026-11-16 (through WS-32)** · Supersedes the status sections written on
+2026-10-21 (WS-11) and 2026-09-13
 
 > This document describes the system that exists. The file-level plan that produced it is
 > [`docs/implementation/00-OVERVIEW.md`](implementation/00-OVERVIEW.md); the intent it was built
 > from is [`docs/PROJECT_PLAN.md`](PROJECT_PLAN.md); the security model is
 > [`docs/SECURITY.md`](SECURITY.md).
 >
-> The sections at the end (§14–§18) are **historical records** — the Phase footprints written
+> The sections at the end (§14–§19) are **historical records** — the Phase footprints written
 > as the work landed. They are kept because they are the only record of the plan-vs-actual
 > sequence, but their "Status" lines are dated and are superseded by §13.
+>
+> **What the 2026-11-16 pass changed.** §2.1, §3.1, §6, §7, §10, §12 and §13 were reconciled
+> against the code as of WS-32: the route count (17 → 67), the table count (14 → 21), the
+> scorer count (six → eight, after WS-20's `lexical` and WS-21's `role`), the new runtime
+> components (identity, storage layout, retention, the assist adapter, the provider fallback
+> chain), and the two routes the flows above §3.2 had not been told about (`POST
+> /api/jobs/refresh`'s durable 202, and `POST /api/applications/{id}/approve`'s move onto the
+> same queue in WS-32).
 
 ## 1. System Overview
 
@@ -20,8 +29,10 @@ The Autonomous AI Job Application Agent is a production-oriented system that:
 - Matches jobs against the candidate profile using hybrid scoring
 - Ranks jobs and explains each match score component by component
 - Tailors resumes without inventing facts, and validates every claim deterministically
-- Navigates application websites with browser automation when necessary
-- Submits applications with human approval, and verifies the outcome with stored evidence
+- Fills application forms on real job sites through browser automation, and stops there: the
+  submit is the human's (the real-board adapter holds no `submit` capability)
+- Submits applications **against the local fake ATS** with human approval, and verifies the
+  outcome with stored evidence; a real-board submission has never been sent
 
 ## 2. System Architecture
 
@@ -37,27 +48,37 @@ actually runs).
 | Component | State | Where it lives | Verified by |
 |---|---|---|---|
 | FastAPI service | **Implemented** | `src/main.py`, `src/api/routes/` | `tests/test_health.py`, `tests/test_resumes_api.py` |
-| REST API (the full route table) | **Implemented** | `src/api/routes/` | `tests/test_docs_accuracy.py` (the route table is checked against the app) |
-| API middleware: rate limit, body cap, concurrency gate, response headers | **Implemented** | `src/api/middleware.py`, `src/security/limits.py` | `tests/test_ws12_hardening.py` |
-| Database schema and migrations | **Implemented** | `src/db/`, `migrations/versions/` (10 revisions) | `tests/test_migrations.py` |
+| REST API (the full route table) | **Implemented** — 67 routes | `src/api/routes/` (13 route modules plus the identity API) | `tests/test_docs_accuracy.py` (the README's table is checked against the app's own OpenAPI schema) |
+| Identity and sessions | **Implemented** | `src/auth/` (`manager.py`, `routes.py`, `backends.py`, `tokens.py`, `sessions.py`, `csrf.py`, `delivery.py`) | `tests/test_auth.py` (registration, both transports, CSRF, the session and account lifecycles — 41 tests) |
+| Per-user storage layout | **Implemented** | `src/storage/paths.py` — every artifact under `data/users/{user_id}/…`, containment checked against the caller's own directory | `tests/test_user_storage.py` |
+| Retention, the deletion cascade and the purge | **Implemented** | `src/retention.py`, `scripts/purge_expired.py` (operator-scheduled; not an in-process timer) | `tests/test_retention.py` |
+| API middleware: rate limit, body cap, concurrency gate, in-flight cap, CSRF, response headers | **Implemented** | `src/api/middleware.py`, `src/security/limits.py` | `tests/test_ws12_hardening.py`, `tests/test_ws15_hardening.py` |
+| Database schema and migrations | **Implemented** | `src/db/`, `migrations/versions/` (17 revisions, 20 tables) | `tests/test_migrations.py` |
 | LangGraph job workflow | **Implemented** | `src/graph/job_workflow.py` | `tests/test_job_workflow.py` |
 | LangGraph application workflow | **Implemented** | `src/graph/application_workflow.py` | `tests/test_application_workflow.py` |
 | Job source adapters (Greenhouse, Lever, Ashby, Remotive) | **Implemented** | `src/jobs/*_adapter.py` | `tests/test_jobs.py` |
-| Normalization and deduplication | **Implemented** | `src/jobs/normalize.py`, `src/jobs/deduplicate.py` | `tests/test_deduplicate.py` |
-| Matching engine (six scorers) | **Implemented** | `src/matching/engine.py` | `tests/test_matching.py` |
+| Normalization and deduplication | **Implemented** — per-source identity and the cross-source merge key | `src/jobs/normalize.py`, `src/jobs/deduplicate.py` | `tests/test_deduplicate.py` |
+| Matching engine (eight scorers) | **Implemented** | `src/matching/engine.py`, `src/matching/weights.py`, `src/matching/roles.py` | `tests/test_matching.py` |
 | Vector store and embeddings | **Implemented** | `src/rag/chroma_store.py`, `src/llm/embeddings.py` | `tests/test_chroma_store.py`, `tests/test_embeddings.py` |
-| Resume parsing and profile validation | **Implemented** | `src/resume/parser.py`, `src/resume/profile.py` | `tests/test_resume_parser.py` |
+| Resume parsing (DOCX, TXT, MD, **PDF**) and profile validation | **Implemented** | `src/resume/parser.py`, `src/resume/profile.py` | `tests/test_resume_parser.py`, `tests/test_ws32_pdf_resume.py` |
 | Resume tailoring and factuality validation | **Implemented** | `src/resume/tailor.py` | `tests/test_tailor.py` |
+| In-place résumé editing, with the rewrite as fallback | **Implemented** | `src/resume/edit.py` (WS-31) | `tests/test_ws31_in_place_edit.py` |
 | ATS analysis and DOCX rendering | **Implemented** | `src/resume/ats.py`, `src/resume/render.py` | `tests/test_ats.py`, `tests/test_render.py` |
 | Grounded research engine | **Implemented** | `src/research/engine.py` | `tests/test_research.py` |
 | LLM client with timeout, retries, pacing and usage accounting | **Implemented** | `src/llm/client.py`, `src/llm/resilience.py` | `tests/test_llm_client.py`, `tests/test_llm_resilience.py` |
+| Provider fallback chain (Groq / TokenHarbor / Pollinations behind the primary) | **Implemented** — inactive until keys are added | `src/llm/fallback.py` (WS-30); the chain sits at the provider seam, so pacing, breakers and the usage row are unchanged | `tests/test_ws30_llm_fallback.py` |
+| Bring-your-own model key (per-user, encrypted at rest) | **Implemented** | `src/api/routes/llm_credentials.py`, `src/db/byok.py`, `src/security/secrets.py` | `tests/test_ws22_byok.py`, `tests/test_ws22_byok_api.py` |
 | Durable background execution: queue, leases, worker, recovery | **Implemented** | `src/runs/`, `src/db/runs.py`, `scripts/run_worker.py` | `tests/test_durable_queue.py`, `tests/test_worker_recovery.py`, `tests/test_runs_api.py` |
 | Circuit breakers and one retry policy | **Implemented** | `src/llm/resilience.py`, `src/runs/circuit.py`, `src/jobs/http_client.py` | `tests/test_circuit_breakers.py`, `tests/test_llm_resilience.py` |
-| Browser automation runtime (Playwright Python client) | **Implemented** | `src/applications/fake_ats_adapter.py`, `src/applications/form.py` | `tests/test_browser_variants.py`, `tests/test_isolation.py` |
+| Browser automation runtime (Playwright Python client) | **Implemented** | `src/applications/fake_ats_adapter.py`, `src/applications/form.py`, `src/applications/form_plan.py` | `tests/test_browser_variants.py`, `tests/test_isolation.py` |
+| Assist-mode pilot: fill a real form, hand the submit to a human | **Implemented (WS-32), live-verified fill-only 2026-11-15** | `src/applications/assist_adapter.py` (`AssistAdapter`, PREPARE only — it never clicks submit) | `tests/test_ws32_assist_mode.py`, `scripts/probe_board.py`, the pilot evidence in `docs/evaluations/ws32-pilot-2026-11-15/` |
+| Submission payload validation against the ATS contract | **Implemented** | `src/applications/greenhouse_contract.py`, `src/applications/greenhouse_forms.py` — fail-closed, because Greenhouse does **not** validate required fields itself | `tests/test_ws32_payload_contract.py` |
 | Security layer: allowlist, policy, permissions, audit, injection, limits, paths | **Implemented** | `src/security/` | `tests/test_allowlist.py`, `tests/test_policy.py`, `tests/test_permissions.py`, `tests/test_audit.py`, `tests/test_injection.py`, `tests/test_page_guards.py`, `tests/test_ws12_hardening.py` |
 | Application tracking and lifecycle | **Implemented** | `src/applications/tracking.py`, `src/db/applications.py` | `tests/test_tracking.py`, `tests/test_tracking_api.py` |
+| Board registry, liveness and the measured form questions | **Implemented** (WS-25/25b/25c) | `src/db/boards.py`, `src/db/form_questions.py`, `src/applications/questions.py`, `src/applications/countries.py` | `tests/test_ws23b_boards.py`, `tests/test_ws25b_questions.py`, `tests/test_question_taxonomy.py` |
+| Visa-sponsorship registers | **Implemented** | `src/db/sponsors.py`, `scripts/import_visa_sponsors.py` | `tests/test_ws22_sponsors.py` |
 | Evaluation harness and measured baseline | **Implemented** | `src/evaluation/`, `scripts/run_eval.py` | `tests/test_eval_runner.py`, `tests/test_eval_metrics.py` |
-| **Real-ATS (live job site) adapter** | **Planned** | the M5 pilot | — |
+| **Real-ATS submission (the submit half)** | **Planned** — the pilot fills the form and stops; nothing has ever been sent on a live board | the M5 pilot | — |
 | **Web/company research by URL fetch** | **Planned** | behind the SSRF controls | — |
 | LinkedIn retrieval | **Out of scope** | no public API; the placeholder adapter stays unregistered | — |
 
@@ -92,7 +113,7 @@ POST /api/resumes
 POST /api/jobs/search
   → src/api/routes/jobs.py             loads the stored profile
   → src/graph/job_executor.py          search_stored_jobs
-  → src/matching/engine.py             six deterministic scorers
+  → src/matching/engine.py             eight deterministic scorers
   → src/rag/chroma_store.py            the semantic channel
   → src/db/matches.py                  one job_matches row per result
   → src/security/audit.py              an audit event
@@ -129,33 +150,57 @@ SQL is the source of truth, and the Chroma index is rebuildable from it.
 POST /api/applications/prepare
   → src/security/allowlist.py          the target host is checked
   → src/security/permissions.py        the adapter is selected from the registry
-  → src/graph/nodes.py (prepare)       the payload is built
+  → src/applications/<adapter>.py      the payload is assembled and validated
+                                       against the ATS contract (fail-closed, WS-32)
   → src/db/approval.py                 an approval_requests row is written
   ── a human decides, in a separate call ──
 POST /api/applications/{id}/approve
   → src/db/approval.py                 the decision, with an identity and a reason
   → src/security/policy.py             only an approved record may execute
+  → src/runs/service.py                202: enqueue the submission (WS-32); the
+                                       attempt row is the durable at-most-once marker
+        ... the request ends here; the browser may close ...
+scripts/run_worker.py (a separate, supervised process)
   → src/graph/application_workflow.py  prepare → approval → submit → verify
   → src/applications/fake_ats_adapter.py  the browser fills the form
   → src/applications/evidence.py       screenshot, action trace, Playwright trace
   → src/db/applications.py             the tracked application and its events
 ```
 
+The **assist-mode pilot** (`src/applications/assist_adapter.py`) is the same flow with the
+submit node replaced by a hand-over: it fills a real form through the same form walker, then
+stops and returns `awaiting_human` — the human clicks Submit in a browser the run leaves open.
+It writes no submission and claims none. Its first live run (2026-11-15, fill-only) is recorded
+in `docs/implementation/32-submission-readiness.md` §5.5.
+
+A submission whose outcome cannot be established — the process died after the board may have
+accepted the form — is escalated as `submission.uncertain` to a human rather than guessed at,
+which is why the durable attempt marker exists at all.
+
 ### 3.2 Runtime components
 
 - **FastAPI application** (`src/main.py`) — the REST surface, the middleware stack, the lifespan
+- **Identity** (`src/auth/`) — registration, login in two transports (a browser session cookie
+  and a bearer token for scripts), server-side sessions, CSRF, the account lifecycle and the
+  token mailbox that stands in for an SMTP provider
 - **LangGraph runtime** (`src/graph/`) — two workflows with explicit state, branching and gates
 - **Job adapters** (`src/jobs/`) — Greenhouse, Lever, Ashby, Remotive behind a guarded HTTP client
-- **Matching engine** (`src/matching/`) — six deterministic scorers over stored data
+- **Matching engine** (`src/matching/`) — eight deterministic scorers over stored data
 - **Vector store** (`src/rag/chroma_store.py`) — Chroma, with the model identity persisted
 - **Embedding providers** (`src/llm/embeddings.py`) — local EmbeddingGemma-2 (default) or Gemini
-- **LLM client** (`src/llm/`) — Gemini (supported) and an openai-compatible path (experimental)
-- **Browser automation** (`src/applications/`) — the Playwright Python client and the form walker
-- **Security layer** (`src/security/`) — allowlist, policy, permissions, audit, limits, guards
+- **LLM client** (`src/llm/`) — Gemini (supported), an `openai-compatible` path (experimental),
+  and the WS-30 fallback chain (`fallback.py`) behind the primary provider
+- **Browser automation** (`src/applications/`) — the Playwright Python client, the form walker,
+  the form plan, the fake ATS, the real-board adapters and the assist-mode pilot
+- **Security layer** (`src/security/`) — allowlist, policy, permissions, audit, limits, guards,
+  the credential store's encryption and the HTML neutralizer
+- **Storage layout** (`src/storage/paths.py`) — every artifact under `data/users/{user_id}/…`
+- **Retention** (`src/retention.py`) — the windows, the deletion cascade and the purge
 - **Database** (`src/db/`) — SQLAlchemy models, Alembic migrations, SQLite (dev) or PostgreSQL
 - **Durable queue and worker** (`src/runs/`) — the run/work-item tables, the lease-protected
   claim, the checkpointed embedding handler, the reconciliation and the supervised loop. The
-  worker is the **only writer** to Chroma; the API reads it.
+  worker is the **only writer** to Chroma; the API reads it. Submissions (WS-32) ride the same
+  queue, so an approval is durable and executes at most once.
 - **Circuit breakers** (`src/llm/resilience.py`) — per job-board host and per LLM/embedding
   provider, with optional shared state in `circuit_breakers`
 
@@ -196,45 +241,74 @@ The approval node **fails closed**: with no recorded decision, the run does not 
 
 ## 6. Browser Automation Architecture
 
-- **Runtime**: the Playwright **Python** client (`src/applications/fake_ats_adapter.py`), driving
-  the form through the **accessibility tree** (`src/applications/form.py`): the field map, the
-  three question classes, and the answer rule
+- **Runtime**: the Playwright **Python** client (`src/applications/fake_ats_adapter.py` for the
+  local fake ATS, `src/applications/assist_adapter.py` for a real board), driving the form
+  through the **accessibility tree** (`src/applications/form.py`): the field map, the
+  three question classes, and the answer rule. `src/applications/form_plan.py` is the plan the
+  walker executes and the record of what it resolved — the pilot stops on `plan.unresolved`
+  rather than guessing.
 - **Semantic locators only**: a field is found by its label or its role. The only CSS in the
-  module is the documented file-input exception and the validation-error sweep
+  module is the documented file-input exception and the validation-error sweep. The pilot's
+  first live run found a real defect here: a trailing `*` in a board's label breaks the label
+  locator on exactly the fields whose `aria-label` omits the star (`32-submission-readiness.md`
+  §5.5).
 - **Session isolation (SEC-07)**: every run gets an explicit, fresh browser context, so no
   cookie or storage survives it
 - **Unknown questions stop the run**: a question the candidate's evidence does not cover ends the
-  flow with `needs_human`; the agent never guesses (plan §24)
+  flow with `needs_human`; the agent never guesses (plan §24). The pilot found that this stops
+  the walk *too* early, because every `unknown` question is unresolved even when it is optional
+  — so an optional unclassified question prevents the fillable ones from ever being filled.
 - **Challenges stop the run**: a CAPTCHA or an MFA prompt ends the flow with
   `blocked_human_review`; the agent never tries to solve one
 - **Evidence is mandatory**: a screenshot, an ordered action trace and the Playwright trace
   archive. A submission that cannot produce them is downgraded, never reported as a success
+- **The submit is the human's**: the assist-mode pilot never clicks the submit control. It fills
+  the form and hands the open browser over (`awaiting_human`), so the irreversible action stays
+  with a person. The payload it would have submitted is validated against the ATS's own
+  published contract first, because Greenhouse does not reject an application that is missing a
+  required field.
 - **Development-time**: the Playwright MCP is for inspection and validation only. It is not the
-  runtime browser layer
+  runtime browser layer.
+- **The board probe** (`scripts/probe_board.py`, WS-32): a read-only instrument that fetches a
+  board's form, lists what the walker resolves and never clicks submit. It is how the pilot's
+  numbers are reproduced; liveness is read from the final URL and not the status code, because
+  a closed posting answers `302` to a `/jobs/…?error=true` page — a `200`.
 
 ## 7. Data Architecture
 
-The primary store is SQLite in development and PostgreSQL in deployment. Fourteen tables, each
-created by its own migration so a rollback is per feature:
+The primary store is SQLite in development and PostgreSQL in deployment. **Twenty-one tables
+across seventeen revisions**, each revision a feature so a rollback is per feature:
 
 | Table | Model | Created by | Holds |
 |---|---|---|---|
-| `jobs` | `src/db/jobs.py` | `171f645abf1a` (initial) | the normalized listings |
+| `jobs` | `src/db/jobs.py` | `171f645abf1a` (initial) | the normalized listings. WS-15 added `last_seen_at` (`c3d4e5f6a7b8`), WS-23 `content_version` (`d2e3f4a5b6c7`), WS-23b `required_years` and `first_seen_at` (`f4a5b6c7d8e9`) |
 | `application_evidence` | `src/db/evidence.py` | `171f645abf1a` (initial) | the submission evidence |
-| `candidate_profiles` | `src/db/profiles.py` | `b8e2c94d1f57` (WS-04) | the parsed profile, as JSON |
+| `candidate_profiles` | `src/db/profiles.py` | `b8e2c94d1f57` (WS-04) | the parsed profile, as JSON; WS-20 added the application profile and the EEO selection |
 | `job_matches` | `src/db/matches.py` | `b8e2c94d1f57` (WS-04) | the scores and the explanation |
-| `tailored_resumes` | `src/db/tailored.py` | `c9a4f1e2d3b7` (WS-05) | the tailored content, the factuality report, the ATS report, the DOCX path |
-| `approval_requests` | `src/db/approval.py` | `d4e5f6a7b8c9` (WS-06) | the prepared payload and the human decision |
-| `audit_events` | `src/db/audit.py` | `d4e5f6a7b8c9` (WS-06) | the append-only trail |
+| `tailored_resumes` | `src/db/tailored.py` | `c9a4f1e2d3b7` (WS-05) | the tailored content, the factuality report, the ATS report, the DOCX path; WS-22 added the style report, WS-31 the render report |
+| `approval_requests` | `src/db/approval.py` | `d4e5f6a7b8c9` (WS-06) | the prepared payload and the human decision; WS-25 added the expiry and the profile-fact digest the approval is bound to |
+| `audit_events` | `src/db/audit.py` | `d4e5f6a7b8c9` (WS-06) | the append-only trail; WS-14 added the principal (kind + id) |
 | `applications` | `src/db/applications.py` | `e5f6a7b8c9d0` (WS-07) | the tracked application |
 | `application_events` | `src/db/applications.py` | `e5f6a7b8c9d0` (WS-07) | every status change, with its actor |
 | `users` | `src/db/users.py` | `f6a7b8c9d0e1` (WS-14) | the principal that owns data and acts |
 | `access_tokens` | `src/auth/tokens.py` | `a1b2c3d4e5f6` (WS-14) | server-side sessions |
-| `job_runs` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | one durable execution: status, lease, counters, checkpoint |
+| `candidate_eeo` | `src/db/eeo.py` | `f1e2d3c4b5a6` (WS-20) | the voluntary EEO selections, isolated and never used for ranking |
+| `visa_sponsors` | `src/db/sponsors.py` | `b3c4d5e6f7a8` (WS-22) | the verified sponsorship registers (USCIS, UK Home Office) |
+| `llm_credentials` | `src/db/byok.py` | `b3c4d5e6f7a8` (WS-22) | one encrypted per-user provider key |
+| `job_boards` | `src/db/boards.py` | `d2e3f4a5b6c7` (WS-23) | the board registry: slug, health, consecutive failures, listings seen |
+| `form_questions` | `src/db/form_questions.py` | `f4a5b6c7d8e9` (WS-23b) | the questions the boards actually ask, with the count that makes the profile measurable |
+| `job_runs` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | one durable execution: status, lease, counters, checkpoint. WS-32 rides the same table for a submission |
 | `job_work_items` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | individually claimable work, with its own lease token and retry schedule |
 | `job_run_events` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | the append-only lifecycle history |
 | `worker_heartbeats` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | worker liveness and restart count |
 | `circuit_breakers` | `src/db/runs.py` | `a7b8c9d0e1f2` (WS-18) | optional shared breaker state |
+
+> Five of the seventeen revisions add columns rather than tables, which is why 21 tables come
+> from 17 revisions: `b2c3d4e5f6a7` (WS-14, the audit actor), `c3d4e5f6a7b8` (WS-15,
+> `jobs.last_seen_at`), `e3f4a5b6c7d8` (WS-25, approval expiry), `5cf9cea73955` (WS-28, the
+> `required_years` sentinel) and `7a1b2c3d4e5f` (WS-31, the render report on
+> `tailored_resumes`). The rest create at least one table, several also adding the columns
+> their feature needed alongside it.
 
 The vector store (Chroma, under `data/chroma`) holds the embeddings and the **model identity**
 that produced them, so two embedding spaces can never be mixed. It also stores each vector's
@@ -251,14 +325,20 @@ work is at-least-once with idempotent effects (stable ids, stable content hashes
 - **Web Content**: treated as untrusted data; never as instructions
 - **Prompt Injection**: a nonce-fenced untrusted block plus a deterministic injection filter,
   enforced in code rather than by model whim
-- **Secrets**: isolated in environment variables; never in prompts, logs or traces
+- **Secrets**: isolated in environment variables, and a user's model key additionally encrypted
+  at rest; never in prompts, logs or traces
 - **Domain Allowlists**: an exact-match allowlist restricts fetch and browser navigation
 - **Least Privilege**: the permission registry maps which adapter may `read`, `prepare`, `submit`
   and `verify`
-- **Audit Logs**: every external action is recorded, without secrets or PII
-- **Human Approval**: a recorded decision is required before an irreversible submission
-- **Bounds**: the rate limit, the body cap, the concurrency gate and the corpus/embedding bounds
-  decide how much work an untrusted caller can cause
+- **Tenancy**: a caller reaches only their own rows (a scoped accessor, never a direct query)
+  and only their own files (`data/users/{user_id}/…`); a foreign resource answers exactly as a
+  missing one does
+- **Audit Logs**: every external action is recorded, with the acting principal, without secrets
+  or PII
+- **Human Approval**: a recorded decision is required before an irreversible submission, and the
+  pilot variant removes the agent's ability to submit at all
+- **Bounds**: the rate limit, the body cap, the concurrency gate, the in-flight cap and the
+  corpus/embedding budgets decide how much work an untrusted caller can cause
 
 ## 9. Development-time vs Runtime Components
 
@@ -269,33 +349,42 @@ work is at-least-once with idempotent effects (stable ids, stable content hashes
 | Browser Automation | the Playwright MCP | the Playwright Python client in `src/applications/` |
 | Security | rules and hooks | the middleware and the `src/security/` layer |
 | Data Storage | not applicable | SQLite (dev) / PostgreSQL (deploy) + Chroma |
+| The console | Vite, the React toolchain | static assets served as built, plus the operator's own browser session |
 
 ## 10. Directory Structure
 
 ```text
 project-root/
 ├── src/
-│   ├── api/             FastAPI routes, middleware, upload validation
-│   ├── applications/    the adapter contract, the Playwright adapter, forms, evidence, tracking
+│   ├── api/             FastAPI routes, middleware, upload validation, the scope dependency
+│   ├── applications/    the adapter contract, the Playwright adapters (fake ATS and assist),
+│   │                    the form walker and plan, the ATS contracts, evidence, tracking
+│   ├── auth/            identity, the two transports, sessions, CSRF, reset/verify delivery
 │   ├── config/          settings and the fail-fast configuration checks
 │   ├── core/            logging with PII masking, text helpers
 │   ├── db/              the SQLAlchemy models and the session factory
 │   ├── evaluation/      the metrics, the harness, the scenarios
 │   ├── graph/           the LangGraph workflows, their states and their executors
 │   ├── jobs/            the source adapters, the guarded HTTP client, normalization, dedup
-│   ├── llm/             the provider clients, the embedding providers, the resilience layer
-│   ├── matching/        the six scorers, the weights, the experience parser
+│   ├── llm/             the provider clients, the fallback chain, embeddings, resilience, usage
+│   ├── matching/        the eight scorers, the weights, the role classifier, the experience parser
 │   ├── rag/             the Chroma vector store
 │   ├── research/        the grounded research engine
-│   ├── resume/          the parser, the profile, the tailoring, the ATS analyzer, the renderer
-│   └── security/        the allowlist, the policy, the permissions, the audit, the limits
+│   ├── resume/          the parser, the profile, the tailoring, the in-place editor, the ATS
+│   │                    analyzer, the renderer, the application profile
+│   ├── runs/            the durable queue, the worker, the supervisor, the breakers
+│   ├── security/        the allowlist, the policy, the permissions, the audit, the limits
+│   └── storage/         the per-user path layout and its containment check
+├── frontend/            the React operator console (WS-13/17) — its own package, its own toolchain
 ├── migrations/          the Alembic revisions
-├── scripts/             the refresh, the evaluation runner, the live checks, the fake ATS
+├── scripts/             the refresh, the worker, the evaluation runner, the live checks,
+│                        the fake ATS, the board probe, the purge
 ├── tests/               the offline suite, the golden set, the fake-ATS pages
 ├── docs/
 │   ├── PROJECT_PLAN.md  the intent, the phases, the reconciliation appendix
 │   ├── ARCHITECTURE.md  this document
 │   ├── SECURITY.md      the threat model and the control register
+│   ├── RUNBOOK.md       how to run and maintain a deployment
 │   ├── evaluations/     the measured evaluation reports
 │   └── implementation/  the file-level roadmap, one document per workstream
 ├── .cursor/             the Cursor configuration (development-time)
@@ -307,30 +396,38 @@ project-root/
 
 ## 11. Data Flow
 
-1. **Resume upload**: file → validation → parser → `CandidateProfile` → validation against the
-   document → persisted
-2. **Job refresh**: boards → adapters (guarded HTTP) → normalization → deduplication → persisted →
-   embedded (new or changed text only)
-3. **Job search**: profile + corpus → six scorers + the semantic channel → ranking → one
-   `job_matches` row per result
+1. **Resume upload**: file → validation (type, size, real-file check, the PDF's own magic number)
+   → parser → `CandidateProfile` → validation against the document → persisted under the
+   caller's id
+2. **Job refresh**: boards → adapters (guarded HTTP) → normalization → the fake-job screen →
+   deduplication (per-source identity, then the cross-source merge key) → persisted → embedded
+   (new or changed text only, against a daily budget that counts cache misses)
+3. **Job search**: profile + corpus → eight scorers + the semantic channel → the fixed-denominator
+   blend → ranking → one `job_matches` row per survivor
 4. **Tailoring**: profile + listing → requirements → tailored content → factuality validation →
-   ATS analysis → DOCX
-5. **Application**: job URL + candidate → allowlist → adapter → payload → approval request
+   ATS analysis → the candidate's own document edited in place (or the from-scratch DOCX, where
+   the original cannot be edited)
+5. **Application**: job URL + candidate → allowlist → adapter → payload, validated against the
+   ATS contract → approval request
 6. **Decision**: a human approves or rejects, with an identity and a reason
-7. **Submission**: the browser fills the form through the accessibility tree → the evidence is
-   captured
+7. **Submission**: the approval is enqueued on the durable queue (at most once) → the browser
+   fills the form through the accessibility tree → the evidence is captured
 8. **Verification**: the confirmation text is parsed, the evidence is checked, and the result is
-   downgraded if an artifact is missing
+   downgraded if an artifact is missing; an unprovable outcome is escalated, never claimed
 9. **Tracking**: every status change is written as an event with its actor
 
 ## 12. Major Interfaces
 
-- **FastAPI REST API** — 17 routes; the table is in the [README](../README.md) and is checked
-  against the running application by `tests/test_docs_accuracy.py`
+- **FastAPI REST API** — 67 routes; the table is in the [README](../README.md) and is checked
+  against the application's own OpenAPI schema by `tests/test_docs_accuracy.py`
+- **Operator console** — the React app in `/frontend`, talking to the same API over HTTP with a
+  session cookie (WS-13, WS-17)
 - **Playwright client** — the runtime browser layer, in `src/applications/`
 - **MCP tool calls** — development-time only (Cursor, ZCode)
-- **CLI tools** — `scripts/refresh_jobs.py`, `scripts/run_eval.py`, `scripts/serve_fake_ats.py`,
-  and the `scripts/verify_ws*.py` live checks
+- **CLI tools** — `scripts/refresh_jobs.py`, `scripts/run_worker.py`, `scripts/run_eval.py`,
+  `scripts/serve_fake_ats.py`, `scripts/probe_board.py`, `scripts/purge_expired.py`,
+  `scripts/import_visa_sponsors.py`, `scripts/verify_sources.py`, and the `scripts/verify_ws*.py`
+  live checks
 
 ## 13. Status Legend and Current Status
 
@@ -339,17 +436,25 @@ project-root/
 - **Experimental**: built but not fully supported (the `openai-compatible` LLM provider)
 - **Out of scope**: deliberately not built (LinkedIn retrieval, CAPTCHA bypass, `AUTO_SUBMIT`)
 
-**Current Status (2026-10-21)**
+**Current Status (2026-11-16, through WS-32)**
 
-- **Implemented**: the FastAPI service (17 routes), the database schema and its migrations, the
-  LangGraph job and application workflows, the job adapters, the matching engine, the resume
-  parser, the tailoring and factuality validator, the ATS analyzer and DOCX renderer, the
-  research engine, the LLM client, the browser automation runtime, the security layer, the
-  application tracking, and the evaluation harness
-- **Planned**: a real-ATS adapter and the live pilot (M5); URL-based web research behind the
-  SSRF controls; data retention, malware scanning and API authentication
+- **Implemented**: the FastAPI service (67 routes), the identity API and the per-user data
+  isolation, the database schema and its 17 revisions, the LangGraph job and application
+  workflows, the durable queue and worker, the job adapters and the board registry, the
+  eight-scorer matching engine, the resume parser including PDF, the tailoring and factuality
+  validator, the in-place résumé editor, the ATS analyzer and DOCX renderer, the research
+  engine, the LLM client with the provider fallback chain, the bring-your-own-key credential
+  store, the browser automation runtime with the assist-mode pilot, the security layer, the
+  application tracking, the retention and purge, the operator console, and the evaluation
+  harness
+- **Planned**: the **submit half of the real-ATS path** — the pilot has filled a live Greenhouse
+  form and never sent one, so no application has been submitted to a real board; URL-based web
+  research behind the SSRF controls; malware scanning of uploads; per-tenant encryption keys and
+  encryption at rest for the shared stores; an SMTP provider for the account tokens (the flow
+  works and delivers to a mailbox file)
 - **Experimental**: the `openai-compatible` LLM provider (verified against a mock transport
-  only)
+  only); the WS-30 fallback links (implemented, inactive until vendor keys are added, and the
+  chain's second link's model id is unconfirmed against the vendor)
 - **Out of scope**: LinkedIn retrieval, CAPTCHA/MFA bypass of any kind, `AUTO_SUBMIT`
 
 ## 14. Autonomous Submission: Confirmation and Runtime Capabilities
@@ -388,13 +493,28 @@ Next steps to implement runtime submission (high-level):
 4. Implement the MCP/permission registry and domain allowlist enforcement in runtime code.
 5. Harden security controls per `docs/SECURITY.md` before enabling live autonomous submissions.
 
-**Status (2026-10-21).** Steps 1, 3, 4 and 5 are done: the adapter contract, the two-phase
-workflow with persisted evidence, the permission registry, the allowlist, the security
-preconditions in `docs/SECURITY.md` §14.1, and the runtime attack-surface bounds of WS-12. Step
-2 is done for the **fake ATS** only (`src/applications/fake_ats_adapter.py`); the
-`GenericBrowserAdapter` for real sites is the M5 pilot and is not built. The Greenhouse and
-Lever adapters exist but **raise** `PermissionError` when asked to submit — they are
-placeholders that fail loudly rather than pretending to succeed.
+**Status (2026-11-16, through WS-32).** Steps 1, 3, 4 and 5 are done: the adapter contract, the
+two-phase workflow with persisted evidence, the permission registry, the allowlist, the security
+preconditions in `docs/SECURITY.md` §14.1, and the runtime attack-surface bounds of WS-12 and
+WS-15. Step 2 is done as the **assist-mode pilot** (`src/applications/assist_adapter.py`), which
+fills a real board's form through the same accessibility-tree walker and then stops — it never
+clicks submit. There is no `GenericBrowserAdapter` that submits on its own, and no application
+has been sent to a real board.
+
+The Greenhouse and Lever adapters exist and are **read-only in practice**: each declares the
+capabilities it exercises, and `submit()` raises `PermissionError` because the registry does not
+grant it (WS-32). They are not placeholders returning a false success — they fail loudly.
+
+Two WS-32 findings belong in the architecture record, because both are properties of real ATS
+pages rather than of this codebase:
+
+- **The ATS does not validate its own required fields.** Greenhouse's published contract is a
+  specification for *us*; the board accepts a payload missing a required answer. The payload is
+  therefore validated at the adapter, fail-closed, before anything is enqueued.
+- **A submission whose outcome is unprovable is escalated, not assumed.** A crash between the
+  board's acceptance and this system's bookkeeping leaves an uncertain attempt; the durable
+  attempt marker makes it at-most-once and raises `submission.uncertain` for a human, because
+  reporting it either way would be a guess.
 
 ---
 
