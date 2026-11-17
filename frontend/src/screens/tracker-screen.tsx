@@ -1,291 +1,133 @@
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
+import type { ReactNode } from "react"
+import { useParams, useSearchParams } from "react-router-dom"
 
-import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { Skeleton } from "@/components/ui/skeleton"
 import { FieldList } from "@/components/common/field-list"
 import { PlainText } from "@/components/common/plain-text"
-import { EmptyState, ProgressState } from "@/components/common/progress-state"
-import { StatusBadge, StatusExplainer } from "@/components/common/status-badge"
-import { PageHeader } from "@/components/common/page-header"
-import { Button } from "@/components/ui/button"
+import { ProgressState } from "@/components/common/progress-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import { PageHeader } from "@/components/ui/page-header"
 import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { StatusBadge, StatusExplainer } from "@/components/ui/status-badge"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import { stagger } from "@/lib/stagger"
-import { formatDateTime, pluralize } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import { asString } from "@/lib/safe"
-import {
-  APPLICATION_STATUS_NAMES,
-  HUMAN_OUTCOME_STATUS_NAMES,
-  describeStatus,
-} from "@/lib/status"
-import type { ApplicationDetail, ApplicationEvent } from "@/lib/api/types"
+import type { ApplicationDetail } from "@/lib/api/types"
 
-const PAGE_SIZE = 10
+import { ApplicationList } from "@/screens/tracker/application-list"
+import { BoardView } from "@/screens/tracker/board-view"
+import { ApplicationTimeline } from "@/screens/tracker/application-timeline"
+import { OutcomeEditor } from "@/screens/tracker/outcome-editor"
 
-/** One event in the application's history. */
-function EventRow({
-  event,
-  index = 0,
-}: {
-  event: ApplicationEvent
-  index?: number
-}) {
-  const metadata = event.metadata ?? {}
-  const entries = Object.entries(metadata).filter(
-    ([, value]) => value !== null && value !== undefined
-  )
+/*
+  The Tracker (WS-39) — the reference panel 5's Board and List views, plus
+  the detail's Timeline.
 
-  return (
-    <li {...stagger(index, "border-l-2 border-border pl-4")}>
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-sm font-medium">{event.event_type}</span>
-        {event.from_status || event.to_status ? (
-          <span className="text-xs text-muted-foreground">
-            {event.from_status ?? "—"} → {event.to_status ?? "—"}
-          </span>
-        ) : null}
-        <StatusBadge status={event.to_status} />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        by {event.actor} · {formatDateTime(event.recorded_at)}
-      </p>
-      {entries.length > 0 ? (
-        <dl className="mt-1 text-xs text-muted-foreground">
-          {entries.map(([key, value]) => (
-            <div key={key} className="flex gap-2">
-              <dt>{key}:</dt>
-              <dd className="break-words">
-                <PlainText as="span">
-                  {typeof value === "string" ? value : JSON.stringify(value)}
-                </PlainText>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-    </li>
-  )
-}
+  Which view is showing lives in the URL (`?view=board`, `?status=<s>`), so
+  the board and a filtered list survive a reload and are linkable — the same
+  pattern the Discover screen uses for its selection. The default is the
+  list: the server-paginated table with the server's own total is the
+  tracker's long-standing contract, and it is what a phone falls back to
+  when the board is selected on a narrow screen.
 
-/**
- * The Tracker list.
- *
- * The list is the backend's, filtered and paged by the backend's own
- * parameters — the console does not filter a page of results on its own,
- * because a page that says "3 of 400" has to be the server's count.
- */
+  Nothing here polls. The tracker reads when it is opened (and when the
+  operator changes the filter or the view); the board is five one-shot
+  single-status reads, the list is one read per page.
+*/
 export function TrackerScreen() {
-  const [statuses, setStatuses] = useState<string[]>([])
-  const [offset, setOffset] = useState(0)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view: "board" | "list" =
+    searchParams.get("view") === "board" ? "board" : "list"
+  const statusFilter = searchParams.get("status")
+  const isDesktop = useMediaQuery("(min-width: 768px)")
 
-  const applications = useQuery({
-    queryKey: ["applications", statuses, offset],
-    queryFn: ({ signal }) =>
-      api.listApplications(
-        { status: statuses, limit: PAGE_SIZE, offset },
-        signal
-      ),
-  })
-
-  const toggleStatus = (status: string) => {
-    setOffset(0)
-    setStatuses((current) =>
-      current.includes(status)
-        ? current.filter((item) => item !== status)
-        : [...current, status]
-    )
+  function setView(next: string) {
+    const params = new URLSearchParams(searchParams)
+    if (next === "board") params.set("view", "board")
+    else params.delete("view")
+    setSearchParams(params, { replace: true })
   }
 
-  const total = applications.data?.total ?? 0
-  const items = applications.data?.items ?? []
+  function setStatusFilter(status: string | null) {
+    const params = new URLSearchParams(searchParams)
+    if (status) params.set("status", status)
+    else params.delete("status")
+    setSearchParams(params, { replace: true })
+  }
+
+  /** A column's "show all" hand-off: the List view, filtered to that stage. */
+  function showAllInList(status: string) {
+    const params = new URLSearchParams(searchParams)
+    params.delete("view")
+    params.set("status", status)
+    setSearchParams(params, { replace: true })
+  }
+
+  const boardFits = isDesktop
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Track every application"
+        title="Tracker"
         description="Every application the agent prepared, its full ordered history, the evidence the browser captured, and the human outcomes you recorded."
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Tracked applications</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {APPLICATION_STATUS_NAMES.map((status) => {
-              const presentation = describeStatus(status)
-              const active = statuses.includes(status)
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => toggleStatus(status)}
-                  title={presentation.nextStep}
-                  className={
-                    active
-                      ? "rounded-full border border-primary bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-                      : "rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-                  }
-                >
-                  {presentation.label}
-                </button>
-              )
-            })}
-          </div>
+      <Tabs value={view} onValueChange={(value) => setView(String(value))}>
+        <TabsList aria-label="Tracker view">
+          <TabsTrigger value="board">Board</TabsTrigger>
+          <TabsTrigger value="list">List</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-          {applications.isPending ? (
-            <ProgressState
-              key="applications"
-              title="Loading the applications"
-            />
+      {view === "board" && boardFits ? (
+        <BoardView onShowAll={showAllInList} />
+      ) : (
+        <>
+          {/*
+            The honest mobile fallback the brief names: the board is
+            desktop-first, and a phone gets the list — not a sideways
+            scroll of squeezed columns.
+          */}
+          {view === "board" && !boardFits ? (
+            <p
+              role="note"
+              className="text-sm leading-relaxed text-muted-foreground"
+            >
+              The board needs more width than this screen has, so the list is
+              showing instead — the same applications, server-paged.
+            </p>
           ) : null}
-
-          {applications.isError ? (
-            <ErrorNotice
-              error={applications.error}
-              onRetry={() => applications.refetch()}
-            />
-          ) : null}
-
-          {applications.data ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                {pluralize(total, "application")} · showing {offset + 1}–
-                {Math.min(offset + PAGE_SIZE, total)}
-              </p>
-
-              {items.length === 0 ? (
-                <EmptyState
-                  title="Nothing tracked yet"
-                  description="An application appears here once it has been prepared through the Approvals screen."
-                />
-              ) : (
-                <Table>
-                  {/*
-                    Five columns, all `whitespace-nowrap`, in a ~295 px card is
-                    a horizontal-scroll island where the identifying column
-                    scrolls out of view — and the only way into a record is
-                    the Job link in that column.
-
-                    So the table gets shorter rather than wider below `md`.
-                    The two timestamps are already shown in full on the record
-                    screen this table links to (`tracker/:id`, "Created" and
-                    "Submitted" in the detail fields), which is the "short view
-                    that links deeper" the layout rules ask for; nothing is
-                    lost, and the Job and Company columns carry the identity.
-                    The `hidden md:table-cell` pairs on head and body keep the
-                    header and the cells in step at both widths.
-                  */}
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Job</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="hidden md:table-cell">
-                        Created
-                      </TableHead>
-                      <TableHead className="hidden md:table-cell">
-                        Submitted
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((application, index) => (
-                      <TableRow key={application.id} {...stagger(index)}>
-                        <TableCell className="whitespace-normal">
-                          <Link
-                            to={`/app/tracker/${encodeURIComponent(application.id)}`}
-                            className="font-medium wrap-anywhere underline-offset-4 hover:underline"
-                          >
-                            {application.job_title}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="whitespace-normal">
-                          {application.company_name}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={application.status} />
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          {formatDateTime(application.created_at)}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          {formatDateTime(application.submitted_at)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={offset === 0}
-                  onClick={() =>
-                    setOffset((value) => Math.max(0, value - PAGE_SIZE))
-                  }
-                >
-                  Previous
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {total === 0
-                    ? "nothing"
-                    : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)}`}{" "}
-                  of {total}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={offset + PAGE_SIZE >= total}
-                  onClick={() => setOffset((value) => value + PAGE_SIZE)}
-                >
-                  Next
-                </Button>
-              </div>
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
+          <ApplicationList
+            key={statusFilter ?? "all"}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+          />
+        </>
+      )}
     </div>
   )
 }
 
-/**
- * The Tracker detail: one application, its whole history, its evidence, and
- * the human outcome form.
- *
- * The outcome form sends `human:<name>` and only ever the four statuses a
- * human may set. The agent may not record an offer it was not told about,
- * and the console does not offer a way to pretend otherwise.
- */
+/*
+  The Tracker detail: one application, its whole chronology, its evidence,
+  and the human outcome editor.
+
+  The detail is the record the list points at: identity and plain-language
+  status first, the timestamps the server actually holds (submitted and
+  verified render only when they exist — a dash would imply a fact the
+  server never recorded), the associated tailored résumé and its cover
+  letter through the safe authorized download endpoint, the browser's
+  evidence, the ordered timeline with each event's actor, and the outcome
+  form that only ever offers the four human outcomes.
+*/
 export function TrackerDetailScreen() {
   const { applicationId = "" } = useParams()
-  // There is no "your name" field (WS-14): the actor is the
-  // authenticated principal, so a name typed here would be a value the
-  // server ignores. The outcome is recorded against the account the
-  // operator is signed in as.
-  const [outcome, setOutcome] = useState<string>(HUMAN_OUTCOME_STATUS_NAMES[0])
-  const [notes, setNotes] = useState("")
 
   const application = useQuery({
     queryKey: ["application", applicationId],
@@ -300,16 +142,22 @@ export function TrackerDetailScreen() {
     retry: false,
   })
 
-  const update = useMutation({
-    mutationFn: (values: { status: string; notes?: string }) =>
-      api.updateApplicationStatus(applicationId, values),
-    onSuccess: () => {
-      application.refetch()
-    },
+  /*
+    The tailoring behind this application's tailored résumé, when the row
+    carries one. The cover letter travels inside the tailoring record — the
+    application row has no cover-letter field of its own, so without this
+    read the console would have to claim there is none, which it cannot know.
+  */
+  const tailoringId = application.data?.tailored_resume_id ?? null
+  const tailoring = useQuery({
+    queryKey: ["tailored", tailoringId],
+    queryFn: ({ signal }) => api.getTailored(tailoringId as string, signal),
+    enabled: Boolean(tailoringId),
+    retry: false,
   })
 
   if (application.isPending) {
-    return <ProgressState key="application" title="Loading the application" />
+    return <ProgressState title="Loading the application" />
   }
 
   if (application.isError) {
@@ -324,6 +172,72 @@ export function TrackerDetailScreen() {
   const record: ApplicationDetail = application.data
   const records = evidence.data?.evidence ?? []
 
+  const fields: { label: string; value: ReactNode }[] = [
+    { label: "Job URL", value: record.job_url },
+    { label: "Adapter", value: record.adapter_name },
+    { label: "Workflow id", value: record.workflow_id },
+    { label: "Approval id", value: record.approval_id ?? "—" },
+    { label: "Profile", value: record.profile_id ?? "—" },
+    { label: "Created", value: formatDateTime(record.created_at) },
+  ]
+  // Only the timestamps the server holds. A "—" in a chronology field
+  // reads as "happened, time unknown" — the truth is "never happened".
+  if (record.submitted_at) {
+    fields.push({
+      label: "Submitted",
+      value: formatDateTime(record.submitted_at),
+    })
+  }
+  if (record.verified_at) {
+    fields.push({
+      label: "Verified",
+      value: formatDateTime(record.verified_at),
+    })
+  }
+  fields.push({
+    label: "Application URL",
+    value: record.application_url ?? "—",
+  })
+  fields.push({
+    label: "Tailored résumé",
+    value: tailoringId ? (
+      // The tailored record's own authorized download endpoint — the same
+      // route the Tailor screen uses. A server-side path is not a URL.
+      <a
+        href={apiUrl(
+          `/api/tailored/${encodeURIComponent(tailoringId)}/download`
+        )}
+        className="font-medium underline underline-offset-4"
+      >
+        Download the tailored résumé (DOCX)
+      </a>
+    ) : (
+      "—"
+    ),
+  })
+  fields.push({
+    label: "Cover letter",
+    value: tailoringId ? (
+      tailoring.isPending ? (
+        "Reading the tailored record…"
+      ) : tailoring.data?.tailored.cover_letter ? (
+        <span
+          title={tailoring.data.tailored.cover_letter}
+          className="line-clamp-3 block"
+        >
+          <PlainText as="span">
+            {tailoring.data.tailored.cover_letter}
+          </PlainText>
+        </span>
+      ) : (
+        "The tailored record holds no cover letter."
+      )
+    ) : (
+      "No tailored résumé is associated with this application."
+    ),
+  })
+  fields.push({ label: "Notes", value: record.notes ?? "—" })
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -334,6 +248,7 @@ export function TrackerDetailScreen() {
             <StatusBadge status={record.status} />
           </span>
         }
+        meta={<span>Opened {formatDateTime(record.created_at)}</span>}
         actions={
           <LinkButton variant="outline" to="/app/tracker">
             Back to the list
@@ -348,30 +263,7 @@ export function TrackerDetailScreen() {
           <CardTitle>The application</CardTitle>
         </CardHeader>
         <CardContent>
-          <FieldList
-            items={[
-              { label: "Job URL", value: record.job_url },
-              { label: "Adapter", value: record.adapter_name },
-              { label: "Workflow id", value: record.workflow_id },
-              { label: "Approval id", value: record.approval_id ?? "—" },
-              { label: "Profile", value: record.profile_id ?? "—" },
-              {
-                label: "Tailored resume",
-                value: record.tailored_resume_id ?? "—",
-              },
-              { label: "Created", value: formatDateTime(record.created_at) },
-              {
-                label: "Submitted",
-                value: formatDateTime(record.submitted_at),
-              },
-              { label: "Verified", value: formatDateTime(record.verified_at) },
-              {
-                label: "Application URL",
-                value: record.application_url ?? "—",
-              },
-              { label: "Notes", value: record.notes ?? "—" },
-            ]}
-          />
+          <FieldList items={fields} />
         </CardContent>
       </Card>
 
@@ -455,81 +347,14 @@ export function TrackerDetailScreen() {
 
       <Card>
         <CardHeader>
-          <CardTitle>History ({record.events.length})</CardTitle>
+          <CardTitle>Timeline ({record.events.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <ol className="space-y-4">
-            {record.events.map((event, index) => (
-              <EventRow key={event.id} event={event} index={index} />
-            ))}
-          </ol>
+          <ApplicationTimeline events={record.events} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Record a human outcome</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Banner tone="neutral" title="A human outcome is recorded by a human">
-            <p>
-              The agent prepares, submits and verifies. It never decides that an
-              employer made an offer. The outcome is recorded against your
-              account, so it is attributable to a person and to nobody else.
-            </p>
-          </Banner>
-
-          <form
-            className="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end"
-            onSubmit={(event) => {
-              event.preventDefault()
-              update.mutate({
-                status: outcome,
-                notes: notes.trim() ? notes.trim() : undefined,
-              })
-            }}
-          >
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Outcome</span>
-              <select
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-                value={outcome}
-                onChange={(event) => setOutcome(event.target.value)}
-              >
-                {HUMAN_OUTCOME_STATUS_NAMES.map((status) => (
-                  <option key={status} value={status}>
-                    {describeStatus(status).label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Note (optional)</span>
-              <Input
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            </label>
-            <Button type="submit" disabled={update.isPending}>
-              {update.isPending ? "Recording…" : "Record the outcome"}
-            </Button>
-          </form>
-
-          {update.isError ? <ErrorNotice error={update.error} /> : null}
-
-          {update.isSuccess ? (
-            <Banner tone="success" title="The outcome was recorded">
-              <p>
-                The application is now{" "}
-                <span className="font-medium">
-                  {describeStatus(update.data.status).label}
-                </span>
-                . The history above is the server&apos;s.
-              </p>
-            </Banner>
-          ) : null}
-        </CardContent>
-      </Card>
+      <OutcomeEditor application={record} />
     </div>
   )
 }
