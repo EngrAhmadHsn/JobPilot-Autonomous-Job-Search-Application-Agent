@@ -4,27 +4,55 @@ import { Link, useParams } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { FieldList, SectionTitle } from "@/components/common/field-list"
-import { PlainText } from "@/components/common/plain-text"
+import { FieldList } from "@/components/common/field-list"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore } from "@/components/common/score-grid"
-import { PageHeader } from "@/components/common/page-header"
+import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { LinkButton } from "@/components/ui/link-button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { ApiError, apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import { formatDateTime, formatList } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
 import { asRecord, asString } from "@/lib/safe"
 import type { TailorResponse } from "@/lib/api/types"
+
+import { CoverLetterPanel } from "@/screens/studio/cover-letter-panel"
+import { coverageIsMeasurable } from "@/screens/studio/diff-model"
+import { KeywordPanel } from "@/screens/studio/keyword-panel"
+import {
+  AtsPanel,
+  FactualityReport,
+  InsightsPanel,
+  RenderPanel,
+  StylePanel,
+} from "@/screens/studio/report-panels"
+import { ResumeDiffView } from "@/screens/studio/resume-diff"
+
+/*
+  The Resume Studio (WS-37) — the Application Workspace of reference panel 3.
+
+  One job, one tailoring run, every real report, and the original-versus-
+  tailored comparison. The tabs carry the capabilities the tailoring result
+  actually holds: Overview (the deliverable and how it was produced), Resume
+  (the read-only diff beside keyword matching), Cover Letter (an editable
+  draft the server does not store), Research (the grounded insights) and
+  Validation (factuality, ATS and style). The reference's Questions tab is
+  not here because the tailoring holds no board questions — those exist in
+  the prepare/approval flow, and an empty tab would be a promise of data
+  this endpoint does not return.
+
+  Safety lines this screen keeps (master prompt §6.4/§9): the original
+  document is immutable and never edited by this screen; a failed factuality
+  report is content with visual weight above the tabs, never hidden behind a
+  green ATS score; the diff is read-only because there is no per-change
+  revision model behind it (the Task 1 audit — see the WS-37 report — and
+  the lead's decision); missing keywords stay honest gaps unless the profile
+  supports them; and a model failure shows the API's own actionable error.
+*/
 
 /**
  * What the deliverable's file is, named for the candidate (WS-31).
@@ -41,389 +69,91 @@ function deliverableLabel(path: string): string {
   return "file"
 }
 
-/**
- * The factuality report.
- *
- * A factuality failure is **not** an error: the stripped content plus the
- * violations is the product. The report is rendered as a warning with the
- * removed items listed, never as a failure.
- */
-function FactualityReport({
-  factuality,
-}: {
-  factuality: TailorResponse["factuality"]
-}) {
-  const removed =
+/** The number of facts the validator stripped, for the banner and glance. */
+function removedCount(factuality: TailorResponse["factuality"]): number {
+  return (
     factuality.removed_skills.length +
     factuality.removed_experience.length +
     factuality.removed_projects.length
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Factuality report</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {factuality.passed ? (
-          <Banner tone="success" title="Every claim is supported by the résumé">
-            <p>
-              The validator found nothing to strip: every skill, role and
-              project in the tailored resume is stated by the document.
-            </p>
-          </Banner>
-        ) : (
-          <Banner
-            tone="warning"
-            title={`${removed} unsupported item(s) were removed`}
-          >
-            <p>
-              The validator stripped what the resume does not state. The
-              tailored resume below is the <em>reduced</em> one — the truthful
-              one.
-            </p>
-          </Banner>
-        )}
-
-        <FieldList
-          items={[
-            {
-              label: "Removed skills",
-              value: formatList(factuality.removed_skills),
-            },
-            {
-              label: "Removed experience",
-              value: formatList(factuality.removed_experience),
-            },
-            {
-              label: "Removed projects",
-              value: formatList(factuality.removed_projects),
-            },
-          ]}
-        />
-
-        {factuality.violations.length > 0 ? (
-          <div className="space-y-1">
-            <SectionTitle>Violations</SectionTitle>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
-              {factuality.violations.map((violation) => (
-                <li key={violation}>
-                  <PlainText as="span">{violation}</PlainText>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
   )
 }
 
-/** How the delivered document was produced (WS-31). */
-function RenderPanel({ render }: { render: TailorResponse["render"] }) {
-  const sourceLabel =
-    render.source_format === "none" ? "no original" : render.source_format
+/**
+ * The verdicts at a glance, on the Overview tab — each one says what it is
+ * and links to the tab that carries the full report.
+ */
+function AtAGlance({ result }: { result: TailorResponse }) {
+  const coverage = result.ats_report.keyword_coverage
+  const measurable = coverageIsMeasurable(coverage)
+  /*
+    A percentage only renders when its own denominator exists — a 0% beside
+    a group the listing never stated would read as a measured miss.
+  */
+  const requiredTotal =
+    coverage.required_hit.length + coverage.required_missing.length
+  const preferredTotal =
+    coverage.preferred_hit.length + coverage.preferred_missing.length
+  const coverageParts: string[] = []
+  if (requiredTotal > 0) {
+    coverageParts.push(
+      `required ${coverage.required_hit.length}/${requiredTotal}`
+    )
+  }
+  if (preferredTotal > 0) {
+    coverageParts.push(
+      `preferred ${coverage.preferred_hit.length}/${preferredTotal}`
+    )
+  }
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your document</CardTitle>
-        <CardDescription>
-          {render.mode === "in_place"
-            ? "Your own file was edited: the wording changed, your formatting did not."
-            : "Your own file could not be edited, so a freshly formatted document was written instead."}
-        </CardDescription>
+        <CardTitle>Where things stand</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <Banner
-          tone={render.mode === "in_place" ? "success" : "warning"}
-          title={
-            render.mode === "in_place"
-              ? `Edited in place from your ${sourceLabel} résumé`
-              : "A new document was generated"
-          }
-        >
-          {/* The counts are only meaningful for an in-place edit, so they are
-              shown only then — a rewrite has nothing to count. */}
-          {render.mode === "in_place" ? (
-            <p>
-              {render.edits} passage{render.edits === 1 ? "" : "s"} rewritten
-              {render.appended > 0 ? `, ${render.appended} added` : ""}
-              {render.removed > 0 ? `, ${render.removed} cleared` : ""}. Your
-              fonts, section order and page setup are unchanged.
-            </p>
-          ) : (
-            <p>
-              The original could not be edited, so the content was written into
-              a standard layout instead.
-            </p>
-          )}
-        </Banner>
-
-        {render.notes.length > 0 ? (
-          <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            {render.notes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
-        ) : null}
-
-        {render.skipped.length > 0 ? (
-          <div>
-            <SectionTitle>Left untouched</SectionTitle>
-            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-              {render.skipped.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  )
-}
-
-/** The deterministic style report on the delivered wording (WS-22). */
-function StylePanel({ style }: { style: TailorResponse["style"] }) {
-  const ratio = Math.round(style.quantified_ratio * 100)
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Style report</CardTitle>
-        <CardDescription>
-          Plain-language check on the wording: AI jargon, filler phrases and how
-          many bullets carry a number. It reports — it never rewrites.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {style.findings.length === 0 ? (
-          <Banner tone="success" title="No jargon or filler found">
-            <p>
-              None of the checked phrases — the AI jargon and the weak filler
-              verbs in the style policy — appear in the summary, the cover
-              letter or the bullets.
-            </p>
-          </Banner>
-        ) : (
-          <Banner
-            tone="warning"
-            title={`${style.findings.length} phrase(s) to reconsider`}
-          >
-            <p>
-              The wording is delivered as written; these are the parts a
-              recruiter reads as filler.
-            </p>
-          </Banner>
-        )}
-
+      <CardContent>
         <FieldList
           items={[
             {
-              label: "Quantified bullets",
-              value: `${style.quantified_count} of ${style.bullet_count}${
-                style.bullet_count > 0 ? ` (${ratio}%)` : ""
-              }`,
-            },
-          ]}
-        />
-
-        {style.findings.length > 0 ? (
-          <div className="space-y-1">
-            <SectionTitle>Findings</SectionTitle>
-            <ul className="space-y-1 text-sm">
-              {style.findings.map((finding, index) => (
-                <li key={`${finding.phrase}-${index}`}>
-                  <span className="font-medium">
-                    <PlainText as="span">{finding.phrase}</PlainText>
-                  </span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    → {finding.suggestion}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  )
-}
-
-/** The ATS analysis of the tailored resume. */
-function AtsPanel({ ats }: { ats: TailorResponse["ats_report"] }) {
-  const coverage = ats.keyword_coverage
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>ATS report</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-baseline gap-3">
-          <span className="text-2xl font-semibold tabular-nums">
-            {ats.score.toFixed(1)}
-          </span>
-          <span className="text-xs text-muted-foreground">/ 100 ATS score</span>
-          <span className="text-xs text-muted-foreground">
-            title alignment {ats.title_alignment.toFixed(1)}
-          </span>
-        </div>
-
-        <FieldList
-          items={[
-            {
-              label: "Required keywords hit",
-              value: `${coverage.required_hit.length} of ${coverage.required_hit.length + coverage.required_missing.length} (${(coverage.required_coverage * 100).toFixed(0)}%)`,
+              label: "Factuality",
+              value: result.factuality.passed
+                ? "Passed — every claim is supported by your résumé (Validation tab)"
+                : `${removedCount(result.factuality)} unsupported item(s) were stripped — read the findings (Validation tab)`,
             },
             {
-              label: "Required missing",
-              value: formatList(coverage.required_missing),
+              label: "ATS score",
+              value: `${result.ats_report.score.toFixed(1)} / 100 · a measurement, not a promise (Validation tab)`,
             },
             {
-              label: "Preferred hit",
-              value: formatList(coverage.preferred_hit),
-            },
-            {
-              label: "Preferred missing",
-              value: formatList(coverage.preferred_missing),
-            },
-            {
-              label: "Sections present",
+              label: "Keyword coverage",
               value:
-                Object.entries(ats.section_completeness)
-                  .map(
-                    ([section, present]) =>
-                      `${section}: ${present ? "yes" : "no"}`
-                  )
-                  .join(", ") || "none reported",
-            },
-            { label: "Format risks", value: formatList(ats.format_risks) },
-            { label: "Notes", value: formatList(ats.notes) },
-          ]}
-        />
-      </CardContent>
-    </Card>
-  )
-}
-
-/** The grounded insights about the job. */
-function InsightsPanel({ insights }: { insights: TailorResponse["insights"] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Grounded job insights</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Every insight below is grounded in the listing text. Nothing here was
-          fetched from the web, and nothing here was inferred.
-        </p>
-        {insights.summary ? <PlainText>{insights.summary}</PlainText> : null}
-        <FieldList
-          items={[
-            {
-              label: "Responsibilities",
-              value: formatList(insights.responsibilities),
-            },
-            { label: "Tech stack", value: formatList(insights.tech_stack) },
-            {
-              label: "Seniority signals",
-              value: formatList(insights.seniority_signals),
+                measurable && coverageParts.length > 0
+                  ? `${coverageParts.join(" · ")} — measured against the listing's stated skills (Resume tab)`
+                  : "Could not be measured — the listing declares no structured skills (Resume tab)",
             },
             {
-              label: "Culture flags",
-              value: formatList(insights.culture_flags),
+              label: "Deliverable",
+              value:
+                result.render.mode === "in_place"
+                  ? `Your own ${result.render.source_format} file, edited in place (details below)`
+                  : "A freshly generated document — your original could not be edited (details below)",
             },
           ]}
         />
-      </CardContent>
-    </Card>
-  )
-}
-
-/** The tailored resume itself. */
-function TailoredResumePanel({
-  tailored,
-}: {
-  tailored: TailorResponse["tailored"]
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>The tailored resume</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <SectionTitle>Summary</SectionTitle>
-          <PlainText>{tailored.summary}</PlainText>
-        </div>
-
-        <div>
-          <SectionTitle>Highlighted skills</SectionTitle>
-          <PlainText>{formatList(tailored.highlighted_skills)}</PlainText>
-        </div>
-
-        <div>
-          <SectionTitle>Experience</SectionTitle>
-          {tailored.experience.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No experience entries.
-            </p>
-          ) : (
-            tailored.experience.map((entry, index) => (
-              <div key={`${entry.title}-${index}`} className="mt-2 text-sm">
-                <p className="font-medium">
-                  {entry.title}
-                  {entry.company ? ` · ${entry.company}` : ""}
-                </p>
-                <ul className="list-disc pl-5 text-muted-foreground">
-                  {entry.bullets.map((bullet, bulletIndex) => (
-                    <li key={bulletIndex}>
-                      <PlainText as="span">{bullet}</PlainText>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          )}
-        </div>
-
-        {tailored.projects.length > 0 ? (
-          <div>
-            <SectionTitle>Projects</SectionTitle>
-            {tailored.projects.map((project, index) => (
-              <div key={`${project.name}-${index}`} className="mt-2 text-sm">
-                <p className="font-medium">{project.name}</p>
-                <ul className="list-disc pl-5 text-muted-foreground">
-                  {project.bullets.map((bullet, bulletIndex) => (
-                    <li key={bulletIndex}>
-                      <PlainText as="span">{bullet}</PlainText>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div>
-          <SectionTitle>Cover letter</SectionTitle>
-          <PlainText>{tailored.cover_letter}</PlainText>
-        </div>
       </CardContent>
     </Card>
   )
 }
 
 /**
- * The Tailor screen for one job.
+ * The Studio for one job.
  *
  * The tailoring run takes about a minute (grounded research, generation, the
- * factuality validator, the DOCX render), so the screen shows the elapsed
- * time and offers a Cancel — which abandons the *wait*, not the server's
- * work, and says so.
+ * factuality validator, the render), so the screen shows the elapsed time
+ * and offers a Cancel — which abandons the *wait*, not the server's work,
+ * and says so.
  */
 export function TailorJobScreen() {
   const { jobId = "" } = useParams()
-  const { profileId } = useProfileWithFallback()
+  const { profileId, profile } = useProfileWithFallback()
   const [run, setRun] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -478,14 +208,45 @@ export function TailorJobScreen() {
 
   const result = tailor.data
 
+  /*
+    Recovery truth (master prompt §9.4): the model's own error text names its
+    repair. A "not configured" answer says retrying will not help, so the
+    screen does not offer a retry that cannot work; a credential answer
+    (409) points at the one place the caller can fix it themselves.
+  */
+  const runError = tailor.error
+  const runErrorDetail = runError instanceof ApiError ? runError.detail : ""
+  const retryHelps = !(
+    runError instanceof ApiError && runErrorDetail.includes("not configured")
+  )
+  const needsCredentials =
+    runError instanceof ApiError && runError.status === 409
+
+  const jobData = job.data?.job
+  const parsedProfile = profile.data?.profile
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <PageHeader
-        title={job.data ? job.data.job.title : "Tailor the resume"}
+        title={jobData ? jobData.title : "Tailor the resume"}
         description={
-          job.data
-            ? `${job.data.job.company}. Your résumé is rewritten for this job using only what it already says, then checked against the original and scored the way an employer's screening system would.`
+          jobData
+            ? `${jobData.company}. Your résumé is rewritten for this job using only what it already says, then checked against the original and scored the way an employer's screening system would.`
             : "The agent rewrites the resume from your profile facts and checks every claim against your document."
+        }
+        meta={
+          jobData ? (
+            <>
+              <span>{jobData.location}</span>
+              {jobData.remote_policy ? (
+                <span>{jobData.remote_policy}</span>
+              ) : null}
+              {jobData.employment_type ? (
+                <span>{jobData.employment_type}</span>
+              ) : null}
+              {jobData.salary ? <span>{jobData.salary}</span> : null}
+            </>
+          ) : undefined
         }
         actions={
           <Button
@@ -508,7 +269,7 @@ export function TailorJobScreen() {
         <ProgressState
           key={`tailor-${run}`}
           title="Tailoring the resume"
-          description="Grounded research, generation, the factuality validator and the DOCX render. This takes about a minute."
+          description="Grounded research, generation, the factuality validator and the render. This takes about a minute."
           onCancel={() => abortRef.current?.abort()}
         >
           <p className="text-xs text-muted-foreground">
@@ -518,43 +279,141 @@ export function TailorJobScreen() {
         </ProgressState>
       ) : null}
 
-      {tailor.isError ? <ErrorNotice error={tailor.error} /> : null}
+      {tailor.isError ? (
+        <div className="space-y-3">
+          <ErrorNotice
+            error={runError}
+            onRetry={
+              retryHelps
+                ? () => tailor.mutate({ profile: profileId, job: jobId })
+                : undefined
+            }
+          />
+          {needsCredentials ? (
+            <p className="text-sm">
+              <LinkButton variant="outline" size="sm" to="/app/profile">
+                Open Profile → Model credentials
+              </LinkButton>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {result ? (
         <>
-          <Banner tone="success" title="The tailored resume is ready">
-            <p>
-              Stored as{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-                {result.tailoring_id}
-              </code>
-              . The rendered file is on the server at{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-                {result.docx_path}
-              </code>
-              .
-            </p>
-            <p className="mt-1">
-              <a
-                href={apiUrl(
-                  `/api/tailored/${encodeURIComponent(result.tailoring_id)}/download`
-                )}
-                className="font-medium underline underline-offset-4"
-                download
-              >
-                {/* WS-31: the deliverable keeps the uploaded format, so the
-                    link names what it really is rather than assuming DOCX. */}
-                Download the {deliverableLabel(result.docx_path)}
-              </a>
-            </p>
-          </Banner>
+          {/*
+            The factuality verdict rides **above** the tabs, on every tab —
+            a failed check must never hide behind a green ATS score three
+            clicks deep. The full findings are on the Validation tab; this
+            banner only announces them (worded so it cannot collide with the
+            report's own finding list in the tests).
+          */}
+          {!result.factuality.passed ? (
+            <Banner
+              tone="warning"
+              title="The factuality check changed the resume before delivery"
+            >
+              <p>
+                {removedCount(result.factuality)} item(s) your résumé does not
+                state were stripped — the delivered text is the reduced,
+                truthful one. The findings are on the Validation tab.
+              </p>
+            </Banner>
+          ) : null}
 
-          <FactualityReport factuality={result.factuality} />
-          <RenderPanel render={result.render} />
-          <TailoredResumePanel tailored={result.tailored} />
-          <StylePanel style={result.style} />
-          <AtsPanel ats={result.ats_report} />
-          <InsightsPanel insights={result.insights} />
+          <Tabs defaultValue="overview">
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="resume">Resume</TabsTrigger>
+              <TabsTrigger value="cover-letter">Cover Letter</TabsTrigger>
+              <TabsTrigger value="research">Research</TabsTrigger>
+              <TabsTrigger value="validation">Validation</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" keepMounted className="space-y-8">
+              <Banner tone="success" title="The tailored resume is ready">
+                <p>
+                  Stored as{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                    {result.tailoring_id}
+                  </code>
+                  . The rendered file is on the server at{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                    {result.docx_path}
+                  </code>
+                  .
+                </p>
+                <p className="mt-1">
+                  <a
+                    href={apiUrl(
+                      `/api/tailored/${encodeURIComponent(result.tailoring_id)}/download`
+                    )}
+                    className="font-medium underline underline-offset-4"
+                    download
+                  >
+                    {/* WS-31: the deliverable keeps the uploaded format, so the
+                        link names what it really is rather than assuming DOCX. */}
+                    Download the {deliverableLabel(result.docx_path)}
+                  </a>
+                </p>
+              </Banner>
+
+              <AtAGlance result={result} />
+              <RenderPanel render={result.render} />
+            </TabsContent>
+
+            <TabsContent value="resume" keepMounted>
+              {profile.isPending ? (
+                <ProgressState title="Reading your original résumé" />
+              ) : profile.isError || !parsedProfile ? (
+                <div className="space-y-3">
+                  <ErrorNotice error={profile.error} />
+                  <p className="text-sm text-muted-foreground">
+                    The comparison needs the parsed original. The reports are
+                    unaffected — see the Validation tab.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid min-w-0 gap-8 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+                  <div className="min-w-0">
+                    <ResumeDiffView
+                      profile={parsedProfile}
+                      tailored={result.tailored}
+                      render={result.render}
+                    />
+                  </div>
+                  <aside className="min-w-0 space-y-5 xl:border-l xl:border-border/60 xl:pl-6">
+                    <KeywordPanel
+                      coverage={result.ats_report.keyword_coverage}
+                      profile={parsedProfile}
+                    />
+                  </aside>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="cover-letter" keepMounted>
+              <CoverLetterPanel
+                letter={result.tailored.cover_letter}
+                jobTitle={jobData ? jobData.title : "this role"}
+                company={jobData ? jobData.company : "the employer"}
+              />
+            </TabsContent>
+
+            <TabsContent value="research" keepMounted>
+              <InsightsPanel insights={result.insights} />
+            </TabsContent>
+
+            <TabsContent value="validation" keepMounted className="space-y-8">
+              {/*
+                Factuality first: when the check failed, its findings are the
+                first thing the Validation tab shows — before any green score.
+              */}
+              <FactualityReport factuality={result.factuality} />
+              <AtsPanel ats={result.ats_report} />
+              <StylePanel style={result.style} />
+            </TabsContent>
+          </Tabs>
         </>
       ) : (
         <EmptyState
