@@ -342,7 +342,7 @@ export function OverviewScreen() {
   const greeting = `${greetingFor(new Date())}${name ? `, ${name}` : ""}`
 
   return (
-    <div className="space-y-10">
+    <div className="flex flex-col gap-10">
       <PageHeader
         title="Overview"
         description={
@@ -377,9 +377,16 @@ export function OverviewScreen() {
       ) : null}
 
       {/* -- The stat strip. Attention first, everywhere: it is the one
-             metric a person must resolve, and on mobile it is the first
-             tile the reading order meets. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+             metric a person must resolve.
+
+             WS-41: on a phone the strip moves **below** the opportunity
+             column. Master prompt §7 requires dashboard priorities to appear
+             before metrics, and the mobile reference panel puts the featured
+             job and its action first — a 360 px screen that opens on four
+             numbers buries the one thing the candidate came to do. The order
+             is a flex `order` swap, so the desktop layout is untouched and no
+             content is duplicated. */}
+      <div className="order-2 grid gap-3 sm:grid-cols-2 lg:order-1 lg:grid-cols-4">
         <StatCard
           label="Need your attention"
           variant="attention"
@@ -423,7 +430,7 @@ export function OverviewScreen() {
         />
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div className="order-1 grid gap-8 lg:order-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         {/* -- The opportunity column: featured first, shortlist under it.
                Job/application content leads the page. */}
         <div className="min-w-0 space-y-8">
