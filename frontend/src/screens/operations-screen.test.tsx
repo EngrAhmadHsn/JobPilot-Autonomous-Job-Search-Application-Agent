@@ -38,6 +38,14 @@ describe("the operations screen", () => {
     await user.click(screen.getByRole("button", { name: "Queue the refresh" }))
 
     expect(await screen.findByText("Refresh accepted")).toBeInTheDocument()
+    /*
+      WS-40: the accepted banner names the run's status in the console's one
+      vocabulary ("Queued"), never the raw machine string. The 202 answer
+      carries `QUEUED`; printing it verbatim would show the operator a
+      database value instead of a sentence.
+    */
+    expect(screen.queryByText(/QUEUED/)).not.toBeInTheDocument()
+    expect(screen.getByText("Accepted and queued")).toBeInTheDocument()
     expect(await screen.findByText("Latest run")).toBeInTheDocument()
     expect((await screen.findAllByText(/Finished/)).length).toBeGreaterThan(0)
     // The report comes from the run's persisted metadata, not a response body.

@@ -25,6 +25,7 @@ import { api } from "@/lib/api/endpoints"
 import type { RunAccepted, RunDetail, RunSummary } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
 import { runPollInterval, runsListPollInterval } from "@/lib/polling"
+import { describeStatus } from "@/lib/status"
 
 /**
  * The Operations screen.
@@ -140,9 +141,15 @@ export function OperationsScreen() {
               }
             >
               <p>
-                Run <code>{refresh.data.run_id}</code> is accepted and{" "}
-                <strong>{refresh.data.status}</strong>. It runs in the
-                background — you can close this page.
+                {/* The run's own status, in the centralized vocabulary —
+                    never the raw machine string (WS-40: the overlap between
+                    the run vocabulary and `describeStatus` is exactly the
+                    `QUEUED`/`RUNNING` a 202 answer carries). The label reads
+                    "Accepted and queued", so the sentence does not repeat
+                    "accepted". */}
+                Run <code>{refresh.data.run_id}</code>:{" "}
+                <strong>{describeStatus(refresh.data.status).label}</strong>. It
+                runs in the background — you can close this page.
               </p>
             </Banner>
           ) : null}

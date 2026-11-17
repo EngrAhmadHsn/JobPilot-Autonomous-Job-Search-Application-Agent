@@ -974,7 +974,9 @@ function WorkerRow({
           {worker.processed_items} done
           {worker.failed_items > 0 ? `, ${worker.failed_items} failed` : ""}
         </p>
-        <p className="text-xs text-muted-foreground/80">{status.note}</p>
+        {/* Full-strength muted: the `/80` alpha measured 3.55:1 on ivory and
+            failed WCAG AA for body text (WS-33 audit; WS-40 fix). */}
+        <p className="text-xs text-muted-foreground">{status.note}</p>
       </div>
       <Button
         variant="outline"
