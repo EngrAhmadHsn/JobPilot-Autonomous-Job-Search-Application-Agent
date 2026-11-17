@@ -304,7 +304,7 @@ export function OverviewScreen() {
     awaiting.isSuccess &&
     prepared.isSuccess &&
     audit.isSuccess &&
-    (Boolean(profileId) ? gaps.isSuccess : true)
+    (profileId ? gaps.isSuccess : true)
 
   const attentionApplications: AttentionApplication[] = [
     ...(awaiting.data?.items ?? []),
