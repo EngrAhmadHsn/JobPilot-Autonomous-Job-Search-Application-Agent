@@ -225,4 +225,37 @@ describe("the application shell", () => {
     expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull()
     expect(screen.queryByRole("complementary")).toBeNull()
   })
+
+  it("does not read a failed identity request as a sign-out", async () => {
+    /*
+      WS-41. Only a refusal (401/403) means "you are signed out". A 429 from
+      the per-identity request budget, a 500, or a dropped connection is the
+      console failing to ask the question — and rendering the sign-in form
+      for those told a signed-in operator their session was over and invited
+      them to retype a password that was never the problem. The live sweep hit
+      this for real: a rate-limited screen photographed as a sign-in page.
+
+      The gate stays fail-closed — no console chrome until the server
+      confirms the identity. What changes is the sentence and the recovery.
+    */
+    server.use(
+      http.get(`${BASE}/api/auth/me`, () =>
+        HttpResponse.json(
+          { detail: "Too many requests" },
+          { status: 429, headers: { "Retry-After": "30" } }
+        )
+      )
+    )
+    renderApp({ route: "/app/resume" })
+
+    expect(
+      await screen.findByText(/your session has not ended/i)
+    ).toBeInTheDocument()
+    // A transient failure must NOT show the sign-in form.
+    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull()
+    expect(screen.queryByLabelText("Password")).toBeNull()
+    // Still fail-closed: the console chrome stays hidden.
+    expect(screen.queryByRole("navigation", { name: "Screens" })).toBeNull()
+    expect(screen.queryByRole("complementary")).toBeNull()
+  })
 })

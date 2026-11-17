@@ -3,10 +3,12 @@ import { useRef } from "react"
 import { Link, Outlet } from "react-router-dom"
 
 import { useHeaderHeight } from "@/hooks/use-header-height"
+import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 
 import { SkipToContent } from "@/components/common/skip-to-content"
+import { ErrorState } from "@/components/ui/error-state"
 import { SignInScreen } from "@/screens/sign-in-screen"
 
 import { AccountMenu } from "./account-menu"
@@ -48,8 +50,39 @@ export function AppShell() {
   // with no session is refused by every protected route, so the console
   // asks the server who it is and shows the sign-in screen when the
   // answer is no.
+  //
+  // WS-41: "no" has to mean **no**. Only a 401/403 is a refusal; anything
+  // else — a 429 from the per-identity request budget, a timeout, a dropped
+  // connection — is the console failing to ask, not the session ending.
+  // Rendering the sign-in screen for those told a signed-in operator they
+  // were logged out and invited them to re-enter a password that was never
+  // the problem, so a transient failure now says so and offers a retry. It
+  // is still fail-closed: no console chrome renders until the server has
+  // actually confirmed the identity.
   if (identity.isError) {
-    return <SignInScreen />
+    const status =
+      identity.error instanceof ApiError ? identity.error.status : 0
+    const refused = status === 401 || status === 403
+    if (refused) return <SignInScreen />
+    return (
+      <div className="grid min-h-screen place-items-center bg-background p-6">
+        <div className="w-full max-w-md">
+          {/*
+            Deliberately not the sign-in screen. The copy makes the
+            distinction the user cannot otherwise see: the request failed,
+            the session did not end.
+          */}
+          <p className="mb-3 text-center text-sm leading-relaxed text-muted-foreground">
+            Your session has not ended — the console could not reach the server
+            to confirm it.
+          </p>
+          <ErrorState
+            error={identity.error}
+            onRetry={() => identity.refetch()}
+          />
+        </div>
+      </div>
+    )
   }
 
   const isSuperuser = Boolean(identity.data?.is_superuser)
