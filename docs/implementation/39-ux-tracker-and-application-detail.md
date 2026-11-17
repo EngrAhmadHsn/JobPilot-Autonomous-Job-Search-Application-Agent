@@ -1,6 +1,6 @@
 # WS-39 (WS-UX-07) · UX redesign: Application tracker and application detail
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commit `880478f`): board, list and timeline on real server totals, single-select filters where the backend lies about multi-status, and human outcomes attributed to a human · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.6, §8 (WS-UX-07) ·
 Depends on: WS-34 (primitives + status centralization), WS-38 (status language) ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) (panel 5)

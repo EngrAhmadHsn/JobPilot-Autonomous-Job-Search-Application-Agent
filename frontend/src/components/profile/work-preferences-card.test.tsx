@@ -140,6 +140,7 @@ describe("the shared Work Preferences card", () => {
 
   it("is the same editor on the Résumé page and the Profile page", async () => {
     setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
 
     const resume = renderApp({ route: "/app/resume" })
     expect(
@@ -148,7 +149,13 @@ describe("the shared Work Preferences card", () => {
     expect(screen.getByLabelText("Target roles")).toBeInTheDocument()
     resume.unmount()
 
+    // WS-40 put the application profile behind the Profile screen's
+    // **Preferences** tab, so reaching the same editor is a tab step now.
+    // The invariant is unchanged — one editor, one document — but the way
+    // in moved, and the test follows the way in rather than pinning the
+    // old always-rendered layout.
     renderApp({ route: "/app/profile" })
+    await user.click(await screen.findByRole("tab", { name: "Preferences" }))
     expect(
       await screen.findByRole("button", { name: "Save preferences" })
     ).toBeInTheDocument()

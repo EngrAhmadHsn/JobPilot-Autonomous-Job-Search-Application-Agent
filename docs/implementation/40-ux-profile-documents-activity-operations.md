@@ -1,6 +1,6 @@
 # WS-40 (WS-UX-08) · UX redesign: Profile & Documents, Activity, Operations, Administration
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commits `3d687ae`, `0af2a32`, `37969c7`, `efe784d`, `1694986`): the five profile tabs, the tailored-résumé job attribution, the four activity chips, and operations explaining a queued run waiting for a worker · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.7, §6.8, §6.9, §8 (WS-UX-08) ·
 Depends on: WS-34 (primitives + nav regrouping), WS-33 audit ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) (panels 6 and 7)

@@ -1,6 +1,6 @@
 # WS-35 (WS-UX-03) · UX redesign: the Home dashboard — the reference screen
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commits `cbe0dcb`, `9353d63`, `a00ad19`): the job-first dashboard on real server totals, honest windows, no invented analytics · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.1, §8 (WS-UX-03) ·
 Depends on: WS-34 (shell + shared primitives + status presentation) ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) (panel 1),

@@ -1,6 +1,6 @@
 # WS-33 (WS-UX-01) · UX redesign: repository audit and the design contract
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commit `d4ae1b6`): the route/API/status audit, the design contract, and the 29 baseline screenshots · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §2, §4, §8 (WS-UX-01) ·
 Depends on: nothing · Baseline: tag `v1.0.1` (`80af039`) ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) · Dashboard detail:

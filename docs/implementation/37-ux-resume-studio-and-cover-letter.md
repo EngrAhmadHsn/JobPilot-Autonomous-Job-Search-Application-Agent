@@ -1,6 +1,6 @@
 # WS-37 (WS-UX-05) · UX redesign: Resume Studio and cover-letter workflow
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commit `f32c877`): the read-only original-versus-tailored diff, keyword evidence, honest reports, and an editable cover letter · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.4, §9, §8 (WS-UX-05) ·
 Depends on: WS-34 (primitives), WS-33 audit (tailoring/ATS/factuality/render contracts) ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) (panel 3)

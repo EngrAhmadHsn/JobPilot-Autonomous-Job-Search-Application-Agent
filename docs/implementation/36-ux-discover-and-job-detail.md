@@ -1,6 +1,6 @@
 # WS-36 (WS-UX-04) · UX redesign: Discover and job detail
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commits `b624d82`, `84319f3`): the split view, honest filters, match reasoning with unknown kept unknown, and a failed match read stays unknown · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.2, §6.3, §8 (WS-UX-04) ·
 Depends on: WS-34 (shell + primitives), WS-35's density decisions ·
 Visual authority: [Redesign Image.png](../Redesign%20Image.png) (panel 2)

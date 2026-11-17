@@ -1,6 +1,6 @@
 # WS-38 (WS-UX-06) · UX redesign: Review and human approval
 
-Status: **Planned — not started** · Source directive:
+Status: **Delivered 2026-11-17** (commits `79de9da`, `1694986`): the human boundary made legible — exact payload, board-order blockers, and a `202` that reads as queued, never submitted · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §6.5, §8 (WS-UX-06) ·
 Depends on: WS-34 (primitives + status centralization), WS-33 audit (prepare/approve
 contracts, board questions) · Visual authority:

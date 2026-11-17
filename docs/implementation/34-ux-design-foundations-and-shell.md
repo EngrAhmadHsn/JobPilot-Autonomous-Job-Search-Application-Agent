@@ -1,6 +1,6 @@
 # WS-34 (WS-UX-02) · UX redesign: design foundations and the application shell
 
-Status: **Code complete — 2026-11-17, pending the lead's integration** (what landed: [§5](#5--what-landed)) · Source directive:
+Status: **Delivered 2026-11-17** (commits `959357e`, `0709c0e`, `28f4eba`, `ea31d2a` — integrated; the nav-group contrast and the focus-ring repair landed as review findings; what landed: [§5](#5--what-landed)) · Source directive:
 [JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md](../JOBPILOT-UX-REDESIGN-AGENT-PROMPT-v2.md) §4, §5, §8 (WS-UX-02) ·
 Depends on: WS-33 for the design contract, but may start against the master prompt's
 already-approved §4 direction (the contract reconciles, not invents) ·
