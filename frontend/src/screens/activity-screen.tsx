@@ -17,8 +17,14 @@ import { Card, CardContent } from "@/components/ui/card"
 import { api } from "@/lib/api/endpoints"
 import { groupRuns, needsAttention, summarizeEvents } from "@/lib/observability"
 import { ACTIVITY_POLL_MS } from "@/lib/polling"
+import {
+  ACTIVITY_FILTERS,
+  type ActivityFilter,
+  matchesFilter,
+} from "@/screens/facts/activity/filters"
+import { ActivityFilters } from "@/screens/facts/activity/filter-chips"
 
-type Filter = "all" | "attention"
+type Filter = ActivityFilter | "attention"
 
 /** How many trail rows one page shows. */
 const TRAIL_PAGE_SIZE = 10
@@ -52,9 +58,25 @@ export function ActivityScreen() {
   const summary = summarizeEvents(events)
   const runs = useMemo(() => groupRuns(events), [events])
   const visible = useMemo(
-    () => (filter === "attention" ? events.filter(needsAttention) : events),
+    () =>
+      filter === "attention"
+        ? events.filter(needsAttention)
+        : events.filter((event) => matchesFilter(event, filter)),
     [events, filter]
   )
+  /*
+    The chips carry real counts — how many rows each would show — so an empty
+    chip is honest before it is clicked rather than after.
+  */
+  const counts = useMemo(() => {
+    const result = {} as Record<ActivityFilter, number>
+    for (const { value } of ACTIVITY_FILTERS) {
+      result[value] = events.filter((event) =>
+        matchesFilter(event, value)
+      ).length
+    }
+    return result
+  }, [events])
   const trailPages = Math.max(1, Math.ceil(visible.length / TRAIL_PAGE_SIZE))
   const trailPageSafe = Math.min(trailPage, trailPages - 1)
   const pageRows = visible.slice(
@@ -147,31 +169,42 @@ export function ActivityScreen() {
         title="The trail"
         description="Newest first. Each row can be opened for the raw action, resource and workflow id."
         action={
-          <div
-            role="group"
-            aria-label="Filter the trail"
-            className="inline-flex rounded-lg border border-border bg-card p-0.5"
-          >
-            {(["all", "attention"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setFilter(value)
-                  // A filter that keeps the page index would land on an empty
-                  // page: "needs attention" is a smaller list.
-                  setTrailPage(0)
-                }}
-                aria-pressed={filter === value}
-                className={
-                  filter === value
-                    ? "rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-                    : "rounded-md px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                }
-              >
-                {value === "all" ? "Everything" : "Needs attention"}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <ActivityFilters
+              value={filter === "attention" ? "all" : filter}
+              onChange={(next) => {
+                setFilter(next)
+                // A filter that keeps the page index would land on an empty
+                // page: the filtered list is shorter than "everything".
+                setTrailPage(0)
+              }}
+              counts={counts}
+            />
+            {/*
+              "Needs attention" survives as its own control beside the four
+              reference chips: it is the one view an operator actually acts
+              on, and it is a derived predicate (`needsAttention`), not an
+              actor kind — folding it into the chip radio group would claim
+              it is a fifth source of events, which it is not.
+            */}
+            <button
+              type="button"
+              onClick={() => {
+                setFilter(filter === "attention" ? "all" : "attention")
+                setTrailPage(0)
+              }}
+              aria-pressed={filter === "attention"}
+              className={
+                filter === "attention"
+                  ? "rounded-full border border-terracotta bg-terracotta-soft px-3 py-1 text-xs font-medium text-terracotta-foreground"
+                  : "rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              }
+            >
+              Needs attention
+              <span className="ml-1.5 tabular-nums opacity-60">
+                {summary.attention}
+              </span>
+            </button>
           </div>
         }
       >
@@ -192,7 +225,10 @@ export function ActivityScreen() {
           />
         ) : (
           <div className="space-y-3">
-            <Card>
+            {/* The filtered region: the chips above it select these rows, and
+                the Executions timeline higher up is unfiltered — so the two
+                must not be confused by a test or a screen reader. */}
+            <Card data-testid="activity-trail">
               <CardContent>
                 <EventList events={pageRows} />
               </CardContent>
