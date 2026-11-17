@@ -54,7 +54,19 @@ test("the operator can go from a resume to a tracked application", async ({
   await page.getByRole("link", { name: "Matches" }).click()
   await page.getByRole("button", { name: "Search" }).click()
 
-  const firstMatch = page.getByRole("link", { name: "Open the job" }).first()
+  /*
+    WS-41: Discover became the reference's **split view** (WS-36). A result is
+    no longer a link called "Open the job" that navigates away; it is a row
+    **button** in the `Ranked matches` list, and choosing it opens the job's
+    detail beside the list. The journey is the same — find a job, then tailor —
+    so the spec follows the control the console actually renders. The
+    assertion stays strict: the row must exist, and the detail pane must then
+    offer the handoff into tailoring.
+  */
+  const firstMatch = page
+    .getByRole("list", { name: "Ranked matches" })
+    .getByRole("button")
+    .first()
   await expect(firstMatch).toBeVisible({ timeout: 120_000 })
 
   // 3. Tailor for the job the search found --------------------------------
@@ -90,26 +102,57 @@ test("the operator can go from a resume to a tracked application", async ({
   //
   // There is no approver field: the decision is recorded against the
   // signed-in account (WS-14).
+  //
+  // WS-38 made the decision two steps, and renamed the control to match what
+  // the route actually does: the page button says "Approve & continue" (not
+  // "Approve and submit" — the route answers 202, it does not submit), and it
+  // opens a confirmation that states the queued consequence before anything is
+  // recorded. The spec walks both steps, so a regression that removed the
+  // confirmation would fail here.
   await page.getByLabel("Reason").fill("Looks right")
-  await page.getByRole("button", { name: "Approve and submit" }).click()
+  await page.getByRole("button", { name: "Approve & continue" }).click()
+
+  const confirmDialog = page.getByRole("alertdialog")
+  await expect(confirmDialog).toBeVisible()
+  // The confirmation states the queued consequence before anything is recorded.
+  await expect(
+    confirmDialog.getByText(/nothing is submitted by/i)
+  ).toBeVisible()
+  await confirmDialog
+    .getByRole("button", { name: "Approve & continue" })
+    .click()
 
   // WS-32: the approve **accepts** the submission as durable work — the route
   // answers 202 with a run id and the run's own status. The console must say
   // accepted and queued (never "was not submitted", which reads as a refusal),
-  // and name the run the operator follows.
-  await expect(page.getByText("The decision")).toBeVisible({ timeout: 120_000 })
+  // and never "submitted", which would claim the employer was reached.
+  await expect(page.getByRole("heading", { name: "The decision" })).toBeVisible(
+    { timeout: 120_000 }
+  )
+  await expect(page.getByText("Approved — queued")).toBeVisible()
+  // The run id and the "nothing has been submitted" truth travel together in
+  // the queued banner. They are matched as one sentence because the phrase
+  // itself legitimately appears three times on this page (the payload panel,
+  // the banner and the evidence panel) — scoping keeps the assertion about
+  // *this* statement rather than about the page containing the words.
   await expect(
-    page.getByText("The submission was accepted and queued")
+    page.getByText(
+      /Run .+ is waiting for a worker\. Nothing has been submitted yet/i
+    )
   ).toBeVisible()
-  await expect(page.getByText(/waiting for a worker/)).toBeVisible()
 
   // 6. The tracker holds the application and its history --------------------
   await page.getByRole("link", { name: "Tracker" }).click()
   await expect(page.getByText("AI Engineer").first()).toBeVisible()
 
   await page.getByRole("link", { name: "AI Engineer" }).first().click()
-  await expect(page.getByText(/History \(\d+\)/)).toBeVisible()
-  await expect(page.getByText("Record a human outcome")).toBeVisible()
+  // WS-39 renamed the detail's chronology from "History (n)" to "Timeline (n)"
+  // — the third view of the tracker (board/list/timeline) took the word — and
+  // the outcome editor is the same control underneath.
+  await expect(page.getByText(/Timeline \(\d+\)/)).toBeVisible()
+  await expect(
+    page.getByText(/Record a human outcome|The outcome is final/)
+  ).toBeVisible()
 })
 
 /**
@@ -191,7 +234,16 @@ test("the console is reachable by keyboard", async ({ page }) => {
   const visited: string[] = []
   let sawVisibleFocus = false
 
-  for (let step = 0; step < 14; step += 1) {
+  /*
+    WS-34/WS-41: the shell now carries the reference's **grouped** navigation —
+    six journey destinations with their indented pages, plus the System group,
+    plus the skip link, the mobile top bar and the account footer. That is more
+    stops than the old flat header, so a 14-tab walk was exhausted inside the
+    sidebar and never reached the screen at all. The budget is raised to cover
+    the chrome, and the walk stops as soon as it has visited the upload
+    control rather than depending on an exact count.
+  */
+  for (let step = 0; step < 60; step += 1) {
     await page.keyboard.press("Tab")
     const focused = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null
@@ -213,6 +265,7 @@ test("the console is reachable by keyboard", async ({ page }) => {
     ) {
       sawVisibleFocus = true
     }
+    if (focused.name.includes("Choose a file")) break
   }
 
   // The navigation is reachable, in order.
