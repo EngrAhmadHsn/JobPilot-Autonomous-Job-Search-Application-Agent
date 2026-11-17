@@ -1,0 +1,2510 @@
+[
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1555,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 25,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1303,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 37,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1620,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 47,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 49,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 29,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1960,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1268,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 32,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 2274,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 40,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 1573,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 800,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 25,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 1303,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 37,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 800,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 1620,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 47,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 937,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 49,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 954,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 29,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 1998,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 1268,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 32,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "1280x800",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "sideways": false,
+      "docHeight": 2274,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 40,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1940,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 39,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1439,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 27,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 2085,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 48,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1050,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 50,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1067,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 2255,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 31,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 1381,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 33,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "900x1000",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 900,
+      "clientWidth": 900,
+      "sideways": false,
+      "docHeight": 2675,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 41,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 2076,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 39,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1024,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1462,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1024,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 27,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 2085,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 48,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1069,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 50,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1067,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 2278,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 31,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 1404,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 33,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "768x1024",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "sideways": false,
+      "docHeight": 2691,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 41,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 2718,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 39,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 844,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 1723,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 844,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 27,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 2575,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 48,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 1386,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 50,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 1358,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 3028,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 31,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 1688,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 33,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "390x844",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "sideways": false,
+      "docHeight": 3968,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 41,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 2787,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 39,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 800,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 1777,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 38,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 800,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 27,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 2677,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 48,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 1620,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 50,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/profile",
+    "main": {
+      "title": "Profile · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 1422,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Profile"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Profile"
+        },
+        {
+          "level": 2,
+          "text": "Your model"
+        }
+      ],
+      "focusables": 30,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/activity",
+    "main": {
+      "title": "Agent activity · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 3051,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Agent activity"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Agent activity"
+        },
+        {
+          "level": 2,
+          "text": "Executions"
+        },
+        {
+          "level": 2,
+          "text": "The trail"
+        }
+      ],
+      "focusables": 31,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/operations",
+    "main": {
+      "title": "Keep your job list fresh · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 1743,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Keep your job list fresh"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Keep your job list fresh"
+        },
+        {
+          "level": 2,
+          "text": "Recent runs"
+        }
+      ],
+      "focusables": 33,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "360x800",
+    "landed": "http://localhost:4192/app/admin",
+    "main": {
+      "title": "Administration · JobPilot",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "sideways": false,
+      "docHeight": 4033,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Administration"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Administration"
+        },
+        {
+          "level": 2,
+          "text": "Applications by status"
+        },
+        {
+          "level": 2,
+          "text": "Audit by actor"
+        },
+        {
+          "level": 2,
+          "text": "Audit by outcome"
+        },
+        {
+          "level": 2,
+          "text": "Background runs"
+        },
+        {
+          "level": 3,
+          "text": "No worker is running · 9 not running"
+        },
+        {
+          "level": 3,
+          "text": "Active2"
+        },
+        {
+          "level": 3,
+          "text": "Inactive5"
+        }
+      ],
+      "focusables": 41,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  }
+]
