@@ -292,6 +292,8 @@ export function MatchesScreen() {
       <MatchDetail
         job={lookupListing}
         match={lookupMatch}
+        matchReadFailed={lookupHistory.isError}
+        onRetryMatch={() => void lookupHistory.refetch()}
         onBack={clearSelection}
       />
     )
@@ -420,6 +422,8 @@ export function MatchesScreen() {
           <MatchDetail
             job={lookupListing}
             match={lookupMatch}
+            matchReadFailed={lookupHistory.isError}
+            onRetryMatch={() => void lookupHistory.refetch()}
             onBack={clearSelection}
           />
         </div>

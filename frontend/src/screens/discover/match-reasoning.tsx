@@ -69,7 +69,7 @@ export function MatchReasoning({
             summary="Show the full scoring breakdown"
             hint="all eight components and their states"
           >
-            <ScoreGrid match={match} />
+            <ScoreGrid match={match} showCoverage={false} showRoleCap={false} />
           </Disclosure>
         </>
       ) : (

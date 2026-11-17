@@ -185,14 +185,16 @@ describe("the matches screen", () => {
             // A store-only search contacts no board: `found` is zero and
             // `stored` is the corpus it ranked against — the shape the
             // endpoint really returns (the factory default carries a full
-            // pipeline's counters instead).
+            // pipeline's counters instead). The corpus is larger than the
+            // slice, because a server cannot return 50 ranked results out of
+            // 11 stored listings (WS-36 review fix).
             stats: {
               found: 0,
               dropped: 0,
-              deduped: 11,
-              persisted: 11,
-              stored: 11,
-              semantic_covered: 11,
+              deduped: 120,
+              persisted: 120,
+              stored: 120,
+              semantic_covered: 120,
             },
           })
         )
@@ -208,7 +210,7 @@ describe("the matches screen", () => {
 
     expect(
       await screen.findByText(
-        /Ranked against 11 stored jobs — the first 50 shown/
+        /Ranked against 120 stored jobs — the first 50 shown/
       )
     ).toBeInTheDocument()
     expect(
@@ -647,5 +649,52 @@ describe("the matches screen while a search is running", () => {
 
     release()
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+  })
+})
+
+describe("a failed match-history read (WS-36 review fix)", () => {
+  /*
+    The unknown must stay unknown. When the persisted history cannot be read,
+    the panel previously rendered "Not matched yet" — a definitive claim about
+    a state nobody observed, which is the exact class of fabrication this
+    product forbids. A failed read and a genuinely-unscored listing are two
+    different facts and must render differently.
+  */
+  it("renders an honest read failure, never the Not-matched-yet claim", async () => {
+    withProfile()
+    server.use(
+      http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 })
+      )
+    )
+    renderApp({ route: "/app/matches?job=greenhouse%3A1" })
+
+    expect(
+      await screen.findByText("The match for this listing could not be read.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Not matched yet")).not.toBeInTheDocument()
+    // The retry affordance exists so the transient case is recoverable.
+    expect(
+      screen.getByRole("button", { name: "Try reading it again" })
+    ).toBeInTheDocument()
+    // The listing itself still renders — the failure is scoped to the match.
+    expect(
+      screen.getByRole("heading", { name: "AI Engineer" })
+    ).toBeInTheDocument()
+  })
+
+  it("still says Not matched yet when the history read succeeds and is empty", async () => {
+    withProfile()
+    server.use(
+      http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
+        HttpResponse.json({ matches: [] })
+      )
+    )
+    renderApp({ route: "/app/matches?job=greenhouse%3A1" })
+
+    expect(await screen.findByText("Not matched yet")).toBeInTheDocument()
+    expect(
+      screen.queryByText("The match for this listing could not be read.")
+    ).not.toBeInTheDocument()
   })
 })

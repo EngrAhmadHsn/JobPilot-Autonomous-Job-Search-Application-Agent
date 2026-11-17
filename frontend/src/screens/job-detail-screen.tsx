@@ -10,6 +10,7 @@ import { OverallScore } from "@/components/common/score-grid"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { LinkButton } from "@/components/ui/link-button"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { api } from "@/lib/api/endpoints"
@@ -288,6 +289,36 @@ export function JobDetailScreen() {
           </CardHeader>
           <CardContent>
             <MatchReasoning match={match} breakdown="expanded" />
+          </CardContent>
+        </Card>
+      ) : history.isError ? (
+        /*
+          The read failed, so nothing is known about this profile's match —
+          which is NOT "no match history". Saying the latter would claim an
+          outcome nobody observed (WS-36 review fix).
+        */
+        <Card>
+          <CardHeader>
+            <CardTitle>Why this job ranked</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div role="status" className="space-y-2">
+              <p className="text-sm font-medium text-foreground">
+                The match for this listing could not be read.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This is not a score of zero and not a missing match — the stored
+                history did not answer. Trying again is safe.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void history.refetch()}
+              >
+                Try reading it again
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (

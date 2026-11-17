@@ -279,3 +279,52 @@ describe("the job detail screen (WS-36)", () => {
     ).toBeInTheDocument()
   })
 })
+
+describe("a failed match-history read on the job route (WS-36 review fix)", () => {
+  /*
+    Same distinction as Discover, and the same prohibition: "No match history
+    for this job" is a claim about the candidate's profile that a failed read
+    never established. Unknown must render as unknown, with the retry that
+    makes a transient failure recoverable.
+  */
+  it("names the read failure instead of claiming there is no history", async () => {
+    withProfile()
+    server.use(
+      http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 })
+      )
+    )
+    renderApp({ route: ROUTE })
+
+    expect(
+      await screen.findByText("The match for this listing could not be read.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("No match history for this job")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Try reading it again" })
+    ).toBeInTheDocument()
+    // The listing still renders; only the match section is unknown.
+    expect(
+      screen.getByRole("heading", { name: "AI Engineer" })
+    ).toBeInTheDocument()
+  })
+
+  it("still says no history when the read succeeds and returns none", async () => {
+    withProfile()
+    server.use(
+      http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
+        HttpResponse.json({ matches: [] })
+      )
+    )
+    renderApp({ route: ROUTE })
+
+    expect(
+      await screen.findByText("No match history for this job")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("The match for this listing could not be read.")
+    ).not.toBeInTheDocument()
+  })
+})

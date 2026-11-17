@@ -128,8 +128,24 @@ export function EvidenceCoverage({ value }: { value: number }) {
   )
 }
 
-/** The component scores, with unknowns shown as such. */
-export function ScoreGrid({ match }: { match: JobMatchResult }) {
+/**
+ * The component scores, with unknowns shown as such.
+ *
+ * `showCoverage` / `showRoleCap` exist for one caller: the disclosed mode in
+ * `MatchReasoning` renders those two lines itself, visible before the
+ * disclosure is opened. With them suppressed here, each line still renders
+ * exactly once per mode — the invariant that comment claims (WS-36 review
+ * fix). Both default to true, so the expanded breakdown is unchanged.
+ */
+export function ScoreGrid({
+  match,
+  showCoverage = true,
+  showRoleCap = true,
+}: {
+  match: JobMatchResult
+  showCoverage?: boolean
+  showRoleCap?: boolean
+}) {
   const states = match.component_states ?? {}
   return (
     <div className="space-y-3">
@@ -150,13 +166,15 @@ export function ScoreGrid({ match }: { match: JobMatchResult }) {
           )
         })}
       </div>
-      {match.role_capped ? (
+      {showRoleCap && match.role_capped ? (
         <p className="text-[11px] text-destructive">
           The listing's role is unrelated to the candidate's target roles, so
           the overall score is capped.
         </p>
       ) : null}
-      <EvidenceCoverage value={Number(match.evidence_coverage ?? 0)} />
+      {showCoverage ? (
+        <EvidenceCoverage value={Number(match.evidence_coverage ?? 0)} />
+      ) : null}
     </div>
   )
 }

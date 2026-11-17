@@ -85,11 +85,23 @@ function MetaItem({
 export function MatchDetail({
   job,
   match,
+  matchReadFailed = false,
+  onRetryMatch,
   onBack,
 }: {
   job: JobListing
   /** The match for the current profile, or null when none exists yet. */
   match: JobMatchResult | null
+  /**
+   * The persisted match could not be read. This is NOT the same fact as
+   * `match === null`, and the difference is the whole point of this prop:
+   * a null match with a healthy read means "not scored yet", while a null
+   * match here means "nobody knows" — and rendering the first as the second
+   * would state an outcome that was never observed (WS-36 review fix).
+   */
+  matchReadFailed?: boolean
+  /** Retry the failed match read; rendered only alongside a failure. */
+  onRetryMatch?: () => void
   /** The way back to the list on a phone; absent on desktop-first layouts. */
   onBack?: () => void
 }) {
@@ -172,6 +184,35 @@ export function MatchDetail({
             Why this match
           </p>
           <MatchReasoning match={match} breakdown="disclosed" />
+        </div>
+      ) : matchReadFailed ? (
+        /*
+          An unknown, not a negative. The read failed, so nothing was
+          observed about this profile's match — the honest rendering names
+          the failure and offers the one useful action (try again).
+        */
+        <div
+          role="status"
+          className="rounded-xl border border-border bg-muted p-4"
+        >
+          <p className="text-sm font-medium text-foreground">
+            The match for this listing could not be read.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This is not a score of zero and not a missing match — the stored
+            history did not answer. Trying again is safe and reads nothing new.
+          </p>
+          {onRetryMatch ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={onRetryMatch}
+            >
+              Try reading it again
+            </Button>
+          ) : null}
         </div>
       ) : (
         <EmptyState
