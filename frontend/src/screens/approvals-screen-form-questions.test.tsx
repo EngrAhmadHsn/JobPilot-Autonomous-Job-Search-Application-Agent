@@ -9,7 +9,8 @@ import { server } from "@/test/server"
 const BASE = "http://api.test"
 
 /**
- * WS-25b · The approval must show the form the board actually publishes.
+ * WS-25b, carried into the WS-38 redesign · the approval must show the form
+ * the board actually publishes.
  *
  * `prepared_summary.field_names` is our internal field map — sorted
  * alphabetically at `src/api/routes/applications.py:549`. The board's own
@@ -18,11 +19,13 @@ const BASE = "http://api.test"
  * without seeing the form it fills. §10.4 records this as the second half of
  * the same open item as the profile screen's guessed order.
  *
- * Two properties, and both have a real failure behind them:
+ * Three properties, and each has a real failure behind it:
  *
  * 1. the board's order is rendered as sent, not re-sorted;
  * 2. a blocking question is **named**, not counted — "1 question needs a
- *    human" tells the operator there is a problem and not which one.
+ *    human" tells the operator there is a problem and not which one;
+ * 3. an answerable question names the profile fact it is answered from —
+ *    the answer's **source** is part of what a human approves.
  */
 function setupUser() {
   return userEvent.setup({ delay: null })
@@ -91,7 +94,6 @@ function stubPrepareWithForm() {
           profile_fact_names: ["email", "name"],
           resume_path: null,
           requires_manual_review: true,
-          application_id: "application-1",
         },
         application_id: "application-1",
       })
@@ -139,6 +141,24 @@ describe("the approval panel's board questions", () => {
         expect.stringContaining("Why do you want to join Figma?"),
       ])
     )
+    // The count is honest about the blocking, too: 2 of 3 need a human.
+    expect(
+      within(panel).getByText(/2 of 3 the profile does not answer/)
+    ).toBeInTheDocument()
+  })
+
+  it("names the profile fact an answerable question is answered from", async () => {
+    stubPrepareWithForm()
+    const user = setupUser()
+    await prepare(user)
+
+    const panel = await screen.findByTestId("board-questions")
+    // The answer's source is shown: "First Name" is answered from the
+    // profile's candidate_name fact — a confirmed profile fact, which is
+    // part of what the human approves.
+    expect(
+      within(panel).getByText("from your profile: candidate_name")
+    ).toBeInTheDocument()
   })
 
   it("renders no board section when the board publishes no schema", async () => {
