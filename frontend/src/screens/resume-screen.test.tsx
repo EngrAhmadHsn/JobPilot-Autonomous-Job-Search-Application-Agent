@@ -242,3 +242,36 @@ describe("the resume screen", () => {
     expect(screen.getAllByText("Python").length).toBeGreaterThan(0)
   })
 })
+
+describe("a tailored document's job association (WS-40)", () => {
+  /*
+    Two tailored résumés can carry the same visible title ("Tailored résumé —
+    Developer"); the job they were written for is what tells them apart, and
+    the record already carries `job_id`. Rendering it is the brief's
+    "associated job" requirement — and it must be a real route, not a label.
+  */
+  it("links a tailored document to the job it was written for", async () => {
+    setCurrentProfileId("profile-1")
+    renderScreen(<ResumeScreen />)
+
+    const link = await screen.findByRole("link", {
+      name: /for a specific job/i,
+    })
+    expect(link).toHaveAttribute(
+      "href",
+      `/app/matches/${encodeURIComponent("greenhouse:1")}`
+    )
+  })
+
+  it("does not invent an association for an uploaded résumé", async () => {
+    setCurrentProfileId("profile-1")
+    renderScreen(<ResumeScreen />)
+
+    // The fixture has exactly one tailored (job-bound) and one uploaded
+    // (job-less) document, so exactly one association link may render.
+    await screen.findByRole("link", { name: /for a specific job/i })
+    expect(
+      screen.getAllByRole("link", { name: /for a specific job/i })
+    ).toHaveLength(1)
+  })
+})

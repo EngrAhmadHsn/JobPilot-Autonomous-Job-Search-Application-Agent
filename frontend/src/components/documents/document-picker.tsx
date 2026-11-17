@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FileText, Upload } from "lucide-react"
 import { useRef, useState } from "react"
+import { Link } from "react-router-dom"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Pagination } from "@/components/common/pagination"
@@ -69,6 +70,21 @@ function DocumentRow({
             ? ` · ${formatDateTime(document.created_at)}`
             : ""}
         </span>
+        {/*
+          WS-40: a tailored document belongs to the job it was written for,
+          and that association is the one thing that distinguishes two
+          tailored résumés with the same title. `job_id` is the backend's own
+          field; the link goes to the listing route the console already has.
+        */}
+        {document.job_id ? (
+          <Link
+            to={`/app/matches/${encodeURIComponent(document.job_id)}`}
+            className="block truncate text-xs text-primary underline underline-offset-2 hover:text-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
+            For a specific job
+          </Link>
+        ) : null}
       </span>
       <span className="flex shrink-0 items-center gap-4">
         {onUse ? (
