@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
@@ -13,6 +13,18 @@ const BASE = "http://api.test"
 
 function withProfile() {
   setCurrentProfileId("profile-1")
+}
+
+/**
+ * A search response whose ranked slice holds `count` listings, each a real
+ * pair shaped like the API sends.
+ */
+function sliceOf(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    matchPair({
+      job: jobListing({ id: `job-${index}`, title: `Role ${index}` }),
+    })
+  )
 }
 
 describe("the matches screen", () => {
@@ -113,7 +125,7 @@ describe("the matches screen", () => {
     expect(calls).toBe(2)
   })
 
-  it("ranks the matches and explains the ranking", async () => {
+  it("ranks the matches and explains the ranking beside the list", async () => {
     withProfile()
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
@@ -123,11 +135,84 @@ describe("the matches screen", () => {
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
     expect(screen.getByText("82.5")).toBeInTheDocument()
 
-    await user.click(screen.getByText("Why this score"))
+    // Selecting a row opens the reasoning beside the list — the split
+    // view's "why this job matches" block, with the engine's explanation
+    // visible without expanding anything.
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
     expect(
-      screen.getByText(
+      await screen.findByText(
         "The profile states Python and SQL, which the listing asks for."
       )
+    ).toBeInTheDocument()
+  })
+
+  it("shows the server's total, not the loaded window", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(jobSearchResponse({ results: sliceOf(12) }))
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    // The count line is the whole ranked slice — the server returned it in
+    // one response — while the list shows its window of ten.
+    expect(
+      await screen.findByText(/Showing 10 of 12 ranked matches/)
+    ).toBeInTheDocument()
+    const rows = screen.getAllByRole("button", { name: /Role \d/ })
+    expect(rows).toHaveLength(10)
+
+    // "Show more" extends the window; it never implies a second server page.
+    await user.click(screen.getByRole("button", { name: /Show 2 more/ }))
+    expect(
+      await screen.findByText(/Showing 12 of 12 ranked matches/)
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: /Role \d/ })).toHaveLength(12)
+    expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument()
+  })
+
+  it("says the ranked slice is a slice when it came back full", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(
+          jobSearchResponse({
+            results: sliceOf(50),
+            // A store-only search contacts no board: `found` is zero and
+            // `stored` is the corpus it ranked against — the shape the
+            // endpoint really returns (the factory default carries a full
+            // pipeline's counters instead).
+            stats: {
+              found: 0,
+              dropped: 0,
+              deduped: 11,
+              persisted: 11,
+              stored: 11,
+              semantic_covered: 11,
+            },
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    // The default Top N fills the whole ranked slice, so the scope line
+    // says what was ranked and what was not, and the count line stays
+    // honest about the window on screen.
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    expect(
+      await screen.findByText(
+        /Ranked against 11 stored jobs — the first 50 shown/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Showing 10 of 50 ranked matches/)
     ).toBeInTheDocument()
   })
 
@@ -188,6 +273,192 @@ describe("the matches screen", () => {
 
     expect(
       await screen.findByText("Profile 'nope' not found")
+    ).toBeInTheDocument()
+  })
+
+  it("renders an honest empty state when nothing in the corpus matches", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(jobSearchResponse({ results: [] }))
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+
+    expect(await screen.findByText("No stored jobs match")).toBeInTheDocument()
+    // The way to widen the corpus is the real screen that owns it.
+    expect(
+      screen.getByRole("link", { name: /Open Operations/ })
+    ).toHaveAttribute("href", "/app/operations")
+  })
+})
+
+describe("the Discover split view", () => {
+  it("renders an unavailable component as unknown with its reason, never as its zero", async () => {
+    withProfile()
+    const base = matchPair().match
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(
+          jobSearchResponse({
+            results: [
+              matchPair({
+                match: {
+                  ...base,
+                  location_score: 0,
+                  component_states: {
+                    ...base.component_states,
+                    // The candidate never said where they want to work: the
+                    // component rests on nothing, and must not read as a 0.
+                    location: "CANDIDATE_DATA_MISSING",
+                  },
+                },
+              }),
+            ],
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
+    await user.click(screen.getByText("Show the full scoring breakdown"))
+
+    // The unknown states its reason…
+    expect(
+      await screen.findByText("unknown — you haven't said")
+    ).toBeInTheDocument()
+    // …and the zero the raw score carries for it never renders as a value.
+    expect(screen.queryByText("0.0")).not.toBeInTheDocument()
+    // The measured components render their real numbers (skill and role
+    // both carry 90 here, so the number is on screen twice).
+    expect(screen.getAllByText("90.0").length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText("75.0")).toBeInTheDocument()
+  })
+
+  it("renders a missing requirement as an evidence gap, not a disqualification", async () => {
+    withProfile()
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
+
+    // The listing asks for Kubernetes and the profile does not state it:
+    // the chip renders under "Missing requirements", with the framing line
+    // that says what a gap is.
+    const missing = await screen.findByText("Missing requirements")
+    expect(within(missing.parentElement as HTMLElement).getByText("Kubernetes"))
+    expect(screen.getByText(/evidence gap/i)).toBeInTheDocument()
+  })
+
+  it("wires the real actions and renders no save that has no endpoint", async () => {
+    withProfile()
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
+
+    expect(
+      await screen.findByRole("link", { name: /Tailor for this job/ })
+    ).toHaveAttribute("href", "/app/tailor/greenhouse%3A1")
+    expect(
+      screen.getByRole("link", { name: /Open the full listing/ })
+    ).toHaveAttribute("href", "/app/matches/greenhouse%3A1")
+    // There is no save/shortlist endpoint, so there is no save action —
+    // the reference panel's heart is dropped, not faked.
+    expect(
+      screen.queryByRole("button", { name: /save/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /save/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it("selects a deep-linked job after load, without a search", async () => {
+    withProfile()
+    // No stored search: the deep link alone must resolve the job — the
+    // listing from its own read, the match from the persisted history.
+    renderApp({ route: "/app/matches?job=greenhouse%3A1" })
+
+    expect(
+      await screen.findByRole("heading", { name: "AI Engineer" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "The profile states Python and SQL, which the listing asks for."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText("No search yet")).not.toBeInTheDocument()
+  })
+
+  it("renders board HTML in the detail panel as text, never as markup", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(
+          jobSearchResponse({
+            results: [
+              matchPair({
+                job: jobListing({
+                  description: '<img src=x onerror="window.__pwned = true">',
+                }),
+              }),
+            ],
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    const { container } = renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
+    await waitFor(() => {
+      expect(container.textContent).toContain("<img")
+    })
+    expect(container.querySelector("img")).toBeNull()
+    expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()
+  })
+
+  it("moves focus through the rows with the arrow keys and selects with Enter", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(jobSearchResponse({ results: sliceOf(4) }))
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search" }))
+    const rows = await screen.findAllByRole("button", { name: /Role \d/ })
+
+    // One tab stop for the list; the arrows walk the rows.
+    rows[0]?.focus()
+    expect(document.activeElement).toBe(rows[0])
+    await user.keyboard("{ArrowDown}")
+    expect(document.activeElement).toBe(rows[1])
+    await user.keyboard("{ArrowUp}")
+    expect(document.activeElement).toBe(rows[0])
+
+    // Enter activates the focused row: it becomes the selection, in the
+    // URL, and the reasoning opens beside the list.
+    await user.keyboard("{Enter}")
+    expect(
+      await screen.findByRole("heading", { name: "Role 0" })
+    ).toBeInTheDocument()
+    expect(rows[0]).toHaveAttribute("aria-current", "true")
+    expect(
+      screen.getByText(
+        "The profile states Python and SQL, which the listing asks for."
+      )
     ).toBeInTheDocument()
   })
 })

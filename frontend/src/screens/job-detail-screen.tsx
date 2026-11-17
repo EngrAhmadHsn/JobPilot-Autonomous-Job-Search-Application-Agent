@@ -1,93 +1,200 @@
 import { useQuery } from "@tanstack/react-query"
-import { useParams } from "react-router-dom"
+import { ArrowLeftIcon } from "lucide-react"
+import { Link, useParams } from "react-router-dom"
 
-import { Disclosure } from "@/components/common/disclosure"
 import { CardSkeleton } from "@/components/common/card-skeleton"
-import { ErrorNotice } from "@/components/common/error-notice"
-import { PageHeader } from "@/components/common/page-header"
 import { FieldList, SectionTitle } from "@/components/common/field-list"
-import {
-  MatchGapChips,
-  SponsorBadge,
-} from "@/components/common/match-gap-chips"
 import { PlainText } from "@/components/common/plain-text"
-import { EmptyState } from "@/components/common/progress-state"
-import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
+import { RelativeTime } from "@/components/common/relative-time"
+import { OverallScore } from "@/components/common/score-grid"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
 import { LinkButton } from "@/components/ui/link-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { api } from "@/lib/api/endpoints"
 import { formatDateTime, formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
-import { asNumber, asRecord, asStringArray } from "@/lib/safe"
 import { isSafeLinkUrl } from "@/lib/safe-url"
-import type { JobMatchResult } from "@/lib/api/types"
+import { useDocumentTitle } from "@/hooks/use-document-title"
+
+import { MatchReasoning } from "@/screens/discover/match-reasoning"
+import { matchFromHistoryEntry } from "@/screens/discover/match-history"
+
+import type { JobListing } from "@/lib/api/types"
+
+/*
+  One job listing, with the match the current profile scored against it
+  (WS-36 rebuild).
+
+  This route is the **complete record** behind the Discover panel: the full
+  listing text, the full match reasoning with its component breakdown in
+  place, the requirements as credited evidence and as gaps, and the source
+  and freshness of the data. The Discover panel is the summary that hands off
+  here; this screen does not duplicate the panel's compact anatomy back.
+
+  Every value here came from a third party (a job board) or from the
+  matching engine, and every one of them is rendered as plain text. The one
+  untrusted→link conversion is guarded by `isSafeLinkUrl` (below).
+
+  The header is built here rather than through the shared `PageHeader`
+  because board-supplied titles carry long unbreakable tokens, and the
+  measured fix (`wrap-anywhere`, which affects min-content sizing —
+  `break-words` does not stop the clipping) has to sit on the `h1` itself.
+  The tab title is still set from the screen's own name (the document-title
+  contract), and the shared rhythm (display heading, prose line, meta row,
+  actions) is mirrored one-for-one. Promoting a `wrap-anywhere` heading
+  option into `PageHeader` is a report proposal to the lead.
+
+  Research insights (facts vs inferred) render only when a real endpoint
+  carries them: insights ride on the tailoring response, and there is no
+  per-job insights route, so this screen renders none rather than inferring.
+*/
 
 /**
  * The match of one job, rebuilt from the persisted match history.
  *
- * The history stores the component scores in a free-form dictionary (the
- * table has no schema for them), so the console reads them through the safe
- * accessors and rebuilds the same shape the search response uses.
+ * Moved to `screens/discover/match-history.ts` (WS-36) so the Discover
+ * panel and this route rebuild the row identically — the function there is
+ * the documented screen-local mirror; extracting one shared copy is the
+ * lead's Wave-4 work.
  */
-function matchFromHistory(
-  entry:
-    | {
-        scores: unknown
-        explanation: unknown
-        sponsor_status?: unknown
-        sponsor_note?: unknown
-      }
-    | undefined
-): JobMatchResult | null {
-  if (!entry) return null
-  const scores = asRecord(entry.scores)
-  return {
-    overall_score: asNumber(scores.overall_score),
-    semantic_score: asNumber(scores.semantic_score),
-    lexical_score: asNumber(scores.lexical_score),
-    skill_score: asNumber(scores.skill_score),
-    experience_score: asNumber(scores.experience_score),
-    seniority_score: asNumber(scores.seniority_score),
-    location_score: asNumber(scores.location_score),
-    preference_score: asNumber(scores.preference_score),
-    // WS-21: older persisted rows predate the role fields; the accessors
-    // default them safely (no role evidence — never a fabricated match).
-    role_score: asNumber(scores.role_score),
-    role_family:
-      typeof scores.role_family === "string" ? scores.role_family : null,
-    role_family_confidence: asNumber(scores.role_family_confidence),
-    role_targets: asStringArray(scores.role_targets),
-    role_target_source:
-      typeof scores.role_target_source === "string"
-        ? scores.role_target_source
-        : "none",
-    role_capped: scores.role_capped === true,
-    evidence_coverage: asNumber(scores.evidence_coverage),
-    component_states: asRecord(scores.component_states) as Record<
-      string,
-      string
-    >,
-    notes: asStringArray(scores.notes),
-    missing_requirements: asStringArray(scores.missing_requirements),
-    matched_requirements: asStringArray(scores.matched_requirements),
-    missing_keywords: asStringArray(scores.missing_keywords),
-    matched_keywords: asStringArray(scores.matched_keywords),
-    // WS-22: the sponsorship finding rides on the serialized match row.
-    sponsor_status:
-      typeof entry.sponsor_status === "string" ? entry.sponsor_status : null,
-    sponsor_note:
-      typeof entry.sponsor_note === "string" ? entry.sponsor_note : null,
-    explanation: typeof entry.explanation === "string" ? entry.explanation : "",
-  }
+
+/** The listing's facts as a label/value table. */
+function ListingFields({ listing }: { listing: JobListing }) {
+  return (
+    <FieldList
+      items={[
+        {
+          label: "Company",
+          value: (
+            <PlainText className="wrap-anywhere">{listing.company}</PlainText>
+          ),
+        },
+        {
+          label: "Location",
+          value: listing.location ? (
+            <PlainText className="wrap-anywhere">{listing.location}</PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Remote policy",
+          value: listing.remote_policy ? (
+            <PlainText className="wrap-anywhere">
+              {listing.remote_policy}
+            </PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Employment type",
+          value: listing.employment_type ? (
+            <PlainText className="wrap-anywhere">
+              {listing.employment_type}
+            </PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Salary",
+          value: listing.salary ? (
+            <PlainText className="wrap-anywhere tabular-nums">
+              {listing.salary}
+              {listing.currency ? ` ${listing.currency}` : ""}
+            </PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Seniority",
+          value: listing.seniority ? (
+            <PlainText className="wrap-anywhere">{listing.seniority}</PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Required skills",
+          value: (
+            <PlainText className="wrap-anywhere">
+              {formatList(listing.required_skills)}
+            </PlainText>
+          ),
+        },
+        {
+          label: "Preferred skills",
+          value: (
+            <PlainText className="wrap-anywhere">
+              {formatList(listing.preferred_skills)}
+            </PlainText>
+          ),
+        },
+        {
+          label: "Experience",
+          value: listing.experience_requirements ? (
+            <PlainText className="wrap-anywhere">
+              {listing.experience_requirements}
+            </PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Education",
+          value: listing.education_requirements ? (
+            <PlainText className="wrap-anywhere">
+              {listing.education_requirements}
+            </PlainText>
+          ) : (
+            "—"
+          ),
+        },
+        { label: "Posted", value: formatDateTime(listing.posted_at) },
+        {
+          label: "Source",
+          value: (
+            <PlainText className="wrap-anywhere">
+              {listing.source}
+              {listing.source_job_id ? ` · ${listing.source_job_id}` : ""}
+            </PlainText>
+          ),
+        },
+        {
+          label: "Apply at",
+          // WS-15: the application URL is board-supplied, and this is
+          // the one place the console turns untrusted text into
+          // something the browser acts on. Only http(s) becomes a
+          // link; anything else is shown as text, so a board cannot
+          // publish a `javascript:` URL into the operator's console.
+          value: listing.application_url ? (
+            isSafeLinkUrl(listing.application_url) ? (
+              <a
+                href={listing.application_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="wrap-anywhere underline underline-offset-4"
+              >
+                {listing.application_url}
+              </a>
+            ) : (
+              <PlainText className="wrap-anywhere">
+                {listing.application_url}
+              </PlainText>
+            )
+          ) : (
+            "—"
+          ),
+        },
+      ]}
+    />
+  )
 }
 
-/**
- * One job listing, with the match the current profile scored against it.
- *
- * Every value here came from a third party (a job board) or from the
- * matching engine, and every one of them is rendered as plain text.
- */
 export function JobDetailScreen() {
   const { jobId = "" } = useParams()
   const profileId = useCurrentProfileId()
@@ -105,6 +212,17 @@ export function JobDetailScreen() {
     enabled: Boolean(profileId),
   })
 
+  const listing = job.data?.job ?? null
+  // The tab title is the listing's own, and falls back while the read is on
+  // the way — the contract holds even before the content lands.
+  useDocumentTitle(listing?.title ?? "Job listing")
+
+  const match = listing
+    ? matchFromHistoryEntry(
+        history.data?.matches.find((entry) => entry.job_id === listing.id)
+      )
+    : null
+
   if (job.isPending) {
     /*
       A read, not a run the operator started, so there is nothing to cancel and
@@ -118,30 +236,50 @@ export function JobDetailScreen() {
     )
   }
 
-  if (job.isError) {
-    return <ErrorNotice error={job.error} onRetry={() => job.refetch()} />
+  if (job.isError || !listing) {
+    return <ErrorState error={job.error} onRetry={() => void job.refetch()} />
   }
-
-  const listing = job.data.job
-  const match = matchFromHistory(
-    history.data?.matches.find((entry) => entry.job_id === listing.id) as
-      { scores: unknown; explanation: unknown } | undefined
-  )
 
   return (
     <div className="space-y-10">
-      <PageHeader
-        title={listing.title}
-        description={`${listing.company}${listing.location ? ` · ${listing.location}` : ""}`}
-        actions={
-          <div className="flex items-center gap-2">
-            {match ? <OverallScore value={match.overall_score} /> : null}
-            <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
-              Tailor for this job
-            </LinkButton>
+      <header className="mb-0 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+        <div className="console-reading min-w-0 flex-1">
+          <Link
+            to="/app/matches"
+            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
+            Back to Discover
+          </Link>
+          <h1 className="mt-2 font-heading text-3xl leading-[1.15] font-semibold tracking-tight wrap-anywhere text-foreground">
+            {listing.title}
+          </h1>
+          <div className="mt-2 text-base leading-relaxed wrap-anywhere text-muted-foreground">
+            {listing.company}
+            {listing.location ? ` · ${listing.location}` : ""}
           </div>
-        }
-      />
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] leading-relaxed text-muted-foreground">
+            <span>
+              Source{" "}
+              <PlainText as="span" className="text-[13px] wrap-anywhere">
+                {listing.source}
+                {listing.source_job_id ? ` · ${listing.source_job_id}` : ""}
+              </PlainText>
+            </span>
+            {listing.posted_at ? (
+              <span>
+                Posted <RelativeTime value={listing.posted_at} />
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {match ? <OverallScore value={match.overall_score} /> : null}
+          <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
+            Tailor for this job
+          </LinkButton>
+        </div>
+      </header>
 
       {match ? (
         <Card>
@@ -149,41 +287,18 @@ export function JobDetailScreen() {
             <CardTitle>Why this job ranked</CardTitle>
           </CardHeader>
           <CardContent>
-            <Disclosure
-              summary="The agent's reasoning"
-              hint="how it scored this listing"
-            >
-              {match.explanation ? (
-                <div>
-                  <SectionTitle>Explanation</SectionTitle>
-                  <PlainText className="mt-1.5 max-w-[72ch] leading-relaxed">
-                    {match.explanation}
-                  </PlainText>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  The matching engine returned no explanation for this listing.
-                </p>
-              )}
-              <ScoreGrid match={match} />
-              <MatchGapChips
-                matched={match.matched_requirements}
-                missing={match.missing_requirements}
-                className="mt-4"
-              />
-              <div className="mt-4">
-                <SponsorBadge
-                  status={match.sponsor_status}
-                  note={match.sponsor_note}
-                />
-              </div>
-            </Disclosure>
+            <MatchReasoning match={match} breakdown="expanded" />
           </CardContent>
         </Card>
       ) : (
         <EmptyState
           title="No match history for this job"
-          description="The current profile has not been matched against this listing yet. Run a search on the Matches screen."
+          message="The current profile has not been matched against this listing yet. Run a search on Discover — the ranking is built from what the corpus holds."
+          action={
+            <LinkButton to="/app/matches" variant="outline" size="sm">
+              Open Discover
+            </LinkButton>
+          }
         />
       )}
 
@@ -192,74 +307,14 @@ export function JobDetailScreen() {
           <CardTitle>The listing</CardTitle>
         </CardHeader>
         <CardContent>
-          <FieldList
-            items={[
-              { label: "Company", value: listing.company },
-              { label: "Location", value: listing.location || "—" },
-              { label: "Remote policy", value: listing.remote_policy || "—" },
-              {
-                label: "Employment type",
-                value: listing.employment_type || "—",
-              },
-              {
-                label: "Salary",
-                value: listing.salary
-                  ? `${listing.salary}${listing.currency ? ` ${listing.currency}` : ""}`
-                  : "—",
-              },
-              { label: "Seniority", value: listing.seniority || "—" },
-              {
-                label: "Required skills",
-                value: formatList(listing.required_skills),
-              },
-              {
-                label: "Preferred skills",
-                value: formatList(listing.preferred_skills),
-              },
-              {
-                label: "Experience",
-                value: listing.experience_requirements || "—",
-              },
-              {
-                label: "Education",
-                value: listing.education_requirements || "—",
-              },
-              { label: "Posted", value: formatDateTime(listing.posted_at) },
-              {
-                label: "Source",
-                value: `${listing.source}${listing.source_job_id ? ` · ${listing.source_job_id}` : ""}`,
-              },
-              {
-                label: "Apply at",
-                // WS-15: the application URL is board-supplied, and this is
-                // the one place the console turns untrusted text into
-                // something the browser acts on. Only http(s) becomes a
-                // link; anything else is shown as text, so a board cannot
-                // publish a `javascript:` URL into the operator's console.
-                value: listing.application_url ? (
-                  isSafeLinkUrl(listing.application_url) ? (
-                    <a
-                      href={listing.application_url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="break-all underline underline-offset-4"
-                    >
-                      {listing.application_url}
-                    </a>
-                  ) : (
-                    <span className="break-all">{listing.application_url}</span>
-                  )
-                ) : (
-                  "—"
-                ),
-              },
-            ]}
-          />
+          <ListingFields listing={listing} />
 
           <div className="mt-4 space-y-2">
             <SectionTitle>Description</SectionTitle>
             {listing.description ? (
-              <PlainText>{listing.description}</PlainText>
+              <PlainText className="max-w-[72ch] wrap-anywhere">
+                {listing.description}
+              </PlainText>
             ) : (
               <p className="text-sm text-muted-foreground">
                 The listing has no description.

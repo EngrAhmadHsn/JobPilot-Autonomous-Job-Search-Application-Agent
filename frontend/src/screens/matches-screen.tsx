@@ -1,39 +1,49 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
-import { Link } from "react-router-dom"
+import { useState, type ReactNode } from "react"
+import { useSearchParams } from "react-router-dom"
+import { cn } from "cn"
 
-import { Banner } from "@/components/common/banner"
-import { Disclosure } from "@/components/common/disclosure"
-import { SectionTitle } from "@/components/common/field-list"
+import { CardSkeleton } from "@/components/common/card-skeleton"
 import { ErrorNotice } from "@/components/common/error-notice"
-import {
-  MatchGapChips,
-  SponsorBadge,
-} from "@/components/common/match-gap-chips"
-import { MatchListSkeleton } from "@/components/common/match-list-skeleton"
-import { Pagination } from "@/components/common/pagination"
-import { QueryCombobox } from "@/components/common/query-combobox"
-import { EmptyState } from "@/components/common/progress-state"
-import { PlainText } from "@/components/common/plain-text"
-import { PageHeader, Section } from "@/components/common/page-header"
-import { OverallScore, ScoreGrid } from "@/components/common/score-grid"
-import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
 import { LinkButton } from "@/components/ui/link-button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { PageHeader, Section } from "@/components/ui/page-header"
+import { MousePointerClickIcon } from "lucide-react"
 
 import { api } from "@/lib/api/endpoints"
-import { stagger } from "@/lib/stagger"
 import { useCurrentProfileId } from "@/lib/profile"
-import type { JobMatchPair, JobSearchResponse } from "@/lib/api/types"
+import type {
+  JobListing,
+  JobMatchResult,
+  JobSearchResponse,
+} from "@/lib/api/types"
+
+import { matchFromHistoryEntry } from "@/screens/discover/match-history"
+import { MatchDetail } from "@/screens/discover/match-detail"
+import { ResultsList } from "@/screens/discover/results-list"
+import { ResultsSkeleton } from "@/screens/discover/results-skeleton"
+import { SearchBanners } from "@/screens/discover/search-banners"
+import { SearchPanel } from "@/screens/discover/search-panel"
 
 /**
  * How many matches the console shows at once.
  *
- * The server ranks a slice of up to 50 listings; the console pages it ten at
- * a time, so a broad search is readable without one long scroll.
+ * The server ranks a slice of up to `MAX_TOP_N` listings and returns it in
+ * one response; the console shows that slice ten rows at a time and extends
+ * the window with "Show more". The count line always states the slice's
+ * whole size — a loaded window is never presented as the total.
  */
 const PAGE_SIZE = 10
+
+/**
+ * The largest ranked slice the server will return.
+ *
+ * Mirrors `MAX_TOP_N` in `src/graph/job_executor.py`; the server clamps
+ * again, so this bound only keeps the screen's own "the first N shown"
+ * wording true about a request it actually made.
+ */
+const MAX_TOP_N = 50
 
 /**
  * The last search, kept across navigation and reloads (WS-21 follow-up).
@@ -87,15 +97,22 @@ function saveStoredSearch(profileId: string, record: StoredSearch): void {
  * almost none of it: `found` is zero because no board was contacted, and
  * `dropped` and `persisted` are zero because nothing was fetched or
  * written. Printing them would be noise that reads like a fault. What
- * matters is how much of the stored corpus was scored, and what the
- * filters were.
+ * matters is how much of the stored corpus was scored, what the filters
+ * were — and, when the ranked slice came back full, that the slice is a
+ * slice: the honest "the first N shown" cap label (the same pattern the
+ * Home screen uses for its ranked-slice reads).
  */
 function describeSearch(
   data: JobSearchResponse,
   query: string,
-  location: string
+  location: string,
+  topN: number
 ): string {
   const corpus = data.stats.stored || data.stats.deduped
+  const cap =
+    data.results.length >= topN
+      ? ` — the first ${topN.toLocaleString()} shown`
+      : ""
   const filter = [
     query.trim() ? `matching “${query.trim()}”` : null,
     location.trim() ? `in “${location.trim()}”` : null,
@@ -104,144 +121,27 @@ function describeSearch(
   const scope =
     data.stats.found > 0
       ? `${data.stats.found} fetched · ${data.stats.dropped} dropped · ${data.stats.deduped} deduplicated · ${data.stats.persisted} persisted`
-      : `Ranked against ${corpus.toLocaleString()} saved jobs.`
+      : `Ranked against ${corpus.toLocaleString()} stored jobs${cap}.`
 
   return filter.length > 0 ? `${scope} Filtered ${filter.join(" ")}.` : scope
 }
 
-/** One match in the ranked list. */
-function MatchCard({
-  pair,
-  index = 0,
-}: {
-  pair: JobMatchPair
-  index?: number
-}) {
-  const { job, match } = pair
-  return (
-    <Card
-      {...stagger(
-        index,
-        "rounded-2xl transition-shadow duration-200 hover:shadow-[var(--shadow-paper)]"
-      )}
-    >
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          {/*
-            `min-w-0 flex-1` lets this column shrink, and `wrap-anywhere` lets
-            a long company or location break instead of being clipped. `Card`
-            is `overflow-hidden`, and the title is the *link* to the job, so a
-            clipped title is half a destination that silently disappears.
-
-            `break-words` is NOT enough here, and a browser check proved it:
-            it maps to `overflow-wrap: break-word`, which breaks the text
-            *after* the box has already sized itself to the longest token. A
-            69-character unbreakable title measured 425 px inside a 311 px
-            card and was clipped exactly as before the fix. Tailwind's
-            `wrap-anywhere` (`overflow-wrap: anywhere`) is the one that also
-            affects min-content sizing, so the box shrinks to its container
-            and the token breaks inside it.
-          */}
-          <div className="min-w-0 flex-1">
-            <CardTitle className="font-heading text-base wrap-anywhere">
-              <Link
-                to={`/app/matches/${encodeURIComponent(job.id)}`}
-                className="underline-offset-4 hover:underline"
-              >
-                {job.title}
-              </Link>
-            </CardTitle>
-            <p className="text-sm wrap-anywhere text-muted-foreground">
-              {job.company}
-              {job.location ? ` · ${job.location}` : ""}
-              {job.remote_policy ? ` · ${job.remote_policy}` : ""}
-            </p>
-          </div>
-          <OverallScore value={match.overall_score} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Disclosure summary="Why this score" hint="the agent's reasoning">
-          {match.explanation ? (
-            <div>
-              <SectionTitle>Explanation</SectionTitle>
-              <PlainText className="mt-1.5 max-w-[72ch] leading-relaxed">
-                {match.explanation}
-              </PlainText>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              The matching engine returned no explanation for this listing.
-            </p>
-          )}
-
-          <ScoreGrid match={match} />
-
-          <MatchGapChips
-            matched={match.matched_requirements}
-            missing={match.missing_requirements}
-            className="mt-4"
-          />
-          <div className="mt-4">
-            <SponsorBadge
-              status={match.sponsor_status}
-              note={match.sponsor_note}
-            />
-          </div>
-        </Disclosure>
-
-        <LinkButton
-          variant="outline"
-          size="sm"
-          to={`/app/matches/${encodeURIComponent(job.id)}`}
-        >
-          Open the job
-        </LinkButton>
-      </CardContent>
-    </Card>
-  )
-}
-
-/** The banners that say what went wrong with the corpus, if anything did. */
-function SearchBanners({ data }: { data: JobSearchResponse }) {
-  const sourceErrors = Object.entries(data.source_errors)
-  return (
-    <div className="space-y-3">
-      {data.degraded ? (
-        <Banner tone="warning" title="The scoring was degraded">
-          <p>
-            Semantic scoring was unavailable for part of the corpus, so the
-            scores below are weaker than a full run would be. The listings
-            themselves are complete.
-          </p>
-        </Banner>
-      ) : null}
-
-      {sourceErrors.length > 0 ? (
-        <Banner
-          tone="warning"
-          title={`${sourceErrors.length} job source(s) failed`}
-        >
-          <p>
-            A failing source degrades the report, it does not fail the search.
-            The corpus below is what the working sources returned.
-          </p>
-          <ul className="mt-1 list-disc pl-5">
-            {sourceErrors.map(([source, message]) => (
-              <li key={source}>
-                <span className="font-medium">{source}</span>:{" "}
-                <PlainText as="span">{message}</PlainText>
-              </li>
-            ))}
-          </ul>
-        </Banner>
-      ) : null}
-    </div>
-  )
-}
-
 /**
- * The Matches screen.
+ * The Discover screen (WS-36) — the reference panel 2 split view.
+ *
+ * Left: the search, the filter row the API actually supports (query, location
+ * substring, ranked-slice size) and the ranked results as dense rows. Right:
+ * the selected job's detail — the reason for its score, the requirements it
+ * credited and the ones it could not, the sponsorship signal as verified or
+ * unknown, and the two real actions (Tailor, open the full listing). There is
+ * no save/shortlist action because there is no save endpoint to wire it to.
+ *
+ * The selection lives in the URL (`?job=<id>`), so a refresh or a shared link
+ * keeps it. A selected job that is not in the loaded slice — a deep link, or
+ * a selection that survived a new search — is resolved by its own reads: the
+ * listing from `GET /api/jobs/{id}` (the same cache key the job route uses)
+ * and its match from the persisted match history, rebuilt through the same
+ * safe-accessor mirror the job route uses.
  *
  * The search runs against the **stored** corpus (the backend's FU-1
  * store-only search): no board is fetched while the operator is looking at
@@ -251,14 +151,16 @@ function SearchBanners({ data }: { data: JobSearchResponse }) {
 export function MatchesScreen() {
   const profileId = useCurrentProfileId()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedId = searchParams.get("job")
   // The last search this browser made for this profile, if any — read once,
   // at mount, so leaving and returning (or reloading) shows it again.
   const [restored] = useState(() => loadStoredSearch(profileId))
   const [query, setQuery] = useState(restored?.query ?? "")
   const [location, setLocation] = useState(restored?.location ?? "")
   // The server ranks a slice of up to 50; the console shows it ten at a time.
-  const [topN, setTopN] = useState(restored?.topN ?? 50)
-  const [page, setPage] = useState(0)
+  const [topN, setTopN] = useState(restored?.topN ?? MAX_TOP_N)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   /*
     The search runs from the button, so it is a mutation; this query never
@@ -286,6 +188,7 @@ export function MatchesScreen() {
     }) => api.searchJobs(body),
     onSuccess: (response, variables) => {
       queryClient.setQueryData(["job-search", profileId], response)
+      setVisibleCount(PAGE_SIZE)
       if (profileId) {
         saveStoredSearch(profileId, {
           query: variables.query ?? "",
@@ -297,118 +200,145 @@ export function MatchesScreen() {
     },
   })
 
-  if (!profileId) {
-    return (
+  const data = results.data
+
+  // -- The selected job, resolved. ------------------------------------------
+  // In the loaded slice, the pair carries everything; outside it (a deep
+  // link, or a selection that survived a new search), the listing and the
+  // persisted match are looked up under the same cache keys the job route
+  // uses, so navigating on costs no second request.
+  const selectedPair = data
+    ? data.results.find((pair) => pair.job.id === selectedId)
+    : undefined
+  const needsLookup = Boolean(selectedId) && !selectedPair
+  const lookupJob = useQuery({
+    queryKey: ["job", selectedId],
+    queryFn: ({ signal }) => api.getJob(selectedId as string, signal),
+    enabled: needsLookup,
+    retry: false,
+  })
+  const lookupHistory = useQuery({
+    queryKey: ["profile-matches", profileId],
+    queryFn: ({ signal }) =>
+      api.getProfileMatches(profileId as string, { signal }),
+    enabled: needsLookup && Boolean(profileId),
+    retry: false,
+  })
+  const lookupMatch: JobMatchResult | null = needsLookup
+    ? matchFromHistoryEntry(
+        lookupHistory.data?.matches.find(
+          (entry) => (entry.job_id as string) === selectedId
+        )
+      )
+    : null
+  const lookupListing: JobListing | null = lookupJob.data?.job ?? null
+
+  function runSearch() {
+    if (!profileId) return
+    // The UI bounds Top N, and the submit clamps the value again, so the
+    // screen never claims a cap the request did not ask for (the server
+    // clamps a third time; see MAX_TOP_N above).
+    const requested = Math.min(Math.max(1, Math.floor(topN) || 1), MAX_TOP_N)
+    setTopN(requested)
+    search.mutate({
+      profile_id: profileId,
+      query: query.trim() || undefined,
+      location: location.trim() || undefined,
+      top_n: requested,
+      only_embedded: false,
+    })
+  }
+
+  function selectJob(jobId: string) {
+    setSearchParams({ job: jobId })
+  }
+
+  function clearSelection() {
+    setSearchParams({})
+  }
+
+  const total = data?.results.length ?? 0
+
+  let detail: ReactNode = null
+  if (!selectedId) {
+    detail = (
       <EmptyState
-        title="No profile selected"
-        description="A search compares your profile with the listings you have stored. Upload a résumé first."
-        action={
-          <LinkButton to="/app/resume">Go to the Resume screen</LinkButton>
-        }
+        icon={MousePointerClickIcon}
+        title="Select a job"
+        message="Pick a result to see why it matches — the reasoning, the requirements and the sponsorship signal, beside the list."
+      />
+    )
+  } else if (selectedPair) {
+    detail = (
+      <MatchDetail
+        job={selectedPair.job}
+        match={selectedPair.match}
+        onBack={clearSelection}
+      />
+    )
+  } else if (lookupJob.isPending) {
+    // A deep-linked job whose listing is on the way: bones of the panel,
+    // not a blank column.
+    detail = <CardSkeleton rows={4} />
+  } else if (lookupJob.isError) {
+    detail = (
+      <ErrorState
+        error={lookupJob.error}
+        onRetry={() => void lookupJob.refetch()}
+      />
+    )
+  } else if (lookupListing) {
+    detail = (
+      <MatchDetail
+        job={lookupListing}
+        match={lookupMatch}
+        onBack={clearSelection}
       />
     )
   }
 
-  const data = results.data
-  const total = data?.results.length ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  // Clamp rather than reset: a shorter result set after a new search lands on
-  // its last page instead of an empty one, with no effect and no extra state.
-  const currentPage = Math.min(page, pageCount - 1)
-  const visible = data
-    ? data.results.slice(
-        currentPage * PAGE_SIZE,
-        currentPage * PAGE_SIZE + PAGE_SIZE
-      )
-    : []
+  if (!profileId) {
+    return (
+      <div className="space-y-10">
+        <PageHeader
+          title="Discover"
+          description="Your stored jobs, ranked against your profile, each with the reason for its score."
+        />
+        <EmptyState
+          title="No profile selected"
+          message="A search compares your profile with the listings you have stored. Upload a résumé first."
+          action={
+            <LinkButton to="/app/resume">Go to the Resume screen</LinkButton>
+          }
+        />
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
-        title="Find the work that fits"
-        description="Your saved jobs, ranked against your profile, each with the reason for its score."
+        title="Discover"
+        description="Your stored jobs, ranked against your profile, each with the reason for its score."
       />
 
-      {/*
-        WS-21: the query suggestions panel is absolutely positioned from
-        under the field and must extend past this card's edge. The shared
-        Card clips by default (`overflow-hidden`) and every other screen
-        relies on that, so the exception lives here, at the one call site —
-        not in card.tsx.
-      */}
-      <Card className="overflow-visible">
-        <CardHeader>
-          <CardTitle>Search your saved listings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Search the jobs you have already saved. Add more from Operations
-            when you want a wider search.
-          </p>
+      <SearchPanel
+        query={query}
+        onQueryChange={setQuery}
+        location={location}
+        onLocationChange={setLocation}
+        topN={topN}
+        onTopNChange={setTopN}
+        onSubmit={runSearch}
+        isPending={search.isPending}
+      />
 
-          <form
-            className="grid gap-3 sm:grid-cols-[2fr_2fr_6rem_auto] sm:items-end"
-            onSubmit={(event) => {
-              event.preventDefault()
-              setPage(0)
-              search.mutate({
-                profile_id: profileId,
-                query: query.trim() || undefined,
-                location: location.trim() || undefined,
-                top_n: topN,
-                only_embedded: false,
-              })
-            }}
-          >
-            <div className="space-y-1">
-              <label htmlFor="search-query" className="text-sm font-medium">
-                Query
-              </label>
-              <QueryCombobox
-                inputId="search-query"
-                value={query}
-                onChange={setQuery}
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="search-location" className="text-sm font-medium">
-                Location
-              </label>
-              <Input
-                id="search-location"
-                value={location}
-                placeholder="Substring of the location"
-                onChange={(event) => setLocation(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="search-top-n" className="text-sm font-medium">
-                Top N
-              </label>
-              <Input
-                id="search-top-n"
-                type="number"
-                min={1}
-                max={50}
-                value={topN}
-                onChange={(event) => setTopN(Number(event.target.value) || 1)}
-              />
-            </div>
-            <Button type="submit" disabled={search.isPending}>
-              {search.isPending ? "Searching…" : "Search"}
-            </Button>
-          </form>
-
-          {search.isError ? <ErrorNotice error={search.error} /> : null}
-        </CardContent>
-      </Card>
+      {search.isError ? <ErrorNotice error={search.error} /> : null}
 
       {/*
         A running search shows the **shape** of the answer, not a stopwatch.
-        The elapsed clock was honest but it was the only thing on screen
-        moving, and it answered a question the operator already knew the
-        answer to. The skeleton reserves the space, so the list does not jump
-        when the ranking lands.
+        The skeleton reserves the space, so the list does not jump when the
+        ranking lands.
 
         `search.isPending` wins over `data`: a re-search must not stack a
         placeholder over the previous ranking, which would read as "these are
@@ -419,45 +349,94 @@ export function MatchesScreen() {
           title="Ranking your saved jobs"
           description="Scoring every listing against your profile."
         >
-          <MatchListSkeleton />
+          <ResultsSkeleton />
         </Section>
-      ) : data ? (
-        <Section
-          title={`${data.results.length} match${data.results.length === 1 ? "" : "es"}`}
-          description={describeSearch(data, query, location)}
-        >
-          <div className="space-y-4">
-            <SearchBanners data={data} />
+      ) : data && data.results.length > 0 ? (
+        <>
+          <SearchBanners data={data} />
 
-            {data.results.length === 0 ? (
-              <EmptyState
-                title="No matches"
-                description="No stored listing matches this profile and filter. Refresh on the Operations screen, or widen the filters."
-              />
-            ) : (
-              <div className="space-y-4">
-                {visible.map((pair, index) => (
-                  <MatchCard
-                    key={pair.job.id}
-                    pair={pair}
-                    index={currentPage * PAGE_SIZE + index}
-                  />
-                ))}
-                <Pagination
-                  page={currentPage}
+          {
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-start">
+              {/*
+                The list column. On a phone the columns take turns: the
+                results lead, and a selected job replaces the list with a
+                full-height panel and a way back — never a squeezed column.
+              */}
+              <section
+                className={cn("min-w-0", selectedId ? "hidden lg:block" : null)}
+                aria-label="Ranked matches"
+              >
+                <div className="mb-4">
+                  <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
+                    Ranked matches
+                  </h2>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {describeSearch(data, query, location, topN)}
+                  </p>
+                  <p
+                    role="status"
+                    className="mt-1 text-sm text-muted-foreground tabular-nums"
+                  >
+                    Showing {Math.min(visibleCount, total)} of {total} ranked
+                    matches — best match first.
+                  </p>
+                </div>
+                <ResultsList
+                  pairs={data.results}
+                  visibleCount={visibleCount}
+                  onShowMore={() => {
+                    setVisibleCount((count) => count + PAGE_SIZE)
+                  }}
+                  selectedId={selectedId}
+                  onSelect={selectJob}
                   pageSize={PAGE_SIZE}
-                  total={total}
-                  onPageChange={setPage}
-                  label="matches"
                 />
-              </div>
-            )}
-          </div>
-        </Section>
+              </section>
+
+              <section
+                className={cn("min-w-0", selectedId ? null : "hidden lg:block")}
+                aria-label="The selected job"
+              >
+                {detail}
+              </section>
+            </div>
+          }
+        </>
+      ) : selectedId && lookupJob.isPending ? (
+        // A deep link into this screen (or a selection whose slice is gone):
+        // the listing is on the way, so the panel's bones reserve the shape.
+        <div className="max-w-[42rem]">
+          <CardSkeleton rows={4} />
+        </div>
+      ) : selectedId && lookupJob.isError ? (
+        <ErrorState
+          error={lookupJob.error}
+          onRetry={() => void lookupJob.refetch()}
+        />
+      ) : selectedId && lookupListing ? (
+        // The deep-linked job outside any loaded slice: the detail stands on
+        // its own until a search gives it a list to sit beside.
+        <div className="max-w-[42rem]">
+          <MatchDetail
+            job={lookupListing}
+            match={lookupMatch}
+            onBack={clearSelection}
+          />
+        </div>
+      ) : data ? (
+        <EmptyState
+          title="No stored jobs match"
+          message="No stored listing matches this profile and filter. Try broader terms, or refresh the corpus from Operations to widen what the agent can rank."
+          action={
+            <LinkButton to="/app/operations" variant="outline" size="sm">
+              Open Operations
+            </LinkButton>
+          }
+        />
       ) : (
         <EmptyState
           title="No search yet"
-          description="Run a search to see the ranked matches for the current profile."
+          message="Run a search to rank the stored corpus against your profile. Every result arrives with the reason for its score."
         />
       )}
     </div>
