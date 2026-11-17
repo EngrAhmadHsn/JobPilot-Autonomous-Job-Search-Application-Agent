@@ -237,3 +237,79 @@ describe("the operations screen", () => {
     )
   })
 })
+
+describe("the queued-with-no-worker explanation (WS-40)", () => {
+  /*
+    A durable queue outlives the API: a 202 is recorded and runs whenever a
+    worker is next available, and starting the API does NOT start a worker
+    (RUNBOOK §4.4). That is the state an operator misreads as breakage, so the
+    screen must name it — with the documented command, and only when a run is
+    actually queued.
+  */
+  it("explains a queued run and gives the documented worker command", async () => {
+    server.use(
+      http.get(`${BASE}/api/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            runSummary({
+              id: "run-queued",
+              status: "QUEUED",
+              job_type: "refresh",
+            }),
+          ])
+        )
+      ),
+      http.get(`${BASE}/api/runs/:runId`, () =>
+        HttpResponse.json({
+          run: runDetail({
+            id: "run-queued",
+            status: "QUEUED",
+            job_type: "refresh",
+          }),
+        })
+      )
+    )
+    renderScreen(<OperationsScreen />)
+
+    expect(
+      await screen.findByText("Queued — waiting for a worker")
+    ).toBeInTheDocument()
+    // The command is the runbook's, not a paraphrase.
+    expect(screen.getByText("python scripts/run_worker.py")).toBeInTheDocument()
+    // And the honest claim: nothing has failed.
+    expect(screen.getByText(/Nothing has failed\./)).toBeInTheDocument()
+  })
+
+  it("does not suggest a missing worker while a run is actually running", async () => {
+    server.use(
+      http.get(`${BASE}/api/runs`, () =>
+        HttpResponse.json(
+          runsResponse([
+            runSummary({
+              id: "run-live",
+              status: "RUNNING",
+              job_type: "refresh",
+              progress_percent: 40,
+            }),
+          ])
+        )
+      ),
+      http.get(`${BASE}/api/runs/:runId`, () =>
+        HttpResponse.json({
+          run: runDetail({
+            id: "run-live",
+            status: "RUNNING",
+            job_type: "refresh",
+            progress_percent: 40,
+          }),
+        })
+      )
+    )
+    renderScreen(<OperationsScreen />)
+
+    await screen.findByText("Latest run")
+    expect(
+      screen.queryByText("Queued — waiting for a worker")
+    ).not.toBeInTheDocument()
+  })
+})

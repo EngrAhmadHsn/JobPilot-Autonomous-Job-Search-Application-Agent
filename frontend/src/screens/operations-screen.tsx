@@ -26,6 +26,7 @@ import type { RunAccepted, RunDetail, RunSummary } from "@/lib/api/types"
 import { formatDateTime } from "@/lib/format"
 import { runPollInterval, runsListPollInterval } from "@/lib/polling"
 import { describeStatus } from "@/lib/status"
+import { NoWorkerExplanation } from "@/screens/facts/system/no-worker-explanation"
 
 /**
  * The Operations screen.
@@ -152,6 +153,17 @@ export function OperationsScreen() {
                 runs in the background — you can close this page.
               </p>
             </Banner>
+          ) : null}
+
+          {/*
+            WS-40 / master prompt §6.9: a queued run with no worker is the
+            state an operator misreads as breakage. Named only when the run is
+            actually QUEUED — never as a general disclaimer.
+          */}
+          {detail?.status === "QUEUED" ? (
+            <div className="mt-4">
+              <NoWorkerExplanation queuedCount={1} />
+            </div>
           ) : null}
         </CardContent>
       </Card>
