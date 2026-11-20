@@ -14,7 +14,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 import { ApiError } from "@/lib/api/client"
+import {
+  getApplicationAnswers,
+  putApplicationAnswers,
+  type AnswerInput,
+} from "@/lib/api/answers"
 import { api } from "@/lib/api/endpoints"
+import type { ApplicationPrepareRequest } from "@/lib/api/types"
 import { formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 
@@ -26,6 +32,7 @@ import {
   InControlNotice,
   isLocalTestBoard,
 } from "@/screens/review/in-control-notice"
+import { QuestionAnswer } from "@/screens/review/question-answer"
 import { QuestionCard } from "@/screens/review/question-card"
 import {
   clearApprovalMirror,
@@ -51,20 +58,26 @@ import {
  * (`49:1092`), and the question queue (`49:1096`) beside a clay
  * not-ready panel (`49:1125`).
  *
- * Two deliberate departures, both because the console renders real data the
+ * One deliberate departure, kept because the console renders real data the
  * design's example never had to carry:
  *
- * - **No per-question save.** The design's question card offers radio
- *   options and "Save answer". The backend has no per-answer persistence —
- *   an answer exists only as a custom field inside a freshly prepared
- *   payload — so the queue shows the board's own ordered list with each
- *   answer's source, and the clay panel's action routes the operator into
- *   the prepare form with the question's field **prefilled**, which is the
- *   one way an answer actually becomes part of the payload.
- * - **Approve stays available with blockers.** The design implies a hard
- *   gate; the product's own behavior is safer than a hard gate: the queued
- *   run stops at the questions the profile does not answer and hands them
- *   back, rather than guessing (WS-32). The clay panel says both things.
+ * - **The save re-prepares.** The design's question card saves an answer
+ *   and the gate lifts. The real flow has one more step: an answer is
+ *   stored on the tracked application (`PUT
+ *   /api/applications/{id}/answers`, WS-45) and the plan that reads it is
+ *   built by **prepare** — every prepare creates a fresh application and
+ *   inherits the posting's saved answers onto it — so saving re-prepares
+ *   with the same payload. That re-prepare is the merge path the backend
+ *   built, and no shortcut pretends otherwise: the chips move when the
+ *   server's plan says they moved.
+ *
+ * The approval gate follows the design now that a path through exists:
+ * `Approve & continue` unlocks when `blocking_questions` is empty. WS-32's
+ * fail-closed behavior underneath is unchanged — a queued run still stops
+ * at a question nothing answers and hands it back — but the console no
+ * longer offers approving *into* that stop, because every question that
+ * could stop it is answerable right here (and a never-autofill one never
+ * blocks; it is answered on the employer's site).
  *
  * Approving answers `202` with a run id: it queues durable work, it does
  * not submit, and every label on this screen says so. There is no other way
@@ -118,6 +131,38 @@ const decisionSchema = z.object({
 })
 
 type DecisionForm = z.infer<typeof decisionSchema>
+
+/**
+ * The prepare request, exactly as the operator's form produces it.
+ *
+ * Built once per submit and kept: the re-prepare after a saved answer
+ * reuses **this** body, so the merge runs on the same posting, the same
+ * candidate and the same profile the packet the human is reading came
+ * from.
+ */
+function buildPrepareBody(
+  values: PrepareForm,
+  profileId: string | null
+): ApplicationPrepareRequest {
+  return {
+    job_title: values.job_title,
+    company_name: values.company_name,
+    job_url: values.job_url,
+    candidate_name: values.candidate_name,
+    email: values.email,
+    phone: values.phone,
+    resume_path: values.resume_path?.trim()
+      ? values.resume_path.trim()
+      : undefined,
+    cover_letter: values.cover_letter?.trim() ? values.cover_letter : undefined,
+    custom_fields: Object.fromEntries(
+      values.custom_fields
+        .filter((field) => field.key.trim() && field.value.trim())
+        .map((field) => [field.key.trim(), field.value])
+    ),
+    profile_id: profileId ?? undefined,
+  }
+}
 
 /** The design's ghost action pill (nodes `49:1053` / `49:1064`). */
 const GHOST_PILL =
@@ -230,10 +275,10 @@ function PacketRow({
           aria-hidden
         />
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="text-[11px] font-semibold leading-4 text-muted-foreground">
+          <p className="text-[11px] leading-4 font-semibold text-muted-foreground">
             {eyebrow}
           </p>
-          <p className="text-sm font-semibold leading-5 text-primary">
+          <p className="text-sm leading-5 font-semibold text-primary">
             {title}
           </p>
           <p className="text-xs leading-[17px] text-muted-foreground">{sub}</p>
@@ -338,18 +383,18 @@ function ApprovalStepper({ active }: { active: 1 | 2 | 3 | 4 }) {
             aria-current={isActive ? "step" : undefined}
           >
             {isActive ? (
-              <span className="inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary-foreground">
+              <span className="inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary-foreground">
                 {n} {label}
               </span>
             ) : (
-              <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
+              <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-primary">
                 {n} {label}
               </span>
             )}
             {index < steps.length - 1 ? (
               <span
                 aria-hidden
-                className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
+                className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-primary"
               >
                 →
               </span>
@@ -382,6 +427,14 @@ export function ApprovalsScreen() {
     cover_letter: string
     resume_path: string
   } | null>(null)
+
+  /*
+    The exact request body this packet came from. A saved answer is merged
+    server-side by **prepare**, so the answering flow re-prepares with this
+    body unchanged — same posting, same candidate, same profile.
+  */
+  const [lastPrepareBody, setLastPrepareBody] =
+    useState<ApplicationPrepareRequest | null>(null)
 
   /*
     The pointer to the approval the console last worked on. It survives a
@@ -491,27 +544,8 @@ export function ApprovalsScreen() {
     approvalState.error.status === 404
 
   const prepare = useMutation({
-    mutationFn: (values: PrepareForm) =>
-      api.prepareApplication({
-        job_title: values.job_title,
-        company_name: values.company_name,
-        job_url: values.job_url,
-        candidate_name: values.candidate_name,
-        email: values.email,
-        phone: values.phone,
-        resume_path: values.resume_path?.trim()
-          ? values.resume_path.trim()
-          : undefined,
-        cover_letter: values.cover_letter?.trim()
-          ? values.cover_letter
-          : undefined,
-        custom_fields: Object.fromEntries(
-          values.custom_fields
-            .filter((field) => field.key.trim() && field.value.trim())
-            .map((field) => [field.key.trim(), field.value])
-        ),
-        profile_id: profileId ?? undefined,
-      }),
+    mutationFn: (body: ApplicationPrepareRequest) =>
+      api.prepareApplication(body),
     onSuccess: (result) => {
       setApplicationId(result.application_id ?? null)
       setEditing(false)
@@ -562,9 +596,84 @@ export function ApprovalsScreen() {
   })
 
   const prepared = prepare.data
+  /*
+    Captured before any narrowing: inside the `prepared ?` branch the alias
+    narrows the mutation to its success member — whose `error` is literally
+    `null` — so an error check there would be unreachable to the type
+    system. The value is the same `Error | null` either way.
+  */
+  const rePrepareError = prepare.error
   const decided = decide.data
   const blockers = prepared?.blocking_questions ?? []
   const questions = prepared?.form_questions ?? []
+
+  /*
+    The answers the human already saved on the tracked application (WS-45).
+    A prepare inherits the posting's earlier answers onto the application it
+    creates, so this read is what makes an inherited answer show up in the
+    answering card's controls — the operator edits the stored answer rather
+    than re-typing it. It is read only while a question still needs a
+    human; once `blocking_questions` is empty there is nothing to answer.
+  */
+  const savedAnswers = useQuery({
+    queryKey: ["application-answers", prepared?.application_id],
+    queryFn: ({ signal }) =>
+      getApplicationAnswers(prepared!.application_id as string, signal),
+    enabled: Boolean(prepared?.application_id) && blockers.length > 0,
+    retry: false,
+  })
+
+  /*
+    Saving one answer, and the re-prepare that makes it count.
+
+    The save is addressed to the application **this prepare created**. The
+    plan that reads answers is built by prepare — every prepare creates a
+    fresh application and inherits the posting's saved answers onto it — so
+    the merge only happens on a re-prepare, with the same payload the
+    packet came from. The chips move when that response arrives, never
+    before: the console does not preview a merge the server has not run.
+  */
+  const saveAnswer = useMutation({
+    mutationFn: async ({ input }: { input: AnswerInput }) => {
+      const applicationId = prepared?.application_id
+      if (!applicationId) {
+        // Unreachable while the answering card is rendered — it exists
+        // only on a prepared packet with a tracked application.
+        throw new Error(
+          "There is no tracked application to save the answer into."
+        )
+      }
+      await putApplicationAnswers(applicationId, [input])
+      return applicationId
+    },
+    onSuccess: (savedInto) => {
+      if (lastPrepareBody) {
+        prepare.mutate(lastPrepareBody)
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["application-answers", savedInto],
+      })
+    },
+  })
+
+  /** One saved answer, as the answering card's `onSave` wants it. */
+  const saveOneAnswer = useCallback(
+    async (input: AnswerInput) => {
+      await saveAnswer.mutateAsync({ input })
+    },
+    [saveAnswer]
+  )
+
+  /**
+   * Run the merge again after a failed re-prepare. The save itself is
+   * already stored, so a retry needs nothing but the same payload. Built
+   * here — before the render's narrowing on `prepared` — because inside
+   * that branch the mutation result is narrowed to its success member,
+   * where the type system cannot see a second `mutate` call happening.
+   */
+  const retryRePrepare = useCallback(() => {
+    if (lastPrepareBody) prepare.mutate(lastPrepareBody)
+  }, [lastPrepareBody, prepare])
   const coverLetterProvided = Boolean(submitted?.cover_letter?.trim())
   /*
     The packet's status badge shows the approval row's **persisted** state
@@ -596,21 +705,12 @@ export function ApprovalsScreen() {
   const needsHumanCount = blockers.length
 
   /**
-   * Route the operator into the prepare form with the first blocking
-   * question's field prefilled as a custom field — the one way an answer
-   * actually becomes part of a prepared payload.
+   * The design's approval gate (WS-45): the authorize action unlocks when
+   * every required question the profile does not answer has an answer.
+   * Every blocking question is answerable in the console (a never-autofill
+   * one never blocks), so the gate cannot strand the operator.
    */
-  const answerBlockers = () => {
-    const first = questions.find((question) => blockers.includes(question.label))
-    const key = first?.fields?.[0] ?? blockers[0]
-    prepare.reset()
-    decide.reset()
-    setEditing(true)
-    const existing = prepareForm.getValues("custom_fields")
-    if (key && !existing.some((field) => field.key === key)) {
-      customFields.append({ key, value: "" })
-    }
-  }
+  const canAuthorize = needsHumanCount === 0
 
   return (
     <div className="space-y-6">
@@ -646,12 +746,12 @@ export function ApprovalsScreen() {
         <div className="min-w-0 space-y-3">
           {prepared ? (
             <section className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
                 What will be submitted
               </p>
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                  <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                  <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                     {prepared.prepared_summary.job_title}
                   </h2>
                   <StatusBadge status={packetStatus} />
@@ -675,9 +775,9 @@ export function ApprovalsScreen() {
                 ].join(" · ")}
               </p>
               <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
-                Nothing has been submitted yet. The payload below was stored
-                by the server — approving executes exactly this payload; it is
-                not rebuilt from the form.
+                Nothing has been submitted yet. The payload below was stored by
+                the server — approving executes exactly this payload; it is not
+                rebuilt from the form.
               </p>
 
               {prepared.prepared_summary.requires_manual_review ? (
@@ -707,7 +807,7 @@ export function ApprovalsScreen() {
                 }
                 detail={
                   prepared.prepared_summary.resume_path ? (
-                    <code className="block break-all font-mono text-[11px]">
+                    <code className="block font-mono text-[11px] break-all">
                       {prepared.prepared_summary.resume_path}
                     </code>
                   ) : undefined
@@ -726,9 +826,9 @@ export function ApprovalsScreen() {
                     : "Not provided — the form submits without one"
                 }
                 detail={
-                  coverLetterProvided && submitted ? (
-                    submitted.cover_letter
-                  ) : undefined
+                  coverLetterProvided && submitted
+                    ? submitted.cover_letter
+                    : undefined
                 }
               />
 
@@ -776,7 +876,7 @@ export function ApprovalsScreen() {
                 }
                 sub="The payload's own allow-list of facts, stored with the packet"
                 detail={
-                  <code className="block break-all font-mono text-[11px]">
+                  <code className="block font-mono text-[11px] break-all">
                     {formatList(prepared.prepared_summary.field_names)}
                   </code>
                 }
@@ -799,12 +899,14 @@ export function ApprovalsScreen() {
                 <>
                   <Divider />
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
-                      {questions.filter(
-                        (question) =>
-                          !blockers.includes(question.label) &&
-                          question.verdict === "answerable"
-                      ).length}{" "}
+                    <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-primary">
+                      {
+                        questions.filter(
+                          (question) =>
+                            !blockers.includes(question.label) &&
+                            question.verdict === "answerable"
+                        ).length
+                      }{" "}
                       of {questions.length} answers confirmed
                     </span>
                     <button
@@ -840,10 +942,11 @@ export function ApprovalsScreen() {
 
               {blockers.length > 0 ? (
                 <p className="text-sm leading-relaxed text-terracotta-foreground">
-                  Approving now queues the run; it will stop at the{" "}
-                  {blockers.length} question
-                  {blockers.length === 1 ? "" : "s"} the profile does not
-                  answer and hand them to you, rather than guess.
+                  The profile does not answer {blockers.length} required
+                  question{blockers.length === 1 ? "" : "s"}. Answer{" "}
+                  {blockers.length === 1 ? "it" : "them"} in the questions panel
+                  — approval unlocks once they are answered, because the console
+                  never guesses.
                 </p>
               ) : null}
 
@@ -858,16 +961,13 @@ export function ApprovalsScreen() {
                     time.
                   </p>
                   <Field id="reason" label="Reason" optional>
-                    <Input
-                      id="reason"
-                      {...decisionForm.register("reason")}
-                    />
+                    <Input id="reason" {...decisionForm.register("reason")} />
                   </Field>
 
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
-                      disabled={decide.isPending}
+                      disabled={decide.isPending || !canAuthorize}
                       onClick={() => setDialog("approve")}
                     >
                       Approve &amp; continue
@@ -926,9 +1026,7 @@ export function ApprovalsScreen() {
                     onDismiss={() => setDialog(null)}
                   />
 
-                  {decide.isError ? (
-                    <ErrorNotice error={decide.error} />
-                  ) : null}
+                  {decide.isError ? <ErrorNotice error={decide.error} /> : null}
                 </div>
               )}
             </section>
@@ -936,6 +1034,7 @@ export function ApprovalsScreen() {
             <form
               className="space-y-5"
               onSubmit={prepareForm.handleSubmit((values) => {
+                const body = buildPrepareBody(values, profileId)
                 setSubmitted({
                   candidate_name: values.candidate_name,
                   email: values.email,
@@ -943,7 +1042,8 @@ export function ApprovalsScreen() {
                   cover_letter: values.cover_letter ?? "",
                   resume_path: values.resume_path ?? "",
                 })
-                prepare.mutate(values)
+                setLastPrepareBody(body)
+                prepare.mutate(body)
               })}
             >
               <FormSection
@@ -1004,10 +1104,7 @@ export function ApprovalsScreen() {
                   label="Email"
                   error={prepareForm.formState.errors.email?.message}
                 >
-                  <Input
-                    id="email"
-                    {...prepareForm.register("email")}
-                  />
+                  <Input id="email" {...prepareForm.register("email")} />
                 </Field>
                 <Field
                   id="phone"
@@ -1135,7 +1232,43 @@ export function ApprovalsScreen() {
         <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
           {prepared ? (
             <>
-              <QuestionCard questions={questions} blockers={blockers} />
+              {/*
+                The answering flow (WS-45, design `49:1096`): the questions
+                that need a human, one at a time. A save stores the answer
+                on the tracked application and re-prepares — the merge is
+                server-side, so the chips move when the re-prepare answers.
+              */}
+              {needsHumanCount > 0 && questions.length > 0 ? (
+                <QuestionAnswer
+                  questions={questions}
+                  blockers={blockers}
+                  savedAnswers={savedAnswers.data?.answers ?? []}
+                  companyName={prepared.prepared_summary.company_name}
+                  saving={saveAnswer.isPending}
+                  error={saveAnswer.error}
+                  onSave={saveOneAnswer}
+                />
+              ) : null}
+
+              {/*
+                The re-prepare that follows a save can fail like any prepare;
+                the saved answer is already stored, so the way back is to run
+                the merge again.
+              */}
+              {rePrepareError ? (
+                <ErrorNotice error={rePrepareError} onRetry={retryRePrepare} />
+              ) : null}
+
+              {/*
+                The board's own ordered list — the thing the operator
+                approves. When the answering flow is open it renders
+                without the heading and chips the answering card carries.
+              */}
+              <QuestionCard
+                questions={questions}
+                blockers={blockers}
+                listOnly={needsHumanCount > 0}
+              />
 
               {needsHumanCount > 0 ? (
                 <section className="flex flex-col gap-2.5 rounded-surface bg-terracotta-soft p-[18px]">
@@ -1144,28 +1277,19 @@ export function ApprovalsScreen() {
                       className="size-4 shrink-0 text-terracotta-foreground"
                       aria-hidden
                     />
-                    <h2 className="text-[15px] font-semibold leading-snug text-terracotta-foreground">
+                    <h2 className="text-[15px] leading-snug font-semibold text-terracotta-foreground">
                       Not ready to authorize
                     </h2>
                   </div>
                   <p className="text-sm leading-relaxed text-terracotta-foreground">
                     {needsHumanCount} answer
-                    {needsHumanCount === 1 ? "" : "s"} need
-                    {needsHumanCount === 1 ? "s" : ""} a human. Approving now
-                    queues a run that stops at them and hands them back to
-                    you rather than guessing — or answer them in the prepare
-                    form first, which is the only way an answer becomes part
-                    of the payload.
+                    {needsHumanCount === 1 ? "" : "s"} still need
+                    {needsHumanCount === 1 ? "s" : ""} a human — the console
+                    never guesses.
                   </p>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={answerBlockers}
-                      className="inline-flex h-8 items-center rounded-lg bg-card/80 px-3 text-[13px] font-semibold text-terracotta-foreground transition-colors outline-none hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                    >
-                      Answer in the prepare form →
-                    </button>
-                  </div>
+                  <p className="text-sm leading-relaxed font-semibold text-terracotta-foreground">
+                    Confirm the required answer to unlock approval.
+                  </p>
                 </section>
               ) : null}
 
@@ -1174,9 +1298,8 @@ export function ApprovalsScreen() {
                   The review record
                 </h2>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  The ids everything else refers to: the approval this
-                  decision is recorded on, the tracked application it belongs
-                  to.
+                  The ids everything else refers to: the approval this decision
+                  is recorded on, the tracked application it belongs to.
                 </p>
                 <FieldList
                   items={[

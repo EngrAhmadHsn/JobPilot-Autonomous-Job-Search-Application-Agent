@@ -47,6 +47,15 @@ async function prepare(user: ReturnType<typeof userEvent.setup>) {
 
 function stubPrepareWithForm() {
   server.use(
+    // WS-45: the answering flow reads (and writes) the application's saved
+    // answers whenever the board's form carries questions that need a human.
+    // This test never saves, so an empty set is the whole contract here.
+    http.get(`${BASE}/api/applications/:applicationId/answers`, () =>
+      HttpResponse.json({ application_id: "application-1", answers: [] })
+    ),
+    http.put(`${BASE}/api/applications/:applicationId/answers`, () =>
+      HttpResponse.json({ application_id: "application-1", answers: [] })
+    ),
     http.post(`${BASE}/api/applications/prepare`, () =>
       HttpResponse.json({
         approval_id: "approval-1",
