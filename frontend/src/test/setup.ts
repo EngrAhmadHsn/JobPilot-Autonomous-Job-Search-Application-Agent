@@ -67,3 +67,49 @@ if (!window.matchMedia) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn()
 }
+
+/*
+  WS-48's @animate-ui primitives animate with the Web Animations API and
+  branch on `SVGGeometryElement` — neither of which jsdom implements, so
+  every menu the account drawer opens (any popup whose rows stagger) threw
+  `row.animate is not a function` / `SVGGeometryElement is not defined`
+  from inside the primitives on a pristine tree. The animation is the
+  primitives' own polish — rows sliding in, indicators popping — and is
+  never what a test asserts, so the stubs answer "already finished" and let
+  the components run their real logic. Same family as the shims above: the
+  environment catches up to what the console (now) uses.
+*/
+if (!Element.prototype.animate) {
+  Element.prototype.animate = (() => ({
+    finished: Promise.resolve(),
+    currentTime: 0,
+    startTime: null,
+    playState: "finished",
+    id: null,
+    effect: null,
+    cancel: () => {},
+    finish: () => {},
+    pause: () => {},
+    play: () => {},
+  })) as unknown as typeof Element.prototype.animate
+}
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => []
+}
+if (typeof window.SVGGeometryElement === "undefined") {
+  // Only used for an `instanceof` branch (stroke-draw vs fade): a bare
+  // class answers "no" for every jsdom element, so indicators fade —
+  // which is all a jsdom test can observe anyway.
+  window.SVGGeometryElement =
+    class SVGGeometryElement {} as unknown as typeof SVGGeometryElement
+}
+if (typeof window.ResizeObserver === "undefined") {
+  // The primitives' sliding indicator observes its tab list to re-measure
+  // the underline; jsdom has no observer and no layout to observe, so the
+  // no-op one is exactly as informative as the real thing would be here.
+  window.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver
+}
