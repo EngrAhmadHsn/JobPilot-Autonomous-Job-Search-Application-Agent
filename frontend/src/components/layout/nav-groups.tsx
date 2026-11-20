@@ -232,18 +232,32 @@ function DestinationRow({
           its place — the WS-35 keyboard sweep found the paper rows computing
           `outline-style: none` with nothing painted, so the treatment moved
           here for both surfaces and only the colour branches per surface.
+
+          WS-43: every row (both surfaces, parents and children) takes the
+          radius scale's `rounded-2xl` — the same pill radius the rail's
+          rows carry, so one radius story spans rail and drawer. The forest
+          rows also match the rail's geometry: the drawer's `px-3.5`
+          container plus the rows' `px-3` put the glyphs at 26 px and the
+          labels at 58 px, exactly where the expanded rail puts them.
         */
-        "relative flex items-center rounded-lg transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:outline-offset-2",
+        "relative flex items-center rounded-2xl transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:outline-offset-2",
         forest
           ? cn(
-              "mx-2 focus-visible:outline-sidebar-ring",
+              "focus-visible:outline-sidebar-ring",
               child
                 ? "h-8 gap-2 pr-3 pl-9 text-[13px]"
-                : "h-10 gap-3 px-3 text-base",
+                : "h-11 gap-3 px-3 text-base",
               current
-                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+                ? /*
+                    The design's lime active pill (node `49:11961`, the
+                    drawer's "you are here"): the sidebar's lime ground with
+                    its own dark foreground — the same pill the rail's
+                    current row carries, so the marker means one thing on
+                    every forest surface.
+                  */
+                  "bg-sidebar-primary font-semibold text-sidebar-primary-foreground"
                 : active
-                  ? "font-medium text-sidebar-foreground"
+                  ? "bg-sidebar-hover font-medium text-sidebar-foreground"
                   : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
             )
           : cn(

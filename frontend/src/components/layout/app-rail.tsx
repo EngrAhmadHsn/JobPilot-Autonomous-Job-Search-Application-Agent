@@ -57,11 +57,11 @@ export function AppRail({
   /**
    * Whether the rail is expanded to 240 px, **owned by the shell**.
    *
-   * The shell has to know: the design shifts the content column with the
-   * rail (`47:450` puts the body at x=272 — 240 px of rail plus the 32 px
-   * gutter), so the same state that widens the rail widens the shell's
-   * gutter. Lifting the state also keeps the width transition and the
-   * content's padding transition on the same clock.
+   * The shell has to know because it collapses the rail on navigation
+   * (WS-43: the expansion overlays the content — the content gutter is
+   * constant, so a route change that left the rail open would leave the
+   * new screen under 168 px of forest). Lifting the state also keeps the
+   * rail's width transition and the shell's auto-collapse on one state.
    */
   expanded: boolean
   onExpandedChange: (next: boolean) => void
@@ -79,15 +79,31 @@ export function AppRail({
       aria-label="Workspace navigation"
       className={cn(
         "fixed inset-y-0 left-0 z-40 hidden flex-col bg-sidebar text-sidebar-foreground lg:flex",
-        "transition-[width] duration-200 ease-[var(--ease-soft)] motion-reduce:transition-none",
-        expanded ? "w-60" : "w-[72px]"
+        "transition-[width,box-shadow] duration-200 ease-[var(--ease-soft)] motion-reduce:transition-none",
+        expanded ? "w-60" : "w-[72px]",
+        /*
+          WS-43: the expansion is an **overlay** — the content gutter stays
+          at 72 px and the rail floats over it, so the expanded strip needs
+          the elevation a floating panel carries.
+        */
+        expanded && "shadow-2xl shadow-ink/25"
       )}
     >
-      {/* The brand mark, and the collapse/expand control. */}
+      {/*
+        The brand mark, and the collapse/expand control beside it.
+
+        WS-43: expanded, the chevron sits **adjacent to the wordmark** — a
+        flex row with a small gap, not the old `justify-between` that threw
+        it to the rail's far edge. Collapsed keeps the design's own slot
+        floating below the mark, where the 72 px strip has no row to host
+        it. (The `13 · Expanded navigation · 1440` render draws the control
+        at the header's far edge; the recorded WS-43 direction is "with the
+        wordmark", so the render is deviated from here on purpose.)
+      */}
       <div
         className={cn(
           "flex h-[70px] shrink-0 items-center",
-          expanded ? "justify-between px-6" : "justify-center px-2"
+          expanded ? "gap-2 px-6" : "justify-center px-2"
         )}
       >
         <Link
@@ -100,9 +116,7 @@ export function AppRail({
             "JP" collapsed (47:2), "JobPilot" expanded (49:2229). One span
             swaps its text; the accessible name stays "JobPilot" either way.
           */}
-          <span
-            className="text-[22px] leading-[32px] font-semibold tracking-tight text-sidebar-primary"
-          >
+          <span className="text-[22px] leading-[32px] font-semibold tracking-tight text-sidebar-primary">
             {expanded ? "JobPilot" : "JP"}
           </span>
           {!expanded ? <span className="sr-only">JobPilot</span> : null}
@@ -113,7 +127,12 @@ export function AppRail({
           aria-expanded={expanded}
           aria-controls="app-rail-destinations"
           className={cn(
-            "grid size-8 shrink-0 place-items-center rounded-lg bg-rail-control text-sidebar-foreground",
+            /*
+              The design's control measures 40×32 in both states (expanded
+              1440 node, collapsed 1440 node, drawer 768) — a wide chip,
+              not the 32×32 square it replaced.
+            */
+            "grid h-8 w-10 shrink-0 place-items-center rounded-lg bg-rail-control text-sidebar-foreground",
             "transition-colors outline-none hover:bg-sidebar-hover",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring",
             expanded ? "flex" : "absolute top-[86px] left-1/2 -translate-x-1/2"
@@ -121,9 +140,13 @@ export function AppRail({
         >
           <ChevronRight
             aria-hidden="true"
-            strokeWidth={2}
+            /*
+              WS-43: the toggle's glyph joins the nav glyphs — 20 px at
+              1.8 stroke, not a smaller 24 px at 2.
+            */
+            strokeWidth={1.8}
             className={cn(
-              "size-4 transition-transform duration-200 motion-reduce:transition-none",
+              "size-5 transition-transform duration-200 motion-reduce:transition-none",
               expanded && "rotate-180"
             )}
           />
@@ -210,14 +233,24 @@ export function AppRail({
         account's two-line identity block once there is room. The design's
         expanded footer reads name over "Account & preferences"; the honest
         equivalent of the name is the account's own e-mail.
+
+        WS-43: expanded, the footer borrows the nav's **exact** padding
+        structure — the `px-3.5` container plus the rows' `px-3` — so the
+        avatar's left edge lands on the icon column (26 px) and the
+        identity block follows it, as the `13 · Expanded navigation · 1440`
+        render draws (avatar at 26, name at 74).
       */}
       <div
         className={cn(
           "flex shrink-0 pb-4",
-          expanded ? "px-6 pt-3" : "justify-center pt-3"
+          expanded ? "px-3.5 pt-3" : "justify-center pt-3"
         )}
       >
-        <AccountMenu surface="sidebar" compact={!expanded} />
+        <AccountMenu
+          surface="sidebar"
+          compact={!expanded}
+          className={expanded ? "gap-3 px-3" : undefined}
+        />
       </div>
     </aside>
   )
@@ -237,7 +270,7 @@ function RailChildLink({ child }: { child: NavChild }) {
       viewTransition
       aria-current={current ? "page" : undefined}
       className={cn(
-        "flex h-8 items-center rounded-lg pr-3 pl-11 text-[13px] transition-colors",
+        "flex h-8 items-center rounded-2xl pr-3 pl-11 text-[13px] transition-colors",
         "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring",
         current
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
@@ -300,7 +333,9 @@ function RailLink({
       */
       title={expanded ? undefined : destination.label}
       className={cn(
-        "relative flex items-center rounded-xl transition-colors duration-150 outline-none",
+        // WS-43's radius scale (see index.css): nav rows and their active
+        // pill take `rounded-2xl`; controls keep `rounded-lg`.
+        "relative flex items-center rounded-2xl transition-colors duration-150 outline-none",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring",
         expanded ? "h-11 gap-3 px-3" : "size-11 justify-center",
         current

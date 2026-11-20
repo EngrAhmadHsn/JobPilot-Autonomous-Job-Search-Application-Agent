@@ -68,6 +68,13 @@
     Geometry from the design file. The base radius stays 0.75rem (12px) for
     controls; **surfaces** use 14px, which is what every card, panel and
     column in the frames draws.
+
+    Radius scale (WS-43, the design contract): **controls** take
+    `rounded-lg` (the --radius base, 12px) — buttons, inputs, the rail's
+    expand chip. **Navigation rows and their active pills** take
+    `rounded-2xl` (base × 1.7, ≈20px) — the rail's destination rows, the
+    drawer's rows and their current-page pill share it, so one radius story
+    spans rail and drawer. Nothing in between.
   */
   --radius-surface: 14px;
 
