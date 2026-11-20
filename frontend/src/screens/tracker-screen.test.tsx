@@ -510,7 +510,10 @@ describe("the tracker board", () => {
         const statuses = new URL(request.url).searchParams
           .getAll("status")
           .flatMap((value) => value.split(","))
-        if (statuses.includes("awaiting_approval") || statuses.includes("prepared")) {
+        if (
+          statuses.includes("awaiting_approval") ||
+          statuses.includes("prepared")
+        ) {
           return boardPage([summary({ id: "p-1", status: "prepared" })], 5)
         }
         if (statuses.includes("verified")) {
@@ -787,5 +790,38 @@ describe("the tracker detail", () => {
         "A human outcome must be recorded by a human actor"
       )
     ).toBeInTheDocument()
+  })
+
+  it("links an application that awaits a decision to the questions review (WS-45)", async () => {
+    // A prepared application still waiting for the human's decision is the
+    // one state where questions can still be answered in the console —
+    // after a decision the Review screen is not where the application lives.
+    server.use(
+      http.get(`${BASE}/api/applications/:applicationId`, () =>
+        HttpResponse.json({
+          ...applicationDetail(),
+          status: "awaiting_approval",
+          events: [applicationDetail().events[0]],
+        })
+      )
+    )
+    renderApp({ route: "/app/tracker/application-1" })
+
+    const link = await screen.findByRole("link", {
+      name: "Review the questions →",
+    })
+    // The deep-link the approvals screen itself reads on arrival.
+    expect(link).toHaveAttribute("href", "/app/approvals")
+  })
+
+  it("offers no questions-review link once the application has moved on", async () => {
+    // The shared factory's detail is verified with a recorded approval —
+    // there is nothing left to answer on the Review screen.
+    renderApp({ route: "/app/tracker/application-1" })
+
+    expect(await screen.findByText("Ordered history")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Review the questions →" })
+    ).not.toBeInTheDocument()
   })
 })

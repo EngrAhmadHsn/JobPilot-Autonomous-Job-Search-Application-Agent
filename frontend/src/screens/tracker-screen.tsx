@@ -94,11 +94,7 @@ export function TrackerScreen() {
     total in the body).
   */
   const viewTabs = (
-    <Tabs
-      variant="pill"
-      value={view}
-      onValueChange={(value) => setView(value)}
-    >
+    <Tabs variant="pill" value={view} onValueChange={(value) => setView(value)}>
       <TabsList aria-label="Applications view" className="gap-2.5">
         <TabsTrigger value="board">Board</TabsTrigger>
         <TabsTrigger value="list">List</TabsTrigger>
@@ -350,13 +346,26 @@ export function TrackerDetailScreen() {
         </LinkButton>
         <span
           title={describeStatus(record.status).nextStep}
-          className={`inline-block rounded-md px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary ${STATUS_PILL_TONE[describeStatus(record.status).tone]}`}
+          className={`inline-block rounded-md px-[9px] py-1 text-[11px] leading-4 font-semibold text-primary ${STATUS_PILL_TONE[describeStatus(record.status).tone]}`}
         >
           {describeStatus(record.status).label}
         </span>
         <LinkButton variant="outline" to="/app/activity">
           Open activity →
         </LinkButton>
+        {/*
+          WS-45: an application that is still waiting for the human's
+          decision is the one state where its questions can still be
+          answered in the console — after a decision, the Review screen is
+          not where the application lives. The link goes to the Review
+          screen itself, which renders the real question state.
+        */}
+        {record.status === "awaiting_approval" ||
+        record.status === "prepared" ? (
+          <LinkButton variant="outline" to="/app/approvals">
+            Review the questions →
+          </LinkButton>
+        ) : null}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
@@ -387,7 +396,7 @@ export function TrackerDetailScreen() {
                     <dt className="shrink-0 text-xs leading-[17px] text-muted-foreground">
                       {row.label}
                     </dt>
-                    <dd className="min-w-0 text-right text-sm font-semibold leading-5 text-primary">
+                    <dd className="min-w-0 text-right text-sm leading-5 font-semibold text-primary">
                       {row.value}
                     </dd>
                   </div>
@@ -415,8 +424,8 @@ export function TrackerDetailScreen() {
 
               {records.length === 0 && !evidence.isPending ? (
                 <p className="text-sm text-muted-foreground">
-                  This application has no evidence record. Nothing is claimed about
-                  what happened on the employer&apos;s side.
+                  This application has no evidence record. Nothing is claimed
+                  about what happened on the employer&apos;s side.
                 </p>
               ) : null}
 
@@ -463,8 +472,8 @@ export function TrackerDetailScreen() {
                           className="max-w-full rounded-lg border border-border"
                         />
                         <figcaption className="text-xs text-muted-foreground">
-                          The screenshot the browser captured at the moment of the
-                          outcome.
+                          The screenshot the browser captured at the moment of
+                          the outcome.
                         </figcaption>
                       </figure>
                     ) : null}
@@ -525,13 +534,13 @@ export function TrackerDetailScreen() {
           */}
           <section className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-5">
             <p>
-              <span className="inline-block rounded-md bg-forest-soft px-[9px] py-1 text-[11px] font-semibold leading-4 tracking-wide text-primary">
+              <span className="inline-block rounded-md bg-forest-soft px-[9px] py-1 text-[11px] leading-4 font-semibold tracking-wide text-primary">
                 {records.length === 0
                   ? "EVIDENCE PENDING"
                   : `${pluralize(records.length, "ARTIFACT")}`}
               </span>
             </p>
-            <h2 className="text-[22px] font-semibold leading-8 text-primary">
+            <h2 className="text-[22px] leading-8 font-semibold text-primary">
               Proof, not assumptions.
             </h2>
             <p className="text-sm leading-5 text-muted-foreground">
