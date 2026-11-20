@@ -56,7 +56,7 @@ function RowScore({ value, selected }: { value: number; selected: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center rounded-[6px] px-[9px] text-[11px] font-semibold leading-4 text-lime-foreground tabular-nums",
+        "inline-flex h-6 shrink-0 items-center rounded-[6px] px-[9px] text-[11px] leading-4 font-semibold text-lime-foreground tabular-nums",
         selected ? "bg-lime-soft" : "bg-forest-soft"
       )}
       aria-label={`Match score ${whole} out of 100`}
@@ -151,7 +151,7 @@ function ResultRow({
               </PlainText>
             )}
           </div>
-          <span className="shrink-0 text-[13px] font-semibold leading-[19px] text-forest">
+          <span className="shrink-0 text-[13px] leading-[19px] font-semibold text-forest">
             View →
           </span>
         </div>
@@ -227,6 +227,14 @@ export function ResultsList({
       next = buttons.length - 1
     }
     buttons[next]?.focus()
+    /*
+      WS-44, the pane scroll: the list scrolls inside its pane now, so a
+      keyboard walk can move focus to a row the pane has scrolled away —
+      and a focused row the operator cannot see is a silent lie. "nearest"
+      moves the pane only as far as the row needs, so single-stepping never
+      jumps the window.
+    */
+    buttons[next]?.scrollIntoView({ block: "nearest" })
   }
 
   return (

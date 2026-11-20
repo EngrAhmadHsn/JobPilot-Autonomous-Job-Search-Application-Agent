@@ -100,7 +100,11 @@ describe("the matches screen", () => {
     first.unmount()
     renderScreen(<MatchesScreen />)
 
-    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    // WS-44: the restored ranking also selects its top match by default, so
+    // the title is on screen twice — the list's row and the detail's heading.
+    expect(
+      (await screen.findAllByText("AI Engineer")).length
+    ).toBeGreaterThanOrEqual(1)
     // The row's score chip carries the whole score (WS-42, node 49:878) —
     // a rounded display form; the full precision stays with the breakdown.
     expect(screen.getByText("83")).toBeInTheDocument()
@@ -132,11 +136,17 @@ describe("the matches screen", () => {
     await user.click(screen.getByRole("button", { name: "Search jobs" }))
     expect(await screen.findByText("Role 1")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Search jobs" }))
-    expect(await screen.findByText("Role 2")).toBeInTheDocument()
+    // WS-44: the top match of each search is selected by default, so the
+    // title renders as the list's row and the detail's heading alike.
+    expect(
+      (await screen.findAllByText("Role 2")).length
+    ).toBeGreaterThanOrEqual(1)
 
     first.unmount()
     renderScreen(<MatchesScreen />)
-    expect(await screen.findByText("Role 2")).toBeInTheDocument()
+    expect(
+      (await screen.findAllByText("Role 2")).length
+    ).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText("Role 1")).not.toBeInTheDocument()
     expect(calls).toBe(2)
   })
@@ -148,7 +158,12 @@ describe("the matches screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
-    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    // WS-44: the ranked slice arrives with its top match selected by
+    // default — the title renders as the list's row and the detail's
+    // heading alike, so the landing is asserted on either.
+    expect(
+      (await screen.findAllByText("AI Engineer")).length
+    ).toBeGreaterThanOrEqual(1)
     // The chip shows the whole score, not a decimal (WS-42, node 49:878).
     expect(screen.getByText("83")).toBeInTheDocument()
 
@@ -348,7 +363,9 @@ describe("the Discover split view", () => {
     await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
     // WS-42 keeps the reasoning one disclosure deep in the panel (node
     // 49:944); opening it reveals the component rows.
-    await user.click(screen.getByText("See all 8 score components and evidence"))
+    await user.click(
+      screen.getByText("See all 8 score components and evidence")
+    )
 
     // The unknown states its reason…
     expect(
@@ -527,6 +544,81 @@ describe("the Discover split view", () => {
   })
 })
 
+/*
+  WS-44: when ranked results are on screen and no `?job=` is addressed, the
+  top-ranked match is the selection — written to the URL, replaced not
+  pushed, so landing here is not a navigation the operator made. A URL that
+  already carries `?job=` is never overridden: deep-linked and invalid
+  selections resolve by their own reads exactly as they always have.
+*/
+describe("the default selection (WS-44)", () => {
+  /** A stored search whose ranked slice holds `count` listings. */
+  function storedSearch(count: number) {
+    return {
+      query: "eng",
+      location: "",
+      workplace: "",
+      topN: 50,
+      response: jobSearchResponse({ results: sliceOf(count) }),
+    }
+  }
+
+  function seedStoredSearch(record: unknown) {
+    window.localStorage.setItem(
+      "ajp.lastSearch.profile-1",
+      JSON.stringify(record)
+    )
+  }
+
+  it("selects the top match when the last search is restored", async () => {
+    withProfile()
+    seedStoredSearch(storedSearch(2))
+    const { router } = renderApp({ route: "/app/matches" })
+
+    // The first ranked match is the selection, in the URL, with the detail
+    // rendered beside the list — the screen's first paint already answers
+    // "why".
+    await screen.findByRole("heading", { name: "Role 0" })
+    expect(router.state.location.search).toContain("job=job-0")
+    // The write replaced history rather than pushing an entry: landing on
+    // the screen is not a navigation the operator made.
+    expect(router.state.historyAction).toBe("REPLACE")
+    expect(screen.getByRole("button", { name: /Role 1/ })).toBeInTheDocument()
+  })
+
+  it("selects the top match after a fresh search", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(jobSearchResponse({ results: sliceOf(3) }))
+      )
+    )
+    const user = userEvent.setup()
+    const { router } = renderApp({ route: "/app/matches" })
+
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
+
+    await screen.findByRole("heading", { name: "Role 0" })
+    expect(router.state.location.search).toContain("job=job-0")
+    expect(router.state.historyAction).toBe("REPLACE")
+    expect(screen.getByRole("button", { name: /Role 2/ })).toBeInTheDocument()
+  })
+
+  it("leaves an addressed ?job= alone, even when results are restored", async () => {
+    withProfile()
+    seedStoredSearch(storedSearch(2))
+    // An id outside the restored slice: the deep link resolves by its own
+    // reads (the lookup job renders), and the URL is never overridden with
+    // the slice's top match.
+    const { router } = renderApp({ route: "/app/matches?job=job-9" })
+
+    await screen.findByRole("heading", { name: "AI Engineer" })
+    expect(router.state.location.search).toBe("?job=job-9")
+    // The restored list is still beside it.
+    expect(screen.getByRole("button", { name: /Role 0/ })).toBeInTheDocument()
+  })
+})
+
 describe("the job detail screen", () => {
   it("shows the listing and the match the profile scored", async () => {
     withProfile()
@@ -634,7 +726,11 @@ describe("the matches screen while a search is running", () => {
     ).toBeGreaterThan(0)
 
     release()
-    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    // The ranking lands with its top match selected by default (WS-44), so
+    // the title is the list's row and the detail's heading alike.
+    expect(
+      (await screen.findAllByText("AI Engineer")).length
+    ).toBeGreaterThanOrEqual(1)
 
     // ...and it is gone once the ranking lands.
     await waitFor(() => {
@@ -665,7 +761,8 @@ describe("the matches screen while a search is running", () => {
     ).not.toBeInTheDocument()
 
     release()
-    await screen.findByText("AI Engineer")
+    // The ranking lands with its top match selected by default (WS-44).
+    await screen.findAllByText("AI Engineer")
   })
 
   it("says what it is doing instead of waiting silently", async () => {
@@ -686,7 +783,8 @@ describe("the matches screen while a search is running", () => {
     ).toBeInTheDocument()
 
     release()
-    await screen.findByText("AI Engineer")
+    // The ranking lands with its top match selected by default (WS-44).
+    await screen.findAllByText("AI Engineer")
   })
 
   it("replaces the previous ranking rather than stacking on it", async () => {
@@ -713,7 +811,11 @@ describe("the matches screen while a search is running", () => {
     expect(screen.queryByText("83")).not.toBeInTheDocument()
 
     release()
-    expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
+    // WS-44: the ranking lands with its top match selected by default — the
+    // title is on screen as the list's row and the detail's heading alike.
+    expect(
+      (await screen.findAllByText("AI Engineer")).length
+    ).toBeGreaterThanOrEqual(1)
   })
 })
 
