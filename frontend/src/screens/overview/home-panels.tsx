@@ -47,8 +47,18 @@ export function NextStepPanel({
   return (
     <div className="flex flex-col gap-3.5 rounded-[var(--radius-surface)] bg-terracotta-soft p-6">
       <p className="type-eyebrow text-forest">{eyebrow}</p>
-      <p className="type-statement">{statement}</p>
-      <p className="type-card-title">{subject}</p>
+      {/*
+        WS-43: the panel's ground is the constant `terracotta-soft` wash,
+        so its text must be the constant **dark forest** the design draws
+        (`01 · Home · 1440`) — not `--primary`, which is forest by day and
+        lime by night. `text-forest` overrides the type utility's own
+        `color: var(--primary)` (utilities beat the components layer), in
+        both themes. The consequence line stays `text-muted-foreground`:
+        the render samples it at `#6a6459`, the muted tone the design uses
+        for it — every other line on the panel is forest.
+      */}
+      <p className="type-statement text-forest">{statement}</p>
+      <p className="type-card-title text-forest">{subject}</p>
       <p className="text-sm leading-5 text-muted-foreground">{consequence}</p>
       <div className="flex flex-wrap items-center gap-3">
         {action}
@@ -264,7 +274,7 @@ export function DigestEntry({
         </span>
         <span className="type-caption">{at}</span>
       </div>
-      <p className="mt-1.5 text-[15px] font-semibold leading-[22px] text-forest">
+      <p className="mt-1.5 text-[15px] leading-[22px] font-semibold text-forest">
         {title}
       </p>
       <p className="type-caption mt-1.5">{detail}</p>

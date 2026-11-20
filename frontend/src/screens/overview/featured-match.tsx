@@ -43,21 +43,40 @@ export function FeaturedMatch({ job, match }: FeaturedMatchProps) {
       <span className="type-eyebrow inline-block rounded-md bg-lime-soft px-2 py-1 text-forest">
         {Math.round(match.overall_score)} / 100 match
       </span>
+      {/*
+        WS-43: the card's text colours are carried **inside** the
+        `PlainText` spans, not only on the wrappers around them. `PlainText`
+        paints its own `text-foreground` — right for untrusted text on the
+        paper surfaces, but on this card it silently replaced the wrappers'
+        `text-primary-foreground` and dropped dark ink onto the forest
+        ground (and pale ink onto the dark theme's lime card). Passing the
+        colour through is the fix at the cause: the span is the element the
+        reader's eye sees, so the span is where the card's foreground
+        belongs. (Measured against `01 · Home · 1440`: title paper-white,
+        meta and rationale the /80 wash — in both themes, where `bg-primary`
+        flips forest→lime and the foreground flips with it.)
+      */}
       <h3 className="mt-2.5 text-[21px] leading-[30px] font-semibold text-balance text-primary-foreground">
-        <PlainText as="span" className="text-[21px] font-semibold">
+        <PlainText
+          as="span"
+          className="text-[21px] font-semibold text-primary-foreground"
+        >
           {job.title}
         </PlainText>
       </h3>
       {meta ? (
         <p className="mt-1.5 text-xs leading-[17px] text-primary-foreground/80">
-          <PlainText as="span" className="text-xs">
+          <PlainText as="span" className="text-xs text-primary-foreground/80">
             {meta}
           </PlainText>
         </p>
       ) : null}
       <p className="mt-2 text-[13px] leading-[19px] text-primary-foreground/80">
         {match.explanation ? (
-          <PlainText as="span" className="line-clamp-3 text-[13px]">
+          <PlainText
+            as="span"
+            className="line-clamp-3 text-[13px] text-primary-foreground/80"
+          >
             {match.explanation}
           </PlainText>
         ) : (
