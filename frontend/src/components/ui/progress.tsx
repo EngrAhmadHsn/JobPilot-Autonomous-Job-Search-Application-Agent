@@ -1,4 +1,4 @@
-import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
+import { Progress as ProgressPrimitive } from "@animate-ui/react/primitives/base-ui/progress"
 import { cn } from "cn"
 
 /*

@@ -1,4 +1,4 @@
-import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
+import { Tabs as TabsPrimitive } from "@animate-ui/react/primitives/base-ui/tabs"
 import { createContext, useContext } from "react"
 import { cn } from "cn"
 
