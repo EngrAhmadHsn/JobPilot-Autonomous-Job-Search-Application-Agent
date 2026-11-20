@@ -20,6 +20,15 @@ Four verdicts, and the distinction between them is the point:
 The distinction between the last two is what makes this useful: a
 required question the agent cannot answer is a reason to **stop and ask
 a human**, while an optional one is not.
+
+WS-45 adds the fourth input: the answers the human saved for *this*
+application (:func:`build_question_plan`'s ``answers`` argument). A saved
+answer whose key (or normalized label, or category) matches a question
+flips that question's ``needs_human`` verdict to ``answerable`` with
+``answer_from="you"`` — the human's own answer, given in the console. A
+question the profile already answers keeps its profile-derived source; a
+``never_autofill`` verdict can never be flipped by a saved answer, because
+the storage layer refuses such answers before one could exist.
 """
 
 from __future__ import annotations
@@ -28,14 +37,18 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel
+
 __all__ = [
     "VERDICT_ANSWERABLE",
     "VERDICT_NEEDS_HUMAN",
     "VERDICT_NEVER_AUTOFILL",
     "VERDICT_OPTIONAL_UNANSWERED",
     "QuestionPlan",
+    "SavedAnswer",
     "blocking_questions",
     "build_question_plan",
+    "coerce_saved_answers",
     "plan_as_dicts",
 ]
 
@@ -95,9 +108,100 @@ def _fact_for(category: str, facts: dict[str, str]) -> tuple[str, str] | None:
     return None
 
 
+class SavedAnswer(BaseModel):
+    """One answer the human saved for this application (WS-45).
+
+    The plan and the fact map both read this shape, and both accept it in
+    three forms — a :class:`SavedAnswer`, a plain dict with these keys, or
+    the stored row (``answer_text`` instead of ``answer``) — so a caller
+    never needs a conversion layer. See :func:`coerce_saved_answers`.
+    """
+
+    question_key: str = ""
+    label: str | None = None
+    category: str | None = None
+    answer: str = ""
+
+
+def coerce_saved_answers(items: Any) -> list[SavedAnswer]:
+    """The saved answers as :class:`SavedAnswer` items, whatever they arrived as.
+
+    Accepts ``SavedAnswer`` instances, plain mappings, and the stored rows
+    (which carry ``answer_text``). Items that are not answers are skipped,
+    not raised: a merge must degrade to the un-merged plan, never fail a
+    prepare because one saved row was odd.
+    """
+    if not items:
+        return []
+    resolved: list[SavedAnswer] = []
+    for item in items:
+        if isinstance(item, SavedAnswer):
+            resolved.append(item)
+        elif isinstance(item, dict):
+            try:
+                resolved.append(SavedAnswer.model_validate(item))
+            except Exception as exc:  # noqa: BLE001 - one odd row must not stop the merge
+                logger.debug("Skipping a saved answer that does not validate: %s", exc)
+                continue
+        else:
+            answer = getattr(item, "answer", None) or getattr(item, "answer_text", "") or ""
+            resolved.append(
+                SavedAnswer(
+                    question_key=str(getattr(item, "question_key", "") or ""),
+                    label=getattr(item, "label", None),
+                    category=getattr(item, "category", None),
+                    answer=str(answer),
+                )
+            )
+    return [item for item in resolved if (item.answer or "").strip()]
+
+
+def _saved_answer_matches(answer: SavedAnswer, label: str, category: str) -> bool:
+    """Whether a saved answer is an answer to *this* question.
+
+    Three ways to match, tried in order — because the console may have
+    saved under any of them:
+
+    1. the saved ``question_key`` equals the question's **normalized
+       label** (the canonical key :func:`normalize_label` produces, which
+       strips the ``?``/``*``/``:`` decoration forms add to required
+       fields);
+    2. the saved row's own ``label`` equals the question's normalized
+       label;
+    3. the saved key, or the saved ``category``, equals the question's
+       taxonomy category.
+    """
+    from src.applications.form import normalize_label
+
+    normalized_question = normalize_label(label)
+    saved_key = normalize_label(answer.question_key or "")
+    saved_label = normalize_label(answer.label or "")
+    if normalized_question and saved_key and saved_key == normalized_question:
+        return True
+    if normalized_question and saved_label and saved_label == normalized_question:
+        return True
+    if not category:
+        return False
+    category_text = category.strip().lower()
+    saved_key_raw = (answer.question_key or "").strip().lower()
+    saved_category = (answer.category or "").strip().lower()
+    return (saved_key_raw == category_text) or (saved_category == category_text)
+
+
+def _matching_saved_answer(
+    answers: list[SavedAnswer], label: str, category: str
+) -> SavedAnswer | None:
+    """The saved answer that matches one question, if any."""
+    for answer in answers:
+        if _saved_answer_matches(answer, label, category):
+            return answer
+    return None
+
+
 def build_question_plan(
     schema: Any,
     facts: dict[str, str] | None = None,
+    answers: Any = None,
 ) -> list[QuestionPlan]:
     """Decide what the agent may do with every question on a form.
 
@@ -105,6 +209,13 @@ def build_question_plan(
         schema: A :class:`~src.applications.greenhouse_forms.FormSchema`.
         facts: The candidate's grounded profile facts (the only source an
             answer may come from).
+        answers: The answers the human saved for this application
+            (WS-45). A saved answer that matches a ``needs_human``
+            question flips it to ``answerable`` with
+            ``answer_from="you"``; a question the profile already answers
+            keeps its profile-derived source, and a ``never_autofill``
+            verdict can never be flipped (the storage layer refuses such
+            answers before one could exist).
 
     Returns:
         One :class:`QuestionPlan` per question, in form order.
@@ -112,6 +223,7 @@ def build_question_plan(
     from src.applications.questions import NEVER_AUTOFILL, classify_text
 
     resolved_facts = {str(k): str(v) for k, v in (facts or {}).items() if v}
+    saved = coerce_saved_answers(answers)
     plans: list[QuestionPlan] = []
 
     for question in getattr(schema, "all_questions", []) or []:
@@ -130,6 +242,14 @@ def build_question_plan(
         elif question.required:
             verdict = VERDICT_NEEDS_HUMAN
             answer_key = None
+            # WS-45: the human may have answered this question in the
+            # console. Their saved answer unblocks it — it is *their*
+            # answer, grounded in nothing but themselves, and the plan
+            # says so (``answer_from="you"``) instead of pretending it
+            # came from the profile.
+            if _matching_saved_answer(saved, question.label, category.value) is not None:
+                verdict = VERDICT_ANSWERABLE
+                answer_key = "you"
         else:
             verdict = VERDICT_OPTIONAL_UNANSWERED
             answer_key = None
@@ -154,9 +274,19 @@ def blocking_questions(plans: list[QuestionPlan]) -> list[QuestionPlan]:
 
 
 def plan_as_dicts(plans: list[QuestionPlan]) -> list[dict[str, Any]]:
-    """The plan as plain data, for the prepare response and the approval row."""
+    """The plan as plain data, for the prepare response and the approval row.
+
+    WS-45: each item also carries ``question_key`` — the question's
+    normalized label, the stable key the console saves a human answer
+    under. The merge accepts that key, the raw label, or the category, so
+    a client that echoes any of them matches; this key is the one the
+    contract names.
+    """
+    from src.applications.form import normalize_label
+
     return [
         {
+            "question_key": normalize_label(plan.label),
             "label": plan.label,
             "required": plan.required,
             "block": plan.block,

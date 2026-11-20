@@ -306,6 +306,7 @@ def facts_with_provenance(
     profile: CandidateProfile,
     *,
     job_country: str | None = None,
+    answers: Any = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """The facts a profile states, and where each one came from.
 
@@ -326,6 +327,15 @@ def facts_with_provenance(
     the candidate's country list; when it is unknown or unstated, the fact is
     **withheld** rather than falling back to a blanket "yes", so the question
     goes to a human.
+
+    ``answers`` (WS-45) are the per-application answers the human saved in
+    the console. They are applied **last** and they **override** the
+    profile-derived values for the fields they answer: what the human
+    themselves said about *this* application outranks what any document
+    was read to say. A saved answer lands in the fact map only when its
+    category can be resolved — from the saved category, or by classifying
+    the label — and never when that category is an EEO/attestation one
+    (the storage layer refuses those answers before one could exist).
     """
     info = profile.personal_information
     prefs = profile.work_preferences
@@ -340,6 +350,12 @@ def facts_with_provenance(
         if text:
             facts.setdefault(key, text)
             provenance.setdefault(key, source)
+
+    def override(key: str, value: object, source: str) -> None:
+        text = str(value).strip()
+        if text:
+            facts[key] = text
+            provenance[key] = source
 
     for key, value in (
         ("name", info.name),
@@ -367,7 +383,65 @@ def facts_with_provenance(
     app = getattr(profile, "application_profile", None)
     if app is not None:
         _application_facts(app, put, job_country=job_country)
+
+    # WS-45: the human's own answers, applied last and winning.
+    if answers is not None:
+        _saved_answer_facts(answers, override)
     return facts, provenance
+
+
+def _saved_answer_facts(answers: Any, override) -> None:
+    """Apply the saved per-application answers over the profile facts (WS-45).
+
+    Each answer is injected under the **canonical fact key** of its
+    category (``CATEGORY_FACT_KEYS`` tries keys in precedence order, so the
+    first one decides) and, when the label maps through the field map,
+    under that key too — the two lookups the browser layer uses to ground
+    an answer. Injecting only the *first* key of a category keeps a split
+    answer (first name) from overwriting a broader one (full name).
+    """
+    from src.applications.form_plan import coerce_saved_answers
+    from src.applications.questions import (
+        CATEGORY_FACT_KEYS,
+        NEVER_AUTOFILL,
+        QuestionCategory,
+        classify_text,
+    )
+
+    for item in coerce_saved_answers(answers):
+        text = (item.answer or "").strip()
+        if not text:
+            continue
+        source = item.label or item.question_key
+
+        resolved: QuestionCategory | None = None
+        if item.category:
+            try:
+                candidate = QuestionCategory(item.category)
+            except ValueError:
+                candidate = None
+            if (
+                candidate is not None
+                and candidate is not QuestionCategory.UNKNOWN
+                and candidate not in NEVER_AUTOFILL
+            ):
+                resolved = candidate
+        if resolved is None and source:
+            classified = classify_text(source)
+            if (
+                classified.category is not QuestionCategory.UNKNOWN
+                and classified.category not in NEVER_AUTOFILL
+            ):
+                resolved = classified.category
+
+        if resolved is not None:
+            keys = CATEGORY_FACT_KEYS.get(resolved, ())
+            if keys:
+                override(keys[0], text, "user_confirmed")
+        if source:
+            field_key = lookup_fact_key(source)
+            if field_key is not None:
+                override(field_key, text, "user_confirmed")
 
 
 def _application_facts(app, put, *, job_country: str | None = None) -> None:
@@ -488,6 +562,7 @@ def facts_from_profile(
     profile: CandidateProfile,
     *,
     job_country: str | None = None,
+    answers: Any = None,
 ) -> dict[str, str]:
     """The fact values a candidate profile states (no provenance).
 
@@ -496,8 +571,13 @@ def facts_from_profile(
     (or pass ``None``) and a country-narrowed profile yields no
     authorization fact at all rather than a blanket one. See
     :func:`facts_with_provenance`.
+
+    ``answers`` (WS-45) are the human's saved per-application answers, which
+    override the profile-derived values for the fields they answer.
     """
-    values, _provenance = facts_with_provenance(profile, job_country=job_country)
+    values, _provenance = facts_with_provenance(
+        profile, job_country=job_country, answers=answers
+    )
     return values
 
 

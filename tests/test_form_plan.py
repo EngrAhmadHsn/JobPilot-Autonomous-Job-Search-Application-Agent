@@ -347,3 +347,204 @@ def test_build_form_plan_reads_a_page_when_given_one() -> None:
 
     assert len(plan.questions) == 1
     assert isinstance(FakePage, type)
+
+
+# ---------------------------------------------------------------------------
+# WS-45 · the saved per-application answers
+# ---------------------------------------------------------------------------
+
+from src.applications.form import facts_with_provenance
+from src.applications.form_plan import (
+    SavedAnswer,
+    blocking_questions,
+    build_question_plan,
+    coerce_saved_answers,
+)
+
+# Aliased: ``FormQuestion`` above is the WS-08 pydantic model; the board's
+# own schema question is a different class with the same name.
+from src.applications.greenhouse_forms import FormQuestion as BoardFormQuestion
+from src.applications.greenhouse_forms import FormSchema
+
+SPONSORSHIP = "Will you now or in the future require sponsorship?"
+
+
+def _schema() -> FormSchema:
+    return FormSchema(
+        questions=[
+            BoardFormQuestion(label=SPONSORSHIP, required=True, field_names=["question_1"]),
+            BoardFormQuestion(label="Full name", required=True, field_names=["first_name"]),
+        ]
+    )
+
+
+def _saved(**overrides) -> SavedAnswer:
+    item = {
+        "question_key": SPONSORSHIP,
+        "label": SPONSORSHIP,
+        "category": "visa_sponsorship",
+        "answer": "No",
+    }
+    item.update(overrides)
+    return SavedAnswer.model_validate(item)
+
+
+def test_a_saved_answer_flips_a_needs_human_question_to_answerable() -> None:
+    plans = build_question_plan(_schema(), facts={"candidate_name": "Ada Lovelace"}, answers=[_saved()])
+
+    sponsorship = plans[0]
+    assert sponsorship.verdict == "answerable"
+    assert sponsorship.answer_from == "you"
+    # The whole point: the flow no longer stops on the answered question.
+    assert blocking_questions(plans) == []
+
+
+def test_a_saved_answer_matches_by_its_category() -> None:
+    """The console may save under the taxonomy category instead of the label."""
+    plans = build_question_plan(
+        _schema(),
+        facts={"candidate_name": "Ada Lovelace"},
+        answers=[_saved(question_key="visa_sponsorship", label=None)],
+    )
+
+    assert plans[0].verdict == "answerable"
+    assert plans[0].answer_from == "you"
+
+
+def test_a_saved_answer_matches_a_normalized_label() -> None:
+    """The decoration a form adds to a required field does not break the match."""
+    plans = build_question_plan(
+        _schema(),
+        facts={"candidate_name": "Ada Lovelace"},
+        answers=[_saved(question_key="Will you now or in the future require sponsorship? *")],
+    )
+
+    assert plans[0].answer_from == "you"
+
+
+def test_a_saved_answer_matches_by_the_stored_label() -> None:
+    plans = build_question_plan(
+        _schema(),
+        facts={"candidate_name": "Ada Lovelace"},
+        answers=[_saved(question_key="sponsorship", label=SPONSORSHIP)],
+    )
+
+    assert plans[0].answer_from == "you"
+
+
+def test_a_profile_answered_question_keeps_its_profile_source() -> None:
+    """A saved answer never demotes an answer the profile already grounds."""
+    plans = build_question_plan(
+        _schema(),
+        facts={"candidate_name": "Ada Lovelace", "requires_sponsorship": "no"},
+        answers=[_saved()],
+    )
+
+    sponsorship = plans[0]
+    assert sponsorship.verdict == "answerable"
+    assert sponsorship.answer_from == "requires_sponsorship", (
+        "the profile-derived source survives; only needs_human questions flip"
+    )
+
+
+def test_a_saved_answer_never_flips_a_never_autofill_verdict() -> None:
+    schema = FormSchema(
+        questions=[
+            BoardFormQuestion(
+                label="Do you identify as Hispanic or Latino?",
+                required=True,
+                block="demographic_questions",
+            )
+        ]
+    )
+    plans = build_question_plan(
+        schema,
+        facts={},
+        answers=[
+            _saved(
+                question_key="Do you identify as Hispanic or Latino?",
+                label="Do you identify as Hispanic or Latino?",
+                category="eeo_race",
+            )
+        ],
+    )
+
+    assert plans[0].verdict == "never_autofill"
+
+
+def test_an_empty_saved_answer_does_not_flip_anything() -> None:
+    plans = build_question_plan(
+        _schema(),
+        facts={"candidate_name": "Ada Lovelace"},
+        answers=[_saved(answer="   ")],
+    )
+
+    assert plans[0].verdict == "needs_human"
+
+
+def test_coerce_saved_answers_reads_the_stored_row_shape() -> None:
+    """The stored rows carry ``answer_text``; the plan reads them directly."""
+
+    class StoredRow:
+        question_key = SPONSORSHIP
+        label = SPONSORSHIP
+        category = "visa_sponsorship"
+        answer_text = "No"
+
+    items = coerce_saved_answers([StoredRow()])
+    assert len(items) == 1
+    assert items[0].answer == "No"
+
+    plans = build_question_plan(
+        _schema(), facts={"candidate_name": "Ada Lovelace"}, answers=[StoredRow()]
+    )
+    assert plans[0].answer_from == "you"
+
+
+def test_saved_answers_override_the_profile_fact_for_their_field() -> None:
+    """The assembled payload uses the human answer for that field."""
+
+    class Row:
+        question_key = "Desired salary"
+        label = "Desired salary"
+        category = "desired_salary"
+        answer_text = "130000"
+
+    values, provenance = facts_with_provenance(_profile(), answers=[Row()])
+
+    # The profile stated 120000; the human said 130000 — the human wins, in
+    # both the field-map lookup and the taxonomy lookup, with a provenance
+    # that says whose answer it is.
+    assert values["min_salary"] == "130000"
+    assert values["expected_salary"] == "130000"
+    assert provenance["min_salary"] == "user_confirmed"
+
+
+def test_a_saved_authorization_answer_lands_in_the_facts() -> None:
+    class Row:
+        question_key = "Are you legally authorized to work in this country?"
+        label = "Are you legally authorized to work in this country?"
+        category = "work_authorization"
+        answer_text = "Yes"
+
+    values, provenance = facts_with_provenance(_profile(), job_country=None, answers=[Row()])
+
+    # A country-narrowed profile withholds the fact when the job's country
+    # is unknown; the human's own answer supplies it for this application.
+    assert values["legally_authorized"] == "Yes"
+    assert provenance["legally_authorized"] == "user_confirmed"
+
+
+def test_a_never_autofill_saved_answer_is_never_injected() -> None:
+    """Defense in depth: such an answer cannot exist, and injects nothing."""
+
+    class Row:
+        question_key = "Are you Hispanic or Latino?"
+        label = "Are you Hispanic or Latino?"
+        category = "eeo_race"
+        answer_text = "Yes"
+
+    values, _provenance = facts_with_provenance(_profile(), answers=[Row()])
+
+    assert "eeo_race" not in values
+    assert all("race" not in key for key in values)
