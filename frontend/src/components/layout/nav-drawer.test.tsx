@@ -74,4 +74,38 @@ describe("the navigation drawer", () => {
     ).toBeInTheDocument()
     expect(drawer.queryByText(/API online/i)).not.toBeInTheDocument()
   })
+
+  it("takes the WS-43 geometry: wide panel, rail-aligned rows and footer", async () => {
+    const user = userEvent.setup()
+    renderScreen(<NavDrawer />, { route: "/app/matches" })
+
+    await user.click(
+      screen.getByRole("button", { name: "Open the navigation menu" })
+    )
+
+    const panel = await screen.findByRole("dialog")
+    const drawer = within(panel)
+    // The panel is wide — min(26rem, 88vw) is roughly half the frame at
+    // ≥768 and near-full on a phone — not the old fixed 290 px.
+    expect(panel).toHaveClass("w-[min(26rem,88vw)]")
+
+    // The current page takes the design's lime pill at the radius scale's
+    // `rounded-2xl` — the same pill the rail's current row carries; the
+    // destination above it brightens on the hover ground at the rail's
+    // row height.
+    const matches = drawer.getByRole("link", { name: "Matches" })
+    expect(matches).toHaveClass(
+      "rounded-2xl",
+      "bg-sidebar-primary",
+      "text-sidebar-primary-foreground"
+    )
+    const discover = drawer.getByRole("link", { name: "Discover" })
+    expect(discover).toHaveClass("h-11", "rounded-2xl", "bg-sidebar-hover")
+
+    // The footer sits on the rail footer's structure (`px-3.5` container,
+    // `px-3` row), so the avatar lines up under the rows' icon column.
+    expect(
+      drawer.getByRole("button", { name: "Account and display settings" })
+    ).toHaveClass("px-3", "gap-3")
+  })
 })

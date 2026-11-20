@@ -64,14 +64,23 @@ export function NavDrawer({
       )}
 
       {/*
-        The design's mobile drawer (node 49:11961) is the expanded rail as a
-        forest panel: the same `#1b3831` ground, the lime active pill, the
-        account block at the foot. Nothing about "a menu opened from a
-        phone" makes it a paper surface.
+        The design's mobile drawer (`13 · Expanded navigation · 768/390`,
+        node 49:11961) is the expanded rail as a forest panel: the same
+        `#1b3831` ground, the lime active pill, the account block at the
+        foot. Nothing about "a menu opened from a phone" makes it a paper
+        surface.
+
+        WS-43: the panel is wide — `min(26rem, 88vw)` gives roughly half
+        the frame at ≥768 and near-full on a phone — and the width rides a
+        `data-[side=left]` variant because the Sheet primitive's own
+        `w-3/4`/`max-w-sm` carry that variant, and tailwind-merge only
+        drops a base class for an override on the same variant. The scrim
+        (the Sheet's warm `bg-ink/20`) and the popup's own
+        `overflow-y-auto overscroll-contain` are kept as they were.
       */}
       <SheetContent
         side="left"
-        className="w-[290px] gap-0 border-none bg-sidebar text-sidebar-foreground p-0 sm:max-w-[290px]"
+        className="w-[min(26rem,88vw)] gap-0 border-none bg-sidebar p-0 text-sidebar-foreground data-[side=left]:w-[min(26rem,88vw)] data-[side=left]:sm:max-w-[min(26rem,88vw)]"
       >
         <SheetHeader className="border-b border-sidebar-hover p-4">
           <div className="flex items-center gap-3">
@@ -87,7 +96,12 @@ export function NavDrawer({
           </div>
         </SheetHeader>
 
-        <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain p-4">
+        {/*
+          The nav container takes the rail's `px-3.5`, so the rows' own
+          `px-3` land the glyphs and labels on the same x-positions as the
+          expanded rail (26 px / 58 px).
+        */}
+        <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3.5 py-4">
           <NavGroups
             surface="forest"
             staggerItems
@@ -105,10 +119,13 @@ export function NavDrawer({
 
         {/*
           The account block, as the design draws it (avatar, name, caption)
-          — the same account control the chrome carries elsewhere.
+          — the same account control the chrome carries elsewhere, laid out
+          on the rail footer's structure (`px-3.5` container, `px-3` row) so
+          the avatar lines up under the drawer rows' icons, as the render's
+          footer does (avatar at 26 px, identity at 74 px).
         */}
-        <div className="flex items-center gap-3 border-t border-sidebar-hover p-4">
-          <AccountMenu surface="sidebar" />
+        <div className="flex items-center border-t border-sidebar-hover px-3.5 py-3">
+          <AccountMenu surface="sidebar" className="gap-3 px-3" />
         </div>
       </SheetContent>
     </Sheet>
