@@ -87,13 +87,32 @@ export type JobMatchPair = DeepRequired<components["schemas"]["JobMatchPair"]>
 export type JobMatchResult = DeepRequired<
   components["schemas"]["JobMatchResult"]
 >
-export type JobSearchRequest = components["schemas"]["JobSearchRequest"]
+/**
+ * The workplace axis of the search's filters (WS-44).
+ *
+ * `POST /api/jobs/search` matches this against the corpus's `remote_policy`
+ * column server-side, before scoring and before `top_n`. It is written here
+ * as an intersection with the generated request because the field shipped
+ * ahead of the next `npm run api:types` run — the intersection keeps the
+ * generated shape authoritative and adds only what the contract adds.
+ */
+export type JobSearchWorkplace = "remote" | "hybrid" | "onsite"
+export type JobSearchRequest = components["schemas"]["JobSearchRequest"] & {
+  workplace?: JobSearchWorkplace | null
+}
 export type JobSearchResponse = DeepRequired<
   components["schemas"]["JobSearchResponse"]
 >
 export type JobSearchStats = DeepRequired<
   components["schemas"]["JobSearchStats"]
->
+> & {
+  /**
+   * The applied filters, echoed back (WS-44). The FE must tolerate its
+   * absence — an older server omits it — so the console describes a search
+   * from the request it made, never from this echo.
+   */
+  workplace?: string
+}
 export type KeywordCoverage = DeepRequired<
   components["schemas"]["KeywordCoverage"]
 >
@@ -201,6 +220,22 @@ export type JobSuggestion = DeepRequired<components["schemas"]["JobSuggestion"]>
 export type JobSuggestResponse = DeepRequired<
   components["schemas"]["JobSuggestResponse"]
 >
+
+/**
+ * `GET /api/jobs/locations` (WS-44) — the distinct locations the stored
+ * corpus carries, feeding the filters dialog's Location select.
+ *
+ * The contract names this endpoint's response "the same shape as
+ * `/api/jobs/suggest`", so it is written here by hand, next to the generated
+ * one it mirrors: the endpoint is new and the schema has not been
+ * regenerated against it (`npm run api:types` reads a running server and is
+ * not available to this sprint). When the schema is next generated, this
+ * alias can become `DeepRequired<components["schemas"]["JobLocationsResponse"]>`.
+ */
+export interface JobLocationsResponse {
+  query: string
+  suggestions: JobSuggestion[]
+}
 
 /**
  * One document the account already has.

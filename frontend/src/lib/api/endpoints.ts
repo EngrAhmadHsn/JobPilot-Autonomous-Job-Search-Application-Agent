@@ -32,6 +32,7 @@ import type {
   AdminJobMetrics,
   Identity,
   JobDetail,
+  JobLocationsResponse,
   JobSearchRequest,
   JobSearchResponse,
   JobSuggestResponse,
@@ -139,6 +140,22 @@ export const api = {
       json: body,
       signal,
       timeoutMs: 120_000,
+    }),
+
+  /**
+   * The distinct locations the stored corpus carries (WS-44), for the
+   * filters dialog's Location select.
+   *
+   * The response is the same shape as `/api/jobs/suggest` — `{ query,
+   * suggestions: [{ value, count }] }` — so a select cannot offer a place
+   * the corpus does not hold. `limit` bounds how many distinct values come
+   * back; the dialog asks for more than a page of them because a native
+   * select scrolls its own list.
+   */
+  listJobLocations: (limit = 500, signal?: AbortSignal) =>
+    request<JobLocationsResponse>(`/api/jobs/locations?limit=${limit}`, {
+      signal,
+      timeoutMs: 20_000,
     }),
 
   /** One stored job listing. */
