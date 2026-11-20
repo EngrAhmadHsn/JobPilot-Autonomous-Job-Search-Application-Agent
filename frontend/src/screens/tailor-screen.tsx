@@ -4,7 +4,6 @@ import { Link, useParams } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { FieldList } from "@/components/common/field-list"
 import { EmptyState, ProgressState } from "@/components/common/progress-state"
 import { OverallScore } from "@/components/common/score-grid"
 import { PageHeader } from "@/components/ui/page-header"
@@ -21,8 +20,8 @@ import { asRecord, asString } from "@/lib/safe"
 import type { TailorResponse } from "@/lib/api/types"
 
 import { CoverLetterPanel } from "@/screens/studio/cover-letter-panel"
-import { coverageIsMeasurable } from "@/screens/studio/diff-model"
-import { KeywordPanel } from "@/screens/studio/keyword-panel"
+import { EvidenceRail } from "@/screens/studio/evidence-rail"
+import { OriginalDocument } from "@/screens/studio/original-document"
 import {
   AtsPanel,
   FactualityReport,
@@ -33,24 +32,40 @@ import {
 import { ResumeDiffView } from "@/screens/studio/resume-diff"
 
 /*
-  The Resume Studio (WS-37) — the Application Workspace of reference panel 3.
+  The Resume Studio (WS-37), rebuilt to the design file's screen `16:82`
+  (WS-42).
 
-  One job, one tailoring run, every real report, and the original-versus-
-  tailored comparison. The tabs carry the capabilities the tailoring result
-  actually holds: Overview (the deliverable and how it was produced), Resume
-  (the read-only diff beside keyword matching), Cover Letter (an editable
-  draft the server does not store), Research (the grounded insights) and
-  Validation (factuality, ATS and style). The reference's Questions tab is
-  not here because the tailoring holds no board questions — those exist in
-  the prepare/approval flow, and an empty tab would be a promise of data
-  this endpoint does not return.
+  The design's composition: the headline "Your experience. Better told.",
+  a row of paper pills — Inline diff · Original · Cover letter · Preview
+  DOCX · Download DOCX — beside a "Diff review · proposed" status chip,
+  then the document on its sage desk mat with the "Make every claim count."
+  evidence rail at its right.
+
+  The console's real data adds what the design's example never had to
+  carry, and the additions are named, not smuggled in:
+
+  - **Validation** and **Research** pills — the factuality, ATS and style
+    reports and the grounded insights are real deliverables of the tailoring
+    run; hiding them behind no tab at all would bury the checks the safety
+    story depends on. The design's example data passed factuality, so its
+    five pills never needed them.
+  - **No editor toolbar.** The design draws B / I / U / "Body · 11 pt" on an
+    editable canvas. The comparison is read-only — there is no per-change
+    revision model behind it (the WS-37 Task 1 audit found none) — and
+    formatting controls that change nothing would be a lie about what this
+    surface can do. The canvas carries the design's diff legend and a real
+    view toggle instead.
+  - The **status chip is the design's own copy** ("Diff review · proposed"):
+    the tailored wording is the agent's proposal, and it stays a proposal
+    until the candidate authorizes the application on Review.
+  - "Preview DOCX" and "Download DOCX" name the **real** deliverable format
+    (WS-31): a text deliverable says "text version", because promising a
+    DOCX that is not there is the exact defect WS-31 fixed.
 
   Safety lines this screen keeps (master prompt §6.4/§9): the original
   document is immutable and never edited by this screen; a failed factuality
   report is content with visual weight above the tabs, never hidden behind a
-  green ATS score; the diff is read-only because there is no per-change
-  revision model behind it (the Task 1 audit — see the WS-37 report — and
-  the lead's decision); missing keywords stay honest gaps unless the profile
+  green ATS score; missing keywords stay honest gaps unless the profile
   supports them; and a model failure shows the API's own actionable error.
 */
 
@@ -58,8 +73,8 @@ import { ResumeDiffView } from "@/screens/studio/resume-diff"
  * What the deliverable's file is, named for the candidate (WS-31).
  *
  * The tailoring keeps the uploaded format, so a résumé that arrived as plain
- * text comes back as plain text. The download link says which one it is rather
- * than promising a DOCX that may not be there.
+ * text comes back as plain text. The pills say which one it is rather than
+ * promising a DOCX that may not be there.
  */
 function deliverableLabel(path: string): string {
   const lower = path.toLowerCase()
@@ -69,7 +84,7 @@ function deliverableLabel(path: string): string {
   return "file"
 }
 
-/** The number of facts the validator stripped, for the banner and glance. */
+/** The number of facts the validator stripped, for the banner. */
 function removedCount(factuality: TailorResponse["factuality"]): number {
   return (
     factuality.removed_skills.length +
@@ -78,70 +93,13 @@ function removedCount(factuality: TailorResponse["factuality"]): number {
   )
 }
 
-/**
- * The verdicts at a glance, on the Overview tab — each one says what it is
- * and links to the tab that carries the full report.
- */
-function AtAGlance({ result }: { result: TailorResponse }) {
-  const coverage = result.ats_report.keyword_coverage
-  const measurable = coverageIsMeasurable(coverage)
-  /*
-    A percentage only renders when its own denominator exists — a 0% beside
-    a group the listing never stated would read as a measured miss.
-  */
-  const requiredTotal =
-    coverage.required_hit.length + coverage.required_missing.length
-  const preferredTotal =
-    coverage.preferred_hit.length + coverage.preferred_missing.length
-  const coverageParts: string[] = []
-  if (requiredTotal > 0) {
-    coverageParts.push(
-      `required ${coverage.required_hit.length}/${requiredTotal}`
-    )
-  }
-  if (preferredTotal > 0) {
-    coverageParts.push(
-      `preferred ${coverage.preferred_hit.length}/${preferredTotal}`
-    )
-  }
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Where things stand</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <FieldList
-          items={[
-            {
-              label: "Factuality",
-              value: result.factuality.passed
-                ? "Passed — every claim is supported by your résumé (Validation tab)"
-                : `${removedCount(result.factuality)} unsupported item(s) were stripped — read the findings (Validation tab)`,
-            },
-            {
-              label: "ATS score",
-              value: `${result.ats_report.score.toFixed(1)} / 100 · a measurement, not a promise (Validation tab)`,
-            },
-            {
-              label: "Keyword coverage",
-              value:
-                measurable && coverageParts.length > 0
-                  ? `${coverageParts.join(" · ")} — measured against the listing's stated skills (Resume tab)`
-                  : "Could not be measured — the listing declares no structured skills (Resume tab)",
-            },
-            {
-              label: "Deliverable",
-              value:
-                result.render.mode === "in_place"
-                  ? `Your own ${result.render.source_format} file, edited in place (details below)`
-                  : "A freshly generated document — your original could not be edited (details below)",
-            },
-          ]}
-        />
-      </CardContent>
-    </Card>
-  )
-}
+/** The paper-pill look for the row's non-tab members (design `49:956`). */
+const PILL_ANCHOR =
+  "inline-flex h-[37px] items-center rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+
+/** The design's status chip (node `49:964`): sage, r=6, 11/600. */
+const STATUS_CHIP =
+  "inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
 
 /**
  * The Studio for one job.
@@ -192,8 +150,8 @@ export function TailorJobScreen() {
     return (
       <div className="space-y-10">
         <PageHeader
-          title="Tailor the résumé for a job"
-          description="Your résumé is rewritten for this job using only what it already says, then checked against the original and scored."
+          title="Your experience. Better told."
+          description="Tailor for one role without changing the facts."
         />
         <EmptyState
           title="That job is not in your matched list"
@@ -224,30 +182,13 @@ export function TailorJobScreen() {
 
   const jobData = job.data?.job
   const parsedProfile = profile.data?.profile
+  const deliverable = result ? deliverableLabel(result.docx_path) : "DOCX"
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
-        title={jobData ? jobData.title : "Tailor the resume"}
-        description={
-          jobData
-            ? `${jobData.company}. Your résumé is rewritten for this job using only what it already says, then checked against the original and scored the way an employer's screening system would.`
-            : "The agent rewrites the resume from your profile facts and checks every claim against your document."
-        }
-        meta={
-          jobData ? (
-            <>
-              <span>{jobData.location}</span>
-              {jobData.remote_policy ? (
-                <span>{jobData.remote_policy}</span>
-              ) : null}
-              {jobData.employment_type ? (
-                <span>{jobData.employment_type}</span>
-              ) : null}
-              {jobData.salary ? <span>{jobData.salary}</span> : null}
-            </>
-          ) : undefined
-        }
+        title="Your experience. Better told."
+        description="Tailor for one role without changing the facts."
         actions={
           <Button
             disabled={tailor.isPending}
@@ -299,10 +240,36 @@ export function TailorJobScreen() {
         </div>
       ) : null}
 
+      {/*
+        The pre-run state, which the design file does not draw: the job
+        this run will tailor for, and what the run will do. The header's
+        button starts it.
+      */}
+      {!result && !tailor.isPending && !tailor.isError ? (
+        <section className="rounded-surface border border-border-surface bg-card p-6">
+          <h2 className="font-heading text-xl font-semibold tracking-tight text-primary">
+            {jobData ? jobData.title : "Tailor the resume"}
+          </h2>
+          {jobData ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {[jobData.company, jobData.location, jobData.employment_type]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+          <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
+            The agent rewrites your résumé for this job using only what it
+            already says, then checks every claim against the original and
+            scores the result. The original is preserved; nothing is sent to
+            the employer from here.
+          </p>
+        </section>
+      ) : null}
+
       {result ? (
         <>
           {/*
-            The factuality verdict rides **above** the tabs, on every tab —
+            The factuality verdict rides **above** the pills, on every tab —
             a failed check must never hide behind a green ATS score three
             clicks deep. The full findings are on the Validation tab; this
             banner only announces them (worded so it cannot collide with the
@@ -321,48 +288,36 @@ export function TailorJobScreen() {
             </Banner>
           ) : null}
 
-          <Tabs defaultValue="overview">
-            <TabsList>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="resume">Resume</TabsTrigger>
-              <TabsTrigger value="cover-letter">Cover Letter</TabsTrigger>
-              <TabsTrigger value="research">Research</TabsTrigger>
-              <TabsTrigger value="validation">Validation</TabsTrigger>
-            </TabsList>
+          <Tabs defaultValue="diff" variant="pill" className="gap-5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <TabsList>
+                <TabsTrigger value="diff">Inline diff</TabsTrigger>
+                <TabsTrigger value="original">Original</TabsTrigger>
+                <TabsTrigger value="cover-letter">Cover letter</TabsTrigger>
+                <TabsTrigger value="preview">Preview {deliverable}</TabsTrigger>
+                <TabsTrigger value="validation">Validation</TabsTrigger>
+                <TabsTrigger value="research">Research</TabsTrigger>
+              </TabsList>
+              {/*
+                The design's last pill is an action, not a view (node
+                `49:962`), so it is a real download link wearing the pill
+                look — never a tab whose switching triggers a file save.
+              */}
+              <a
+                href={apiUrl(
+                  `/api/tailored/${encodeURIComponent(result.tailoring_id)}/download`
+                )}
+                download
+                className={PILL_ANCHOR}
+              >
+                {/* WS-31: the deliverable keeps the uploaded format, so the
+                    pill names what it really is rather than assuming DOCX. */}
+                Download the {deliverable}
+              </a>
+              <span className={STATUS_CHIP}>Diff review · proposed</span>
+            </div>
 
-            <TabsContent value="overview" keepMounted className="space-y-8">
-              <Banner tone="success" title="The tailored resume is ready">
-                <p>
-                  Stored as{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-                    {result.tailoring_id}
-                  </code>
-                  . The rendered file is on the server at{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-                    {result.docx_path}
-                  </code>
-                  .
-                </p>
-                <p className="mt-1">
-                  <a
-                    href={apiUrl(
-                      `/api/tailored/${encodeURIComponent(result.tailoring_id)}/download`
-                    )}
-                    className="font-medium underline underline-offset-4"
-                    download
-                  >
-                    {/* WS-31: the deliverable keeps the uploaded format, so the
-                        link names what it really is rather than assuming DOCX. */}
-                    Download the {deliverableLabel(result.docx_path)}
-                  </a>
-                </p>
-              </Banner>
-
-              <AtAGlance result={result} />
-              <RenderPanel render={result.render} />
-            </TabsContent>
-
-            <TabsContent value="resume" keepMounted>
+            <TabsContent value="diff" keepMounted>
               {profile.isPending ? (
                 <ProgressState title="Reading your original résumé" />
               ) : profile.isError || !parsedProfile ? (
@@ -374,21 +329,38 @@ export function TailorJobScreen() {
                   </p>
                 </div>
               ) : (
-                <div className="grid min-w-0 gap-8 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-                  <div className="min-w-0">
-                    <ResumeDiffView
-                      profile={parsedProfile}
-                      tailored={result.tailored}
-                      render={result.render}
-                    />
-                  </div>
-                  <aside className="min-w-0 space-y-5 xl:border-l xl:border-border/60 xl:pl-6">
-                    <KeywordPanel
-                      coverage={result.ats_report.keyword_coverage}
-                      profile={parsedProfile}
-                    />
-                  </aside>
+                <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                  <ResumeDiffView
+                    profile={parsedProfile}
+                    tailored={result.tailored}
+                    render={result.render}
+                    jobTitle={jobData ? jobData.title : "Tailored resume"}
+                    company={jobData ? jobData.company : "the employer"}
+                    claimsVerified={result.factuality.passed}
+                  />
+                  <EvidenceRail
+                    coverage={result.ats_report.keyword_coverage}
+                    profile={parsedProfile}
+                    factuality={result.factuality}
+                    render={result.render}
+                  />
                 </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="original" keepMounted>
+              {profile.isPending ? (
+                <ProgressState title="Reading your original résumé" />
+              ) : profile.isError || !parsedProfile ? (
+                <div className="space-y-3">
+                  <ErrorNotice error={profile.error} />
+                  <p className="text-sm text-muted-foreground">
+                    Showing the original needs the parsed profile. The reports
+                    are unaffected — see the Validation tab.
+                  </p>
+                </div>
+              ) : (
+                <OriginalDocument profile={parsedProfile} />
               )}
             </TabsContent>
 
@@ -400,11 +372,30 @@ export function TailorJobScreen() {
               />
             </TabsContent>
 
-            <TabsContent value="research" keepMounted>
-              <InsightsPanel insights={result.insights} />
+            {/*
+              The deliverable of record: how the file was produced, and where
+              it lives. The design's "Preview DOCX" cannot render a DOCX in a
+              browser, so this tab states the facts instead of faking a
+              preview.
+            */}
+            <TabsContent value="preview" keepMounted className="space-y-6">
+              <Banner tone="success" title="The tailored resume is ready">
+                <p>
+                  Stored as{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                    {result.tailoring_id}
+                  </code>
+                  . The rendered file is on the server at{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                    {result.docx_path}
+                  </code>
+                  . Download it from the pill beside the tabs.
+                </p>
+              </Banner>
+              <RenderPanel render={result.render} />
             </TabsContent>
 
-            <TabsContent value="validation" keepMounted className="space-y-8">
+            <TabsContent value="validation" keepMounted className="space-y-6">
               {/*
                 Factuality first: when the check failed, its findings are the
                 first thing the Validation tab shows — before any green score.
@@ -413,14 +404,13 @@ export function TailorJobScreen() {
               <AtsPanel ats={result.ats_report} />
               <StylePanel style={result.style} />
             </TabsContent>
+
+            <TabsContent value="research" keepMounted>
+              <InsightsPanel insights={result.insights} />
+            </TabsContent>
           </Tabs>
         </>
-      ) : (
-        <EmptyState
-          title="No tailoring yet"
-          description="Run the tailoring to get a tailored résumé, its factuality report, the ATS analysis and the grounded insights."
-        />
-      )}
+      ) : null}
     </div>
   )
 }
@@ -468,8 +458,8 @@ export function TailorIndexScreen() {
   */
   const heading = (
     <PageHeader
-      title="Tailor the résumé for a job"
-      description="Pick a job and the agent rewrites your résumé for it, using only what your résumé already says. Every claim is checked against the original, and the result is scored the way an employer's screening system would."
+      title="Your experience. Better told."
+      description="Tailor for one role without changing the facts. Pick a job and the agent rewrites your résumé for it, using only what your résumé already says."
     />
   )
 
@@ -501,7 +491,7 @@ export function TailorIndexScreen() {
         The way in for anyone who arrived here without a job: tailoring is
         per listing, and the listing comes from a search.
       */}
-      <div className="rounded-2xl border border-dashed border-border bg-card/60 p-5">
+      <div className="rounded-surface border border-dashed border-border-surface bg-card/60 p-5">
         <p className="font-heading text-base font-semibold tracking-tight text-foreground">
           Find jobs that suit you
         </p>
@@ -515,7 +505,7 @@ export function TailorIndexScreen() {
         </div>
       </div>
 
-      <Card className="rounded-2xl">
+      <Card className="rounded-surface">
         <CardHeader>
           <CardTitle className="font-heading text-base font-semibold tracking-tight">
             Jobs already matched to this profile

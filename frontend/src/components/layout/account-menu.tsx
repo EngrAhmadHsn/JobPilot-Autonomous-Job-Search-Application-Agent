@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDownIcon } from "lucide-react"
 import { cn } from "cn"
 
 import { useTheme } from "@/components/theme-provider"
@@ -40,9 +39,17 @@ import { useCurrentProfileId } from "@/lib/profile"
  */
 export function AccountMenu({
   surface = "bar",
+  compact = false,
   className,
 }: {
   surface?: "bar" | "sidebar"
+  /**
+   * A cramped host — the 72 px rail. The account's identity still names
+   * the menu (the `aria-label` and the dialog's own heading), but the
+   * email text is dropped: a `sm:inline` span inside a 72 px strip
+   * overflowed it and painted the address across the canvas.
+   */
+  compact?: boolean
   className?: string
 }) {
   const { theme, setTheme } = useTheme()
@@ -73,34 +80,62 @@ export function AccountMenu({
       */}
       <DropdownMenuTrigger
         className={cn(
-          "inline-flex h-11 items-center gap-2 rounded-lg border px-2.5 text-sm transition-colors duration-150",
+          "inline-flex items-center gap-2 rounded-lg border px-2.5 text-sm transition-colors duration-150",
+          /*
+            Two sidebar shapes, from the design's rail footer (nodes 47:27
+            collapsed, 49:2253 + 49:2368 expanded): the 72 px strip holds
+            the 36 px avatar alone; the expanded rail and the drawer's
+            footer hold the avatar beside a two-line identity block — the
+            account line over the caption "Account & preferences". No
+            chevron: the design's footer draws none, and the popover opens
+            upward from here.
+          */
           onSidebar
-            ? "border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-hover"
-            : "border-border bg-card text-foreground hover:bg-accent/60",
+            ? cn(
+                "border-transparent bg-transparent text-sidebar-foreground hover:bg-sidebar-hover",
+                compact ? "h-11 justify-center" : "h-auto w-full py-2"
+              )
+            : "h-11 border-border bg-card text-foreground hover:bg-accent/60",
           className
         )}
         aria-label="Account and display settings"
       >
         <span
           aria-hidden="true"
-          className="inline-flex size-6 items-center justify-center rounded-full bg-terracotta text-[11px] font-semibold text-terracotta-foreground"
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center rounded-full bg-terracotta font-semibold text-terracotta-foreground",
+            onSidebar ? "size-9 text-[13px]" : "size-6 text-[11px]"
+          )}
         >
           {profileId ? "OP" : "—"}
         </span>
-        <span
-          className={cn(
-            "hidden min-w-0 truncate text-muted-foreground sm:inline",
-            onSidebar && "text-sidebar-muted"
-          )}
-        >
-          {identity?.email ?? "Operator"}
-        </span>
-        {onSidebar ? (
-          <ChevronDownIcon
-            aria-hidden="true"
-            className="size-4 shrink-0 text-sidebar-muted"
-          />
-        ) : null}
+        {onSidebar && !compact ? (
+          <span className="min-w-0 flex-1 text-start leading-tight">
+            <span className="block truncate text-[13px] leading-[19px] font-semibold text-sidebar-foreground">
+              {identity?.email ?? "Operator"}
+            </span>
+            <span className="block text-[10px] leading-[15px] text-sidebar-muted">
+              Account &amp; preferences
+            </span>
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "min-w-0 truncate text-muted-foreground",
+              /*
+                `compact` (the 72 px rail) must REMOVE `sm:inline`, not layer
+                a `hidden` on top of it: tailwind-merge keeps both because
+                they are different variants, and `sm:inline` then wins at
+                desktop widths. Choosing the whole class set is what actually
+                hides it.
+              */
+              compact ? "hidden" : "hidden sm:inline",
+              onSidebar && "text-sidebar-muted"
+            )}
+          >
+            {identity?.email ?? "Operator"}
+          </span>
+        )}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent

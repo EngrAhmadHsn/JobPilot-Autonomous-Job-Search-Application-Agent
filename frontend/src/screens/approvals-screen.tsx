@@ -1,16 +1,16 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useFieldArray, useForm, useWatch } from "react-hook-form"
+import { CircleAlert, FileText, Lock, ScrollText, User } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { DocumentPicker } from "@/components/documents/document-picker"
 import { FieldList } from "@/components/common/field-list"
-import { PageHeader, Section } from "@/components/common/page-header"
+import { PageHeader } from "@/components/ui/page-header"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
 import { ApiError } from "@/lib/api/client"
@@ -24,8 +24,8 @@ import { DecideDialog } from "@/screens/review/decide-dialog"
 import {
   ControlPanel,
   InControlNotice,
+  isLocalTestBoard,
 } from "@/screens/review/in-control-notice"
-import { PackageChecklist } from "@/screens/review/package-checklist"
 import { QuestionCard } from "@/screens/review/question-card"
 import {
   clearApprovalMirror,
@@ -35,7 +35,8 @@ import {
 } from "@/screens/review/use-approval-mirror"
 
 /**
- * The review-and-approval screen — the human-approval boundary.
+ * The review-and-approval screen — the human-approval boundary, rebuilt to
+ * the design file's screen `16:122` (WS-42).
  *
  * This is the screen the whole product exists for. It does two things, in
  * this order and never the other way round:
@@ -44,19 +45,36 @@ import {
  *    would be submitted, and shows the operator that payload;
  * 2. it records a **human decision** on that prepared record.
  *
- * The composition is the reference panel's (WS-38): the in-control notice,
- * the Application Package checklist, the board's own questions, the stored
- * packet's facts, and the approve action — with honest state language
- * throughout. Approving answers `202` with a run id: it queues durable
- * work, it does not submit, and every label on this screen says so.
+ * The composition is the design's: the flow stepper (`49:1033`), the
+ * prepared-application packet as a paper card (`49:1050`) whose document
+ * rows carry the real stored values, the sage approval boundary
+ * (`49:1092`), and the question queue (`49:1096`) beside a clay
+ * not-ready panel (`49:1125`).
  *
- * There is no other way to reach a submission from this console: the
- * approve control is the only irreversible one, it sits behind a
- * confirmation dialog, it is disabled while the call is in flight, and no
- * optimistic "submitted" is ever shown. After a reload the screen re-reads
- * the stored decision from `GET /api/applications/approvals/{id}` (the
- * localStorage mirror only remembers *which* id to ask about), so the
- * persisted truth survives the reload that empties React Query.
+ * Two deliberate departures, both because the console renders real data the
+ * design's example never had to carry:
+ *
+ * - **No per-question save.** The design's question card offers radio
+ *   options and "Save answer". The backend has no per-answer persistence —
+ *   an answer exists only as a custom field inside a freshly prepared
+ *   payload — so the queue shows the board's own ordered list with each
+ *   answer's source, and the clay panel's action routes the operator into
+ *   the prepare form with the question's field **prefilled**, which is the
+ *   one way an answer actually becomes part of the payload.
+ * - **Approve stays available with blockers.** The design implies a hard
+ *   gate; the product's own behavior is safer than a hard gate: the queued
+ *   run stops at the questions the profile does not answer and hands them
+ *   back, rather than guessing (WS-32). The clay panel says both things.
+ *
+ * Approving answers `202` with a run id: it queues durable work, it does
+ * not submit, and every label on this screen says so. There is no other way
+ * to reach a submission from this console: the approve control is the only
+ * irreversible one, it sits behind a confirmation dialog, it is disabled
+ * while the call is in flight, and no optimistic "submitted" is ever shown.
+ * After a reload the screen re-reads the stored decision from
+ * `GET /api/applications/approvals/{id}` (the localStorage mirror only
+ * remembers *which* id to ask about), so the persisted truth survives the
+ * reload that empties React Query.
  */
 
 /**
@@ -100,6 +118,15 @@ const decisionSchema = z.object({
 })
 
 type DecisionForm = z.infer<typeof decisionSchema>
+
+/** The design's ghost action pill (nodes `49:1053` / `49:1064`). */
+const GHOST_PILL =
+  "inline-flex h-9 shrink-0 items-center rounded-lg px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+
+/** The hairline the design draws between a packet card's sections. */
+function Divider() {
+  return <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
+}
 
 /** A labelled form control with its validation message. */
 function Field({
@@ -149,7 +176,7 @@ function FormSection({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-border bg-card p-6">
+    <section className="rounded-surface border border-border-surface bg-card p-6">
       <h2 className="font-heading text-base font-semibold tracking-tight text-foreground">
         {title}
       </h2>
@@ -165,6 +192,69 @@ function FormSection({
       */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">{children}</div>
     </section>
+  )
+}
+
+/**
+ * One row of the prepared packet (design `49:1057`): icon, eyebrow, the
+ * stored value, its provenance, and a **Show** toggle that reveals the
+ * exact stored content.
+ *
+ * The design's rows carry "Preview →" / "Read →" / "View →" actions. The
+ * console has no document-preview route to send those to, and a control
+ * that opens nothing is a lie — so the affordance is an inline reveal of
+ * the real stored bytes/text instead, which is what the operator actually
+ * needs to check before authorizing.
+ */
+function PacketRow({
+  icon: Icon,
+  eyebrow,
+  title,
+  sub,
+  detail,
+}: {
+  icon: typeof FileText
+  eyebrow: string
+  title: string
+  sub: string
+  /** The exact stored content the toggle reveals, when there is any. */
+  detail?: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-3">
+        <Icon
+          className="size-5 shrink-0 text-forest/70"
+          strokeWidth={1.7}
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <p className="text-[11px] font-semibold leading-4 text-muted-foreground">
+            {eyebrow}
+          </p>
+          <p className="text-sm font-semibold leading-5 text-primary">
+            {title}
+          </p>
+          <p className="text-xs leading-[17px] text-muted-foreground">{sub}</p>
+        </div>
+        {detail ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+            className={GHOST_PILL}
+          >
+            {open ? "Hide" : "Show →"}
+          </button>
+        ) : null}
+      </div>
+      {open && detail ? (
+        <div className="mt-2.5 rounded-xl border border-border-surface bg-card/60 p-3 text-xs text-muted-foreground">
+          {detail}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -219,6 +309,58 @@ function PacketFacts({
   )
 }
 
+/**
+ * The application flow, as the design numbers it (`49:1033`): Evaluate on
+ * Discover, Prepare here, Review & approve here, Employer handoff after a
+ * recorded approval. The active step is derived from the packet's real
+ * state — a rejected or expired decision sends the reader back to Prepare,
+ * because that is genuinely where they are.
+ */
+function ApprovalStepper({ active }: { active: 1 | 2 | 3 | 4 }) {
+  const steps = [
+    "Evaluate",
+    "Prepare",
+    "Review & approve",
+    "Employer handoff",
+  ] as const
+  return (
+    <ol
+      aria-label="The application flow"
+      className="flex flex-wrap items-center gap-2.5"
+    >
+      {steps.map((label, index) => {
+        const n = index + 1
+        const isActive = n === active
+        return (
+          <li
+            key={label}
+            className="flex items-center gap-2.5"
+            aria-current={isActive ? "step" : undefined}
+          >
+            {isActive ? (
+              <span className="inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary-foreground">
+                {n} {label}
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
+                {n} {label}
+              </span>
+            )}
+            {index < steps.length - 1 ? (
+              <span
+                aria-hidden
+                className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
+              >
+                →
+              </span>
+            ) : null}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export function ApprovalsScreen() {
   const profileId = useCurrentProfileId()
   const queryClient = useQueryClient()
@@ -226,6 +368,20 @@ export function ApprovalsScreen() {
   const [dialog, setDialog] = useState<"approve" | "reject" | null>(null)
   /** True while the operator edits the form with a decision already recorded. */
   const [editing, setEditing] = useState(false)
+
+  /*
+    What the operator actually submitted, captured at prepare time. The
+    prepare response stores the payload but does not echo the candidate's
+    own text fields back, and the packet's document rows show the stored
+    values — so the submit handler keeps them here.
+  */
+  const [submitted, setSubmitted] = useState<{
+    candidate_name: string
+    email: string
+    phone: string
+    cover_letter: string
+    resume_path: string
+  } | null>(null)
 
   /*
     The pointer to the approval the console last worked on. It survives a
@@ -409,7 +565,7 @@ export function ApprovalsScreen() {
   const decided = decide.data
   const blockers = prepared?.blocking_questions ?? []
   const questions = prepared?.form_questions ?? []
-  const coverLetterProvided = Boolean(prepare.variables?.cover_letter?.trim())
+  const coverLetterProvided = Boolean(submitted?.cover_letter?.trim())
   /*
     The packet's status badge shows the approval row's **persisted** state
     once a decision has been recorded (the GET was invalidated and answers
@@ -425,11 +581,42 @@ export function ApprovalsScreen() {
       ? approvalState.data.status
       : (prepared?.status ?? null)
 
+  /*
+    The stepper's active step, derived from the packet's real state.
+  */
+  const stepperActive: 1 | 2 | 3 | 4 = !prepared
+    ? 2
+    : packetStatus === "approved"
+      ? 4
+      : packetStatus === "rejected" || packetStatus === "expired"
+        ? 2
+        : 3
+
+  /** The needs-a-human count the clay panel and the queue both report. */
+  const needsHumanCount = blockers.length
+
+  /**
+   * Route the operator into the prepare form with the first blocking
+   * question's field prefilled as a custom field — the one way an answer
+   * actually becomes part of a prepared payload.
+   */
+  const answerBlockers = () => {
+    const first = questions.find((question) => blockers.includes(question.label))
+    const key = first?.fields?.[0] ?? blockers[0]
+    prepare.reset()
+    decide.reset()
+    setEditing(true)
+    const existing = prepareForm.getValues("custom_fields")
+    if (key && !existing.some((field) => field.key === key)) {
+      customFields.append({ key, value: "" })
+    }
+  }
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <PageHeader
-        title="Review your application"
-        description="Preparing checks the target and stores exactly what will be sent. Your approval is the boundary nothing crosses on its own: approving sends the stored packet you see, not a fresh version."
+        title="One last look. Your decision."
+        description="Review the exact packet before you authorize the next step."
       />
 
       {/*
@@ -453,163 +640,311 @@ export function ApprovalsScreen() {
         <ApprovalStateBanner state={approvalState.data} runId={mirror.run_id} />
       ) : null}
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-        <div className="min-w-0 space-y-6">
+      <ApprovalStepper active={stepperActive} />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+        <div className="min-w-0 space-y-3">
           {prepared ? (
-            <Card className="rounded-2xl">
-              <CardContent className="space-y-5 pt-6">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
-                    What will be submitted
+            <section className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                What will be submitted
+              </p>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                  <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    {prepared.prepared_summary.job_title}
                   </h2>
                   <StatusBadge status={packetStatus} />
                 </div>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Nothing has been submitted yet. The payload below was stored
-                  by the server — approving executes exactly this payload; it is
-                  not rebuilt from the form.
-                </p>
-
-                <InControlNotice adapterName={prepared.adapter_name} />
-
-                {/*
-                  The two cards share a row when there are board questions to
-                  read beside the checklist; with no measured form (the
-                  fail-soft path) the checklist spans the column alone rather
-                  than leaving an empty half next to it.
-                */}
-                <div
-                  className={
-                    questions.length > 0
-                      ? "grid items-start gap-4 xl:grid-cols-2"
-                      : "grid items-start gap-4"
-                  }
+                <a
+                  href={prepared.prepared_summary.job_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={GHOST_PILL}
                 >
-                  <PackageChecklist
-                    summary={prepared.prepared_summary}
-                    questions={questions}
-                    customFieldCount={
-                      customFieldValues.filter(
-                        (field) => field.key.trim() && field.value.trim()
-                      ).length
-                    }
-                    coverLetterProvided={coverLetterProvided}
+                  Open listing ↗
+                </a>
+              </div>
+              <p className="text-[13px] leading-[19px] text-muted-foreground">
+                {[
+                  prepared.prepared_summary.company_name,
+                  prepared.prepared_summary.adapter_name,
+                  isLocalTestBoard(prepared.prepared_summary.adapter_name)
+                    ? "Local test board"
+                    : "Real-board assist",
+                ].join(" · ")}
+              </p>
+              <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
+                Nothing has been submitted yet. The payload below was stored
+                by the server — approving executes exactly this payload; it is
+                not rebuilt from the form.
+              </p>
+
+              {prepared.prepared_summary.requires_manual_review ? (
+                <p className="flex items-center gap-2 text-sm text-terracotta-foreground">
+                  <CircleAlert className="size-4 shrink-0" aria-hidden />
+                  This form needs a human to complete it.
+                </p>
+              ) : null}
+
+              <Divider />
+
+              <PacketRow
+                icon={FileText}
+                eyebrow="Résumé"
+                title={
+                  prepared.prepared_summary.resume_path
+                    ? prepared.prepared_summary.resume_path.replace(
+                        /^.*[/\\]/,
+                        ""
+                      )
+                    : "None stored with the payload"
+                }
+                sub={
+                  prepared.prepared_summary.resume_path
+                    ? "The file the run will upload, stored with the payload"
+                    : "Nothing was attached to this packet"
+                }
+                detail={
+                  prepared.prepared_summary.resume_path ? (
+                    <code className="block break-all font-mono text-[11px]">
+                      {prepared.prepared_summary.resume_path}
+                    </code>
+                  ) : undefined
+                }
+              />
+
+              <Divider />
+
+              <PacketRow
+                icon={ScrollText}
+                eyebrow="Cover letter"
+                title={coverLetterProvided ? "Provided" : "None provided"}
+                sub={
+                  coverLetterProvided
+                    ? "Draft · stored with the payload as text"
+                    : "Not provided — the form submits without one"
+                }
+                detail={
+                  coverLetterProvided && submitted ? (
+                    submitted.cover_letter
+                  ) : undefined
+                }
+              />
+
+              <Divider />
+
+              <PacketRow
+                icon={User}
+                eyebrow="Candidate details"
+                title="Name, email, contact number"
+                sub="What the form will fill — from your profile unless you changed it"
+                detail={
+                  submitted ? (
+                    <ul className="space-y-1">
+                      <li>
+                        <span className="font-medium text-foreground">
+                          Name:
+                        </span>{" "}
+                        {submitted.candidate_name}
+                      </li>
+                      <li>
+                        <span className="font-medium text-foreground">
+                          Email:
+                        </span>{" "}
+                        {submitted.email}
+                      </li>
+                      <li>
+                        <span className="font-medium text-foreground">
+                          Phone:
+                        </span>{" "}
+                        {submitted.phone}
+                      </li>
+                    </ul>
+                  ) : undefined
+                }
+              />
+
+              <Divider />
+
+              <PacketRow
+                icon={FileText}
+                eyebrow="Profile facts the agent may use"
+                title={
+                  formatList(prepared.prepared_summary.profile_fact_names) ||
+                  "None"
+                }
+                sub="The payload's own allow-list of facts, stored with the packet"
+                detail={
+                  <code className="block break-all font-mono text-[11px]">
+                    {formatList(prepared.prepared_summary.field_names)}
+                  </code>
+                }
+              />
+
+              {customFieldValues.filter((field) => field.key.trim()).length >
+              0 ? (
+                <>
+                  <Divider />
+                  <PacketRow
+                    icon={FileText}
+                    eyebrow="Answers you provided"
+                    title={`${customFieldValues.filter((field) => field.key.trim()).length} custom field(s) typed into the prepare form`}
+                    sub="Submitted with the payload as the form's extra answers"
                   />
-                  <QuestionCard questions={questions} blockers={blockers} />
-                </div>
+                </>
+              ) : null}
 
-                <div className="rounded-xl border border-border bg-card/60 p-3.5">
-                  <h3 className="font-heading text-sm font-semibold tracking-tight text-foreground">
-                    The stored payload
-                  </h3>
-                  <p className="mt-0.5 mb-2 text-xs leading-relaxed text-muted-foreground">
-                    What the run will receive, as the server stored it.
-                  </p>
-                  <PacketFacts
-                    summary={prepared.prepared_summary}
-                    approvalId={prepared.approval_id}
-                    applicationId={prepared.application_id ?? null}
-                  />
-                </div>
-
-                {blockers.length > 0 ? (
-                  <p className="text-sm leading-relaxed text-terracotta-foreground">
-                    Approving now queues the run; it will stop at the{" "}
-                    {blockers.length} question
-                    {blockers.length === 1 ? "" : "s"} the profile does not
-                    answer and hand them to you, rather than guess.
-                  </p>
-                ) : null}
-
-                {decided ? (
-                  <p className="text-sm text-muted-foreground">
-                    Decision recorded — the result is below.
-                  </p>
-                ) : (
-                  <div className="space-y-4 border-t border-border pt-5">
-                    <p className="text-sm text-muted-foreground">
-                      The decision is recorded against your account, with the
-                      time.
-                    </p>
-                    <Field id="reason" label="Reason" optional>
-                      <Input id="reason" {...decisionForm.register("reason")} />
-                    </Field>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        disabled={decide.isPending}
-                        onClick={() => setDialog("approve")}
-                      >
-                        Approve &amp; continue
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={decide.isPending}
-                        onClick={() => setDialog("reject")}
-                      >
-                        Reject
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={decide.isPending}
-                        onClick={() => {
-                          prepare.reset()
-                          decide.reset()
-                          setEditing(true)
-                        }}
-                      >
-                        Edit application
-                      </Button>
-                    </div>
-
-                    {/*
-                      The URL is the one thing here that can be long without
-                      a space. `wrap-anywhere`, not `break-words`: a URL is a
-                      single token, and `break-word` only breaks inside a box
-                      that has already sized itself to that token's full
-                      width.
-                    */}
-                    <p className="text-xs leading-relaxed wrap-anywhere text-muted-foreground">
-                      Approving queues the run against{" "}
-                      <span className="font-mono text-[11px]">
-                        {prepared.prepared_summary.job_url}
-                      </span>
-                      . The decision cannot be taken back once recorded.
-                    </p>
-
-                    <DecideDialog
-                      action={dialog}
-                      jobLabel={`${prepared.prepared_summary.job_title} at ${prepared.prepared_summary.company_name}`}
-                      jobUrl={prepared.prepared_summary.job_url}
-                      pending={decide.isPending}
-                      onAction={() =>
-                        decisionForm.handleSubmit((values) =>
-                          decide.mutate({
-                            approvalId: prepared.approval_id,
-                            values,
-                            action: dialog ?? "approve",
-                          })
-                        )()
+              {questions.length > 0 ? (
+                <>
+                  <Divider />
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
+                      {questions.filter(
+                        (question) =>
+                          !blockers.includes(question.label) &&
+                          question.verdict === "answerable"
+                      ).length}{" "}
+                      of {questions.length} answers confirmed
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        document
+                          .getElementById("board-questions")
+                          ?.scrollIntoView({ block: "start" })
                       }
-                      onDismiss={() => setDialog(null)}
-                    />
-
-                    {decide.isError ? (
-                      <ErrorNotice error={decide.error} />
-                    ) : null}
+                      className={GHOST_PILL}
+                    >
+                      View all questions →
+                    </button>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </>
+              ) : null}
+
+              <Divider />
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-foreground">
+                  The stored payload
+                </h3>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  What the run will receive, as the server stored it.
+                </p>
+                <PacketFacts
+                  summary={prepared.prepared_summary}
+                  approvalId={prepared.approval_id}
+                  applicationId={prepared.application_id ?? null}
+                />
+              </div>
+
+              {blockers.length > 0 ? (
+                <p className="text-sm leading-relaxed text-terracotta-foreground">
+                  Approving now queues the run; it will stop at the{" "}
+                  {blockers.length} question
+                  {blockers.length === 1 ? "" : "s"} the profile does not
+                  answer and hand them to you, rather than guess.
+                </p>
+              ) : null}
+
+              {decided ? (
+                <p className="text-sm text-muted-foreground">
+                  Decision recorded — the result is below.
+                </p>
+              ) : (
+                <div className="space-y-4 border-t border-border pt-5">
+                  <p className="text-sm text-muted-foreground">
+                    The decision is recorded against your account, with the
+                    time.
+                  </p>
+                  <Field id="reason" label="Reason" optional>
+                    <Input
+                      id="reason"
+                      {...decisionForm.register("reason")}
+                    />
+                  </Field>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      disabled={decide.isPending}
+                      onClick={() => setDialog("approve")}
+                    >
+                      Approve &amp; continue
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={decide.isPending}
+                      onClick={() => setDialog("reject")}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={decide.isPending}
+                      onClick={() => {
+                        prepare.reset()
+                        decide.reset()
+                        setEditing(true)
+                      }}
+                    >
+                      Edit application
+                    </Button>
+                  </div>
+
+                  {/*
+                    The URL is the one thing here that can be long without
+                    a space. `wrap-anywhere`, not `break-words`: a URL is a
+                    single token, and `break-word` only breaks inside a box
+                    that has already sized itself to that token's full
+                    width.
+                  */}
+                  <p className="text-xs leading-relaxed wrap-anywhere text-muted-foreground">
+                    Approving queues the run against{" "}
+                    <span className="font-mono text-[11px]">
+                      {prepared.prepared_summary.job_url}
+                    </span>
+                    . The decision cannot be taken back once recorded.
+                  </p>
+
+                  <DecideDialog
+                    action={dialog}
+                    jobLabel={`${prepared.prepared_summary.job_title} at ${prepared.prepared_summary.company_name}`}
+                    jobUrl={prepared.prepared_summary.job_url}
+                    pending={decide.isPending}
+                    onAction={() =>
+                      decisionForm.handleSubmit((values) =>
+                        decide.mutate({
+                          approvalId: prepared.approval_id,
+                          values,
+                          action: dialog ?? "approve",
+                        })
+                      )()
+                    }
+                    onDismiss={() => setDialog(null)}
+                  />
+
+                  {decide.isError ? (
+                    <ErrorNotice error={decide.error} />
+                  ) : null}
+                </div>
+              )}
+            </section>
           ) : (
             <form
               className="space-y-5"
-              onSubmit={prepareForm.handleSubmit((values) =>
+              onSubmit={prepareForm.handleSubmit((values) => {
+                setSubmitted({
+                  candidate_name: values.candidate_name,
+                  email: values.email,
+                  phone: values.phone,
+                  cover_letter: values.cover_letter ?? "",
+                  resume_path: values.resume_path ?? "",
+                })
                 prepare.mutate(values)
-              )}
+              })}
             >
               <FormSection
                 title="Job details"
@@ -671,7 +1006,6 @@ export function ApprovalsScreen() {
                 >
                   <Input
                     id="email"
-                    type="email"
                     {...prepareForm.register("email")}
                   />
                 </Field>
@@ -783,84 +1117,124 @@ export function ApprovalsScreen() {
               </FormSection>
             </form>
           )}
+
+          {prepared ? (
+            <InControlNotice
+              adapterName={prepared.prepared_summary.adapter_name}
+            />
+          ) : null}
         </div>
 
         {/*
-          The panel sticks below the header — the header's height is
-          published as `--header-height` and measured, so the panel is never
-          cut off by it. A panel taller than the space it sticks in scrolls
-          inside itself rather than under the viewport edge.
+          The question column is the design's right rail (`49:1095`): the
+          queue, the clay not-ready panel, then the ids the rest of the
+          console refers to. It sticks below the header — the header's
+          height is published as `--header-height` and measured, so the
+          rail is never cut off by it.
         */}
-        <aside className="lg:sticky lg:top-[calc(var(--header-height,7rem)+1rem)]">
-          <div className="space-y-4">
-            <ControlPanel />
-            {prepared ? (
-              <Card className="rounded-2xl">
-                <CardContent className="space-y-3 pt-6">
-                  <h2 className="font-heading text-sm font-semibold tracking-tight text-foreground">
-                    The review record
-                  </h2>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    The ids everything else refers to: the approval this
-                    decision is recorded on, the tracked application it belongs
-                    to.
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
+          {prepared ? (
+            <>
+              <QuestionCard questions={questions} blockers={blockers} />
+
+              {needsHumanCount > 0 ? (
+                <section className="flex flex-col gap-2.5 rounded-surface bg-terracotta-soft p-[18px]">
+                  <div className="flex items-center gap-2">
+                    <Lock
+                      className="size-4 shrink-0 text-terracotta-foreground"
+                      aria-hidden
+                    />
+                    <h2 className="text-[15px] font-semibold leading-snug text-terracotta-foreground">
+                      Not ready to authorize
+                    </h2>
+                  </div>
+                  <p className="text-sm leading-relaxed text-terracotta-foreground">
+                    {needsHumanCount} answer
+                    {needsHumanCount === 1 ? "" : "s"} need
+                    {needsHumanCount === 1 ? "s" : ""} a human. Approving now
+                    queues a run that stops at them and hands them back to
+                    you rather than guessing — or answer them in the prepare
+                    form first, which is the only way an answer becomes part
+                    of the payload.
                   </p>
-                  <FieldList
-                    items={[
-                      {
-                        label: "Approval",
-                        value: (
-                          <span className="font-mono text-[11px]">
-                            {prepared.approval_id}
-                          </span>
-                        ),
-                      },
-                      {
-                        label: "Status",
-                        value: <StatusBadge status={packetStatus} />,
-                      },
-                      {
-                        label: "Application",
-                        value: prepared.application_id ? (
-                          <span className="font-mono text-[11px]">
-                            {prepared.application_id}
-                          </span>
-                        ) : (
-                          "—"
-                        ),
-                      },
-                      { label: "Adapter", value: prepared.adapter_name },
-                    ]}
-                  />
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="rounded-2xl lg:max-h-[calc(100vh-var(--header-height,7rem)-2rem)] lg:overflow-y-auto">
-                <CardContent className="space-y-4 pt-6">
-                  <h2 className="font-heading text-sm font-semibold tracking-tight text-foreground">
-                    Before you prepare
-                  </h2>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    Preparing checks the target domain, builds the payload and
-                    stores it as an approval request. It does not contact the
-                    employer, and it does not submit anything — that takes a
-                    separate, human decision, and approving queues durable work
-                    rather than submitting.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={answerBlockers}
+                      className="inline-flex h-8 items-center rounded-lg bg-card/80 px-3 text-[13px] font-semibold text-terracotta-foreground transition-colors outline-none hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      Answer in the prepare form →
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="flex flex-col gap-2 rounded-surface border border-border-surface bg-card p-5">
+                <h2 className="text-sm font-semibold text-foreground">
+                  The review record
+                </h2>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  The ids everything else refers to: the approval this
+                  decision is recorded on, the tracked application it belongs
+                  to.
+                </p>
+                <FieldList
+                  items={[
+                    {
+                      label: "Approval",
+                      value: (
+                        <span className="font-mono text-[11px]">
+                          {prepared.approval_id}
+                        </span>
+                      ),
+                    },
+                    {
+                      label: "Status",
+                      value: <StatusBadge status={packetStatus} />,
+                    },
+                    {
+                      label: "Application",
+                      value: prepared.application_id ? (
+                        <span className="font-mono text-[11px]">
+                          {prepared.application_id}
+                        </span>
+                      ) : (
+                        "—"
+                      ),
+                    },
+                    { label: "Adapter", value: prepared.adapter_name },
+                  ]}
+                />
+              </section>
+            </>
+          ) : (
+            <section className="flex flex-col gap-2 rounded-surface border border-border-surface bg-card p-5">
+              <h2 className="text-sm font-semibold text-foreground">
+                Before you prepare
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Preparing checks the target domain, builds the payload and
+                stores it as an approval request. It does not contact the
+                employer, and it does not submit anything — that takes a
+                separate, human decision, and approving queues durable work
+                rather than submitting.
+              </p>
+            </section>
+          )}
+
+          <ControlPanel />
         </aside>
       </div>
 
       {decided ? (
-        <Section
-          title="The result"
-          description="What the decision response reported, with the evidence that came with it."
-        >
+        <section className="space-y-3">
+          <h2 className="type-section">The result</h2>
+          <p className="max-w-[62ch] text-sm leading-relaxed text-muted-foreground">
+            What the decision response reported, with the evidence that came
+            with it.
+          </p>
           <DecisionResult result={decided} applicationId={applicationId} />
-        </Section>
+        </section>
       ) : null}
     </div>
   )

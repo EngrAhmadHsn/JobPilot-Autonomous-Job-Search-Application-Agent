@@ -48,6 +48,7 @@ import type {
   RunActionResponse,
   RunDetailResponse,
   RunsListResponse,
+  SourceStatusResponse,
   StatusUpdateRequest,
   StoredTailoring,
   TailorRequest,
@@ -418,6 +419,17 @@ export const api = {
   /** The caller's own durable execution history. */
   listRuns: (signal?: AbortSignal) =>
     request<RunsListResponse>("/api/runs", { signal, timeoutMs: 20_000 }),
+
+  /**
+   * The corpus's source registry and its freshness (WS-42, Operations).
+   * The board registry is shared across the instance's operators, exactly
+   * like the corpus itself, so this answers the same for every caller.
+   */
+  sourceStatus: (signal?: AbortSignal) =>
+    request<SourceStatusResponse>("/api/jobs/sources", {
+      signal,
+      timeoutMs: 20_000,
+    }),
 
   /** One run's persistent state, checkpoints and item summary. */
   getRun: (runId: string, signal?: AbortSignal) =>

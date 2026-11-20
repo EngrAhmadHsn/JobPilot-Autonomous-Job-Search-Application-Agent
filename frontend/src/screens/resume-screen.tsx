@@ -1,7 +1,6 @@
 import { useMutation } from "@tanstack/react-query"
 import { FileText, Upload } from "lucide-react"
 import { useRef, useState } from "react"
-import { Link } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
@@ -201,7 +200,9 @@ export function ResumeScreen() {
         title={
           hasProfile
             ? "Your career profile"
-            : "Let's build your career profile."
+            : /* The design file's intake headline (node `47:564`) — the
+                 no-profile state is the one it draws. */
+              "Start with your real experience."
         }
         description={
           hasProfile ? (
@@ -212,10 +213,9 @@ export function ResumeScreen() {
             </>
           ) : (
             <>
-              Your résumé is read once, on this machine, and becomes a set of
-              facts: what you have done, what you know, what you want next. The
-              agent scores every job against those facts, tailors a résumé from
-              them, and never claims anything it cannot find there.
+              Upload a source résumé and review the parsed facts. The résumé is
+              read once, on this machine, and the agent never claims anything
+              it cannot find there.
             </>
           )
         }
@@ -405,9 +405,9 @@ export function ResumeScreen() {
           title="What the agent read"
           description="Everything below came out of your document. Nothing was inferred."
           action={
-            <Button render={<Link to="/app/matches" />}>
+            <LinkButton to="/app/matches" variant="outline">
               Explore matching jobs
-            </Button>
+            </LinkButton>
           }
         >
           {storedProfile.isPending ? (

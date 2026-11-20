@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
@@ -106,11 +106,12 @@ describe("the credential card on the profile screen", () => {
     expect(await screen.findByText("No profile yet")).toBeInTheDocument()
   })
 
-  it("keeps the profile answers reachable on the Preferences tab", async () => {
+  it("keeps the preferences editor reachable on its tab", async () => {
     /*
-      The reorder must not have pushed the answer cards off the page. WS-40
-      moved them behind a tab, so reachability — not mere presence in the
-      tree — is what this pins now: click the tab, then see the editor.
+      The reorder must not have pushed the answer cards off the page. WS-42
+      rebuilt the tabs to the design's three, so reachability — not mere
+      presence in the tree — is what this pins now: click the tab, then see
+      the editor.
     */
     setCurrentProfileId("profile-1")
     stubCredentials()
@@ -123,21 +124,27 @@ describe("the credential card on the profile screen", () => {
     const user = userEvent.setup()
     renderScreen(<ProfileScreen />)
 
-    await user.click(await screen.findByRole("tab", { name: "Preferences" }))
-    await waitFor(() => {
-      expect(screen.getByText("Work preferences")).toBeInTheDocument()
-    })
+    await user.click(
+      await screen.findByRole("tab", { name: "Work preferences" })
+    )
+    // The editor's own description proves the card is mounted — the tab
+    // trigger carries the same words, so the count is at least two.
+    expect(screen.getAllByText(/What you want from a job/).length).toBeGreaterThan(
+      0
+    )
     expect(screen.getByRole("button", { name: "Save key" })).toBeInTheDocument()
   })
 })
 
-describe("the tabbed profile (WS-40)", () => {
+describe("the design's tabbed profile (WS-42, from WS-40)", () => {
   /*
-    The reference panel 6 draws five tabs. Every one must render real content —
-    a tab that opens onto nothing is worse than no tab, because it promises a
-    surface that does not exist.
+    The design file (node `16:202`) draws three content tabs — Documents ·
+    Application answers · Work preferences — and the Documents card carries
+    the upload action. Every tab must render real content — a tab that opens
+    onto nothing is worse than no tab, because it promises a surface that
+    does not exist.
   */
-  it("offers the five reference tabs and every one opens onto real content", async () => {
+  it("offers the design's three tabs and every one opens onto real content", async () => {
     setCurrentProfileId("profile-1")
     stubCredentials()
     server.use(
@@ -150,33 +157,37 @@ describe("the tabbed profile (WS-40)", () => {
     renderScreen(<ProfileScreen />)
 
     const tabs = await screen.findByRole("tablist")
-    for (const name of [
-      "Overview",
-      "Experience",
-      "Skills",
-      "Preferences",
-      "Settings",
-    ]) {
+    for (const name of ["Documents", "Application answers", "Work preferences"]) {
       expect(within(tabs).getByRole("tab", { name })).toBeInTheDocument()
     }
 
-    // Overview: the identity card from the parsed résumé.
+    // Documents: the library, with provenance chips on both kinds.
     expect(
-      screen.getByText(/roles on record|role on record/)
+      screen.getByText("Your original stays original.")
+    ).toBeInTheDocument()
+    expect(screen.getByText("ORIGINAL")).toBeInTheDocument()
+    expect(screen.getByText("TAILORED")).toBeInTheDocument()
+    expect(screen.getAllByText("In use").length).toBeGreaterThan(0)
+
+    // The source-facts reveal opens onto the parsed résumé.
+    await user.click(
+      screen.getByRole("button", { name: "View source facts →" })
+    )
+    expect(
+      await screen.findByText(/roles on record|role on record/)
     ).toBeInTheDocument()
 
-    // Experience: the parsed résumé view.
-    await user.click(screen.getByRole("tab", { name: "Experience" }))
-    expect(await screen.findByText(/From your résumé/i)).toBeInTheDocument()
-
-    // Skills: the full list, with the count stated from the real array.
-    await user.click(screen.getByRole("tab", { name: "Skills" }))
-    expect(await screen.findByText(/stated in the résumé/i)).toBeInTheDocument()
-
-    // Settings: the account-settings pointer, not an empty panel.
-    await user.click(screen.getByRole("tab", { name: "Settings" }))
+    // Application answers: the confirmed-answers panel, gaps included.
+    await user.click(screen.getByRole("tab", { name: "Application answers" }))
     expect(
-      await screen.findByText(/Account settings that are not part of/i)
+      await screen.findByText("Questions the boards actually ask")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Voluntary self-identification")).toBeInTheDocument()
+
+    // Work preferences: the one editor, shared with the intake page.
+    await user.click(screen.getByRole("tab", { name: "Work preferences" }))
+    expect(
+      await screen.findByText(/What you want from a job/)
     ).toBeInTheDocument()
   })
 

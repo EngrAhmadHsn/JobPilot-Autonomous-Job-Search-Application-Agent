@@ -257,3 +257,6 @@ temp_*
 # commit with `git add -A`, and a 3 MB screenshot of a third party's page does
 # not belong in the repository.
 .scratch/
+
+# Sprint WS-43 zoom-tier design renders (large; the resolution-matched set lives in Job Pilot/)
+docs/design/Images-figma/*.jpg

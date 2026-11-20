@@ -1,23 +1,32 @@
 import { Link } from "react-router-dom"
 
-import { StatusBadge } from "@/components/ui/status-badge"
+import { cn } from "cn"
 
-import { describeStatus } from "@/lib/status"
 import { stagger } from "@/lib/stagger"
 import type { ApplicationSummary } from "@/lib/api/types"
 
+import { stageChip, stageCta, stageHelper, stageTimestamp } from "./stage-copy"
+
 /*
-  One application on the board (WS-39).
+  One application on the board (WS-39 card, rebuilt to the design in WS-42).
 
-  The card keeps what the brief pins: the job, the company, the status, and
-  the next action — which is the status vocabulary's own `nextStep` line, so
-  the card and the detail screen can never disagree about what has to happen
-  next. The line is clamped to two rows because a column is ~200 px wide and
-  some next-step lines are sentences; the full line rides in `title`, and
-  the detail screen renders it unclamped through `StatusExplainer`.
+  The design file's card (nodes 49:1157–49:1182) is a five-part column:
+  the company, the job title, a **stage chip**, a one-line helper, then a
+  divider over a **CTA pill** and a **timestamp**. The chip, helper, CTA and
+  timestamp come from `stage-copy.ts`, which keeps the design's sentences
+  where they are true of this backend and the console's vocabulary where
+  they are not — the board's own legend (49:1255) is the honesty contract
+  those words live under.
 
-  The whole card is the link into the application's detail, the same
-  whole-row-is-the-target pattern the Discover results use.
+  Two structure notes:
+
+  - The card is no longer one whole-card link (nested links are invalid
+    HTML once the CTA became a link of its own): the job title is the link,
+    and the CTA pill is a second, explicit one. Both go to the same detail
+    screen.
+  - Every value is the server's. The chip and helper re-phrase a status,
+    never invent one; the timestamp is computed from a real field; a
+    missing timestamp renders as an empty footer, not a fabricated one.
 */
 export function ApplicationCard({
   application,
@@ -26,30 +35,61 @@ export function ApplicationCard({
   application: ApplicationSummary
   index: number
 }) {
-  const presentation = describeStatus(application.status)
+  const chip = stageChip(application.status)
+  const helper = stageHelper(application.status)
+  const cta = stageCta(application.status)
+  const timestamp = stageTimestamp(application)
+  const detail = `/app/tracker/${encodeURIComponent(application.id)}`
 
   return (
     <li {...stagger(index)}>
-      <Link
-        to={`/app/tracker/${encodeURIComponent(application.id)}`}
-        className="block rounded-xl border border-border bg-card px-3 py-2.5 shadow-paper transition-colors duration-150 hover:bg-accent/60"
-      >
-        <span className="block font-heading text-sm font-semibold wrap-anywhere text-foreground underline-offset-4 hover:underline">
-          {application.job_title}
-        </span>
-        <span className="mt-0.5 block text-xs wrap-anywhere text-muted-foreground">
+      <div className="flex flex-col gap-3 rounded-[var(--radius-surface)] border border-border-surface bg-paper p-4">
+        <span className="text-xs font-semibold leading-[17px] wrap-anywhere text-muted-foreground">
           {application.company_name}
         </span>
-        <span className="mt-2 block">
-          <StatusBadge status={application.status} />
-        </span>
+
+        <h4 className="text-lg font-semibold leading-[26px] wrap-anywhere text-primary">
+          <Link
+            to={detail}
+            className="underline-offset-4 outline-none hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            {application.job_title}
+          </Link>
+        </h4>
+
         <span
-          title={presentation.nextStep}
-          className="mt-2 line-clamp-2 block text-xs leading-relaxed text-muted-foreground"
+          className={cn(
+            "inline-block max-w-full rounded-md px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary",
+            chip.tone
+          )}
         >
-          {presentation.nextStep}
+          {chip.label}
         </span>
-      </Link>
+
+        <span
+          title={helper}
+          className="text-xs leading-[17px] text-muted-foreground"
+        >
+          {helper}
+        </span>
+
+        <div aria-hidden="true" className="h-px bg-border-surface" />
+
+        <span>
+          <Link
+            to={detail}
+            className="inline-block rounded-lg border border-[#dce1d6] bg-paper px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary underline-offset-4 outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            {cta}
+          </Link>
+        </span>
+
+        {timestamp ? (
+          <span className="text-[11px] leading-4 text-muted-foreground">
+            {timestamp}
+          </span>
+        ) : null}
+      </div>
     </li>
   )
 }

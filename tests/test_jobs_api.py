@@ -326,9 +326,118 @@ def test_suggest_returns_titles_from_the_corpus(
     # A narrowing query filters; a query nothing matches returns none.
     one_title = next(iter(corpus_titles))
     narrowed = api.get("/api/jobs/suggest", params={"q": one_title[:6]}).json()
-    assert all(
-        one_title[:6].lower() in item["value"].lower()
-        for item in narrowed["suggestions"]
-    )
+    assert all(one_title[:6].lower() in item["value"].lower() for item in narrowed["suggestions"])
     empty = api.get("/api/jobs/suggest", params={"q": "zzz-no-such-title"}).json()
     assert empty["suggestions"] == []
+
+
+def test_source_status_reports_registry_and_freshness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/jobs/sources — the Operations screen's freshness facts (WS-42).
+
+    The design draws a "Corpus freshness" card and a "Source status" table
+    (nodes 49:1449 and 49:3253). The registry is shared, so the facts come
+    from the request's own session (never a global factory) and answer the
+    same for every caller: the adapters in use, each board's health, the
+    last completed refresh and the stored-corpus size.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.db.boards import BoardDB
+    from src.db.runs import JobRunDB
+    from src.db.users import LEGACY_OWNER_ID
+    from src.main import app as fastapi_app
+    from src.db.session import get_db as real_get_db
+
+    engine = create_engine(f"sqlite:///{(tmp_path / 'sources.db').as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    def override_get_db():
+        db = factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    fastapi_app.dependency_overrides[real_get_db] = override_get_db
+    monkeypatch.setattr(get_settings(), "resume_upload_dir", str(tmp_path / "up"))
+    try:
+        with factory() as db:
+            db.add_all(
+                [
+                    BoardDB(
+                        id="greenhouse:stripe",
+                        ats="greenhouse",
+                        slug="stripe",
+                        company_name="Stripe",
+                        enabled=True,
+                        listings_seen=776,
+                        last_ok_at=datetime(2026, 11, 10, 19, 15),
+                        consecutive_failures=0,
+                    ),
+                    BoardDB(
+                        id="lever:broken",
+                        ats="lever",
+                        slug="broken",
+                        company_name="Broken",
+                        enabled=True,
+                        consecutive_failures=3,
+                        last_error="HTTP 503",
+                    ),
+                    BoardDB(id="ashby:idle", ats="ashby", slug="idle", enabled=False),
+                ]
+            )
+            db.add(
+                JobRunDB(
+                    id="run-refresh-1",
+                    job_type="refresh",
+                    status="COMPLETED",
+                    # The route reads runs through the owner-aware access
+                    # layer, so the fixture's run must belong to the
+                    # suite's caller (`LEGACY_OWNER_ID`) — an unowned run
+                    # is a platform run and correctly invisible here.
+                    owner_id=LEGACY_OWNER_ID,
+                    correlation_id="corr-1",
+                    created_at=datetime(2026, 11, 7, 13, 36),
+                    completed_at=datetime(2026, 11, 7, 13, 40),
+                )
+            )
+            db.commit()
+
+        client = TestClient(fastapi_app)
+        response = client.get("/api/jobs/sources")
+        assert response.status_code == 200
+        body = response.json()
+
+        # One entry per provider, boards aggregated under it.
+        assert [entry["ats"] for entry in body["adapters"]] == [
+            "ashby",
+            "greenhouse",
+            "lever",
+        ]
+        greenhouse = next(entry for entry in body["adapters"] if entry["ats"] == "greenhouse")
+        assert greenhouse == {"ats": "greenhouse", "boards": 1, "enabled_boards": 1}
+
+        # Every registered board appears, disabled ones included; the
+        # failing streak is the registry's own threshold, not a guess.
+        assert len(body["boards"]) == 3
+        broken = next(b for b in body["boards"] if b["id"] == "lever:broken")
+        assert broken["failing"] is True
+        assert broken["last_error"] == "HTTP 503"
+        idle = next(b for b in body["boards"] if b["id"] == "ashby:idle")
+        assert idle["enabled"] is False
+        stripe = next(b for b in body["boards"] if b["id"] == "greenhouse:stripe")
+        assert stripe["failing"] is False
+        assert stripe["listings_seen"] == 776
+
+        # The freshness facts: the last completed refresh and the corpus size.
+        assert body["last_refresh_completed_at"] == "2026-11-07T13:40:00"
+        assert body["jobs_stored"] == 0
+    finally:
+        fastapi_app.dependency_overrides.pop(real_get_db, None)
+        engine.dispose()

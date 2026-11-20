@@ -1,10 +1,10 @@
 import { cn } from "cn"
 
 import { PlainText } from "@/components/common/plain-text"
-import { StatusBadge } from "@/components/ui/status-badge"
 
 import { formatDateTime } from "@/lib/format"
 import { stagger } from "@/lib/stagger"
+import { describeStatus } from "@/lib/status"
 import type { ApplicationEvent } from "@/lib/api/types"
 
 /*
@@ -36,6 +36,11 @@ function actorKind(actor: string): {
   terracotta is a human.** System actions are quiet paper. The classes are
   the badge tones of the same two colours, so the timeline and the status
   badges can never disagree about who did what.
+
+  The design file draws both chips in one sage tint (node 49:1092's rows);
+  the console keeps the two-colour law on purpose — flattening "Agent" and
+  "You" into one tint would hide exactly the attribution this trail exists
+  to prove. The chips keep the design's shape (24 px, 11/600).
 */
 const ACTOR_CHIP_CLASSES: Record<ActorKind, string> = {
   agent: "border-lime/70 bg-lime-soft text-lime-foreground",
@@ -44,23 +49,102 @@ const ACTOR_CHIP_CLASSES: Record<ActorKind, string> = {
   unknown: "border-border bg-muted text-muted-foreground",
 }
 
-const ACTOR_DOT_CLASSES: Record<ActorKind, string> = {
-  agent: "bg-lime",
-  human: "bg-terracotta",
-  system: "bg-border",
-  unknown: "bg-border",
+/**
+ * One event, in the trail's human voice (design nodes 49:2152–49:2177):
+ * a 14/600 title over a 12/400 explanation — never the raw `event_type`.
+ *
+ * The mapping is honest by construction: a known event type says what the
+ * backend records it as meaning, a status transition names the status the
+ * server moved to (in the console's vocabulary), and an event type the
+ * console does not know renders verbatim rather than being paraphrased
+ * into something it may not be.
+ */
+function eventPresentation(event: ApplicationEvent): {
+  title: string
+  detail: string | null
+} {
+  switch (event.event_type) {
+    case "application_created":
+      return {
+        title: "Application created",
+        detail: "The tracked row was created for this application.",
+      }
+    case "approval_granted":
+      // The design's row (49:2159): the decision and the identity behind
+      // it are both on the record.
+      return {
+        title: "Approval recorded",
+        detail: "Identity and decision saved.",
+      }
+    case "approval_rejected":
+      return {
+        title: "Approval declined",
+        detail: "Nothing was submitted.",
+      }
+    case "evidence_recorded":
+      return {
+        title: "Evidence recorded",
+        detail: "The artifacts were saved to this record.",
+      }
+    case "verification_failed":
+      return {
+        title: "Verification failed",
+        detail: "The submission is not confirmed.",
+      }
+    case "status_transition": {
+      const to = event.to_status
+        ? describeStatus(event.to_status).label
+        : null
+      const from = event.from_status
+        ? describeStatus(event.from_status).label
+        : null
+      return {
+        title: to ? `Moved to ${to}` : (event.event_type),
+        detail:
+          from && to
+            ? `From ${from} to ${to}.`
+            : to
+              ? `The status is now ${to}.`
+              : null,
+      }
+    }
+    default:
+      // An unknown event type is shown verbatim — paraphrasing a fact the
+      // console does not understand would be inventing one.
+      return { title: event.event_type, detail: null }
+  }
 }
 
 /**
- * The application's chronology (WS-39) — the detail view's Timeline.
+ * The trail's time voice: a compact date-and-clock stamp. The design's
+ * rows show "09:42" — a clock alone, which would read as same-day even
+ * when a trail spans days — so the stamp carries a short date too, and the
+ * full timestamp rides in `title`.
+ */
+function formatTrailTime(iso: string): string {
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return iso
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+}
+
+/**
+ * The application's chronology (WS-39, restyled to the design's "Ordered
+ * history" in WS-42).
  *
  * The events are the server's, already in append order (event id order, so
  * two events written in the same millisecond keep their real order); this
  * component renders them in the order given and does not re-sort. Every
  * event carries its actor chip (lime = the agent, terracotta = a person,
- * per the semantic law), the transition it records, the absolute timestamp
- * — a chronology is a record, so it shows clock time, not "2 hours ago" —
- * and the metadata the server attached, sanitized before it was stored.
+ * per the semantic law), the human-voiced title above, and the metadata the
+ * server attached, sanitized before it was stored — the metadata stays
+ * visible below the design's two lines because run ids and decision
+ * records are provenance, not decoration.
  */
 export function ApplicationTimeline({
   events,
@@ -68,9 +152,10 @@ export function ApplicationTimeline({
   events: ApplicationEvent[]
 }) {
   return (
-    <ol aria-label="Application timeline" className="space-y-5">
+    <ol aria-label="Application timeline" className="space-y-4">
       {events.map((event, index) => {
         const actor = actorKind(event.actor)
+        const presentation = eventPresentation(event)
         const metadata = event.metadata ?? {}
         const entries = Object.entries(metadata).filter(
           ([, value]) => value !== null && value !== undefined
@@ -80,50 +165,40 @@ export function ApplicationTimeline({
           <li
             key={event.id}
             data-event-id={event.id}
-            {...stagger(index, "relative border-l-2 border-border pl-5")}
+            {...stagger(index, "relative")}
           >
-            {/*
-              The marker dot: colour rides with the actor kind, and the
-              chip spells the actor out — colour never carries the meaning
-              alone.
-            */}
-            <span
-              aria-hidden={true}
-              className={cn(
-                "absolute top-1.5 -left-[7px] size-3 rounded-full border-2 border-card",
-                ACTOR_DOT_CLASSES[actor.kind]
-              )}
-            />
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="font-mono text-sm font-medium text-foreground">
-                {event.event_type}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+              <span
+                title={formatDateTime(event.recorded_at)}
+                className="w-[86px] shrink-0 text-xs leading-[17px] text-muted-foreground tabular-nums"
+              >
+                {formatTrailTime(event.recorded_at)}
               </span>
               <span
                 data-actor-kind={actor.kind}
                 className={cn(
-                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                  "inline-flex shrink-0 items-center rounded-md border px-[9px] py-1 text-[11px] font-semibold leading-4",
                   ACTOR_CHIP_CLASSES[actor.kind]
                 )}
               >
                 {actor.kind === "human" ? `Human · ${actor.name}` : actor.name}
               </span>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {formatDateTime(event.recorded_at)}
+              <span className="min-w-0 flex-1 basis-48">
+                <span className="block text-sm font-semibold leading-5 text-primary">
+                  {presentation.title}
+                </span>
+                {presentation.detail ? (
+                  <span className="mt-0.5 block text-xs leading-[17px] text-muted-foreground">
+                    {presentation.detail}
+                  </span>
+                ) : null}
               </span>
             </div>
-            {event.from_status || event.to_status ? (
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">{event.from_status ?? "—"}</span>
-                <span aria-hidden={true}>→</span>
-                <span className="font-mono">{event.to_status ?? "—"}</span>
-                <StatusBadge status={event.to_status} withIcon={false} />
-              </div>
-            ) : null}
             {entries.length > 0 ? (
-              <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
+              <dl className="ml-[110px] mt-1.5 space-y-1 text-xs text-muted-foreground md:ml-[118px]">
                 {entries.map(([key, value]) => (
                   <div key={key} className="flex gap-2">
-                    <dt className="shrink-0 font-mono">{key}:</dt>
+                    <dt className="shrink-0">{key}:</dt>
                     <dd className="min-w-0 break-words">
                       <PlainText as="span">
                         {typeof value === "string"

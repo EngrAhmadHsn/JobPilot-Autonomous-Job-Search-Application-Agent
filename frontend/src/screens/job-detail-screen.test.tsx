@@ -76,9 +76,10 @@ describe("the job detail screen (WS-36)", () => {
     )
     renderApp({ route: ROUTE })
 
-    // The complete record: the listing's fields, the description, and the
-    // full component breakdown rendered in place (the route's purpose —
-    // not buried in a disclosure the way the Discover panel keeps it).
+    // The complete record: the listing's fields, the description, the
+    // verdict slot, and the full component breakdown rendered in place (the
+    // route's purpose — not buried in a disclosure the way the Discover
+    // panel keeps it).
     expect(
       await screen.findByRole("heading", { name: "AI Engineer" })
     ).toBeInTheDocument()
@@ -88,22 +89,27 @@ describe("the job detail screen (WS-36)", () => {
         "Build machine learning systems for a payments platform."
       )
     ).toBeInTheDocument()
-    expect(screen.getByText("Why this job ranked")).toBeInTheDocument()
+    // The fit card leads with the verdict slot (WS-42, node 49:1920),
+    // derived from the engine's component verdicts and the recorded gaps.
+    expect(screen.getByText("A good fit, with one gap.")).toBeInTheDocument()
     expect(screen.getByText("Semantic")).toBeInTheDocument()
     expect(
       screen.getByText("Based on 90.0% of the available signals.")
     ).toBeInTheDocument()
 
-    // Source and freshness, as the data carries them — in the header's meta
-    // row and in the listing's own field table.
-    expect(screen.getAllByText(/greenhouse · 1/).length).toBe(2)
+    // Source and freshness, as the data carries them. WS-42 (node 47:524):
+    // the header's meta row names the *source* — the raw source_job_id
+    // stays in the listing's own field table, and only there.
+    expect(screen.getAllByText(/greenhouse · 1/).length).toBe(1)
 
-    // The real actions, at their real destinations, and no save.
+    // The real actions, at their real destinations, and no save. The back
+    // pill carries the history's own count (WS-42, design node 47:488) —
+    // the count arrives with the history read, so wait for it.
     expect(
-      screen.getByRole("link", { name: /Back to Discover/ })
+      await screen.findByRole("link", { name: /Back to \d+ match(es)?/ })
     ).toHaveAttribute("href", "/app/matches")
     expect(
-      screen.getByRole("link", { name: /Tailor for this job/ })
+      screen.getByRole("link", { name: /Tailor for this role/ })
     ).toHaveAttribute("href", "/app/tailor/greenhouse%3A1")
     expect(
       screen.queryByRole("button", { name: /save/i })
@@ -150,9 +156,14 @@ describe("the job detail screen (WS-36)", () => {
     )
     renderApp({ route: ROUTE })
 
-    const missing = await screen.findByText("Missing requirements")
-    expect(missing.parentElement?.textContent).toContain("Kubernetes")
-    expect(screen.getByText(/evidence gap/i)).toBeInTheDocument()
+    // The clay wash names the gap in the design's own words (WS-42, nodes
+    // 49:1929–49:1931) and frames what a gap is — never a disqualification.
+    expect(
+      await screen.findByText("Kubernetes is not in your source résumé.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("An evidence gap, not a reason to invent experience.")
+    ).toBeInTheDocument()
   })
 
   it("renders sponsorship as unknown when no register covers the listing", async () => {
@@ -165,10 +176,14 @@ describe("the job detail screen (WS-36)", () => {
     renderApp({ route: ROUTE })
 
     // No sponsor_status rides on the row: the honest answer is unknown,
-    // not a silent absence and not a guessed negative.
+    // not a silent absence and not a guessed negative — and the rail keeps
+    // the guardrail sentence visible under the finding (WS-42, node
+    // 49:1958).
+    expect(await screen.findByText("Sponsorship: unknown")).toBeInTheDocument()
+    expect(screen.getByText(/No register data is available/)).toBeInTheDocument()
     expect(
-      await screen.findByText(
-        "Sponsorship unknown — no register data for this listing"
+      screen.getByText(
+        /never boosts a match score or promises future eligibility/
       )
     ).toBeInTheDocument()
   })
@@ -271,7 +286,9 @@ describe("the job detail screen (WS-36)", () => {
     )
     renderApp({ route: ROUTE })
 
-    expect(await screen.findByText("Why this job ranked")).toBeInTheDocument()
+    expect(
+      await screen.findByText("A good fit, with one gap.")
+    ).toBeInTheDocument()
     expect(
       await screen.findByText(
         "The profile states Python and SQL, which the listing asks for."

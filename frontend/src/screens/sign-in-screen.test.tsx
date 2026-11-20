@@ -25,7 +25,7 @@ describe("the sign-in screen", () => {
     renderApp({ route: "/app/resume" })
 
     expect(
-      await screen.findByRole("heading", { name: "Sign in" })
+      await screen.findByRole("heading", { name: "Welcome back." })
     ).toBeInTheDocument()
   })
 
@@ -150,7 +150,7 @@ describe("the sign-in screen's opening form", () => {
     renderApp({ route: "/sign-in" })
 
     expect(
-      await screen.findByRole("heading", { name: "Sign in" })
+      await screen.findByRole("heading", { name: "Welcome back." })
     ).toBeInTheDocument()
   })
 })

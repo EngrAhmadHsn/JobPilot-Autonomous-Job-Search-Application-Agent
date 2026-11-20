@@ -1,4 +1,5 @@
 import { ArrowUpRightIcon } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { cn } from "cn"
@@ -10,8 +11,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 
   The shared `StatTile` renders a value with provenance but is not a link;
   every tile of the reference's stat strip leads somewhere real (Approvals,
-  Matches, Tracker), so this is the tile as a link — with the same plain
-  anatomy: label, value, hint that says where the number came from.
+  Matches, Tracker), so this is the tile as a link. The anatomy is the same
+  as the tile's — a leading glyph, the value with its plain-case label
+  beneath, then the provenance line — and the reference's one extra signal:
+  the attention tile carries a trailing chevron, which here is the link
+  affordance on every tile that leads somewhere.
 
   The attention variant is the reference's terracotta card, and the tone law
   behind it: terracotta is the human's colour, and "need your attention" is
@@ -32,6 +36,8 @@ export interface StatCardProps {
   /** The screen that resolves the metric, when the tile leads somewhere. */
   to?: string
   variant?: "default" | "attention"
+  /** A leading Lucide glyph, drawn bare in the tone's ink. */
+  icon?: LucideIcon
   /** True while the first read is on the way: bones, not zeros. */
   loading?: boolean
 }
@@ -42,69 +48,70 @@ export function StatCard({
   hint,
   to,
   variant = "default",
+  icon: Icon,
   loading = false,
 }: StatCardProps) {
   const attention = variant === "attention"
   const linked = Boolean(to) && !loading
 
   const frame = cn(
-    "block rounded-xl border px-4 py-3.5 transition-[box-shadow] duration-150",
+    "block rounded-xl border px-5 py-4 transition-[box-shadow] duration-150",
     attention
       ? "border-terracotta bg-terracotta-soft"
       : "border-border bg-card hover:shadow-[var(--shadow-lift)]"
   )
 
+  const ink = attention ? "text-terracotta-foreground" : "text-foreground"
+  const mutedInk = attention
+    ? "text-terracotta-foreground"
+    : "text-muted-foreground"
+
   const body = (
     <>
-      <div className="flex items-center justify-between gap-2">
-        <p
-          className={cn(
-            "text-xs font-medium tracking-wide uppercase",
-            attention ? "text-terracotta-foreground" : "text-muted-foreground"
+      <div className="flex items-center gap-3.5">
+        {Icon ? (
+          <Icon
+            aria-hidden="true"
+            className={cn(
+              "size-7 shrink-0",
+              attention ? "text-terracotta-foreground" : "text-primary"
+            )}
+            strokeWidth={1.6}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          {loading ? (
+            <div className="space-y-2" aria-hidden="true">
+              <Skeleton className="h-8 w-14" />
+              <Skeleton className="h-3.5 w-28" />
+            </div>
+          ) : (
+            <>
+              <p
+                className={cn(
+                  "font-heading text-3xl leading-none font-bold tabular-nums",
+                  ink
+                )}
+              >
+                {value}
+              </p>
+              <p className={cn("mt-1.5 text-sm", ink)}>{label}</p>
+            </>
           )}
-        >
-          {label}
-        </p>
+          {hint && !loading ? (
+            <p className={cn("mt-2 text-xs leading-relaxed", mutedInk)}>
+              {hint}
+            </p>
+          ) : null}
+        </div>
         {linked ? (
           <ArrowUpRightIcon
             aria-hidden="true"
-            className={cn(
-              "size-4 shrink-0",
-              attention ? "text-terracotta-foreground" : "text-muted-foreground"
-            )}
+            className={cn("size-4 shrink-0 self-center", mutedInk)}
             strokeWidth={1.8}
           />
         ) : null}
       </div>
-      {loading ? (
-        <div className="mt-2 space-y-1.5" aria-hidden="true">
-          <Skeleton className="h-7 w-12" />
-          <Skeleton className="h-3 w-28" />
-        </div>
-      ) : (
-        <>
-          <p
-            className={cn(
-              "mt-1.5 font-heading text-2xl leading-none font-semibold tabular-nums",
-              attention ? "text-terracotta-foreground" : "text-foreground"
-            )}
-          >
-            {value}
-          </p>
-          {hint ? (
-            <p
-              className={cn(
-                "mt-1.5 text-xs leading-relaxed",
-                attention
-                  ? "text-terracotta-foreground"
-                  : "text-muted-foreground"
-              )}
-            >
-              {hint}
-            </p>
-          ) : null}
-        </>
-      )}
     </>
   )
 

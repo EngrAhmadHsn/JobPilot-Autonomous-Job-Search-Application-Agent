@@ -202,7 +202,12 @@ describe("the application shell", () => {
     renderApp({ route: "/app/resume" })
 
     await waitFor(() => {
-      expect(screen.getByText(/API online/i)).toBeInTheDocument()
+      // The marker renders once per chrome — the phone bar and the desktop
+      // bar each carry it, and CSS shows exactly one at any real width
+      // (jsdom computes neither) — so the assertion is on existence.
+      expect(screen.getAllByText(/API online/i).length).toBeGreaterThanOrEqual(
+        1
+      )
     })
   })
 
@@ -218,8 +223,10 @@ describe("the application shell", () => {
     )
     renderApp({ route: "/app/resume" })
 
+    // The sign-in surface, in the design's own voice (WS-42, node 47:602) —
+    // the fail-closed gate's shape is what this pins, not the string.
     expect(
-      await screen.findByRole("heading", { name: "Sign in" })
+      await screen.findByRole("heading", { name: "Welcome back." })
     ).toBeInTheDocument()
     expect(screen.queryByRole("navigation", { name: "Screens" })).toBeNull()
     expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull()
@@ -252,7 +259,7 @@ describe("the application shell", () => {
       await screen.findByText(/your session has not ended/i)
     ).toBeInTheDocument()
     // A transient failure must NOT show the sign-in form.
-    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull()
+    expect(screen.queryByRole("heading", { name: "Welcome back." })).toBeNull()
     expect(screen.queryByLabelText("Password")).toBeNull()
     // Still fail-closed: the console chrome stays hidden.
     expect(screen.queryByRole("navigation", { name: "Screens" })).toBeNull()

@@ -26,16 +26,19 @@ describe("ScoreGrid", () => {
     expect(screen.getByText(/based on/i)).toBeDefined()
   })
 
-  it("shows the keyword component alongside the semantic one", () => {
+  it("shows the lexical component alongside the semantic one", () => {
     const pair = matchPair()
     render(<ScoreGrid match={pair.match} />)
-    expect(screen.getByText("Keywords")).toBeDefined()
+    // The row label is the design's (WS-42, node 49:1952): "Lexical", not
+    // "Keywords".
+    expect(screen.getByText("Lexical")).toBeDefined()
   })
 
   it("shows the occupational role beside the other components (WS-21)", () => {
     const pair = matchPair()
     render(<ScoreGrid match={pair.match} />)
-    expect(screen.getByText("Role")).toBeDefined()
+    // The design's row label (WS-42, node 49:1956): "Occupational role".
+    expect(screen.getByText("Occupational role")).toBeDefined()
   })
 
   it("says when a role mismatch capped the score", () => {

@@ -67,7 +67,8 @@ function emptyProfile(): ApplicationProfileInput {
   }
 }
 
-export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
+/** The one read/save pair for the application profile (one query, one key). */
+function useApplicationProfile(profileId: string) {
   const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: ["application-profile", profileId],
@@ -81,6 +82,22 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
         queryKey: ["application-profile", profileId],
       }),
   })
+  return { query, save }
+}
+
+/**
+ * The confirmed answers, without the preferences editor (WS-42).
+ *
+ * The design file splits the profile's editable half across two tabs —
+ * "Work preferences" (the shared editor) and "Application answers" (the
+ * facts a form asks for) — and the split is honest here because each half
+ * owns its own cards: the preferences editor is `WorkPreferencesCard`, and
+ * this panel is the measured question gaps, the application answers and
+ * the voluntary self-identification. Both read the same query key, so the
+ * two tabs can never disagree about what is stored.
+ */
+export function ApplicationAnswersPanel({ profileId }: { profileId: string }) {
+  const { query, save } = useApplicationProfile(profileId)
 
   if (query.isPending) {
     // The shape of the answer, not the word "Loading": this panel is a card of
@@ -94,7 +111,6 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
   const loaded = query.data.application_profile as ApplicationProfileInput
   return (
     <div className="space-y-5">
-      <WorkPreferencesCard key={`prefs-${profileId}`} profileId={profileId} />
       <MeasuredQuestionsCard key={`gaps-${profileId}`} profileId={profileId} />
       <ApplicationAnswersCard
         key={`answers-${profileId}`}
@@ -103,6 +119,15 @@ export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
         saving={save.isPending}
       />
       <EeoCard profileId={profileId} />
+    </div>
+  )
+}
+
+export function ApplicationProfilePanel({ profileId }: { profileId: string }) {
+  return (
+    <div className="space-y-5">
+      <WorkPreferencesCard key={`prefs-${profileId}`} profileId={profileId} />
+      <ApplicationAnswersPanel profileId={profileId} />
     </div>
   )
 }
@@ -523,8 +548,9 @@ function EeoCard({ profileId }: { profileId: string }) {
       <CardHeader>
         <CardTitle>Voluntary self-identification</CardTitle>
         <CardDescription>
-          Optional. Never guessed from your résumé, never used to rank jobs, and
-          you can delete it at any time.
+          Your choice, never a ranking signal: optional, never guessed from
+          your résumé, stored separately from your application profile, and
+          deletable at any time.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

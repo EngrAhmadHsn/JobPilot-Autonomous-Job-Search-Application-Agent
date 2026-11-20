@@ -5,18 +5,25 @@ import { PlainText } from "@/components/common/plain-text"
 import { RelativeTime } from "@/components/common/relative-time"
 import { Button } from "@/components/ui/button"
 
-import { formatScore } from "@/lib/format"
 import type { JobMatchPair } from "@/lib/api/types"
 
 /*
-  The ranked results list of the Discover split view (WS-36).
+  The ranked results list of the Discover split view, at the design's row
+  anatomy (WS-42, node `49:887`): a 16/600/23 title with the score chip on
+  its trailing edge, a 12/400/17 company · location line, the required
+  skills as **plain dot-joined text** (what the board asks for, not a match
+  claim — the design draws "Python · FastAPI", not chips), a "View →"
+  affordance, and a thin score bar along the bottom (track sage, value
+  #8ea758 — the ruler green, not the agent's lime). The selected row wears
+  the sage wash (#e6ece8, node `49:875`); its chip pops lime while the
+  unselected rows' chips stay sage.
 
-  Dense rows at the reference's density: title, company, location, the
-  date/source where the listing carries one, the real score chip, and up to
-  three real skill chips (the listing's own required skills — what the board
-  asks for, not a match claim). Every string the board supplied renders
-  through `PlainText` or a chip that contains one: job-board content is
-  untrusted text, never markup.
+  The chip carries the **whole** score ("86", node `49:878`) — a rounded
+  display form, never a decimal. The full precision stays with the
+  breakdown in the detail panel.
+
+  Every string the board supplied renders through `PlainText`: job-board
+  content is untrusted text, never markup.
 
   The `wrap-anywhere` utility on the wrapping lines is deliberate and
   measured: `break-words` maps to `overflow-wrap: break-word`, which breaks
@@ -38,26 +45,24 @@ import type { JobMatchPair } from "@/lib/api/types"
   the honest total; the slice-at-cap wording lives with it.
 */
 
-/** The compact score pill for a dense row — the same lime chip, smaller. */
-function RowScore({ value }: { value: number }) {
+/**
+ * The row's score chip, as the design draws it (nodes `49:878` / `49:890`):
+ * a 24px r6 chip carrying the whole score, 11/600/16. The selected row's
+ * chip wears the agent's lime (`#eef9c4`); unselected rows keep the quiet
+ * sage (`#e6ece8`) — the same number, quieter clothes.
+ */
+function RowScore({ value, selected }: { value: number; selected: boolean }) {
+  const whole = String(Math.round(value))
   return (
     <span
-      className="inline-flex shrink-0 items-baseline gap-1 rounded-full bg-lime px-2 py-0.5 text-xs font-semibold text-lime-foreground tabular-nums"
-      aria-label={`Match score ${formatScore(value)} out of 100`}
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center rounded-[6px] px-[9px] text-[11px] font-semibold leading-4 text-lime-foreground tabular-nums",
+        selected ? "bg-lime-soft" : "bg-forest-soft"
+      )}
+      aria-label={`Match score ${whole} out of 100`}
     >
-      {formatScore(value)}
+      {whole}
     </span>
-  )
-}
-
-/** One real skill the listing asks for, as a quiet chip. */
-function SkillChip({ children }: { children: string }) {
-  return (
-    <li className="inline-flex max-w-full items-center rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-      <PlainText as="span" className="text-xs">
-        {children}
-      </PlainText>
-    </li>
   )
 }
 
@@ -96,49 +101,79 @@ function ResultRow({
         aria-current={selected || undefined}
         onClick={() => onSelect(job.id)}
         className={cn(
-          "w-full rounded-xl border px-4 py-3 text-start transition-colors duration-150",
+          "w-full space-y-2 rounded-[var(--radius-surface)] border p-4 text-start transition-colors duration-150",
           selected
-            ? "border-primary bg-accent"
-            : "border-border bg-card hover:bg-accent/60"
+            ? "border-transparent bg-forest-soft"
+            : "border-border-surface bg-card hover:bg-accent/50"
         )}
       >
+        {/*
+          The design's row anatomy (node 49:875/49:887): the title with the
+          score chip on its trailing edge, then company · location, then the
+          skills as plain dot-joined text beside the "View →" affordance,
+          then a thin score bar along the bottom. The bar is a *second
+          rendering* of the same number the chip carries, never a different
+          one.
+        */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <PlainText
-              as="span"
-              className="block font-heading text-sm font-semibold wrap-anywhere text-foreground"
-            >
-              {job.title}
-            </PlainText>
-            <PlainText
-              as="span"
-              className="mt-0.5 block text-xs wrap-anywhere text-muted-foreground"
-            >
-              {job.company}
-              {job.location ? ` · ${job.location}` : ""}
-              {job.remote_policy ? ` · ${job.remote_policy}` : ""}
-            </PlainText>
-            <PlainText
-              as="span"
-              className="mt-0.5 block text-xs text-muted-foreground"
-            >
-              <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1">
-                {salary ? (
-                  <span className="tabular-nums">{salary} · </span>
-                ) : null}
-                {freshness}
-              </span>
-            </PlainText>
-          </div>
-          <RowScore value={match.overall_score} />
+          <PlainText
+            as="span"
+            className="min-w-0 flex-1 text-[16px] leading-[23px] font-semibold wrap-anywhere text-forest"
+          >
+            {job.title}
+          </PlainText>
+          <RowScore value={match.overall_score} selected={selected} />
         </div>
-        {skills.length > 0 ? (
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {skills.map((skill) => (
-              <SkillChip key={skill}>{skill}</SkillChip>
-            ))}
-          </ul>
-        ) : null}
+        <PlainText
+          as="span"
+          className="block text-xs leading-[17px] wrap-anywhere text-muted-foreground"
+        >
+          {job.company}
+          {job.location ? ` · ${job.location}` : ""}
+          {job.remote_policy ? ` · ${job.remote_policy}` : ""}
+        </PlainText>
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {skills.length > 0 ? (
+              <PlainText
+                as="span"
+                className="block text-xs leading-[17px] wrap-anywhere text-muted-foreground"
+              >
+                {skills.join(" · ")}
+              </PlainText>
+            ) : (
+              <PlainText
+                as="span"
+                className="block text-xs leading-[17px] text-muted-foreground"
+              >
+                {salary ? `${salary} · ` : ""}
+                {freshness}
+              </PlainText>
+            )}
+          </div>
+          <span className="shrink-0 text-[13px] font-semibold leading-[19px] text-forest">
+            View →
+          </span>
+        </div>
+        {/*
+          The score bar, as the design draws it (nodes `49:897`/`49:898`): a
+          6px sage track with the ruler-green value (`#8ea758`, the
+          `--color-progress-required` token — the agent's lime stays reserved
+          for the agent's own marks). `aria-hidden` because the chip above
+          already names the number; a screen reader would otherwise hear the
+          same fact twice.
+        */}
+        <div
+          aria-hidden="true"
+          className="h-1.5 w-full overflow-hidden rounded-[3px] bg-forest-soft"
+        >
+          <div
+            className="h-full rounded-[3px] bg-progress-required"
+            style={{
+              width: `${Math.max(0, Math.min(100, match.overall_score))}%`,
+            }}
+          />
+        </div>
       </button>
     </li>
   )

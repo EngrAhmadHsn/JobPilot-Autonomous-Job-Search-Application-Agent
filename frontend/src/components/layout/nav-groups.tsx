@@ -113,7 +113,7 @@ export const PRIMARY_DESTINATIONS: NavDestination[] = [
       { to: "/app/approvals", label: "Approvals", match: ["/app/approvals"] },
     ],
     inBottomNav: true,
-    bottomNavLabel: "Apply",
+    bottomNavLabel: "Applications",
   },
   {
     to: "/app/tailor",
@@ -127,8 +127,6 @@ export const PRIMARY_DESTINATIONS: NavDestination[] = [
         match: [{ path: "/app/tailor", end: true }],
       },
     ],
-    inBottomNav: true,
-    bottomNavLabel: "Studio",
   },
   {
     to: "/app/profile",
@@ -143,8 +141,6 @@ export const PRIMARY_DESTINATIONS: NavDestination[] = [
       },
       { to: "/app/resume", label: "Documents", match: ["/app/resume"] },
     ],
-    inBottomNav: true,
-    bottomNavLabel: "Profile",
   },
   {
     to: "/app/activity",
@@ -175,7 +171,11 @@ export const SYSTEM_DESTINATIONS: NavDestination[] = [
   },
 ]
 
-/** The destinations the mobile bottom navigation holds (≤5). */
+/**
+ * The destinations the mobile bottom navigation holds: the design's bar
+ * carries exactly three (Home, Discover, Applications — nodes 49:10379,
+ * 49:7677) plus the "More" slot that opens the drawer for everything else.
+ */
 export const BOTTOM_NAV_DESTINATIONS = PRIMARY_DESTINATIONS.filter(
   (destination) => destination.inBottomNav
 )
@@ -239,18 +239,18 @@ function DestinationRow({
               "mx-2 focus-visible:outline-sidebar-ring",
               child
                 ? "h-8 gap-2 pr-3 pl-9 text-[13px]"
-                : "h-10 gap-2.5 px-3 text-sm",
+                : "h-10 gap-3 px-3 text-base",
               current
-                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
                 : active
                   ? "font-medium text-sidebar-foreground"
                   : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
             )
           : cn(
-              child ? "h-8 pr-3 pl-9 text-[13px]" : "h-11 px-3 text-[15px]",
+              child ? "h-8 pr-3 pl-9 text-[13px]" : "h-11 px-3 text-base",
               "focus-visible:outline-ring",
               current
-                ? "bg-accent font-medium text-primary"
+                ? "bg-accent font-semibold text-primary"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
             ),
         index !== undefined && !child ? stagger(index).className : undefined
@@ -259,8 +259,8 @@ function DestinationRow({
       {Icon && !child ? (
         <Icon
           aria-hidden="true"
-          className="size-[18px] shrink-0"
-          strokeWidth={current || active ? 2 : 1.8}
+          className="size-5 shrink-0"
+          strokeWidth={current || active ? 2 : 1.6}
         />
       ) : null}
       <span className="truncate">{label}</span>

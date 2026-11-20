@@ -1,28 +1,41 @@
 import { PlainText } from "@/components/common/plain-text"
 import type { BoardQuestion } from "@/lib/api/types"
 
-/**
- * The board's own application form, as measured (WS-25b).
- *
- * `prepared_summary.field_names` is **our** internal field map, sorted
- * alphabetically on the server. The board's own question order arrives in
- * `form_questions`, in the order the board publishes it, and it is the order
- * the agent will walk — so the operator approves by reading the form they
- * are about to have filled, not a re-sorted copy of our map.
- *
- * Every question also carries its **answer source**, because "the agent
- * knows this" and "nobody knows this" are different approvals: a question
- * answered from the profile names the fact it is answered from; a question
- * the evidence cannot answer is named as needing a human — the same
- * `blocking_questions` verdict the backend reported, in the board's own
- * wording. A board that publishes no schema, or one that timed out during
- * the prepare (both fail soft on the server), returns an empty list and
- * this renders nothing: the panel is unchanged where there is nothing
- * measured to show.
- *
- * Question labels are board-supplied text, so they render through
- * `PlainText` like every other untrusted string.
- */
+/*
+  The question queue of the Review screen (WS-42, design node `49:1096` —
+  "One answer needs you.").
+
+  The design draws one question at a time with radio options and a save. The
+  backend has no per-answer persistence to save into — an answer exists only
+  as a custom field inside a freshly **prepared** payload — so the console
+  renders what it can prove: the board's own ordered list, every question
+  carrying its verdict. The design's "Needs you / Confirmed" pills render as
+  stat chips, deliberately **not** filters: a filter would hide the board's
+  published order, which is the order the agent will walk and the thing the
+  operator is approving.
+
+  `prepared_summary.field_names` is **our** internal field map, sorted
+  alphabetically on the server. The board's own question order arrives in
+  `form_questions`, in the order the board publishes it — so the operator
+  approves by reading the form they are about to have filled, not a
+  re-sorted copy of our map. A board that publishes no schema, or one that
+  timed out during the prepare (both fail soft on the server), returns an
+  empty list and this renders nothing.
+
+  Question labels are board-supplied text, so they render through
+  `PlainText` like every other untrusted string.
+*/
+
+/** The wash-chip look shared by the queue's position and count chips. */
+const SAGE_CHIP =
+  "inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
+const CLAY_CHIP =
+  "inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-terracotta-foreground"
+const FOREST_CHIP =
+  "inline-flex items-center rounded-[6px] bg-primary px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary-foreground"
+const OUTLINE_CHIP =
+  "inline-flex items-center rounded-[6px] border border-border-surface bg-card px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
+
 export function QuestionCard({
   questions,
   blockers,
@@ -34,52 +47,69 @@ export function QuestionCard({
     return null
   }
   const blocked = new Set(blockers)
-  const blockedCount = questions.filter((question) =>
-    blocked.has(question.label)
-  ).length
+  const isBlocked = (question: BoardQuestion) =>
+    blocked.has(question.label) || question.verdict === "needs_human"
+  const needsYou = questions.filter(isBlocked).length
+  const confirmed = questions.length - needsYou
 
   return (
-    <div
+    <section
       data-testid="board-questions"
-      className="rounded-xl border border-border bg-card/60 p-3.5"
+      className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5"
     >
-      <h3 className="font-heading text-sm font-semibold tracking-tight text-foreground">
-        Questions this board asks
-      </h3>
-      <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-muted-foreground">
-        {blockedCount > 0
-          ? `${blockedCount} of ${questions.length} the profile does not answer — they need a human. As the board publishes them, in order.`
+      <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+        {needsYou === 0
+          ? "Every answer is in hand."
+          : needsYou === 1
+            ? "One answer needs you."
+            : `${needsYou} answers need you.`}
+      </h2>
+
+      {/*
+        The design's count pills (nodes `49:1100` / `49:1102`), as stat
+        chips — the counts the data supports, never a filter that would
+        reorder or hide the board's own sequence.
+      */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className={needsYou > 0 ? FOREST_CHIP : OUTLINE_CHIP}>
+          Needs you {needsYou}
+        </span>
+        <span className={OUTLINE_CHIP}>Confirmed {confirmed}</span>
+      </div>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {needsYou > 0
+          ? `${needsYou} of ${questions.length} the profile does not answer — they need a human. As the board publishes them, in order.`
           : "As the board publishes them, in order — this is what the agent will work through."}
       </p>
-      <ul className="space-y-2">
-        {questions.map((question) => (
+
+      <ol className="space-y-3">
+        {questions.map((question, index) => (
           <li
             key={question.label}
-            className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm"
+            className="space-y-1.5 border-t border-border-surface pt-3 first:border-t-0 first:pt-0"
           >
-            <PlainText
-              as="span"
-              className={
-                blocked.has(question.label)
-                  ? "font-medium text-foreground"
-                  : "text-foreground"
-              }
-            >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={SAGE_CHIP}>
+                QUESTION {index + 1} OF {questions.length}
+              </span>
+              {question.required ? (
+                <span className={CLAY_CHIP}>Required</span>
+              ) : null}
+            </div>
+            <PlainText className="text-sm font-semibold text-foreground">
               {question.label}
             </PlainText>
-            {question.required ? (
-              <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                required
-              </span>
-            ) : null}
-            <AnswerSourceChip
-              question={question}
-              blocked={blocked.has(question.label)}
-            />
+            <div>
+              <AnswerSourceChip
+                question={question}
+                blocked={blocked.has(question.label)}
+              />
+            </div>
           </li>
         ))}
-      </ul>
-    </div>
+      </ol>
+    </section>
   )
 }
 
@@ -90,7 +120,7 @@ export function QuestionCard({
  * skipped`). `needs_human` — or a name in `blocking_questions` — is the
  * terracotta "needs a human" mark. An `answerable` question names the
  * profile fact it is answered from, which is the "confirmed profile fact"
- * source; the candidate-provided answers are counted in the checklist, not
+ * source; the candidate-provided answers are counted in the packet, not
  * re-attributed here, because the response does not tie custom fields to
  * questions. Any other verdict renders verbatim, like an unknown status:
  * a second opinion about what "autofillable" means is a lie the console
@@ -105,14 +135,20 @@ function AnswerSourceChip({
 }) {
   if (blocked || question.verdict === "needs_human") {
     return (
-      <span className="rounded-full bg-terracotta-soft px-2 py-0.5 text-[11px] font-medium text-terracotta-foreground">
-        needs a human
-      </span>
+      <span className={CLAY_CHIP}>needs a human</span>
     )
   }
   if (question.verdict === "answerable") {
     return (
-      <span className="rounded-full border border-forest/25 px-1.5 py-0.5 text-[10px] font-medium text-forest">
+      <span
+        className={SAGE_CHIP}
+        // The sage wash is the agent's mark; the text names the source.
+        title={
+          question.answer_from
+            ? `Answered from the profile fact: ${question.answer_from}`
+            : "The agent can answer this from your profile"
+        }
+      >
         {question.answer_from
           ? `from your profile: ${question.answer_from}`
           : "the agent can answer"}
@@ -120,7 +156,7 @@ function AnswerSourceChip({
     )
   }
   return (
-    <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+    <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] font-semibold leading-4 text-muted-foreground">
       {question.verdict}
     </span>
   )

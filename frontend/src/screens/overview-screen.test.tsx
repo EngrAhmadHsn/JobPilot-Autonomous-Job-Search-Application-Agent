@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw"
 import { describe, expect, it, vi } from "vitest"
 
 import { OverviewScreen } from "@/screens/overview-screen"
+import { eventLink } from "@/screens/overview/activity-feed"
 import {
   applicationSummary,
   auditEvent,
@@ -63,8 +64,20 @@ function tileFor(label: string): HTMLElement {
 function useSplitApplicationTotals() {
   server.use(
     http.get(`${BASE}/api/applications`, ({ request }) => {
-      const status = new URL(request.url).searchParams.get("status")
-      if (status === "awaiting_approval") {
+      const url = new URL(request.url)
+      // **Every** requested status is honoured, including the multi-status
+      // form the screen uses for its stage groups. That mirrors the API
+      // since 2026-11-19: before the fix a two-status request silently
+      // returned the unfiltered list, so a mock answering only exact single
+      // statuses would have hidden the very bug this screen now relies on
+      // being fixed.
+      const requested = url.searchParams
+        .getAll("status")
+        .flatMap((value) => value.split(","))
+        .filter(Boolean)
+      const wants = (status: string) => requested.includes(status)
+
+      if (wants("awaiting_approval")) {
         return HttpResponse.json(
           listPage(
             [
@@ -82,7 +95,7 @@ function useSplitApplicationTotals() {
           )
         )
       }
-      if (status === "prepared") {
+      if (wants("prepared")) {
         return HttpResponse.json(
           listPage(
             [
@@ -108,8 +121,19 @@ function useSplitApplicationTotals() {
           )
         )
       }
-      if (status === "submitted") {
+      if (wants("submitted")) {
         return HttpResponse.json(listPage([applicationSummary()], 3, 1))
+      }
+      if (
+        wants("interview") ||
+        wants("offer") ||
+        wants("rejected") ||
+        wants("withdrawn")
+      ) {
+        return HttpResponse.json(listPage([], 2, 1))
+      }
+      if (wants("verified")) {
+        return HttpResponse.json(listPage([], 1, 1))
       }
       // The unfiltered totals read: a one-row page carrying the server's
       // total of seven.
@@ -124,46 +148,41 @@ describe("the Home dashboard", () => {
     useSplitApplicationTotals()
     renderScreen(<OverviewScreen />)
 
-    // The screen names itself "Overview" (the tab-title contract every
-    // console screen shares), and the greeting names the profile without an
-    // emoji — the time of day is not pinned, because the test must pass at
-    // any hour it runs.
+    // The design leads with the statement as the h1 (node 47:36); the tab
+    // keeps the stable screen name ("Overview · JobPilot") through
+    // `documentTitle`, which a separate document test pins.
     expect(
-      await screen.findByRole("heading", { name: "Overview" })
+      await screen.findByRole("heading", { name: "Your next career move." })
     ).toBeInTheDocument()
-    // The profile's name rides in with the profile read.
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Good (morning|afternoon|evening), Ada\./)
-      ).toBeInTheDocument()
-    })
 
-    // The unfiltered read returns one row; the server says seven.
+    // The unfiltered read returns one row; the server says seven. WS-42
+    // renamed the tile to the design's stage vocabulary ("Outcome recorded"
+    // and "In progress" are the other two), so the total lives in the
+    // pipeline panel's title, which is the one place that says how many
+    // applications exist in all.
     await waitFor(() => {
-      expect(
-        within(tileFor("Tracked applications")).getByText("7")
-      ).toBeInTheDocument()
+      expect(screen.getByText(/Your pipeline · 7 applications/)).toBeInTheDocument()
     })
     // The awaiting page returns one row and the prepared page two; the
-    // server says 1 + 2 = 3 applications await a decision — and the
-    // attention tile aggregates those server totals with the trail's count.
+    // server says 1 + 2 = 3 applications await a decision. The tile speaks
+    // the **server totals**, not the two loaded rows.
     expect(
-      within(tileFor("Need your attention")).getByText("4")
+      within(tileFor("Awaiting review")).getByText("3")
     ).toBeInTheDocument()
-    expect(tileFor("Need your attention")).toHaveTextContent(
-      "3 awaiting a decision"
-    )
+    // The design's second stage groups the applications a human must
+    // resolve but the machine cannot: verified submissions with no recorded
+    // outcome yet. The server says one.
+    expect(within(tileFor("Needs you")).getByText("1")).toBeInTheDocument()
     // The attention summary row also speaks the server total, not the rows
     // that happen to be loaded.
     expect(
       await screen.findByText("3 applications awaiting your approval")
     ).toBeInTheDocument()
     // The submitted page returns one row; the server says three.
-    expect(
-      within(tileFor("Submitted, unverified")).getByText("3")
-    ).toBeInTheDocument()
-    // One ranked match in the mocked history.
-    expect(within(tileFor("Top matches")).getByText("1")).toBeInTheDocument()
+    expect(within(tileFor("In progress")).getByText("3")).toBeInTheDocument()
+    // The outcome group is the multi-status read over the four human
+    // outcomes; the server says two.
+    expect(within(tileFor("Outcome recorded")).getByText("2")).toBeInTheDocument()
   })
 
   it("aggregates need-your-attention from real statuses and links each row to its resolver", async () => {
@@ -171,28 +190,23 @@ describe("the Home dashboard", () => {
     useSplitApplicationTotals()
     renderScreen(<OverviewScreen />)
 
-    // The awaiting applications render as their own rows, through the one
-    // status presentation — the badge shows `describeStatus`'s label, and
-    // each row links to the application's tracker page. A resting
-    // `prepared` application renders the same way, alongside them.
-    const rowA1 = (await screen.findByText("Backend Engineer")).closest("a")
+    // The queue names the **task**, as the design's rows do ("Review your
+    // Acorn application" / "The packet is ready for your decision."), and
+    // the whole row is one link to the application's tracker page. The
+    // design carries no status badge here — the row's membership in the
+    // awaiting queue is the status — and the one shared status presentation
+    // (`data-status`) remains pinned where statuses render, on the board.
+    const rowA1 = (
+      await screen.findByText("Review your TechFlow application")
+    ).closest("a")
     expect(rowA1).toHaveAttribute("href", "/app/tracker/application-a1")
-    const badge = within(rowA1 as HTMLElement).getByText("Awaiting approval")
-    expect(
-      (badge.closest("[data-status]") as HTMLElement).hasAttribute(
-        "data-status"
-      )
-    ).toBe(true)
-    expect(badge.closest("[data-status]")?.getAttribute("data-status")).toBe(
-      "awaiting_approval"
-    )
-    const rowP2 = screen.getByText("Data Engineer").closest("a")
+    const rowP2 = screen
+      .getByText("Review your DataForge application")
+      .closest("a")
     expect(rowP2).toHaveAttribute("href", "/app/tracker/application-p2")
-    const preparedBadge = within(rowP2 as HTMLElement).getByText("Prepared")
-    expect(
-      preparedBadge.closest("[data-status]")?.getAttribute("data-status")
-    ).toBe("prepared")
-    const rowP1 = screen.getByText("Platform Engineer").closest("a")
+    const rowP1 = screen
+      .getByText("Review your Helios application")
+      .closest("a")
     expect(rowP1).toHaveAttribute("href", "/app/tracker/application-p1")
 
     // The summary rows lead to the screens that resolve them.
@@ -288,14 +302,16 @@ describe("the Home dashboard", () => {
       "/app/resume"
     )
 
-    // Real server zeros on the strip — never a stand-in number.
+    // Real server zeros on the stage strip — never a stand-in number. WS-42
+    // replaced the old four metric tiles with the design's four pipeline
+    // stages, and each of them must read the server's own zero.
     await waitFor(() => {
-      expect(
-        within(tileFor("Need your attention")).getByText("0")
-      ).toBeInTheDocument()
+      expect(within(tileFor("Awaiting review")).getByText("0")).toBeInTheDocument()
     })
+    expect(within(tileFor("Needs you")).getByText("0")).toBeInTheDocument()
+    expect(within(tileFor("In progress")).getByText("0")).toBeInTheDocument()
     expect(
-      within(tileFor("Tracked applications")).getByText("0")
+      within(tileFor("Outcome recorded")).getByText("0")
     ).toBeInTheDocument()
 
     // The featured slot and the feed are honest empties, not placeholder cards.
@@ -315,6 +331,10 @@ describe("the Home dashboard", () => {
     server.use(
       http.get(`${BASE}/api/audit`, () => {
         const page: AuditPage = {
+          // The digest shows the design's three-row window (nodes
+          // 49:812–49:835), so the mock puts one row of **each actor** in
+          // it: the agent's unknown action, the person's approval, and the
+          // system's blocked step.
           events: [
             // An action the console has no label for: shown verbatim, and
             // linked nowhere rather than to a guessed destination.
@@ -325,62 +345,73 @@ describe("the Home dashboard", () => {
               actor_kind: "agent",
               outcome: "success",
             }),
-            ...auditResponse().events,
+            auditEvent({
+              id: 59,
+              action: "application.approve",
+              actor: "human:operator",
+              actor_kind: "user",
+              outcome: "success",
+            }),
+            auditEvent({
+              id: 58,
+              action: "application.blocked_challenge",
+              actor: "system",
+              actor_kind: "system",
+              outcome: "blocked",
+            }),
           ],
-          count: 6,
+          count: 3,
         }
         return HttpResponse.json(page)
       })
     )
     renderScreen(<OverviewScreen />)
 
-    // Attribution: the agent's steps and the person's are named. The row's
-    // actor word and its action are separate text nodes, so both sides of
-    // the pair are asserted: four agent rows, two person rows. (Each row's
-    // link repeats the action for screen readers, so the action text can
-    // appear more than once.)
+    // Attribution: the chip names the actor — the design's digest chips
+    // read AGENT / YOU / SYSTEM (node 49:811) — and a blocked step reads as
+    // the SYSTEM's call-out, not the agent's: a blocked step is a platform
+    // stop, which is how the shared trail presents it too. (The chip's
+    // uppercase is CSS; the DOM text is "Agent", so the match is
+    // case-insensitive and exact.)
+    // One row of each actor, in the design's three-row window.
     await waitFor(() => {
-      expect(
-        screen.getAllByText(/verified a submission/).length
-      ).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText(/^agent$/i)).toHaveLength(1)
     })
-    // Three agent rows (verify, submit, the unknown action), two person
-    // rows (the approval, the upload), and the blocked challenge reads as
-    // the system's call-out, not the agent's — a blocked step is a
-    // platform stop, which is how the shared trail presents it too.
-    expect(screen.getAllByText("The agent")).toHaveLength(3)
-    expect(screen.getAllByText("A person")).toHaveLength(2)
+    expect(screen.getAllByText(/^you$/i)).toHaveLength(1)
+    expect(screen.getAllByText(/^system$/i)).toHaveLength(1)
     expect(
       screen.getAllByText(/stopped at a captcha or multi-factor prompt/i).length
     ).toBeGreaterThanOrEqual(1)
     expect(
-      screen.getAllByText(/approved an application/).length
-    ).toBeGreaterThanOrEqual(1)
-    expect(
-      screen.getAllByText(/uploaded and parsed a résumé/).length
+      screen.getAllByText(/approved an application/i).length
     ).toBeGreaterThanOrEqual(1)
     // The unknown action is not hidden and not invented into a label, and
     // it carries no link at all.
     expect(screen.getByText(/something\.unheard/)).toBeInTheDocument()
 
-    // Links: submission work leads to the Tracker, approval work to the
-    // Review surface, the blocked challenge to the full trail, the upload
-    // back to Resume.
-    const trackLinks = screen.getAllByRole("link", { name: /Track/ })
-    expect(trackLinks.length).toBeGreaterThanOrEqual(1)
-    expect(trackLinks[0]).toHaveAttribute("href", "/app/tracker")
+    // The rows that have a real destination carry it: the approval leads to
+    // the Review surface, the blocked challenge to the full trail.
     const reviewLinks = screen.getAllByRole("link", { name: /Review/ })
     expect(reviewLinks[0]).toHaveAttribute("href", "/app/approvals")
     const trailLinks = screen.getAllByRole("link", { name: /Trail/ })
     expect(trailLinks[0]).toHaveAttribute("href", "/app/activity")
-    const resumeLinks = screen.getAllByRole("link", { name: /Resume/ })
-    expect(resumeLinks[0]).toHaveAttribute("href", "/app/resume")
     // The unknown action row carries no link at all.
     expect(
       screen
         .getAllByRole("link")
         .filter((link) => link.textContent?.includes("something.unheard"))
     ).toHaveLength(0)
+
+    // The rest of the link table is the feed's own mapping, pinned directly:
+    // submission work → Tracker, uploads → Resume, and an action the map
+    // does not know → nowhere rather than a guessed destination.
+    expect(
+      eventLink(auditEvent({ action: "application.submit" }))?.to
+    ).toBe("/app/tracker")
+    expect(eventLink(auditEvent({ action: "resume.upload" }))?.to).toBe(
+      "/app/resume"
+    )
+    expect(eventLink(auditEvent({ action: "something.else" }))).toBeNull()
   })
 
   it("renders unknown match components as unknown, never as their zero score", async () => {
@@ -421,28 +452,23 @@ describe("the Home dashboard", () => {
     )
     renderScreen(<OverviewScreen />)
 
-    // The featured card renders with the real listing and the real score.
+    // The featured card is the design's "Recommended role" card (node
+    // 49:836): the score chip, the title, the meta line, the rationale.
+    // The component-score breakdown lives on the match's own screen — where
+    // the WS-20 rule (an unknown component renders its reason, never the
+    // raw 0.0) stays pinned by the matches and job-detail tests.
     expect(
       await screen.findByRole("heading", { name: "AI Engineer" })
     ).toBeInTheDocument()
-    expect(screen.getByText(/82\.5/)).toBeInTheDocument()
-
-    // The unknown component states its reason…
-    expect(screen.getByText("unknown — you haven't said")).toBeInTheDocument()
-    // …and the zero the raw score carries for it never renders as a value.
+    expect(screen.getByText(/83 \/ 100 match/i)).toBeInTheDocument()
+    // The zero the raw score carries for the unknown component never
+    // renders as a value here either.
     expect(screen.queryByText("0.0")).not.toBeInTheDocument()
-    // The measured components render their real numbers.
-    expect(screen.getByText("90.0")).toBeInTheDocument()
-    expect(screen.getByText("75.0")).toBeInTheDocument()
 
-    // The reference card's actions, at their real destinations.
+    // The one action, at the match's own screen.
     expect(
-      screen.getByRole("link", { name: /Tailor for this job/ })
-    ).toHaveAttribute("href", "/app/tailor/greenhouse%3A1")
-    expect(screen.getByRole("link", { name: /View details/ })).toHaveAttribute(
-      "href",
-      "/app/matches/greenhouse%3A1"
-    )
+      screen.getByRole("link", { name: /Explore matches/ })
+    ).toHaveAttribute("href", "/app/matches/greenhouse%3A1")
   })
 
   it("polls only the applications and audit reads, on the shared interval, and pauses when hidden", async () => {
@@ -526,19 +552,15 @@ describe("the Home dashboard", () => {
     setCurrentProfileId("profile-1")
     renderScreen(<OverviewScreen />)
 
-    // The feed's label states its interval and its window. (The interval's
-    // number comes from `OVERVIEW_POLL_MS`, which this file compresses to
-    // milliseconds — the real 30-second cadence is pinned in
-    // `lib/polling.test.ts`.)
+    // The feed's provenance line, at the digest's foot, states the interval
+    // and the window. (The interval's number comes from `OVERVIEW_POLL_MS`,
+    // which this file compresses to milliseconds — the real 30-second
+    // cadence is pinned in `lib/polling.test.ts`.)
     expect(await screen.findByText(/updated every/i)).toBeInTheDocument()
     expect(screen.getByText(/newest 100 events/i)).toBeInTheDocument()
-    // The strip's provenance line speaks the same way.
-    expect(screen.getByText(/Reads every/)).toBeInTheDocument()
-    await waitFor(() => {
-      expect(
-        within(tileFor("Need your attention")).getByText(/newest 100/)
-      ).toBeInTheDocument()
-    })
+    // The trail's window is stated once — the feed is the first audit page,
+    // never presented as the whole history.
+    expect(screen.getByText(/the first page, not the whole history/i)).toBeInTheDocument()
     // And no "Live" badge, anywhere.
     expect(screen.queryByText("Live")).not.toBeInTheDocument()
   })

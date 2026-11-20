@@ -302,6 +302,7 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/jobs/search` | Rank the stored corpus for a profile | WS-04 |
 | `GET /api/jobs/{job_id}` | Read one stored listing | WS-04 |
 | `GET /api/jobs/suggest` | Autocomplete the query field from the corpus's own job titles | WS-20 |
+| `GET /api/jobs/sources` | The corpus's source registry and freshness (watched boards, last completed refresh, stored count) — shared like the corpus | WS-42 |
 | `POST /api/admin/workers` | Start a background worker process (bounded; administrator only) | WS-20 |
 | `POST /api/admin/workers/{worker_id}/stop` | Ask a worker to finish its batch and exit (administrator only) | WS-20 |
 | `GET /api/profiles/{profile_id}/matches` | Read the match history | WS-04 |

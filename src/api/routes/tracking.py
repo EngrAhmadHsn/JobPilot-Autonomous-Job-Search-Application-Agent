@@ -139,9 +139,7 @@ def _summary(row: ApplicationDB) -> ApplicationSummary:
     )
 
 
-def _detail(
-    row: ApplicationDB, db: Session, scope: UserScope
-) -> ApplicationDetailResponse:
+def _detail(row: ApplicationDB, db: Session, scope: UserScope) -> ApplicationDetailResponse:
     """The application with its full history, in append order.
 
     The history is read through the scoped accessor, so the events of an
@@ -209,7 +207,10 @@ def list_applications(
         db: The request-scoped database session.
         scope: The caller's access scope.
         status: Filter by one or more statuses (repeat the parameter, or
-            pass a comma-separated list).
+            pass a comma-separated list). **Every** requested status is
+            applied: two statuses mean "either of these", never "all of
+            them dropped". The Applications board's grouped stage columns
+            depend on that — one column covers several lifecycle statuses.
         profile_id: Filter by the candidate profile.
         limit: The page size (at most 200).
         offset: How many applications to skip.
@@ -218,12 +219,27 @@ def list_applications(
         The page of applications and the total number that matched.
     """
     statuses = _parse_statuses(status)
-    status_filter = statuses[0].value if len(statuses) == 1 else None
+    # One status is passed as ``status`` so the query plan and the
+    # single-status behaviour are byte-for-byte what they were; more than
+    # one goes through the multi-status form. Neither ever degrades to an
+    # unfiltered read: until 2026-11-19 a two-status request silently
+    # returned **every** application, which on this corpus happened to sum
+    # to the requested set and hid the bug.
+    if len(statuses) == 1:
+        status_value = statuses[0].value
+        status_list = None
+    elif statuses:
+        status_value = None
+        status_list = [value.value for value in statuses]
+    else:
+        status_value = None
+        status_list = None
 
     rows = access.list_applications(
         db,
         scope,
-        status=status_filter,
+        status=status_value,
+        statuses=status_list,
         profile_id=profile_id,
         limit=limit,
         offset=offset,
@@ -231,7 +247,8 @@ def list_applications(
     total = access.count_applications(
         db,
         scope,
-        status=status_filter,
+        status=status_value,
+        statuses=status_list,
         profile_id=profile_id,
     )
 

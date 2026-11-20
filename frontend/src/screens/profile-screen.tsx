@@ -1,52 +1,91 @@
-import { ApplicationProfilePanel } from "@/components/profile/application-profile-panel"
+import { useQuery } from "@tanstack/react-query"
+import { useState } from "react"
+import { FileText, Link2, Lock } from "lucide-react"
+
+import { ApplicationAnswersPanel } from "@/components/profile/application-profile-panel"
 import { ModelCredentialsCard } from "@/components/profile/model-credentials-card"
+import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { ProfileView } from "@/components/profile/profile-view"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState } from "@/components/common/progress-state"
 import { CardSkeleton } from "@/components/common/card-skeleton"
 import { PageHeader, Section } from "@/components/common/page-header"
 import { LinkButton } from "@/components/ui/link-button"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
-import { useState } from "react"
+import { api } from "@/lib/api/endpoints"
+import { apiUrl } from "@/lib/api/client"
+import { formatDateTime, formatList } from "@/lib/format"
 import { KeySkills } from "@/screens/facts/profile/key-skills"
 import { ProfileIdentityCard } from "@/screens/facts/profile/identity-card"
 
-/** The tabs, in the reference's order (panel 6). */
-type ProfileTab =
-  "overview" | "experience" | "skills" | "preferences" | "settings"
+/** The tabs, in the design file's order (node `16:202`). */
+type ProfileTab = "documents" | "answers" | "preferences"
+
+/** How a measured gap reads as a chip, in the coverage words the backend uses. */
+function coverageChip(coverage: string) {
+  switch (coverage) {
+    case "answered":
+      return (
+        <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-lime-foreground">
+          Confirmed
+        </span>
+      )
+    case "not_in_profile":
+      return (
+        <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-terracotta-foreground">
+          Needs your answer
+        </span>
+      )
+    case "never_autofill":
+      return (
+        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] font-semibold leading-4 text-muted-foreground">
+          Never autofilled
+        </span>
+      )
+    default:
+      return (
+        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] font-semibold leading-4 text-muted-foreground">
+          Unclassified
+        </span>
+      )
+  }
+}
 
 /**
- * Profile (WS-20, reordered WS-27, tabbed WS-40).
+ * Profile & documents (WS-20 · tabbed WS-40 · rebuilt to the design file's
+ * screen `16:202` in WS-42).
  *
- * **The reference panel 6 draws a tabbed profile; this maps those tabs onto
- * content that exists.** Nothing here is a placeholder tab:
+ * The design's tabs — Documents · Application answers · Work preferences —
+ * map onto content that exists, and every one opens onto real content:
  *
- * | tab         | what it renders                                              |
- * |-------------|--------------------------------------------------------------|
- * | Overview    | the identity card + a résumé summary + a key-skills glance     |
- * | Experience  | the parsed experience, education, projects and certifications  |
- * | Skills      | the full skill list, in the document's own order               |
- * | Preferences | the application-profile panel — work preferences, the measured |
- * |             | question gaps, application answers and EEO (one component, one |
- * |             | shared read/save query; WorkPreferencesCard stays the single   |
- * |             | preferences editor)                                            |
- * | Settings    | a pointer to the account settings below the tabs                |
+ * | tab              | what it renders                                                 |
+ * |------------------|-----------------------------------------------------------------|
+ * | Documents        | the document library with its original/tailored provenance, the |
+ * |                  | parsed source facts, and the stored preferences at a glance     |
+ * | Application      | the measured question gaps, the confirmed answers and voluntary |
+ * | answers          | self-identification — `ApplicationAnswersPanel`'s own cards     |
+ * | Work preferences | `WorkPreferencesCard` — the ONE preferences editor, shared with |
+ * |                  | the résumé intake page                                          |
+ *
+ * The design's fourth tab ("Upload résumé") is not a tab here: the Documents
+ * card carries the real **Upload →** action, and a tab whose only content
+ * was a pointer to another route would be a tab opening onto nothing.
+ *
+ * Two halves stay visibly separate, unchanged since WS-27: what your
+ * **résumé says** (Documents — read-only) and what **you confirm**
+ * (answers/preferences — editable). The matcher reads both.
+ *
+ * The design's "Profile Complete" percentage is **not rendered**: there is
+ * no completeness endpoint, and computing one from field counts would be a
+ * fabricated metric. The measured question gaps in the side rail are the
+ * honest coverage signal.
  *
  * The BYOK credential card sits **below the tab set, outside the
- * `storedProfile.data` guard** — WS-27's rule that it must render in all three
- * states (resolving / no profile / populated), because a `required`-mode
- * deployment needs a key before the first résumé exists.
- *
- * The two halves of the profile stay visibly separate, unchanged from WS-27:
- * what your **résumé says** (Overview/Experience/Skills — read-only here) and
- * what **you confirm** (Preferences/Settings — editable). The matcher reads
- * both, and the answers are the questions a résumé does not carry.
- *
- * The reference's "Profile Complete" percentage is **not rendered**: there is
- * no completeness endpoint, and computing one from field counts would be a
- * fabricated metric. The measured question gaps in Settings are the honest
- * coverage signal.
+ * `storedProfile.data` guard** — WS-27's rule that it must render in all
+ * three states (resolving / no profile / populated), because a `required`-
+ * mode deployment needs a key before the first résumé exists.
  */
 export function ProfileScreen() {
   const {
@@ -55,7 +94,24 @@ export function ProfileScreen() {
     profileId,
     documents,
   } = useProfileWithFallback()
-  const [tab, setTab] = useState<ProfileTab>("overview")
+  const [tab, setTab] = useState<ProfileTab>("documents")
+  /** Whether the parsed source facts are expanded under the library. */
+  const [showFacts, setShowFacts] = useState(false)
+
+  /*
+    The stored preferences and the measured gaps, for the Documents tab's
+    glance cards. Same query keys the editors use — one cache, no drift.
+  */
+  const storedAnswers = useQuery({
+    queryKey: ["application-profile", profileId],
+    queryFn: ({ signal }) => api.getApplicationProfile(profileId!, signal),
+    enabled: Boolean(profileId),
+  })
+  const gaps = useQuery({
+    queryKey: ["question-gaps", profileId],
+    queryFn: ({ signal }) => api.getQuestionGaps(profileId!, signal),
+    enabled: Boolean(profileId),
+  })
 
   /*
     WS-27: three states, and they must not be confused.
@@ -64,25 +120,25 @@ export function ProfileScreen() {
     with no stored id and no fallback document, the hook's query is
     *disabled*, and a disabled React Query reports ``isPending: true``
     forever. Keying the empty state on ``isPending`` therefore showed
-    "Loading…" indefinitely on a fresh account — the old early return only
-    appeared to work because it ran before the pending flag was consulted.
+    "Loading…" indefinitely on a fresh account.
 
     - ``profileId`` null while the document list is still loading: loading;
     - ``profileId`` null once the list has resolved: no profile, offer upload;
     - ``profileId`` set: the answers and the résumé.
-
-    The credential card renders in **all three** states. It is an account
-    setting, and a deployment in `required` mode must be able to take a key
-    before the first résumé exists.
   */
   const resolving = documents.isPending && !profileId
   const needsResume = !profileId && documents.isSuccess
 
+  const profile = storedProfile.data?.profile
+  const library = documents.data?.documents ?? []
+  const preferences = storedAnswers.data?.application_profile.preferences
+  const gapRows = gaps.data?.questions ?? []
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Profile"
-        description="Answer once here, and the agent can answer for you. Your résumé supplies the rest."
+        title="A strong start, on your terms."
+        description="Your source documents and confirmed answers in one place."
       />
 
       {resolving || (storedProfile.isPending && profileId) ? (
@@ -108,75 +164,286 @@ export function ProfileScreen() {
         <Tabs
           value={tab}
           onValueChange={(next) => setTab(next as ProfileTab)}
+          variant="pill"
           className="gap-5"
         >
           <TabsList aria-label="Profile sections">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="experience">Experience</TabsTrigger>
-            <TabsTrigger value="skills">Skills</TabsTrigger>
-            <TabsTrigger value="preferences">Preferences</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="answers">Application answers</TabsTrigger>
+            <TabsTrigger value="preferences">Work preferences</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="space-y-5">
-            <ProfileIdentityCard profile={storedProfile.data.profile} />
+          <TabsContent value="documents">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+              <div className="min-w-0 space-y-3">
+                {/*
+                  The document library (design `16:202`, card "Your original
+                  stays original."). Every row states its provenance: the
+                  résumé you uploaded is ORIGINAL; a tailored copy is TAILORED
+                  and points back at what produced it.
+                */}
+                <section className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                      Your original stays original.
+                    </h2>
+                    <LinkButton to="/app/resume" variant="ghost">
+                      Upload →
+                    </LinkButton>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Tailored copies always point back to their source.
+                  </p>
+                  <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
 
-            {storedProfile.data.profile.summary.trim() ? (
-              <Section title="Summary">
-                <p className="max-w-[68ch] text-sm leading-relaxed text-muted-foreground">
-                  {storedProfile.data.profile.summary}
-                </p>
-              </Section>
-            ) : null}
+                  {library.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No documents yet — upload a résumé to start.
+                    </p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {library.map((document) => (
+                        <li
+                          key={document.id}
+                          className="flex min-w-0 items-center gap-3 border-b border-border-surface pb-3 last:border-b-0 last:pb-0"
+                        >
+                          <FileText
+                            className="size-5 shrink-0 text-forest/70"
+                            strokeWidth={1.7}
+                            aria-hidden
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-semibold text-primary">
+                                {document.filename}
+                              </p>
+                              {document.kind === "tailored" ? (
+                                <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-lime-foreground">
+                                  TAILORED
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
+                                  ORIGINAL
+                                </span>
+                              )}
+                              {document.profile_id === profileId ? (
+                                <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
+                                  In use
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-xs leading-[17px] text-muted-foreground">
+                              {document.kind === "tailored"
+                                ? `Produced by the agent for a job${
+                                    document.created_at
+                                      ? ` · ${formatDateTime(document.created_at)}`
+                                      : ""
+                                  }`
+                                : `Your uploaded résumé${
+                                    document.created_at
+                                      ? ` · ${formatDateTime(document.created_at)}`
+                                      : ""
+                                  } · used for matching and tailoring`}
+                            </p>
+                          </div>
+                          {/*
+                            The design's per-row "Preview ↗" (node 49:1285):
+                            the document opens from its real download route
+                            in a new tab, so a candidate can check what will
+                            be sent before it is sent — the same route the
+                            résumé picker uses.
+                          */}
+                          <a
+                            href={apiUrl(
+                              `/api/documents/${encodeURIComponent(document.id)}/download`
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-[37px] shrink-0 items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest transition-colors outline-none hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            Preview
+                            <span aria-hidden="true" className="ml-1">
+                              ↗
+                            </span>
+                            <span className="sr-only"> {document.filename}</span>
+                          </a>
+                          {document.kind === "tailored" && document.job_id ? (
+                            <LinkButton
+                              to={`/app/tailor/${encodeURIComponent(document.job_id)}`}
+                              variant="ghost"
+                              size="sm"
+                            >
+                              <Link2 className="size-3.5" aria-hidden />
+                              Open in Studio
+                            </LinkButton>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
 
-            <Section
-              title="Key skills"
-              description="The first few the résumé lists, in its own order — not a ranking."
-            >
-              <KeySkills
-                skills={storedProfile.data.profile.skills}
-                onSeeAll={() => setTab("skills")}
-              />
-            </Section>
+                  {profile ? (
+                    <div className="rounded-surface bg-forest-soft p-[18px]">
+                      <h3 className="text-[15px] font-semibold text-primary">
+                        What your source actually says
+                      </h3>
+                      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                        {profile.skills.length > 0
+                          ? formatList(profile.skills.slice(0, 8))
+                          : "The parsed résumé states no skills."}
+                      </p>
+                      <div className="mt-3">
+                        <Button variant="ghost" size="sm" onClick={() => setShowFacts((v) => !v)} aria-expanded={showFacts}>
+                          {showFacts ? "Hide source facts" : "View source facts →"}
+                        </Button>
+                      </div>
+                      {showFacts ? (
+                        <div className="mt-3 space-y-5 border-t border-primary/15 pt-4">
+                          <ProfileIdentityCard profile={profile} />
+                          <ProfileView profile={profile} />
+                          <KeySkills skills={profile.skills} />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+
+                {/*
+                  The stored preferences at a glance (design's "One source for
+                  your preferences"). Edit switches to the Work preferences
+                  tab — the one editor.
+                */}
+                <section className="flex min-w-0 flex-col gap-3 rounded-surface border border-border-surface bg-card p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                      One source for your preferences
+                    </h2>
+                    <Button variant="ghost" onClick={() => setTab("preferences")}>
+                      Edit →
+                    </Button>
+                  </div>
+                  <dl className="grid gap-y-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-x-6">
+                    <dt className="text-sm text-muted-foreground">Location</dt>
+                    <dd className="text-sm font-medium text-foreground">
+                      {preferences?.preferred_locations?.length
+                        ? formatList(preferences.preferred_locations)
+                        : "Not stated"}
+                    </dd>
+                    <dt className="text-sm text-muted-foreground">Workplace</dt>
+                    <dd className="text-sm font-medium text-foreground">
+                      {preferences?.remote_preference || "Not stated"}
+                    </dd>
+                    <dt className="text-sm text-muted-foreground">Role focus</dt>
+                    <dd className="text-sm font-medium text-foreground">
+                      {preferences?.target_roles?.length
+                        ? formatList(preferences.target_roles)
+                        : "Not stated"}
+                    </dd>
+                  </dl>
+                </section>
+              </div>
+
+              <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
+                {/*
+                  The coverage rail (design's "Ready for the questions that
+                  matter."), from the measured gaps — the honest coverage
+                  signal, in the backend's own coverage words.
+                */}
+                {gapRows.length > 0 ? (
+                  <section className="flex min-w-0 flex-col gap-3 rounded-surface border border-border-surface bg-card p-5">
+                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                      Ready for the questions that matter.
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Your résumé cannot answer everything. Keep your answers
+                      explicit.
+                    </p>
+                    <dl className="space-y-2.5">
+                      {gapRows.slice(0, 4).map((gap) => (
+                        <div
+                          key={gap.label}
+                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5"
+                        >
+                          <dt className="text-sm font-medium text-foreground">
+                            {gap.label}
+                          </dt>
+                          <dd>{coverageChip(gap.coverage)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div>
+                      <Button onClick={() => setTab("answers")}>
+                        Review application answers →
+                      </Button>
+                    </div>
+                  </section>
+                ) : null}
+
+                <section className="flex min-w-0 flex-col gap-2 rounded-surface bg-forest-soft p-[18px]">
+                  <div className="flex items-center gap-2">
+                    <Lock
+                      className="size-4 shrink-0 text-primary"
+                      aria-hidden
+                    />
+                    <h2 className="text-[15px] font-semibold text-primary">
+                      Private by design.
+                    </h2>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Voluntary EEO answers are stored separately and never used
+                    to rank jobs. Your model credentials live on this page,
+                    below the tabs.
+                  </p>
+                  <div>
+                    <Button variant="ghost" size="sm" onClick={() => setTab("answers")}>
+                      Review EEO answers →
+                    </Button>
+                  </div>
+                </section>
+              </aside>
+            </div>
           </TabsContent>
 
-          <TabsContent value="experience" className="space-y-5">
-            <Section
-              title="From your résumé"
-              description="Parsed from the document you uploaded. This tab is a read-only view — edit the résumé itself, not a copy of it here."
-            >
-              <ProfileView profile={storedProfile.data.profile} />
-            </Section>
+          <TabsContent value="answers">
+            <ApplicationAnswersPanel profileId={storedProfile.data.profile_id} />
           </TabsContent>
 
-          <TabsContent value="skills" className="space-y-5">
-            <Section
-              title="Skills"
-              description={`${storedProfile.data.profile.skills.length} stated in the résumé, in the document's own order.`}
-            >
-              <KeySkills skills={storedProfile.data.profile.skills} />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="preferences" className="space-y-5">
-            {/*
-              The whole application-profile panel lives here — work
-              preferences, the measured question gaps, the application
-              answers and EEO. It is one component behind one shared
-              read/save query (WS-20/21/25b), and splitting it by tab would
-              mean splitting that query for a cosmetic win; keeping it whole
-              also keeps `WorkPreferencesCard` the ONE preferences editor.
-            */}
-            <ApplicationProfilePanel
-              profileId={storedProfile.data.profile_id}
-            />
-          </TabsContent>
-
-          <TabsContent value="settings" className="space-y-5">
-            <p className="max-w-[68ch] text-sm text-muted-foreground">
-              Account settings that are not part of your profile answers. Your
-              model key is the one control here.
-            </p>
+          <TabsContent value="preferences">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+              <div className="min-w-0">
+                <WorkPreferencesCard
+                  key={`prefs-${storedProfile.data.profile_id}`}
+                  profileId={storedProfile.data.profile_id}
+                />
+              </div>
+              <aside className="min-w-0 space-y-3">
+                {/*
+                  The design's "Your answers have a clear source." panel
+                  (node `47:374`) — the rule that makes the form safe: a
+                  missing answer stops form filling instead of triggering a
+                  guess.
+                */}
+                <section className="flex min-w-0 flex-col gap-3 rounded-surface bg-forest-soft p-[18px]">
+                  <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    Your answers have a clear source.
+                  </h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Parsed résumé facts and your confirmed employer answers
+                    are separate. A missing answer stops form filling instead
+                    of triggering a guess.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Required fields are labeled. Tab moves between fields.
+                    Enter selects an option. Escape dismisses a popup.
+                  </p>
+                  <div>
+                    <Button variant="ghost" size="sm" onClick={() => setTab("answers")}>
+                      Review board questions →
+                    </Button>
+                  </div>
+                </section>
+              </aside>
+            </div>
           </TabsContent>
         </Tabs>
       ) : null}

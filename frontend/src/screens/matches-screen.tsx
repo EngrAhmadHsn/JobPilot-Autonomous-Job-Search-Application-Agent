@@ -91,6 +91,46 @@ function saveStoredSearch(profileId: string, record: StoredSearch): void {
 }
 
 /**
+ * The recent queries this browser searched for, newest first (WS-42, node
+ * `49:1559` — the suggestions popup's RECENT SEARCHES section).
+ *
+ * The stored search above keeps the last *result*; this keeps the last
+ * *words*, so the popup can offer them back. Only the operator's own past
+ * queries, only in their own browser — and every entry is a query the
+ * operator actually ran, never a suggestion invented for them.
+ */
+const RECENT_QUERIES_LIMIT = 4
+
+function recentQueriesKey(profileId: string): string {
+  return `ajp.recentQueries.${profileId}`
+}
+
+function loadRecentQueries(profileId: string | null): string[] {
+  if (!profileId) return []
+  try {
+    const raw = window.localStorage.getItem(recentQueriesKey(profileId))
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is string => typeof item === "string")
+      .slice(0, RECENT_QUERIES_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+function saveRecentQueries(profileId: string, queries: string[]): void {
+  try {
+    window.localStorage.setItem(
+      recentQueriesKey(profileId),
+      JSON.stringify(queries.slice(0, RECENT_QUERIES_LIMIT))
+    )
+  } catch {
+    // A storage refusal (quota, private mode) must never fail the search.
+  }
+}
+
+/**
  * What the search actually did, in words the operator can act on.
  *
  * The API's counters describe the *pipeline*, and a store-only search runs
@@ -158,6 +198,14 @@ export function MatchesScreen() {
   const [restored] = useState(() => loadStoredSearch(profileId))
   const [query, setQuery] = useState(restored?.query ?? "")
   const [location, setLocation] = useState(restored?.location ?? "")
+  // The queries this browser has actually run, newest first (WS-42): the
+  // suggestions popup's RECENT SEARCHES section reads from here.
+  const [recentQueries, setRecentQueries] = useState(() =>
+    loadRecentQueries(profileId)
+  )
+  // Whether the query combobox is showing its suggestions — the one state
+  // the design gives its own heading copy to (node `47:333`).
+  const [suggesting, setSuggesting] = useState(false)
   // The server ranks a slice of up to 50; the console shows it ten at a time.
   const [topN, setTopN] = useState(restored?.topN ?? MAX_TOP_N)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -196,6 +244,18 @@ export function MatchesScreen() {
           topN: variables.top_n,
           response,
         })
+        // The words that were actually run lead the recent list (WS-42).
+        const term = (variables.query ?? "").trim()
+        if (term) {
+          setRecentQueries((current) => {
+            const next = [
+              term,
+              ...current.filter((item) => item !== term),
+            ].slice(0, RECENT_QUERIES_LIMIT)
+            saveRecentQueries(profileId, next)
+            return next
+          })
+        }
       }
     },
   })
@@ -233,19 +293,35 @@ export function MatchesScreen() {
     : null
   const lookupListing: JobListing | null = lookupJob.data?.job ?? null
 
-  function runSearch() {
+  function runSearch(override?: string) {
     if (!profileId) return
     // The UI bounds Top N, and the submit clamps the value again, so the
     // screen never claims a cap the request did not ask for (the server
-    // clamps a third time; see MAX_TOP_N above).
+    // clamps a third time; see MAX_TOP_N above). The override exists for
+    // the recent-search chips: the click must run the chip's words, not
+    // whatever the field still holds from before.
     const requested = Math.min(Math.max(1, Math.floor(topN) || 1), MAX_TOP_N)
     setTopN(requested)
+    const term = (override ?? query).trim()
     search.mutate({
       profile_id: profileId,
-      query: query.trim() || undefined,
+      query: term || undefined,
       location: location.trim() || undefined,
       top_n: requested,
       only_embedded: false,
+    })
+  }
+
+  function pickRecent(term: string) {
+    setQuery(term)
+    runSearch(term)
+  }
+
+  function removeRecent(term: string) {
+    setRecentQueries((current) => {
+      const next = current.filter((item) => item !== term)
+      if (profileId) saveRecentQueries(profileId, next)
+      return next
     })
   }
 
@@ -301,10 +377,11 @@ export function MatchesScreen() {
 
   if (!profileId) {
     return (
-      <div className="space-y-10">
+      <div className="space-y-5">
         <PageHeader
-          title="Discover"
-          description="Your stored jobs, ranked against your profile, each with the reason for its score."
+          title="Find your kind of work."
+          documentTitle="Discover"
+          description="Search stored matches. Understand the fit before you commit."
         />
         <EmptyState
           title="No profile selected"
@@ -318,10 +395,22 @@ export function MatchesScreen() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
+      {/*
+        WS-42: the design leads this screen with its statement, "Find your
+        kind of work." (node `47:73`), and gives the suggestions state its
+        own copy ("Find the right words.", node `47:333`). The tab keeps the
+        stable screen name through `documentTitle` — the accessibility
+        contract's "Discover · JobPilot" is unchanged.
+      */}
       <PageHeader
-        title="Discover"
-        description="Your stored jobs, ranked against your profile, each with the reason for its score."
+        title={suggesting ? "Find the right words." : "Find your kind of work."}
+        documentTitle="Discover"
+        description={
+          suggesting
+            ? "Autocomplete drawn from stored job titles."
+            : "Search stored matches. Understand the fit before you commit."
+        }
       />
 
       <SearchPanel
@@ -333,6 +422,10 @@ export function MatchesScreen() {
         onTopNChange={setTopN}
         onSubmit={runSearch}
         isPending={search.isPending}
+        recentSearches={recentQueries}
+        onPickRecent={pickRecent}
+        onRemoveRecent={removeRecent}
+        onSuggestingChange={setSuggesting}
       />
 
       {search.isError ? <ErrorNotice error={search.error} /> : null}
@@ -358,30 +451,48 @@ export function MatchesScreen() {
           <SearchBanners data={data} />
 
           {
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-start">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] lg:items-start">
               {/*
                 The list column. On a phone the columns take turns: the
                 results lead, and a selected job replaces the list with a
                 full-height panel and a way back — never a squeezed column.
+
+                WS-42: the ratio is the design's (node 49:865 — a ~398 px list
+                beside an ~882 px detail, so about 0.62 : 1.38). The earlier
+                1 : 1.4 made the list read as wide as the answer it introduces.
               */}
               <section
                 className={cn("min-w-0", selectedId ? "hidden lg:block" : null)}
                 aria-label="Ranked matches"
               >
-                <div className="mb-4">
-                  <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
-                    Ranked matches
+                <div className="mb-3">
+                  <h2 className="type-section">
+                    {total > 0 ? `${total} matches` : "Ranked matches"}
                   </h2>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  <p className="type-caption mt-1">
                     {describeSearch(data, query, location, topN)}
                   </p>
-                  <p
-                    role="status"
-                    className="mt-1 text-sm text-muted-foreground tabular-nums"
-                  >
-                    Showing {Math.min(visibleCount, total)} of {total} ranked
-                    matches — best match first.
-                  </p>
+                  {/*
+                    The sort affordance, as the design draws it (node `49:869`:
+                    "Best match first ↓" under the count heading). The console
+                    has exactly one ordering — the server always returns the
+                    slice ranked best first, and no endpoint offers another —
+                    so the affordance states that fact rather than offering a
+                    menu of sorts that do not exist. The window line beside it
+                    stays the honest "Showing X of Y".
+                  */}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex h-[37px] items-center rounded-lg px-2.5 text-[13px] font-semibold leading-[19px] text-forest">
+                      Best match first ↓
+                    </span>
+                    <p
+                      role="status"
+                      className="type-caption tabular-nums"
+                    >
+                      Showing {Math.min(visibleCount, total)} of {total} ranked
+                      matches.
+                    </p>
+                  </div>
                 </div>
                 <ResultsList
                   pairs={data.results}

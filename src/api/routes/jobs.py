@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
 from src.db import access
+from src.db.boards import BoardDB, BoardHealth
 from src.db.jobs import JobDB, listing_from_row
 from src.db.matches import build_match_rows, match_row_to_dict
 from src.db.profiles import profile_from_row
@@ -141,6 +142,46 @@ class JobSuggestion(BaseModel):
     count: int = Field(..., description="How many stored listings carry it")
 
 
+class SourceBoardStatus(BaseModel):
+    """One watched board and its health (WS-42, design node 49:3253)."""
+
+    id: str
+    ats: str
+    company_name: str | None = None
+    enabled: bool
+    listings_seen: int
+    last_ok_at: datetime | None = None
+    last_error: str | None = None
+    #: The registry's own threshold (three failures in a row).
+    failing: bool
+
+
+class SourceAdapterStatus(BaseModel):
+    """One provider and how many boards of it the registry watches."""
+
+    ats: str
+    boards: int
+    enabled_boards: int
+
+
+class SourceStatusResponse(BaseModel):
+    """The corpus's source registry and its freshness.
+
+    The Operations screen's "Corpus freshness" card and "Source status"
+    table (design nodes 49:1449 and 49:3253) read this. Like the corpus
+    itself, the registry is **shared** — every operator of this instance
+    watches the same boards — so the freshness facts are not
+    owner-scoped, and none of it is secret: a board's error text is
+    already sanitized at write time (``src/db/boards.py``).
+    """
+
+    adapters: list[SourceAdapterStatus]
+    boards: list[SourceBoardStatus]
+    #: The last refresh that ran to completion, at any scope.
+    last_refresh_completed_at: datetime | None = None
+    jobs_stored: int
+
+
 class JobSuggestResponse(BaseModel):
     """Query suggestions drawn from the corpus's own titles."""
 
@@ -215,6 +256,78 @@ def refresh_jobs_endpoint(
         correlation_id=run.correlation_id,
         created_at=run.created_at,
         existing=not created,
+    )
+
+
+@router.get("/sources", response_model=SourceStatusResponse)
+def read_source_status(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> SourceStatusResponse:
+    """The corpus's source registry and its freshness (WS-42).
+
+    The board registry is **shared** across the instance's operators (the
+    same rule as the corpus), so this answers the same for every caller —
+    authentication proves the caller belongs to this instance, nothing
+    more is exposed than the Operations screen already draws, and a
+    board's error text was sanitized when it was written.
+    """
+    rows = db.query(BoardDB).order_by(BoardDB.ats, BoardDB.slug).all()
+    boards = [
+        BoardHealth(
+            id=row.id,
+            ats=row.ats,
+            slug=row.slug,
+            company_name=row.company_name,
+            enabled=bool(row.enabled),
+            last_ok_at=row.last_ok_at,
+            last_error=row.last_error,
+            consecutive_failures=int(row.consecutive_failures or 0),
+            listings_seen=int(row.listings_seen or 0),
+        )
+        for row in rows
+    ]
+    adapters: dict[str, SourceAdapterStatus] = {}
+    for board in boards:
+        entry = adapters.setdefault(
+            board.ats,
+            SourceAdapterStatus(ats=board.ats, boards=0, enabled_boards=0),
+        )
+        entry.boards += 1
+        if board.enabled:
+            entry.enabled_boards += 1
+
+    # `job_runs` is **user-scoped**, so it is read through the access layer,
+    # which applies the owner filter (`scope`). An administrator's scope sees
+    # every run; an ordinary caller sees its own — either way the route never
+    # reaches the table directly (the tenancy gate enforces this).
+    completed_refreshes = access.list_runs(
+        db,
+        scope,
+        job_type="refresh",
+        statuses=["COMPLETED"],
+        limit=1,
+    )
+    last_completed = completed_refreshes[0].completed_at if completed_refreshes else None
+    jobs_stored = db.query(func.count(JobDB.id)).scalar() or 0
+
+    return SourceStatusResponse(
+        adapters=sorted(adapters.values(), key=lambda entry: entry.ats),
+        boards=[
+            SourceBoardStatus(
+                id=board.id,
+                ats=board.ats,
+                company_name=board.company_name,
+                enabled=board.enabled,
+                listings_seen=board.listings_seen,
+                last_ok_at=board.last_ok_at,
+                last_error=board.last_error,
+                failing=board.is_failing,
+            )
+            for board in boards
+        ],
+        last_refresh_completed_at=last_completed,
+        jobs_stored=int(jobs_stored),
     )
 
 

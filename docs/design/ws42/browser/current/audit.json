@@ -1,0 +1,394 @@
+[
+  {
+    "surface": "home",
+    "path": "/app",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app",
+    "main": {
+      "title": "Overview · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1606,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Overview"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Overview"
+        },
+        {
+          "level": 2,
+          "text": "Top match"
+        },
+        {
+          "level": 3,
+          "text": "No matches yet"
+        },
+        {
+          "level": 2,
+          "text": "Your attention"
+        },
+        {
+          "level": 2,
+          "text": "Recent agent activity"
+        }
+      ],
+      "focusables": 37,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "discover",
+    "path": "/app/matches",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/matches",
+    "main": {
+      "title": "Discover · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Discover"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Discover"
+        },
+        {
+          "level": 3,
+          "text": "No profile selected"
+        }
+      ],
+      "focusables": 25,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "resume",
+    "path": "/app/resume",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/resume",
+    "main": {
+      "title": "Let's build your career profile. · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1321,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Let's build your career profile."
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Let's build your career profile."
+        },
+        {
+          "level": 2,
+          "text": "How it works"
+        },
+        {
+          "level": 2,
+          "text": "Your documents"
+        }
+      ],
+      "focusables": 37,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tailor",
+    "path": "/app/tailor",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/tailor",
+    "main": {
+      "title": "Tailor the résumé for a job · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tailor the résumé for a job"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tailor the résumé for a job"
+        }
+      ],
+      "focusables": 26,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "review",
+    "path": "/app/approvals",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/approvals",
+    "main": {
+      "title": "Review your application · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1680,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Review your application"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Review your application"
+        },
+        {
+          "level": 2,
+          "text": "Job details"
+        },
+        {
+          "level": 2,
+          "text": "Candidate information"
+        },
+        {
+          "level": 2,
+          "text": "Documents and custom fields"
+        },
+        {
+          "level": 2,
+          "text": "You remain in control"
+        },
+        {
+          "level": 2,
+          "text": "Before you prepare"
+        }
+      ],
+      "focusables": 47,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": []
+    },
+    "consoleErrors": []
+  },
+  {
+    "surface": "tracker",
+    "path": "/app/tracker",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/tracker",
+    "main": {
+      "title": "Tracker · JobPilot",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [
+        "Tracker"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "text": "Tracker"
+        }
+      ],
+      "focusables": 39,
+      "hasMain": true,
+      "hasSkip": true,
+      "loadingMentions": 0,
+      "errorTexts": [
+        "Needs you: Too many requestsToo many requests. Please retry later. Try again in 37 seconds.Try again"
+      ]
+    },
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+    ]
+  },
+  {
+    "surface": "profile",
+    "path": "/app/profile",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/profile",
+    "main": {
+      "title": "JobPilot — job search that waits for you",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [],
+      "headings": [
+        {
+          "level": 3,
+          "text": "Too many requests"
+        }
+      ],
+      "focusables": 1,
+      "hasMain": false,
+      "hasSkip": false,
+      "loadingMentions": 0,
+      "errorTexts": [
+        "Too many requestsToo many requests. Please retry later. Try again in 34 seconds.Try again"
+      ]
+    },
+    "profile-preferences": {
+      "missingTab": "Preferences"
+    },
+    "profile-settings": {
+      "missingTab": "Settings"
+    },
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+    ]
+  },
+  {
+    "surface": "activity",
+    "path": "/app/activity",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/activity",
+    "main": {
+      "title": "JobPilot — job search that waits for you",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [],
+      "headings": [
+        {
+          "level": 3,
+          "text": "Too many requests"
+        }
+      ],
+      "focusables": 1,
+      "hasMain": false,
+      "hasSkip": false,
+      "loadingMentions": 0,
+      "errorTexts": [
+        "Too many requestsToo many requests. Please retry later. Try again in 30 seconds.Try again"
+      ]
+    },
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+    ]
+  },
+  {
+    "surface": "operations",
+    "path": "/app/operations",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/operations",
+    "main": {
+      "title": "JobPilot — job search that waits for you",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [],
+      "headings": [
+        {
+          "level": 3,
+          "text": "Too many requests"
+        }
+      ],
+      "focusables": 1,
+      "hasMain": false,
+      "hasSkip": false,
+      "loadingMentions": 0,
+      "errorTexts": [
+        "Too many requestsToo many requests. Please retry later. Try again in 26 seconds.Try again"
+      ]
+    },
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+    ]
+  },
+  {
+    "surface": "admin",
+    "path": "/app/admin",
+    "viewport": "1440x1000",
+    "landed": "http://localhost:5191/app/admin",
+    "main": {
+      "title": "JobPilot — job search that waits for you",
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "sideways": false,
+      "docHeight": 1000,
+      "unnamed": [],
+      "unnamedCount": 0,
+      "overflow": [],
+      "overflowCount": 0,
+      "h1s": [],
+      "headings": [
+        {
+          "level": 3,
+          "text": "Too many requests"
+        }
+      ],
+      "focusables": 1,
+      "hasMain": false,
+      "hasSkip": false,
+      "loadingMentions": 0,
+      "errorTexts": [
+        "Too many requestsToo many requests. Please retry later. Try again in 22 seconds.Try again"
+      ]
+    },
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+      "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+    ]
+  }
+]

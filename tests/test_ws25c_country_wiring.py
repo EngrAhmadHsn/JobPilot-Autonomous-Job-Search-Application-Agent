@@ -84,6 +84,36 @@ def test_the_listing_location_is_read_by_application_url(factory) -> None:
     assert location == "London, UK"
 
 
+def test_a_callers_own_session_reads_the_location(factory) -> None:
+    """The prepare route's path: reuse the request's session.
+
+    Until 2026-11-19 the route passed ``db.get_bind()`` — an ``Engine``, which
+    is not callable into a session. Every read raised, the deliberate
+    ``except`` swallowed it, and the answer was always ``None``, so the
+    country-qualified authorization question was inert on the API path while
+    every unit test above passed (they all pass a real ``sessionmaker``).
+    """
+    _store_listing(factory, url="https://boards.greenhouse.io/acme/jobs/9", location="Berlin, DE")
+    with factory() as request_session:
+        location = location_for_application_url(
+            "https://boards.greenhouse.io/acme/jobs/9", session=request_session
+        )
+    assert location == "Berlin, DE"
+
+
+def test_the_session_form_also_respects_absence(factory) -> None:
+    """The session form keeps the honest-missing behaviour."""
+    _store_listing(factory, url="https://boards.greenhouse.io/acme/jobs/9", location="Berlin, DE")
+    with factory() as request_session:
+        assert (
+            location_for_application_url(
+                "https://example.invalid/never-seen", session=request_session
+            )
+            is None
+        )
+        assert location_for_application_url(None, session=request_session) is None
+
+
 def test_an_unknown_url_yields_no_location(factory) -> None:
     """A posting we never ingested has no stored country — and says so.
 

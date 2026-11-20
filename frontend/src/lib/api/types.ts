@@ -358,6 +358,34 @@ export interface RunsListResponse {
   count: number
 }
 
+/** One watched board's health (WS-42, Operations "Source status"). */
+export interface SourceBoardStatus {
+  id: string
+  ats: string
+  company_name: string | null
+  enabled: boolean
+  listings_seen: number
+  last_ok_at: string | null
+  last_error: string | null
+  /** The registry's own threshold (three consecutive failures). */
+  failing: boolean
+}
+
+/** One provider and how many boards of it the registry watches. */
+export interface SourceAdapterStatus {
+  ats: string
+  boards: number
+  enabled_boards: number
+}
+
+/** The corpus's source registry and freshness (Operations, WS-42). */
+export interface SourceStatusResponse {
+  adapters: SourceAdapterStatus[]
+  boards: SourceBoardStatus[]
+  last_refresh_completed_at: string | null
+  jobs_stored: number
+}
+
 export interface RunDetailResponse {
   run: RunDetail
 }

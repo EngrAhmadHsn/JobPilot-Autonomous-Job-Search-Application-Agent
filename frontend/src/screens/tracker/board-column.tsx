@@ -1,89 +1,95 @@
-import { CircleDashedIcon } from "lucide-react"
 import type { UseQueryResult } from "@tanstack/react-query"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { Skeleton } from "@/components/ui/skeleton"
-import { STATUS_ICONS } from "@/components/ui/status-badge"
 
-import { describeStatus } from "@/lib/status"
 import type { ApplicationList } from "@/lib/api/types"
 
 import { ApplicationCard } from "@/screens/tracker/application-card"
+import type { StageGroup } from "@/screens/tracker/stage-groups"
 
 /*
-  One stage column of the board (WS-39).
+  One stage column of the board (WS-39, rebuilt to the design in WS-42).
 
-  The header carries the **server's total** for this status — the response's
-  `total` field, never the length of the loaded page (a partial page must
-  never be presented as a stage total). When the total exceeds what the
-  column loaded, the footer says so and hands off to the List view filtered
-  to this status, which pages through the whole set server-side.
+  The design file (screen 05, node 49:1146) draws a column as: a paper card
+  list on a sage `#eeefe7` surface, under a header row that holds the stage
+  title, the count chip and a ghost "⋯" — and the card list scrolls
+  **independently** while the header stays put. That independent scroll is
+  the point of the board — comparing four stages side by side only works if
+  the columns do not drag one another's position around.
 
-  The column is a surface, not a Card: the cards inside it are the paper
-  layer, the column is the board's own structure — the one structural reason
-  the design contract allows a bordered block under cards, and the reference
-  panel draws exactly that.
+  Three honesty rules survive, because they are not cosmetic:
 
-  The `awaiting_approval` column carries the terracotta wash: a human
-  decision is what holds applications there, and terracotta is the human's
-  colour (the same law that colours the status badge and the next-action
-  tiles). It is attention, not error — `destructive` stays reserved for
-  failures.
+  1. The count is the **server's total for this group**, from the response's
+     `total` field — never `items.length`. A page of eight is a page.
+  2. When the total exceeds what the column loaded, the footer says so and
+     hands off to the List view, which pages the whole set server-side. The
+     column never implies it is showing everything.
+  3. The stage's meaning travels on the cards themselves (`stage-copy.ts`'s
+     helper line) rather than as a header paragraph — the design's header is
+     title + count + ghost only, and the cards carry the words.
+
+  The header's "⋯" is drawn as the design draws it — a quiet glyph, not a
+  button: it makes no promise of hidden actions the console does not have.
 */
 export function BoardColumn({
-  status,
+  group,
   query,
   onShowAll,
 }: {
-  status: string
+  group: StageGroup
   query: UseQueryResult<ApplicationList, Error>
-  onShowAll: (status: string) => void
+  onShowAll: () => void
 }) {
-  const presentation = describeStatus(status)
-  const Icon =
-    (STATUS_ICONS as Record<string, typeof CircleDashedIcon>)[
-      presentation.icon
-    ] ?? CircleDashedIcon
-
-  const awaiting = status === "awaiting_approval"
   const total = query.data?.total
   const items = query.data?.items ?? []
   const hidden = total !== undefined ? Math.max(0, total - items.length) : 0
-  const countLabel = query.isPending
-    ? "loading"
-    : `${total ?? 0} ${total === 1 ? "application" : "applications"}`
+  const countLabel =
+    total === undefined
+      ? "count unavailable"
+      : `${total} ${total === 1 ? "application" : "applications"}`
 
   return (
     <section
-      aria-label={`${presentation.label} — ${countLabel}`}
-      className={
-        awaiting
-          ? "rounded-xl border border-terracotta/50 bg-terracotta-soft/40"
-          : "rounded-xl border border-border bg-card/50"
-      }
+      aria-label={`${group.label} — ${countLabel}`}
+      className="flex h-[412px] shrink-0 flex-col gap-3 rounded-[var(--radius-surface)] bg-[#eeefe7] p-3 md:h-[575px] md:w-[314px] w-[304px] xl:h-[601px] xl:w-auto xl:flex-1"
     >
-      <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
-        <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          <Icon
-            aria-hidden={true}
-            className="size-3.5 shrink-0"
-            strokeWidth={2}
-          />
-          <span className="truncate">{presentation.label}</span>
+      {/*
+        The header. It stays put while the cards scroll, which is what makes a
+        column readable at a glance after scrolling to card 40.
+      */}
+      <header className="flex shrink-0 items-center gap-3">
+        <h3 className="type-card-title min-w-0 flex-1 truncate text-sm leading-5">
+          {group.label}
         </h3>
         <span
-          title={`The server reports ${total ?? "?"} application(s) with this status`}
-          className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums"
+          title={`The server reports ${
+            total ?? "an unknown number of"
+          } application${total === 1 ? "" : "s"} in this stage`}
+          className="shrink-0 rounded-md bg-forest-soft px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary tabular-nums"
         >
           {query.isPending ? "…" : (total ?? "—")}
         </span>
-      </div>
+        <span
+          aria-hidden="true"
+          className="grid h-[37px] w-[39px] shrink-0 place-items-center text-[13px] font-semibold text-primary select-none"
+        >
+          ⋯
+        </span>
+      </header>
 
-      <div className="space-y-2 px-2 pb-2">
+      {/*
+        The cards, scrolling on their own, under the design's thin sage
+        scrollbar (`.board-scroll`, styled once in `board-view.tsx`).
+      */}
+      <div className="board-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {query.isPending ? (
-          <ul aria-label="Loading this stage" className="space-y-2">
-            <li aria-hidden={true}>
-              <Skeleton className="h-[86px] w-full rounded-xl" />
+          <ul aria-label="Loading this stage" className="space-y-3">
+            <li aria-hidden="true">
+              <Skeleton className="h-[92px] w-full rounded-[var(--radius-surface)]" />
+            </li>
+            <li aria-hidden="true">
+              <Skeleton className="h-[92px] w-full rounded-[var(--radius-surface)]" />
             </li>
           </ul>
         ) : null}
@@ -98,13 +104,11 @@ export function BoardColumn({
         ) : null}
 
         {query.data && items.length === 0 ? (
-          <p className="px-1 py-2 text-xs leading-relaxed text-muted-foreground">
-            No applications with this status.
-          </p>
+          <p className="type-caption px-2 py-3">Nothing in this stage.</p>
         ) : null}
 
         {query.data && items.length > 0 ? (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {items.map((application, index) => (
               <ApplicationCard
                 key={application.id}
@@ -114,17 +118,23 @@ export function BoardColumn({
             ))}
           </ul>
         ) : null}
+      </div>
 
-        {hidden > 0 ? (
+      {/*
+        The hand-off. It appears only when the server has more than the column
+        loaded, and it says how many — so the column never quietly stops.
+      */}
+      {hidden > 0 ? (
+        <div className="shrink-0 border-t border-border-surface px-1 pt-2">
           <button
             type="button"
-            onClick={() => onShowAll(status)}
-            className="block px-1 pt-1 text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+            onClick={onShowAll}
+            className="text-[13px] font-semibold text-forest underline-offset-4 outline-none hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            Show all {total} in the list
+            Show all {total} in the list →
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </section>
   )
 }

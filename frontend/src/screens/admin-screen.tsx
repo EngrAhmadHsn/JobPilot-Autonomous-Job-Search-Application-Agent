@@ -1,5 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import type { UseQueryResult } from "@tanstack/react-query"
+import {
+  BriefcaseBusiness,
+  Database,
+  ScrollText,
+  UsersRound,
+} from "lucide-react"
 import { Fragment, useState } from "react"
 
 import { Banner } from "@/components/common/banner"
@@ -11,7 +17,7 @@ import {
 } from "@/components/observability/run-progress"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PageHeader, Section } from "@/components/common/page-header"
-import { Pagination } from "@/components/common/pagination"
+import { TablePager } from "@/components/common/pagination"
 import { RelativeTime } from "@/components/common/relative-time"
 import { StatTile } from "@/components/common/stat-tile"
 import { Button } from "@/components/ui/button"
@@ -85,11 +91,60 @@ export function AdminScreen() {
     refetchInterval: 30_000,
   })
 
+  /*
+    The design's four section chips (node 49:1589): Overview shows
+    everything — the state the frame draws — and the other three narrow the
+    page to one concern. They are view filters, not routes: the sections are
+    one screen's anatomy, not destinations.
+  */
+  const [view, setView] = useState<"overview" | "runs" | "workers" | "metrics">(
+    "overview"
+  )
+
+  /*
+    The ops metrics (node 49:1600) read the **same cached queries** the
+    sections below use — one fetch, four tiles, and the tiles can never
+    disagree with the tables. `BackgroundRuns` and the worker panel mount
+    the identical keys.
+  */
+  const runs = useQuery({
+    queryKey: ["admin", "runs", ""],
+    queryFn: ({ signal }) => api.adminRuns({}, signal),
+    enabled: isSuperuser,
+    refetchInterval: (query) => adminRunsPollInterval(query.state.data?.runs),
+  })
+  const workers = useQuery({
+    queryKey: ["admin", "workers"],
+    queryFn: ({ signal }) => api.adminWorkerHealth(signal),
+    enabled: isSuperuser,
+    refetchInterval: WORKER_HEALTH_POLL_MS,
+  })
+  const awaiting = useQuery({
+    queryKey: ["applications", "admin", "awaiting"],
+    queryFn: ({ signal }) =>
+      api.listApplications({ status: ["awaiting_approval"], limit: 1 }, signal),
+    enabled: isSuperuser,
+  })
+  const sources = useQuery({
+    queryKey: ["jobs", "sources"],
+    queryFn: ({ signal }) => api.sourceStatus(signal),
+    enabled: isSuperuser,
+    refetchInterval: 60_000,
+  })
+
+  const runItems = runs.data?.runs ?? []
+  const recoverable = runItems.filter((run) => run.status === "RECOVERABLE")
+    .length
+  // The server's own liveness count (healthy heartbeats), not a client-side
+  // guess at "running".
+  const activeWorkers = workers.data?.workers.healthy
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
-        title="Administration"
-        description="Platform-wide totals across every account. This is the one surface that deliberately reads across owners, and the server authorizes it with the caller's own administrator flag."
+        title="A clear view of your workspace."
+        documentTitle="Administration"
+        description="Durable runs, worker health, and recoverable work."
       />
 
       {identity.isPending ? (
@@ -125,11 +180,108 @@ export function AdminScreen() {
           description="Reading accounts, applications, the audit trail and the job listings."
         />
       ) : (
-        <div className="space-y-10">
-          <AdminOverviewBody data={overview.data} />
-          <BackgroundRuns />
+        <div className="space-y-6">
+          {/*
+            The design's section chips (node 49:1589) with its ADMIN ONLY
+            mark (49:1598) moved into the row.
+          */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div
+              role="group"
+              aria-label="Administration views"
+              className="flex flex-wrap items-center gap-3"
+            >
+              {(
+                [
+                  ["overview", "Overview"],
+                  ["runs", "Runs"],
+                  ["workers", "Workers"],
+                  ["metrics", "Metrics"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={view === key}
+                  onClick={() => setView(key)}
+                  className={
+                    view === key
+                      ? "inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 text-[13px] leading-[19px] font-semibold text-primary-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      : "inline-flex h-[37px] items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest outline-none transition-colors hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-terracotta-foreground">
+              Admin only
+            </span>
+          </div>
+
+          {view === "overview" || view === "metrics" ? (
+            <OpsMetricsGrid
+              recoverable={runs.isSuccess ? recoverable : undefined}
+              queued={awaiting.isSuccess ? (awaiting.data?.total ?? 0) : undefined}
+              adapters={sources.isSuccess ? sources.data.adapters.length : undefined}
+              activeWorkers={workers.isSuccess ? activeWorkers : undefined}
+            />
+          ) : null}
+
+          {view === "overview" || view === "runs" || view === "workers" ? (
+            <BackgroundRuns view={view} />
+          ) : null}
+
+          {/*
+            The platform totals and distributions — real, kept, and one view
+            away: the design's Overview draws the ops picture, and the
+            platform's own totals belong with the other metrics.
+          */}
+          {view === "metrics" ? <AdminOverviewBody data={overview.data} /> : null}
         </div>
       )}
+    </div>
+  )
+}
+
+/** One bare ops tile (design nodes 49:1601–49:1612): value 28/600, label 12/400. */
+function OpsMetricTile({
+  value,
+  label,
+}: {
+  value: number | undefined
+  label: string
+}) {
+  return (
+    <div className="surface p-[18px]">
+      {value === undefined ? (
+        <div aria-hidden="true" className="skeleton h-[41px] w-12 rounded" />
+      ) : (
+        <p className="type-metric">{value}</p>
+      )}
+      <p className="type-caption mt-1">{label}</p>
+    </div>
+  )
+}
+
+/** The design's metrics row (node 49:1600): the four operational counts. */
+function OpsMetricsGrid({
+  recoverable,
+  queued,
+  adapters,
+  activeWorkers,
+}: {
+  recoverable: number | undefined
+  queued: number | undefined
+  adapters: number | undefined
+  activeWorkers: number | undefined
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <OpsMetricTile value={recoverable} label="Recoverable run" />
+      <OpsMetricTile value={queued} label="Queued application" />
+      <OpsMetricTile value={adapters} label="Source adapters" />
+      <OpsMetricTile value={activeWorkers} label="Active workers" />
     </div>
   )
 }
@@ -140,21 +292,25 @@ function AdminOverviewBody({ data }: { data: AdminOverview }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Accounts"
+          icon={UsersRound}
           value={data.accounts.total}
           hint={`${data.accounts.active} active · ${data.accounts.superusers} administrator${data.accounts.superusers === 1 ? "" : "s"}`}
         />
         <StatTile
           label="Tracked applications"
+          icon={BriefcaseBusiness}
           value={data.applications.total}
           hint={`Across ${data.workflows.total} workflow${data.workflows.total === 1 ? "" : "s"}`}
         />
         <StatTile
           label="Audit rows"
+          icon={ScrollText}
           value={data.audit.total}
           hint="Every recorded platform action"
         />
         <StatTile
           label="Job corpus"
+          icon={Database}
           value={data.corpus.jobs}
           hint="Shared listings (not per-account)"
         />
@@ -316,7 +472,16 @@ const RUN_TYPE_FILTERS = [
  * The screen holds no authority: the server checks `is_superuser`, validates
  * the transition, the model and the dimension, and audits the act.
  */
-function BackgroundRuns() {
+function BackgroundRuns({
+  view,
+}: {
+  /**
+   * The section chip's current view (the design's node 49:1589). Overview —
+   * the state the frame draws — shows everything; Runs hides the worker
+   * panel; Workers hides the run groups. Nothing unmounts on `overview`.
+   */
+  view: "overview" | "runs" | "workers"
+}) {
   const [confirming, setConfirming] = useState<RunSummary | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>("")
@@ -386,11 +551,13 @@ function BackgroundRuns() {
       description="Every background job on the platform, of every type. A job keeps running when you close this page, and its state is stored on the server — not remembered here."
     >
       <div className="space-y-4">
-        <WorkerControl
-          health={workers.data}
-          waiting={waiting}
-          onChanged={() => workers.refetch()}
-        />
+        {view === "overview" || view === "workers" ? (
+          <WorkerControl
+            health={workers.data}
+            waiting={waiting}
+            onChanged={() => workers.refetch()}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/*
@@ -454,7 +621,7 @@ function BackgroundRuns() {
           <ErrorNotice error={reconcile.error} verbose />
         ) : null}
 
-        {runs.isError ? (
+        {view === "workers" ? null : runs.isError ? (
           <ErrorNotice
             error={runs.error}
             onRetry={() => runs.refetch()}
@@ -755,12 +922,17 @@ function RunGroup({
               ))}
             </TableBody>
           </Table>
-          <Pagination
+          <TablePager
             page={current}
             pageSize={RUNS_PER_PAGE}
             total={runs.length}
             onPageChange={onPageChange}
-            label="runs"
+            onPageSizeChange={() => {
+              /* The group pages five at a time by design; the control's
+                 options are the table set's, so the size is fixed here. */
+            }}
+            pageSizeOptions={[RUNS_PER_PAGE]}
+            className="mt-3"
           />
         </>
       )}
@@ -827,8 +999,8 @@ function WorkerControl({
           <div className="space-y-1">
             <h3 className="text-sm font-medium text-foreground">
               {running === 0
-                ? "No worker is running"
-                : `${running} worker${running === 1 ? "" : "s"} running`}
+                ? "No active worker"
+                : `${running} active worker${running === 1 ? "" : "s"}`}
               {departed.length > 0 ? ` · ${departed.length} not running` : ""}
             </h3>
             <p className="text-sm text-muted-foreground">
@@ -836,19 +1008,38 @@ function WorkerControl({
                 ? "Queued work waits until a worker is running."
                 : "These processes do the fetching, indexing and repairs."}
               {waiting > 0
-                ? ` ${waiting} job${waiting === 1 ? "" : "s"} waiting.`
+                ? ` ${waiting} queued execution${waiting === 1 ? "" : "s"}.`
                 : ""}
             </p>
           </div>
-          <Button
-            disabled={!canStart || start.isPending}
-            onClick={() => {
-              setNotice(null)
-              start.mutate()
-            }}
-          >
-            {start.isPending ? "Starting…" : "Start a worker"}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/*
+              The design's "Refresh ↻" (node 49:1674): a real re-read of the
+              heartbeats — the panel also polls, but an operator watching a
+              worker come up should not wait out the cadence. The design's
+              other affordance, "Worker health →", has no destination this
+              product can honour (the health IS this panel), so it is not
+              drawn — a link to where you already are is decoration.
+            */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setNotice(null)
+                onChanged()
+              }}
+            >
+              Refresh ↻
+            </Button>
+            <Button
+              disabled={!canStart || start.isPending}
+              onClick={() => {
+                setNotice(null)
+                start.mutate()
+              }}
+            >
+              {start.isPending ? "Starting…" : "Start bounded worker"}
+            </Button>
+          </div>
         </div>
 
         {control && !control.enabled ? (

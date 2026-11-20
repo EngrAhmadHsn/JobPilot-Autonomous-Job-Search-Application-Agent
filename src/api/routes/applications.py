@@ -682,7 +682,13 @@ def _job_country_for(db: Session, job_url: str | None) -> str | None:
     from src.db.jobs import location_for_application_url
 
     try:
-        location = location_for_application_url(job_url, session_factory=db.get_bind())
+        # The request's own session is already open and scoped. Passing it
+        # avoids a second connection, and — the reason this line changed on
+        # 2026-11-19 — avoids handing the lookup an ``Engine``, which cannot
+        # open a session: every call raised, the ``except`` below swallowed
+        # it, and the country always came back ``None``. WS-25c's
+        # country-qualified authorization was therefore inert on this path.
+        location = location_for_application_url(job_url, session=db)
     except Exception:
         # An unknown country is safe here — it withholds the authorization
         # answer — so a lookup failure must not fail the prepare.

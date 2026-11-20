@@ -8,6 +8,18 @@ export function formatDateTime(value: string | null | undefined): string {
   return parsed.toLocaleString()
 }
 
+/** An ISO timestamp, as the feed's time-of-day voice ("09:42"). */
+export function formatTimeOfDay(value: string | null | undefined): string {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+}
+
 /** A score between 0 and 100, with one decimal. */
 export function formatScore(value: number | null | undefined): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "—"

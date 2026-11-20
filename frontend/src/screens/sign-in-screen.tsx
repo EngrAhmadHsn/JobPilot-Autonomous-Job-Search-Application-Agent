@@ -75,12 +75,19 @@ export function SignInScreen() {
       */}
       <div className="w-full max-w-sm space-y-8">
         <div className="space-y-2">
-          <h1 className="font-display text-2xl text-foreground">
-            {mode === "sign-in" ? "Sign in" : "Create an account"}
+          {/*
+            The design file's voice for this surface (node `47:602`):
+            "Welcome back." for the returning candidate, the account-creation
+            name for the create mode — the one that first-account warning
+            stays, because it is true and the design's example never had to
+            carry it.
+          */}
+          <h1 className="type-display">
+            {mode === "sign-in" ? "Welcome back." : "Create an account"}
           </h1>
           <p className="text-sm text-muted-foreground">
             {mode === "sign-in"
-              ? "The console works against your own account: your résumés, your applications, your history."
+              ? "Sign in to your private career workspace: your résumés, your applications, your history."
               : "On a fresh deployment, the first account created also takes over any data already here."}
           </p>
         </div>

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
@@ -34,13 +34,23 @@ describe("the matches screen", () => {
     expect(screen.getByText("No profile selected")).toBeInTheDocument()
   })
 
-  it("lets the suggestion panel out of the search card (WS-21)", async () => {
+  it("does not clip the suggestion panel (WS-21, re-pinned for WS-42)", async () => {
     /*
-      The defect: the panel is absolutely positioned from under the query
-      field, and the shared Card's default `overflow-hidden` cut it off at
-      the card's edge. jsdom cannot measure layout, so the *contract* (this
-      one card is overflow-visible) is pinned here; the real boxes are
-      measured in a browser by e2e/suggestions.spec.ts.
+      The original defect: the suggestion panel is absolutely positioned from
+      under the query field, and the shared `Card`'s default `overflow-hidden`
+      cut it off at the card's edge. The first fix pinned *that card's*
+      `overflow-visible` class.
+
+      WS-42 removed the card — the design file draws the search as a bare
+      field with its action attached (node `49:845`), not a card — so the
+      original assertion no longer has a subject. The **contract** it was
+      protecting is unchanged and is now asserted directly: nothing between
+      the query field and the screen root may clip. That survives any future
+      restyle, where pinning one class name did not.
+
+      jsdom cannot measure layout, so this checks the computed overflow of the
+      field's ancestors; the real boxes are measured in a browser by
+      `e2e/suggestions.spec.ts`.
     */
     withProfile()
     server.use(
@@ -52,13 +62,17 @@ describe("the matches screen", () => {
       )
     )
     const user = userEvent.setup()
-    const { container } = renderScreen(<MatchesScreen />)
+    renderScreen(<MatchesScreen />)
 
-    await user.type(screen.getByLabelText("Query"), "eng")
+    const field = screen.getByLabelText("Query")
+    await user.type(field, "eng")
     expect(await screen.findByRole("listbox")).toBeInTheDocument()
 
-    const card = container.querySelector('[data-slot="card"]')
-    expect(card?.className).toContain("overflow-visible")
+    // Walk up from the field: nothing may clip along the way.
+    for (let node = field.parentElement; node; node = node.parentElement) {
+      const overflow = getComputedStyle(node).overflow
+      expect(["", "visible"]).toContain(overflow)
+    }
   })
 
   it("keeps the last search when the screen is left and returned to", async () => {
@@ -77,7 +91,7 @@ describe("the matches screen", () => {
     const first = renderScreen(<MatchesScreen />)
 
     await user.type(screen.getByLabelText("Query"), "eng")
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
     expect(calls).toBe(1)
 
@@ -87,7 +101,9 @@ describe("the matches screen", () => {
     renderScreen(<MatchesScreen />)
 
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
-    expect(screen.getByText("82.5")).toBeInTheDocument()
+    // The row's score chip carries the whole score (WS-42, node 49:878) —
+    // a rounded display form; the full precision stays with the breakdown.
+    expect(screen.getByText("83")).toBeInTheDocument()
     expect(screen.getByLabelText("Query")).toHaveValue("eng")
     expect(calls).toBe(1)
   })
@@ -113,9 +129,9 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     const first = renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     expect(await screen.findByText("Role 1")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     expect(await screen.findByText("Role 2")).toBeInTheDocument()
 
     first.unmount()
@@ -130,10 +146,11 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
-    expect(screen.getByText("82.5")).toBeInTheDocument()
+    // The chip shows the whole score, not a decimal (WS-42, node 49:878).
+    expect(screen.getByText("83")).toBeInTheDocument()
 
     // Selecting a row opens the reasoning beside the list — the split
     // view's "why this job matches" block, with the engine's explanation
@@ -156,7 +173,7 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     // The count line is the whole ranked slice — the server returned it in
     // one response — while the list shows its window of ten.
@@ -206,7 +223,7 @@ describe("the matches screen", () => {
     // The default Top N fills the whole ranked slice, so the scope line
     // says what was ranked and what was not, and the count line stays
     // honest about the window on screen.
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(
       await screen.findByText(
@@ -228,7 +245,7 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(
       await screen.findByText("The scoring was degraded")
@@ -249,7 +266,7 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(
       await screen.findByText("1 job source(s) failed")
@@ -271,7 +288,7 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(
       await screen.findByText("Profile 'nope' not found")
@@ -288,7 +305,7 @@ describe("the matches screen", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(await screen.findByText("No stored jobs match")).toBeInTheDocument()
     // The way to widen the corpus is the real screen that owns it.
@@ -327,9 +344,11 @@ describe("the Discover split view", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
-    await user.click(screen.getByText("Show the full scoring breakdown"))
+    // WS-42 keeps the reasoning one disclosure deep in the panel (node
+    // 49:944); opening it reveals the component rows.
+    await user.click(screen.getByText("See all 8 score components and evidence"))
 
     // The unknown states its reason…
     expect(
@@ -348,15 +367,16 @@ describe("the Discover split view", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
 
     // The listing asks for Kubernetes and the profile does not state it:
-    // the chip renders under "Missing requirements", with the framing line
-    // that says what a gap is.
-    const missing = await screen.findByText("Missing requirements")
-    expect(within(missing.parentElement as HTMLElement).getByText("Kubernetes"))
-    expect(screen.getByText(/evidence gap/i)).toBeInTheDocument()
+    // the clay wash names the gap in the design's own words (WS-42, nodes
+    // 49:939–49:942), framed as an evidence gap — never a disqualification.
+    expect(
+      await screen.findByText("Kubernetes not found in your source résumé")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Evidence gap")).toBeInTheDocument()
   })
 
   it("wires the real actions and renders no save that has no endpoint", async () => {
@@ -364,15 +384,18 @@ describe("the Discover split view", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
 
     expect(
-      await screen.findByRole("link", { name: /Tailor for this job/ })
+      await screen.findByRole("link", { name: /Tailor for this role/ })
     ).toHaveAttribute("href", "/app/tailor/greenhouse%3A1")
+    // The board's own listing opens through the safe-link guard; the
+    // factory URL is an ordinary http one, so the design's second action
+    // goes to it.
     expect(
-      screen.getByRole("link", { name: /Open the full listing/ })
-    ).toHaveAttribute("href", "/app/matches/greenhouse%3A1")
+      screen.getByRole("link", { name: /Open original listing/ })
+    ).toHaveAttribute("href", "http://127.0.0.1:8901/basic")
     // There is no save/shortlist endpoint, so there is no save action —
     // the reference panel's heart is dropped, not faked.
     expect(
@@ -381,6 +404,34 @@ describe("the Discover split view", () => {
     expect(
       screen.queryByRole("link", { name: /save/i })
     ).not.toBeInTheDocument()
+  })
+
+  it("falls back to the complete record when there is no safe board URL", async () => {
+    withProfile()
+    server.use(
+      http.post(`${BASE}/api/jobs/search`, () =>
+        HttpResponse.json(
+          jobSearchResponse({
+            results: [
+              matchPair({
+                job: jobListing({ application_url: null }),
+              }),
+            ],
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderScreen(<MatchesScreen />)
+
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
+    await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
+
+    // With no safe URL the same slot hands off to the console's own
+    // complete record — it never invents a destination.
+    expect(
+      await screen.findByRole("link", { name: /Open the full listing/ })
+    ).toHaveAttribute("href", "/app/matches/greenhouse%3A1")
   })
 
   it("selects a deep-linked job after load, without a search", async () => {
@@ -400,7 +451,15 @@ describe("the Discover split view", () => {
     expect(screen.queryByText("No search yet")).not.toBeInTheDocument()
   })
 
-  it("renders board HTML in the detail panel as text, never as markup", async () => {
+  it("renders the detail panel without ever executing board HTML", async () => {
+    /*
+      Every field in the panel is board-supplied, so the hostile-input pin
+      holds no matter which fields render. WS-42 folds the listing's
+      description out of the panel — the route `/app/matches/:jobId` is the
+      complete record, and the route keeps its own hostile-description pin —
+      so the payload cannot even appear here; but no markup may be created
+      and no handler executed either way.
+    */
     withProfile()
     server.use(
       http.post(`${BASE}/api/jobs/search`, () =>
@@ -420,12 +479,15 @@ describe("the Discover split view", () => {
     const user = userEvent.setup()
     const { container } = renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     await user.click(screen.getByRole("button", { name: /AI Engineer/ }))
     await waitFor(() => {
-      expect(container.textContent).toContain("<img")
+      expect(
+        screen.getByRole("heading", { name: /AI Engineer/ })
+      ).toBeInTheDocument()
     })
     expect(container.querySelector("img")).toBeNull()
+    expect(container.textContent).not.toContain("<img")
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()
   })
 
@@ -439,7 +501,7 @@ describe("the Discover split view", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     const rows = await screen.findAllByRole("button", { name: /Role \d/ })
 
     // One tab stop for the list; the arrows walk the rows.
@@ -478,7 +540,10 @@ describe("the job detail screen", () => {
         "Build machine learning systems for a payments platform."
       )
     ).toBeInTheDocument()
-    expect(screen.getByText("Why this job ranked")).toBeInTheDocument()
+    // The fit card leads with the verdict slot (WS-42, node 49:1920),
+    // derived from the engine's own component verdicts and the recorded
+    // gaps — the factory row asks for one skill the profile does not state.
+    expect(screen.getByText("A good fit, with one gap.")).toBeInTheDocument()
   })
 
   it("renders a hostile description as text, never as markup", async () => {
@@ -558,7 +623,7 @@ describe("the matches screen while a search is running", () => {
     const user = userEvent.setup()
     const { container } = renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     // The placeholder is on screen, and the region says it is busy.
     await waitFor(() => {
@@ -590,7 +655,7 @@ describe("the matches screen while a search is running", () => {
     const user = userEvent.setup()
     const { container } = renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     await waitFor(() => {
       expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
     })
@@ -614,7 +679,7 @@ describe("the matches screen while a search is running", () => {
     const user = userEvent.setup()
     renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     expect(
       await screen.findByRole("heading", { name: "Ranking your saved jobs" })
@@ -635,17 +700,17 @@ describe("the matches screen while a search is running", () => {
     const user = userEvent.setup()
     const { container } = renderScreen(<MatchesScreen />)
 
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()
 
     const release = deferredSearch()
-    await user.click(screen.getByRole("button", { name: "Search" }))
+    await user.click(screen.getByRole("button", { name: "Search jobs" }))
 
     await waitFor(() => {
       expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
     })
     expect(screen.queryByText("AI Engineer")).not.toBeInTheDocument()
-    expect(screen.queryByText("82.5")).not.toBeInTheDocument()
+    expect(screen.queryByText("83")).not.toBeInTheDocument()
 
     release()
     expect(await screen.findByText("AI Engineer")).toBeInTheDocument()

@@ -9,47 +9,52 @@ import { ProgressState } from "@/components/common/progress-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/ui/page-header"
 import { LinkButton } from "@/components/ui/link-button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { StatusBadge, StatusExplainer } from "@/components/ui/status-badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatusExplainer } from "@/components/ui/status-badge"
 
-import { useMediaQuery } from "@/hooks/use-media-query"
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import { formatDateTime } from "@/lib/format"
+import { formatDateTime, formatTimeOfDay, pluralize } from "@/lib/format"
 import { asString } from "@/lib/safe"
+import { describeStatus, type StatusTone } from "@/lib/status"
 import type { ApplicationDetail } from "@/lib/api/types"
 
 import { ApplicationList } from "@/screens/tracker/application-list"
 import { BoardView } from "@/screens/tracker/board-view"
+import type { StageGroup } from "@/screens/tracker/stage-groups"
 import { ApplicationTimeline } from "@/screens/tracker/application-timeline"
 import { OutcomeEditor } from "@/screens/tracker/outcome-editor"
+import { isLocalTestBoard } from "@/screens/review/in-control-notice"
 
 /*
-  The Tracker (WS-39) — the reference panel 5's Board and List views, plus
-  the detail's Timeline.
+  The Tracker (WS-39, rebuilt to the design file's screens 05/18 in WS-42).
 
   Which view is showing lives in the URL (`?view=board`, `?status=<s>`), so
   the board and a filtered list survive a reload and are linkable — the same
   pattern the Discover screen uses for its selection. The default is the
-  list: the server-paginated table with the server's own total is the
-  tracker's long-standing contract, and it is what a phone falls back to
-  when the board is selected on a narrow screen.
+  board: the design file's screen 05 opens on it, and the four stages side
+  by side are the answer to "where does everything stand"; the list is the
+  drill-in with the server's one real status filter.
+
+  The board is the design's horizontal Kanban at **every** width — four full
+  columns that share the row when it fits and swipe sideways under their
+  headers when it does not (the design draws both, 16:162 and 49:10846).
+  There is no squeezed grid and no separate mobile surface.
 
   Nothing here polls. The tracker reads when it is opened (and when the
-  operator changes the filter or the view); the board is five one-shot
-  single-status reads, the list is one read per page.
+  operator changes the filter or the view); the board is four one-shot
+  group reads, the list is one read per page.
 */
 export function TrackerScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const view: "board" | "list" =
-    searchParams.get("view") === "board" ? "board" : "list"
+  const requestedView = searchParams.get("view")
+  const view: "board" | "list" = requestedView === "list" ? "list" : "board"
   const statusFilter = searchParams.get("status")
-  const isDesktop = useMediaQuery("(min-width: 768px)")
 
   function setView(next: string) {
     const params = new URLSearchParams(searchParams)
-    if (next === "board") params.set("view", "board")
+    if (next === "list") params.set("view", "list")
     else params.delete("view")
     setSearchParams(params, { replace: true })
   }
@@ -61,54 +66,73 @@ export function TrackerScreen() {
     setSearchParams(params, { replace: true })
   }
 
-  /** A column's "show all" hand-off: the List view, filtered to that stage. */
-  function showAllInList(status: string) {
+  /**
+   * A column's "show all" hand-off: the List view, filtered to that stage's
+   * statuses.
+   *
+   * The filter is the **group**, so a click on "Show all 26 in the list" from
+   * Awaiting review shows the same 26 the column counted — not the 21 one
+   * status alone holds. `status` is comma-joined because that is the spelling
+   * the API accepts for several values.
+   */
+  function showAllInList(group: StageGroup) {
     const params = new URLSearchParams(searchParams)
-    params.delete("view")
-    params.set("status", status)
+    params.set("view", "list")
+    params.set("status", group.statuses.join(","))
     setSearchParams(params, { replace: true })
   }
 
-  const boardFits = isDesktop
+  /*
+    The Board/List pair (design 49:1134–49:1137) belongs to the **screen**,
+    not to the board: the design draws it as the toolbar's first pills, and
+    the view it switches must always be reachable *from* the other view — a
+    List view with no way back to the board would be a dead end the design
+    does not draw. The pills travel with the active view; the board renders
+    them first in its toolbar row, the list renders them alone above the
+    table (the Filters pill, the board's own total and "Find another role →"
+    are the board toolbar's — the list has its filter chips and its own
+    total in the body).
+  */
+  const viewTabs = (
+    <Tabs
+      variant="pill"
+      value={view}
+      onValueChange={(value) => setView(value)}
+    >
+      <TabsList aria-label="Applications view" className="gap-2.5">
+        <TabsTrigger value="board">Board</TabsTrigger>
+        <TabsTrigger value="list">List</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/*
+        The statement heading is the design's (47:184/47:185); the tab still
+        carries the stable screen name the accessibility contract pins.
+      */}
       <PageHeader
-        title="Tracker"
-        description="Every application the agent prepared, its full ordered history, the evidence the browser captured, and the human outcomes you recorded."
+        title="Every application, in context."
+        documentTitle="Applications"
+        description="Know what is waiting, what needs you, and what happened next."
       />
 
-      <Tabs value={view} onValueChange={(value) => setView(String(value))}>
-        <TabsList aria-label="Tracker view">
-          <TabsTrigger value="board">Board</TabsTrigger>
-          <TabsTrigger value="list">List</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {view === "board" && boardFits ? (
-        <BoardView onShowAll={showAllInList} />
+      {view === "board" ? (
+        <BoardView
+          tabs={viewTabs}
+          onShowAll={showAllInList}
+          onOpenList={() => setView("list")}
+        />
       ) : (
-        <>
-          {/*
-            The honest mobile fallback the brief names: the board is
-            desktop-first, and a phone gets the list — not a sideways
-            scroll of squeezed columns.
-          */}
-          {view === "board" && !boardFits ? (
-            <p
-              role="note"
-              className="text-sm leading-relaxed text-muted-foreground"
-            >
-              The board needs more width than this screen has, so the list is
-              showing instead — the same applications, server-paged.
-            </p>
-          ) : null}
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2.5">{viewTabs}</div>
           <ApplicationList
             key={statusFilter ?? "all"}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
           />
-        </>
+        </div>
       )}
     </div>
   )
@@ -118,13 +142,13 @@ export function TrackerScreen() {
   The Tracker detail: one application, its whole chronology, its evidence,
   and the human outcome editor.
 
-  The detail is the record the list points at: identity and plain-language
-  status first, the timestamps the server actually holds (submitted and
-  verified render only when they exist — a dash would imply a fact the
-  server never recorded), the associated tailored résumé and its cover
-  letter through the safe authorized download endpoint, the browser's
-  evidence, the ordered timeline with each event's actor, and the outcome
-  form that only ever offers the four human outcomes.
+  The design file's screen 18 (node 47:640) leads with the statement "Every
+  step, with evidence.", then an execution card whose body is **state fact
+  rows** — Approval, Execution, Form interaction, Submission, Evidence —
+  each a fact the server actually holds, and an "Ordered history" trail of
+  time + actor + human-voiced rows. The ids and URLs the console holds for
+  auditability stay on the page too, in a quieter "Record" card below —
+  provenance is not decoration, but it is also not the headline.
 */
 export function TrackerDetailScreen() {
   const { applicationId = "" } = useParams()
@@ -172,6 +196,76 @@ export function TrackerDetailScreen() {
   const record: ApplicationDetail = application.data
   const records = evidence.data?.evidence ?? []
 
+  /*
+    The state fact rows (design nodes 49:2120–49:2143). Every value below is
+    derived from a field or an event the server sent — never from the
+    status's name alone, and never invented to fill a row.
+  */
+  const approvalEvent =
+    record.events.find((event) => event.event_type === "approval_granted") ??
+    null
+  const declinedEvent =
+    record.events.find((event) => event.event_type === "approval_rejected") ??
+    null
+
+  /** "at 09:42" for today's decisions; a full stamp for older ones. */
+  const decisionStamp = (iso: string) => {
+    const parsed = new Date(iso)
+    return parsed.toDateString() === new Date().toDateString()
+      ? `at ${formatTimeOfDay(iso)}`
+      : `on ${formatDateTime(iso)}`
+  }
+
+  const approvalValue = approvalEvent
+    ? `Recorded by you ${decisionStamp(approvalEvent.recorded_at)}`
+    : declinedEvent
+      ? `Declined by you ${decisionStamp(declinedEvent.recorded_at)}`
+      : "Waiting for your decision"
+
+  const executed = Boolean(record.submitted_at)
+  const executionValue = executed
+    ? "Executed"
+    : approvalEvent
+      ? "Queued · waiting for a worker"
+      : "Not started"
+
+  const formInteractionValue =
+    executed || record.verified_at ? "Form filled" : "Not started"
+
+  const submissionValue = record.submitted_at
+    ? `Submitted ${formatDateTime(record.submitted_at)}`
+    : record.verified_at
+      ? "Submitted · confirmed by evidence"
+      : "Not submitted"
+
+  const evidenceValue = records.length
+    ? `${pluralize(records.length, "artifact")} captured`
+    : "No artifacts available yet"
+
+  const factRows: { label: string; value: string }[] = [
+    { label: "Approval", value: approvalValue },
+    { label: "Execution", value: executionValue },
+    { label: "Form interaction", value: formInteractionValue },
+    { label: "Submission", value: submissionValue },
+    { label: "Evidence", value: evidenceValue },
+  ]
+
+  /*
+    The intro line names the adapter honestly (the design's sentence,
+    "Real-board assist · final submission stays with you.", is written for
+    the real-board path — a fake-ATS run is the local playground and says
+    so, in the same slot).
+  */
+  const introLine = isLocalTestBoard(record.adapter_name)
+    ? "Fake ATS playground · the flow runs end to end against the local test board."
+    : "Real-board assist · final submission stays with you."
+
+  /*
+    The record card's fields: the ids and paths this console holds for
+    auditability. Only the timestamps the server holds render — a "—" in a
+    chronology field reads as "happened, time unknown", and the truth is
+    "never happened".
+  */
   const fields: { label: string; value: ReactNode }[] = [
     { label: "Job URL", value: record.job_url },
     { label: "Adapter", value: record.adapter_name },
@@ -180,8 +274,6 @@ export function TrackerDetailScreen() {
     { label: "Profile", value: record.profile_id ?? "—" },
     { label: "Created", value: formatDateTime(record.created_at) },
   ]
-  // Only the timestamps the server holds. A "—" in a chronology field
-  // reads as "happened, time unknown" — the truth is "never happened".
   if (record.submitted_at) {
     fields.push({
       label: "Submitted",
@@ -239,122 +331,240 @@ export function TrackerDetailScreen() {
   fields.push({ label: "Notes", value: record.notes ?? "—" })
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <PageHeader
-        title={record.job_title}
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            <span>{record.company_name}</span>
-            <StatusBadge status={record.status} />
-          </span>
-        }
+        title="Every step, with evidence."
+        documentTitle="Application details"
+        description={`${record.company_name} · ${record.job_title} · ${describeStatus(record.status).label}`}
         meta={<span>Opened {formatDateTime(record.created_at)}</span>}
-        actions={
-          <LinkButton variant="outline" to="/app/tracker">
-            Back to the list
-          </LinkButton>
-        }
       />
 
-      <StatusExplainer status={record.status} />
+      {/*
+        The tools row (design 49:2112–49:2118): the way back, the status as
+        the design's chip, and the audit trail. The chip's tint follows the
+        status's tone; its text is the status's own label.
+      */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <LinkButton variant="outline" to="/app/tracker">
+          ← Applications
+        </LinkButton>
+        <span
+          title={describeStatus(record.status).nextStep}
+          className={`inline-block rounded-md px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary ${STATUS_PILL_TONE[describeStatus(record.status).tone]}`}
+        >
+          {describeStatus(record.status).label}
+        </span>
+        <LinkButton variant="outline" to="/app/activity">
+          Open activity →
+        </LinkButton>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>The application</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FieldList items={fields} />
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+        <div className="min-w-0 space-y-6">
+          <StatusExplainer status={record.status} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Evidence</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {evidence.isPending ? (
-            /*
-              A read inside a card that already has its heading, so the bones
-              fill the card rather than replacing it with a progress panel.
-            */
-            <div className="space-y-2.5" aria-busy="true">
-              <Skeleton className="h-4 w-[min(24rem,78%)]" />
-              <Skeleton className="h-4 w-[min(18rem,52%)]" />
-              <Skeleton className="h-4 w-[min(14rem,40%)]" />
-            </div>
-          ) : null}
+          {/*
+            The execution detail card (design 49:2120): the heading is the
+            application itself, the intro names the adapter's world, and the
+            body is the five state facts.
+          */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl leading-[29px]">
+                {record.company_name} · {record.job_title}
+              </CardTitle>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                {introLine}
+              </p>
+            </CardHeader>
+            <CardContent>
+              <dl>
+                {factRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-baseline justify-between gap-6 border-b border-border-surface py-2.5 last:border-b-0"
+                  >
+                    <dt className="shrink-0 text-xs leading-[17px] text-muted-foreground">
+                      {row.label}
+                    </dt>
+                    <dd className="min-w-0 text-right text-sm font-semibold leading-5 text-primary">
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
 
-          {records.length === 0 && !evidence.isPending ? (
-            <p className="text-sm text-muted-foreground">
-              This application has no evidence record. Nothing is claimed about
-              what happened on the employer&apos;s side.
-            </p>
-          ) : null}
+          <Card>
+            <CardHeader>
+              <CardTitle>Evidence</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {evidence.isPending ? (
+                /*
+                  A read inside a card that already has its heading, so the bones
+                  fill the card rather than replacing it with a progress panel.
+                */
+                <div className="space-y-2.5" aria-busy="true">
+                  <Skeleton className="h-4 w-[min(24rem,78%)]" />
+                  <Skeleton className="h-4 w-[min(18rem,52%)]" />
+                  <Skeleton className="h-4 w-[min(14rem,40%)]" />
+                </div>
+              ) : null}
 
-          {records.map((entry, index) => {
-            const screenshotPath = asString(entry.screenshot_path)
-            const separator = Math.max(
-              screenshotPath.lastIndexOf("/"),
-              screenshotPath.lastIndexOf(String.fromCharCode(92))
-            )
-            const fileName =
-              separator >= 0
-                ? screenshotPath.slice(separator + 1)
-                : screenshotPath
-            return (
-              <div key={index} className="space-y-2">
-                <FieldList
-                  items={[
-                    {
-                      label: "Confirmation",
-                      value: entry.confirmation_text ? (
-                        <PlainText as="span">
-                          {entry.confirmation_text}
-                        </PlainText>
-                      ) : (
-                        "—"
-                      ),
-                    },
-                    { label: "Evidence status", value: entry.status },
-                    {
-                      label: "Recorded",
-                      value: formatDateTime(entry.recorded_at),
-                    },
-                    { label: "Screenshot", value: screenshotPath || "—" },
-                    { label: "Trace", value: entry.trace_path ?? "—" },
-                  ]}
-                />
-                {screenshotPath && fileName ? (
-                  <figure className="space-y-1">
-                    <img
-                      src={apiUrl(
-                        `/api/applications/${encodeURIComponent(record.id)}/evidence/${encodeURIComponent(fileName)}`
-                      )}
-                      alt="The screenshot captured as evidence of the submission"
-                      className="max-w-full rounded-lg border border-border"
+              {records.length === 0 && !evidence.isPending ? (
+                <p className="text-sm text-muted-foreground">
+                  This application has no evidence record. Nothing is claimed about
+                  what happened on the employer&apos;s side.
+                </p>
+              ) : null}
+
+              {records.map((entry, index) => {
+                const screenshotPath = asString(entry.screenshot_path)
+                const separator = Math.max(
+                  screenshotPath.lastIndexOf("/"),
+                  screenshotPath.lastIndexOf(String.fromCharCode(92))
+                )
+                const fileName =
+                  separator >= 0
+                    ? screenshotPath.slice(separator + 1)
+                    : screenshotPath
+                return (
+                  <div key={index} className="space-y-2">
+                    <FieldList
+                      items={[
+                        {
+                          label: "Confirmation",
+                          value: entry.confirmation_text ? (
+                            <PlainText as="span">
+                              {entry.confirmation_text}
+                            </PlainText>
+                          ) : (
+                            "—"
+                          ),
+                        },
+                        { label: "Evidence status", value: entry.status },
+                        {
+                          label: "Recorded",
+                          value: formatDateTime(entry.recorded_at),
+                        },
+                        { label: "Screenshot", value: screenshotPath || "—" },
+                        { label: "Trace", value: entry.trace_path ?? "—" },
+                      ]}
                     />
-                    <figcaption className="text-xs text-muted-foreground">
-                      The screenshot the browser captured at the moment of the
-                      outcome.
-                    </figcaption>
-                  </figure>
-                ) : null}
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
+                    {screenshotPath && fileName ? (
+                      <figure className="space-y-1">
+                        <img
+                          src={apiUrl(
+                            `/api/applications/${encodeURIComponent(record.id)}/evidence/${encodeURIComponent(fileName)}`
+                          )}
+                          alt="The screenshot captured as evidence of the submission"
+                          className="max-w-full rounded-lg border border-border"
+                        />
+                        <figcaption className="text-xs text-muted-foreground">
+                          The screenshot the browser captured at the moment of the
+                          outcome.
+                        </figcaption>
+                      </figure>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline ({record.events.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ApplicationTimeline events={record.events} />
-        </CardContent>
-      </Card>
+          {/*
+            The design's "Ordered history" (49:2152): the chronology in the
+            trail's human voice — a time, an actor chip, and rows that say
+            what happened, with the server's own metadata kept below for the
+            run ids and decision records it carries.
+          */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Ordered history</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ApplicationTimeline events={record.events} />
+            </CardContent>
+          </Card>
 
-      <OutcomeEditor application={record} />
+          <OutcomeEditor application={record} />
+
+          {/*
+            The record card: the ids, URLs and document links this console
+            holds for auditability. The design's execution card keeps the
+            headline, and the provenance stays one scroll away — removed
+            entirely would orphan the workflow and approval ids the audit
+            trail and the uncertain-outcome path refer to.
+          */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Record</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FieldList items={fields} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/*
+          The design's proof rail (node `49:2144`, "Proof, not
+          assumptions."): the evidence rule this screen exists to enforce. A
+          queued application has neither screenshot nor confirmation, and an
+          outcome that cannot be proven is escalated as uncertain — never
+          assumed.
+        */}
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
+          {/*
+            The rail is the design's panel (49:2144–49:2151): the state chip
+            (the design tints it with the panel's own sage, so it reads as a
+            quiet mark), the 22/600 statement, the two paragraphs, and the
+            ghost action — no border, no fill, exactly as the design draws
+            it.
+          */}
+          <section className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-5">
+            <p>
+              <span className="inline-block rounded-md bg-forest-soft px-[9px] py-1 text-[11px] font-semibold leading-4 tracking-wide text-primary">
+                {records.length === 0
+                  ? "EVIDENCE PENDING"
+                  : `${pluralize(records.length, "ARTIFACT")}`}
+              </span>
+            </p>
+            <h2 className="text-[22px] font-semibold leading-8 text-primary">
+              Proof, not assumptions.
+            </h2>
+            <p className="text-sm leading-5 text-muted-foreground">
+              Screenshots and confirmation artifacts appear after work actually
+              happens. A queued application has neither.
+            </p>
+            <p className="text-[13px] leading-[19px] text-muted-foreground">
+              If submission cannot be proven, the outcome is escalated as
+              uncertain instead of assumed successful.
+            </p>
+            <div>
+              <LinkButton to="/app/activity" variant="ghost" size="sm">
+                View latest execution →
+              </LinkButton>
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   )
+}
+
+/*
+  The status chip's tint, by tone (design 49:2116's lime chip is the
+  progress tone; the rest map to the same two soft tints the console
+  already uses — lime for the machine's states, terracotta for the human's
+  attention, sage for quiet).
+*/
+const STATUS_PILL_TONE: Record<StatusTone, string> = {
+  neutral: "bg-muted",
+  info: "bg-forest-soft",
+  progress: "bg-lime-soft",
+  success: "bg-lime-soft",
+  warning: "bg-terracotta-soft",
+  danger: "bg-terracotta-soft",
 }

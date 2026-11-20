@@ -34,8 +34,42 @@
   --color-forest: #173d32;
   --color-forest-soft: #e6ece8;
   --color-ivory: #f7f5ef;
-  --color-paper: #fffdf8;
+  --color-paper: #fffdfa;
   --color-ink: #23211c;
+
+  /*
+    The pipeline's four stages, as the design file draws them.
+
+    These are **stage** colours, not action colours: they describe where an
+    application sits in the journey and are deliberately separate from the
+    agent/human rule, so a stage never reads as "the agent did this". The
+    darkest (`#b99178`) is 2.9:1 on paper — it exists only as a 12 px bar
+    fill and never as text, so AA does not apply; any label travelling with
+    a stage colour is drawn in ink, not in the stage colour.
+  */
+  --color-stage-review: #f1d6c8;
+  --color-stage-handoff: #b99178;
+  --color-stage-progress: #d9f36a;
+  --color-stage-outcome: #86a395;
+
+  /* The rail's expand affordance chip (design node 47:4). */
+  --color-rail-control: #294c40;
+
+  /*
+    The keyword-progress fills (design nodes `49:1001` / `49:1004`) — muted
+    olive limes that read as *measurement*. The agent's bright lime stays
+    reserved for the agent's own marks; a coverage bar is a ruler, not a
+    highlighter.
+  */
+  --color-progress-required: #8ea758;
+  --color-progress-preferred: #a3b68a;
+
+  /*
+    Geometry from the design file. The base radius stays 0.75rem (12px) for
+    controls; **surfaces** use 14px, which is what every card, panel and
+    column in the frames draws.
+  */
+  --radius-surface: 14px;
 
   /*
     The night desk.
@@ -70,6 +104,8 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  /* The surface hairline (design file 49:774 etc.) as a utility. */
+  --color-border-surface: var(--border-surface);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -121,6 +157,14 @@
   --accent-foreground: #173d32;
   --destructive: #9a3b2c;
   --border: #e3ddd0;
+  /*
+    The hairline the design file draws around **surfaces** (cards, panels,
+    columns): a cool, very light sage, `#e0e5db`. The warm `--border` stays
+    for inputs and dividers, where the paper's warmth is the point. Two
+    tokens because two different jobs: a card's edge separates paper from
+    paper, an input's edge marks a place to type.
+  */
+  --border-surface: #e0e5db;
   --input: #d9d2c2;
   --ring: #173d32;
   --chart-1: #173d32;
@@ -165,6 +209,8 @@
   --accent-foreground: #d9f36a;
   --destructive: #e08a78;
   --border: #35332a;
+  /* The surface hairline at night: the warm border lifted a step. */
+  --border-surface: #3b392f;
   --input: #45423a;
   --ring: #d9f36a;
   --chart-1: #d9f36a;
@@ -377,15 +423,128 @@ aside.bg-sidebar {
   /* The content container: a useful maximum width, not a fixed one. */
   .console-container {
     width: 100%;
-    max-width: 1120px;
+    max-width: 1368px;
     margin-inline: auto;
-    padding-inline: 1.5rem;
+    /* The phone frames' 20px gutter (nodes 49:7566, 49:10268 @ x=20). */
+    padding-inline: 1.25rem;
+  }
+
+  @media (min-width: 1024px) {
+    .console-container {
+      /* The desktop frame's 32px gutter past the rail (node 47:33 @ x=104). */
+      padding-inline: 2rem;
+    }
+  }
+
+  /*
+    The design file's type scale, as named utilities.
+
+    The frames are explicit about sizes (node 47:36 is 36/700, 49:770 is
+    20/600, 49:759 is an 11/600 eyebrow), and expressing them once here keeps
+    a screen from inventing its own step. Line heights are the frames'
+    measured line boxes, not round numbers, so a heading block occupies the
+    same vertical space it does in Figma.
+  */
+
+  /* The page's single h1 — forest ink, zero tracking (47:36, 49:760,
+     49:788). The design scales it with the viewport, measured per frame:
+     28/37 at 390 (49:10271), 30/40 at 768 (49:7569), 32/42 at 1024
+     (49:5266), 36/47 at 1440 (47:36). */
+  .type-display {
+    font-family: var(--font-heading);
+    font-size: 28px;
+    line-height: 37px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--primary);
   }
 
   @media (min-width: 768px) {
-    .console-container {
-      padding-inline: 2rem;
+    .type-display {
+      font-size: 30px;
+      line-height: 40px;
     }
+  }
+
+  @media (min-width: 1024px) {
+    .type-display {
+      font-size: 32px;
+      line-height: 42px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .type-display {
+      font-size: 36px;
+      line-height: 47px;
+    }
+  }
+
+  /* A hero statement inside a panel (node 49:760) — 27/39. */
+  .type-statement {
+    font-size: 27px;
+    line-height: 39px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--primary);
+  }
+
+  /* A section heading (node 49:770) — 20/29. */
+  .type-section {
+    font-size: 20px;
+    line-height: 29px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--primary);
+  }
+
+  /* The uppercase micro-label (node 49:759) — 11/16, wide tracking. */
+  .type-eyebrow {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* The top bar's breadcrumb (node 47:29) — 11/16. */
+  .type-breadcrumb {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* A card title (node 49:761) — 16/23. */
+  .type-card-title {
+    font-size: 16px;
+    line-height: 23px;
+    font-weight: 600;
+    color: var(--primary);
+  }
+
+  /* A metric value (node 49:775) — 28/41, tabular so digits align. */
+  .type-metric {
+    font-size: 28px;
+    line-height: 41px;
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A metric label or caption (node 49:776) — 12/17. */
+  .type-caption {
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--muted-foreground);
+  }
+
+  /* The paper surface every card in the design file is: r=14, sage edge. */
+  .surface {
+    background-color: var(--card);
+    border: 1px solid var(--border-surface);
+    border-radius: var(--radius-surface);
   }
 
   /* The reading column: prose stays under 70 characters. */

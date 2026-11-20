@@ -20,7 +20,7 @@ describe("the tailor index", () => {
     // state says what to do next.
     expect(
       await screen.findByRole("heading", {
-        name: /Tailor the résumé for a job/i,
+        name: /Your experience\. Better told\./i,
         level: 1,
       })
     ).toBeInTheDocument()
@@ -118,6 +118,58 @@ describe("the tailor screen", () => {
     ).toBeInTheDocument()
   })
 
+  it("renders the design's composition: the paper canvas and the evidence rail (WS-42)", async () => {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    // The header is the design's headline, not the job title — the job
+    // lives on the paper.
+    expect(
+      screen.getByRole("heading", { name: "Your experience. Better told." })
+    ).toBeInTheDocument()
+
+    // The document canvas: the job title, and the meta line that says what
+    // this paper is (node 49:979).
+    expect(
+      screen.getByRole("heading", { name: "AI Engineer", level: 2 })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Acme · tailored draft · source preserved")
+    ).toBeInTheDocument()
+
+    // The design's status chip beside the pills: the tailored wording is a
+    // proposal until the candidate authorizes it on Review.
+    expect(screen.getByText("Diff review · proposed")).toBeInTheDocument()
+
+    // The evidence rail (node 49:997) with its real headline and meters.
+    expect(
+      screen.getByRole("heading", { name: "Make every claim count." })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Required keywords · 1 of 2")
+    ).toBeInTheDocument()
+
+    // The factuality chip is the validator's own finding, derived — the
+    // design's example just asserts "0".
+    expect(screen.getByText("0 unsupported claims")).toBeInTheDocument()
+
+    // The step to review leads somewhere real.
+    expect(
+      screen.getByRole("link", { name: "Continue to review →" })
+    ).toHaveAttribute("href", "/app/approvals")
+
+    // Every changed passage carries a provenance line, and a passed
+    // factuality check is what licenses "no new claims added" (node 49:996).
+    expect(
+      screen.getByText("Source: summary · wording changed, no new claims added.")
+    ).toBeInTheDocument()
+  })
+
   it("offers the rendered DOCX for download", async () => {
     setCurrentProfileId("profile-1")
     const user = userEvent.setup()
@@ -150,7 +202,7 @@ describe("the tailor screen", () => {
       )
     ).toBeInTheDocument()
     expect(screen.getByText(/4 passages rewritten/)).toBeInTheDocument()
-    // A `.docx` deliverable keeps the DOCX link label.
+    // A `.docx` deliverable keeps the DOCX pill label.
     expect(
       screen.getByRole("link", { name: "Download the DOCX" })
     ).toBeInTheDocument()
@@ -221,9 +273,13 @@ describe("the tailor screen", () => {
       await screen.findByRole("button", { name: "Tailor this resume" })
     )
 
-    // The link says "text version", not "DOCX": the file really is text.
+    // The pill says "text version", not "DOCX": the file really is text.
     expect(
       await screen.findByRole("link", { name: "Download the text version" })
+    ).toBeInTheDocument()
+    // …and the preview pill says it too.
+    expect(
+      screen.getByRole("tab", { name: "Preview text version" })
     ).toBeInTheDocument()
   })
 
@@ -297,6 +353,10 @@ describe("the tailor screen", () => {
     expect(
       screen.queryByText(/The server refused the request/)
     ).not.toBeInTheDocument()
+    // And the rail's chip names the strip instead of claiming zero.
+    expect(
+      screen.getByText("2 unsupported claims stripped")
+    ).toBeInTheDocument()
   })
 
   it("says so when the language model is unavailable", async () => {
@@ -337,10 +397,12 @@ describe("the tailor screen", () => {
 /*
   WS-37: the Resume Studio contracts (master prompt §9.5, as far as the
   frontend contract reaches). These run against the real route tree with the
-  mocked API answering in the backend's exact shapes.
+  mocked API answering in the backend's exact shapes. WS-42 rebuilt the
+  composition to design node `16:82`; the contracts below are the same
+  honesty assertions re-pointed at the new structure.
 */
-describe("the resume studio (WS-37)", () => {
-  /** Run the tailoring and wait for the studio tabs. */
+describe("the resume studio (WS-37, composition from WS-42)", () => {
+  /** Run the tailoring and wait for the studio pills. */
   async function runTailoring() {
     setCurrentProfileId("profile-1")
     const user = userEvent.setup()
@@ -352,29 +414,34 @@ describe("the resume studio (WS-37)", () => {
     return user
   }
 
-  it("renders the read-only diff with both sides verbatim, a legend, and no accept/reject controls", async () => {
+  it("renders the read-only diff with both sides verbatim, the design's legend, and no accept/reject controls", async () => {
     await runTailoring()
 
     // The comparison is labelled read-only, because it is: there is no
     // per-change revision model behind it.
-    expect(screen.getByText("Read-only comparison")).toBeInTheDocument()
+    expect(screen.getByText(/Read-only comparison/)).toBeInTheDocument()
 
     // Both sides of the summary, exactly as the server sent them — the
-    // original text survives the comparison untouched.
+    // original text survives the comparison untouched. (The original also
+    // appears on the mounted Original tab, so "at least one" is the
+    // assertion's scope; the wording itself is the point.)
     expect(
-      screen.getByText(
+      screen.getAllByText(
         "Engineer working on analytical engines and applied machine learning."
-      )
-    ).toBeInTheDocument()
+      ).length
+    ).toBeGreaterThan(0)
     expect(
       screen.getByText(
         "AI Engineer with analytical and machine learning experience."
       )
     ).toBeInTheDocument()
 
-    // The legend names every state with icon and label — colour is never
-    // the only signal.
-    expect(screen.getByText("Legend:")).toBeInTheDocument()
+    // The design's two-chip legend (node 49:981) names the washes…
+    expect(screen.getByText(/Original wording/)).toBeInTheDocument()
+    expect(screen.getByText(/Tailored wording/)).toBeInTheDocument()
+
+    // …and every state still carries its own words — colour is never the
+    // only signal.
     expect(screen.getAllByText("Unchanged").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Reworded").length).toBeGreaterThan(0)
 
@@ -393,6 +460,11 @@ describe("the resume studio (WS-37)", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /^revert/i })
+    ).not.toBeInTheDocument()
+    // And no editor toolbar either: formatting controls that change
+    // nothing would be a lie about what this read-only surface can do.
+    expect(
+      screen.queryByRole("button", { name: /^Body · 11 pt/ })
     ).not.toBeInTheDocument()
   })
 
@@ -434,7 +506,9 @@ describe("the resume studio (WS-37)", () => {
       )
     ).toBeInTheDocument()
     // The unmatched original text is shown verbatim for the human review.
-    expect(screen.getByText("Tutored mathematics.")).toBeInTheDocument()
+    expect(screen.getAllByText("Tutored mathematics.").length).toBeGreaterThan(
+      0
+    )
   })
 
   it("keeps a factuality failure visible above the tabs, alongside the ATS report", async () => {
@@ -455,7 +529,7 @@ describe("the resume studio (WS-37)", () => {
     )
     await runTailoring()
 
-    // The verdict rides above the tabs — on every tab — never hidden
+    // The verdict rides above the pills — on every tab — never hidden
     // behind the green score.
     expect(
       screen.getByText(
@@ -467,6 +541,11 @@ describe("the resume studio (WS-37)", () => {
     expect(screen.getByText("ATS report")).toBeInTheDocument()
     expect(
       screen.getByText("'Kubernetes' is not stated by the resume")
+    ).toBeInTheDocument()
+    // The provenance lines lose the "no new claims added" clause, because
+    // the validator's own finding is what licenses it.
+    expect(
+      screen.getByText("Source: summary · wording changed.")
     ).toBeInTheDocument()
   })
 
@@ -496,25 +575,26 @@ describe("the resume studio (WS-37)", () => {
     )
     const user = await runTailoring()
 
-    // Required and preferred are separate groups with their real numbers.
-    expect(screen.getByText("Required")).toBeInTheDocument()
-    expect(screen.getByText("Preferred")).toBeInTheDocument()
-    expect(screen.getByText("1 of 3 present")).toBeInTheDocument()
-    expect(screen.getByText("0 of 1 present")).toBeInTheDocument()
+    // Required and preferred are separate meters with their real numbers —
+    // the design's "Required keywords · n of m" format (node 49:999).
+    expect(screen.getByText("Required keywords · 1 of 3")).toBeInTheDocument()
+    expect(screen.getByText("Preferred keywords · 0 of 1")).toBeInTheDocument()
 
     // The distinction is named in visible text, not colour alone.
-    expect(screen.getByText("In the tailored resume")).toBeInTheDocument()
     expect(
-      screen.getByText("In your profile, not emphasized")
-    ).toBeInTheDocument()
-    expect(screen.getByText("Not in your source evidence")).toBeInTheDocument()
-
-    // Open the Resume tab — the keyword panel sits beside the diff there.
-    await user.click(screen.getByRole("tab", { name: "Resume" }))
+      screen.getAllByText("In the tailored resume").length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText("In your profile, not emphasized").length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText("Not in your source evidence").length
+    ).toBeGreaterThan(0)
 
     // The three-way split, per term: present (python), supported-but-not-
     // emphasized (sql — the profile states "SQL"), and an honest gap
-    // (kubernetes — nothing states it).
+    // (kubernetes — nothing states it). The washes live in the rail on the
+    // default tab.
     expect(
       screen.getByRole("button", { name: "python — In the tailored resume" })
     ).toBeInTheDocument()
@@ -575,8 +655,8 @@ describe("the resume studio (WS-37)", () => {
     expect(
       screen.getByText("Coverage could not be measured")
     ).toBeInTheDocument()
-    // Never a misleading 100% or 0% — no coverage percentages render at all.
-    expect(screen.queryByText(/of 0 present/)).not.toBeInTheDocument()
+    // Never a misleading 100% or 0% — no coverage meters render at all.
+    expect(screen.queryByText(/keywords · \d+ of/)).not.toBeInTheDocument()
   })
 
   it("edits the cover letter without touching the resume diff", async () => {
@@ -600,10 +680,10 @@ describe("the resume studio (WS-37)", () => {
     )
     // …and the resume diff is exactly as it was.
     expect(
-      screen.getByText(
+      screen.getAllByText(
         "Engineer working on analytical engines and applied machine learning."
-      )
-    ).toBeInTheDocument()
+      ).length
+    ).toBeGreaterThan(0)
     expect(
       screen.getByText(
         "AI Engineer with analytical and machine learning experience."

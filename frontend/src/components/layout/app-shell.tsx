@@ -1,23 +1,21 @@
 import { useQuery } from "@tanstack/react-query"
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { Link, Outlet } from "react-router-dom"
+import { cn } from "cn"
 
 import { useHeaderHeight } from "@/hooks/use-header-height"
 import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import { useCurrentProfileId } from "@/lib/profile"
 
 import { SkipToContent } from "@/components/common/skip-to-content"
 import { ErrorState } from "@/components/ui/error-state"
 import { SignInScreen } from "@/screens/sign-in-screen"
 
 import { AccountMenu } from "./account-menu"
-import { ProfileChip } from "./profile-chip"
 import { ApiStatus } from "./api-status"
-import { BrandMark } from "./brand-mark"
-import { NavGroups, SystemNav } from "./nav-groups"
+import { AppRail } from "./app-rail"
 import { BottomNav } from "./bottom-nav"
-import { NavDrawer } from "./nav-drawer"
+import { TopBar } from "./top-bar"
 
 /*
   The application shell (WS-34).
@@ -37,9 +35,15 @@ import { NavDrawer } from "./nav-drawer"
   `--header-height` the sticky offsets read.
 */
 export function AppShell() {
-  const profileId = useCurrentProfileId()
   const headerRef = useRef<HTMLElement>(null)
   useHeaderHeight(headerRef)
+  /*
+    The rail's expanded state lives here, not in the rail: the design shifts
+    the content column with the rail (node `47:450` puts the body at x=272 —
+    240 px of rail plus the 32 px gutter), so one state drives both widths
+    and their transitions stay on the same clock.
+  */
+  const [railExpanded, setRailExpanded] = useState(false)
   const identity = useQuery({
     queryKey: ["identity"],
     queryFn: ({ signal }) => api.identity(signal),
@@ -98,90 +102,85 @@ export function AppShell() {
       <SkipToContent />
 
       {/*
-        The desktop sidebar: forest, full height, its own scroll. Fixed
-        rather than sticky so the canvas scrolls under it without the
-        sidebar repainting.
+        The desktop chrome (WS-42): a 72 px icon rail and a 68 px top bar,
+        exactly the frame every screen in the design file draws (nodes
+        `47:2` and `47:28`). The rail replaces the 240 px labelled sidebar
+        the console used to carry — the labels are always one hover, one
+        focus or one expand click away, and the width it frees is what lets
+        the content column reach the design's 1304 px.
+
+        Both are `hidden lg:flex`, and the phone chrome below is
+        `lg:hidden`, so a screen reader never meets the same destination
+        twice.
       */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-sidebar text-sidebar-foreground lg:flex">
-        <div className="flex items-center gap-3 px-4 pt-5 pb-2">
-          <BrandMark variant="sidebar" />
-          <div className="min-w-0 leading-tight">
-            <Link
-              to="/app"
-              viewTransition
-              className="block font-heading text-[17px] font-semibold tracking-tight text-sidebar-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sidebar-ring"
-            >
-              JobPilot
-            </Link>
-            <p className="truncate text-[11px] text-sidebar-muted">
-              The agentic job applier
-            </p>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto overscroll-contain pt-2 pb-4">
-          <NavGroups surface="forest" />
-          <SystemNav surface="forest" showAdmin={isSuperuser} />
-        </div>
-
-        {/*
-          The account footer, as in the reference: the API's pulse, the
-          profile the console works against, and the account menu. The
-          menu opens upward from here.
-        */}
-        <div className="flex flex-col gap-2 border-t border-sidebar-border px-4 py-3">
-          <ApiStatus surface="sidebar" />
-          <ProfileChip
-            profileId={profileId}
-            surface="sidebar"
-            className="w-full"
-          />
-          <AccountMenu surface="sidebar" className="w-full justify-start" />
-        </div>
-      </aside>
+      <AppRail
+        showAdmin={isSuperuser}
+        expanded={railExpanded}
+        onExpandedChange={setRailExpanded}
+      />
 
       {/*
-        The phone chrome. The top bar carries the drawer trigger, the
-        brand and the account menu; the bottom bar carries the five
-        journey destinations; the drawer holds everything else.
+        The phone chrome (the design's mobile frames, nodes 49:7561 and
+        49:10263): a **forest** 64 px bar carrying the wordmark, the
+        environment marker and the account control — no drawer trigger up
+        here, because the bottom bar's fourth slot ("More") opens the
+        drawer, exactly where a thumb rests.
       */}
       <header
         ref={headerRef}
-        className="sticky top-0 z-40 border-b border-border bg-card lg:hidden"
+        className="sticky top-0 z-40 bg-sidebar text-sidebar-foreground lg:hidden"
       >
-        <div className="flex h-14 items-center justify-between gap-2 px-2 sm:px-3">
-          <div className="flex min-w-0 items-center gap-1">
-            <NavDrawer showAdmin={isSuperuser} />
-            <Link
-              to="/app"
-              viewTransition
-              className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              <BrandMark />
-              <span className="font-heading text-[15px] font-semibold tracking-tight text-foreground">
-                JobPilot
-              </span>
-            </Link>
-          </div>
-          <AccountMenu />
+        <div className="relative flex h-16 items-center justify-between gap-2 px-5">
+          <Link
+            to="/app"
+            viewTransition
+            className="flex min-w-0 items-center rounded-lg px-1 py-1 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <span className="text-[21px] leading-[29px] font-semibold text-white">
+              JobPilot
+            </span>
+          </Link>
+          <ApiStatus
+            surface="sidebar"
+            className="absolute left-1/2 -translate-x-1/2 text-[10px] leading-[14px]"
+          />
+          <AccountMenu surface="bar" />
         </div>
       </header>
 
-      <BottomNav className="lg:hidden" />
+      <BottomNav className="lg:hidden" showAdmin={isSuperuser} />
 
-      <main
-        id="main-content"
-        className="min-w-0 scroll-mt-[calc(var(--header-height,3.5rem)+1rem)] lg:pl-60"
+      {/*
+        The content column. `lg:pl-[72px]` clears the collapsed rail — the
+        rail is `fixed`, so it takes no space in the flow, and the design
+        file's own inset (node 47:33 at x=104 with a 72 px rail) is exactly
+        a 32 px gutter on top of the rail's width. The top bar is `sticky`
+        and lives *inside* this column, so a long board scrolls under it
+        without the rail moving.
+      */}
+      <div
+        className={cn(
+          "transition-[padding] duration-200 ease-[var(--ease-soft)] motion-reduce:transition-none",
+          railExpanded ? "lg:pl-60" : "lg:pl-[72px]"
+        )}
       >
-        {/*
-          The container centres inside the remaining width, and the
-          phone keeps a generous bottom padding so no content or focus
-          hides behind the fixed bottom bar.
-        */}
-        <div className="console-container py-8 pb-28 lg:py-10 lg:pb-12">
-          <Outlet />
+        <div className="hidden lg:block">
+          <TopBar />
         </div>
-      </main>
+        <main
+          id="main-content"
+          className="min-w-0 scroll-mt-[calc(var(--header-height,3.5rem)+1rem)]"
+        >
+          {/*
+            The container centres inside the remaining width, and the
+            phone keeps a generous bottom padding so no content or focus
+            hides behind the fixed bottom bar.
+          */}
+          <div className="console-container py-8 pb-28 lg:py-10 lg:pb-12">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   )
 }

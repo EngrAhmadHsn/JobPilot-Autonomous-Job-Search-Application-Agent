@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
@@ -16,6 +16,74 @@ import { renderScreen } from "@/test/render"
 const BASE = "http://api.test"
 
 describe("the operations screen", () => {
+  it("renders the corpus freshness card and the source status table", async () => {
+    // The freshness facts and the watched boards (design nodes 49:1449 and
+    // 49:3253): one read answers both panels.
+    server.use(
+      http.get(`${BASE}/api/jobs/sources`, () =>
+        HttpResponse.json({
+          adapters: [
+            { ats: "greenhouse", boards: 2, enabled_boards: 2 },
+            { ats: "lever", boards: 1, enabled_boards: 1 },
+          ],
+          boards: [
+            {
+              id: "greenhouse:stripe",
+              ats: "greenhouse",
+              company_name: "Stripe",
+              enabled: true,
+              listings_seen: 776,
+              last_ok_at: new Date().toISOString(),
+              last_error: null,
+              failing: false,
+            },
+            {
+              id: "lever:broken",
+              ats: "lever",
+              company_name: "Broken",
+              enabled: true,
+              listings_seen: 0,
+              last_ok_at: null,
+              last_error: "HTTP 503",
+              failing: true,
+            },
+          ],
+          last_refresh_completed_at: "2026-11-07T13:40:00",
+          jobs_stored: 8558,
+        })
+      )
+    )
+    renderScreen(<OperationsScreen />)
+
+    // The freshness card speaks the registry's own facts (the read is
+    // async, so the wait is on the card's own text, and the failure message
+    // carries what actually rendered).
+    const card = await screen.findByText("Corpus freshness")
+    await waitFor(
+      () => {
+        const text = card.closest(".surface")?.textContent ?? ""
+        // Two adapter entries (greenhouse, lever) — the count is providers,
+        // not boards.
+        expect(
+          text,
+          `freshness card rendered: ${text}`
+        ).toContain("2 configured")
+        expect(text).toContain("Stored jobs available")
+        expect(text).toContain("Nov 7")
+      },
+      { timeout: 3000 }
+    )
+    expect(screen.getByText("Stored jobs available")).toBeInTheDocument()
+    expect(screen.getByText("Nov 7")).toBeInTheDocument()
+
+    // The source table names every registered board, and the state column
+    // tells the one fact the table exists to tell.
+    expect(await screen.findByText("Stripe")).toBeInTheDocument()
+    expect(screen.getByText("Broken")).toBeInTheDocument()
+    expect(screen.getByText("Failing")).toBeInTheDocument()
+    expect(screen.getByText("1–2 of 2")).toBeInTheDocument()
+  })
+
   it("queues the refresh and reads the run from persistent state", async () => {
     // The child embedding run carries the parent's report only in the mock;
     // in the backend it has its own (empty) metadata.

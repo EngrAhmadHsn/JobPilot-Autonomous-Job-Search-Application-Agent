@@ -41,8 +41,10 @@ describe("document-level accessibility", () => {
     )
     renderApp({ route: "/app" })
 
-    // The screen is lazily loaded, so the title lands with it.
-    await screen.findByRole("heading", { name: "Overview" })
+    // The screen is lazily loaded, so the title lands with it. The visible
+    // h1 is the design's statement (node 47:36); the tab keeps the stable
+    // screen name through `PageHeader`'s `documentTitle`.
+    await screen.findByRole("heading", { name: "Your next career move." })
     await waitFor(() => {
       expect(document.title).toBe("Overview · JobPilot")
     })

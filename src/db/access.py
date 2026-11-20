@@ -38,6 +38,7 @@ no intermediate commit claims an isolation it does not have.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import Select, func, select
@@ -323,11 +324,38 @@ def get_application(db: Session, scope: UserScope, application_id: str) -> Appli
     return db.execute(_owned(statement, ApplicationDB, scope)).scalar_one_or_none()
 
 
+def _application_filters(
+    status: str | None, statuses: Sequence[str] | None, profile_id: str | None
+) -> list:
+    """The WHERE clauses for the application list filters.
+
+    Shared by the list and the count so the two can never disagree: a page
+    whose items were filtered one way and whose total was filtered another
+    is a paginator that lies.
+
+    ``statuses`` is the multi-status form the board's grouped columns need
+    (one column covers several lifecycle statuses). A set of one produces
+    the same predicate as ``status``, so the single-status path is not a
+    special case. When both are given, ``statuses`` wins — it is the more
+    specific request, and the route never sends both.
+    """
+    clauses = []
+    wanted = [value for value in (statuses or []) if value]
+    if wanted:
+        clauses.append(ApplicationDB.status.in_(wanted))
+    elif status:
+        clauses.append(ApplicationDB.status == status)
+    if profile_id:
+        clauses.append(ApplicationDB.profile_id == profile_id)
+    return clauses
+
+
 def list_applications(
     db: Session,
     scope: UserScope,
     *,
     status: str | None = None,
+    statuses: Sequence[str] | None = None,
     profile_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -339,10 +367,8 @@ def list_applications(
     counted other users' rows.
     """
     statement = select(ApplicationDB).order_by(ApplicationDB.created_at.desc())
-    if status:
-        statement = statement.where(ApplicationDB.status == status)
-    if profile_id:
-        statement = statement.where(ApplicationDB.profile_id == profile_id)
+    for clause in _application_filters(status, statuses, profile_id):
+        statement = statement.where(clause)
     statement = statement.limit(max(1, min(limit, 200))).offset(max(0, offset))
     return list(db.execute(_owned(statement, ApplicationDB, scope)).scalars())
 
@@ -352,6 +378,7 @@ def count_applications(
     scope: UserScope,
     *,
     status: str | None = None,
+    statuses: Sequence[str] | None = None,
     profile_id: str | None = None,
 ) -> int:
     """How many applications this scope may read, with the same filters.
@@ -359,12 +386,11 @@ def count_applications(
     The count is scoped too. A total that counted other users' rows
     would leak the size of somebody else's activity, and a paginated
     list whose total disagrees with its items is a bug in its own right.
+    Both sides call :func:`_application_filters`, so they cannot drift.
     """
     statement = select(func.count()).select_from(ApplicationDB)
-    if status:
-        statement = statement.where(ApplicationDB.status == status)
-    if profile_id:
-        statement = statement.where(ApplicationDB.profile_id == profile_id)
+    for clause in _application_filters(status, statuses, profile_id):
+        statement = statement.where(clause)
     return int(db.execute(_owned(statement, ApplicationDB, scope)).scalar() or 0)
 
 

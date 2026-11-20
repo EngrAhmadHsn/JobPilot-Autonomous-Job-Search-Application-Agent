@@ -2,25 +2,39 @@ import { Link, matchPath, useLocation } from "react-router-dom"
 import { cn } from "cn"
 
 import { BOTTOM_NAV_DESTINATIONS } from "./nav-groups"
+import { NavDrawer } from "./nav-drawer"
 
 /*
-  The phone's navigation (WS-34).
+  The phone's navigation, from the design's mobile frames (nodes 49:10379
+  and 49:7677): a 64 px paper bar with **three** destinations and a fourth
+  "More" slot that opens the drawer holding everything else.
 
-  A bottom bar holding the **five** journey destinations the directive
-  allows (Home, Discover, Applications, Resume Studio, Profile &
-  Documents); Activity and the System surfaces live in the drawer, which
-  holds every destination. The bar is the `lg:hidden` complement of the
-  desktop sidebar — at any real width exactly one of them is rendered,
-  so a screen reader never meets the same destination twice.
-
-  The active state is a forest pill on the paper surface — the same
-  "one clearly rendered selected destination" as the sidebar, inverted
-  for the light background. The bar keeps its own height clear of the
-  platform's safe-area inset, and `index.css` publishes the matching
+  The active state is the design's own: the same forest ink on every slot,
+  with the current destination's label at weight 600 — the glyph carries no
+  pill. `aria-current` still marks exactly one destination for the screen
+  reader, and the bar keeps its own height clear of the platform's
+  safe-area inset, with `index.css` publishing the matching
   `scroll-padding-block-end` so focus never lands underneath it.
+
+  The bar is the `lg:hidden` complement of the desktop rail — at any real
+  width exactly one of them is rendered, so a screen reader never meets the
+  same destination twice.
 */
-export function BottomNav({ className }: { className?: string }) {
+
+/** The three destinations the design's bar carries (the rest live in the drawer). */
+const BAR_ROUTES = new Set(["/app", "/app/matches", "/app/tracker"])
+
+export function BottomNav({
+  className,
+  showAdmin = false,
+}: {
+  className?: string
+  showAdmin?: boolean
+}) {
   const { pathname } = useLocation()
+  const destinations = BOTTOM_NAV_DESTINATIONS.filter((destination) =>
+    BAR_ROUTES.has(destination.to)
+  )
 
   return (
     <nav
@@ -30,8 +44,8 @@ export function BottomNav({ className }: { className?: string }) {
         className
       )}
     >
-      <ul className="grid grid-cols-5">
-        {BOTTOM_NAV_DESTINATIONS.map((destination) => {
+      <ul className="grid grid-cols-4">
+        {destinations.map((destination) => {
           const exact = matchPath(
             { path: destination.to, end: destination.to === "/app" },
             pathname
@@ -48,32 +62,35 @@ export function BottomNav({ className }: { className?: string }) {
                 aria-current={family ? (exact ? "page" : "true") : undefined}
                 data-active={family || undefined}
                 className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 transition-colors duration-150 outline-none",
-                  "focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-ring",
-                  family
-                    ? "text-forest"
-                    : "text-muted-foreground hover:text-foreground"
+                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 text-forest transition-colors duration-150 outline-none",
+                  "focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-ring"
                 )}
               >
-                <span
+                <Icon
                   aria-hidden="true"
+                  className="size-5"
+                  strokeWidth={1.7}
+                />
+                <span
                   className={cn(
-                    "flex h-7 w-11 items-center justify-center rounded-full transition-colors duration-150",
-                    family && "bg-forest-soft"
+                    "max-w-full truncate text-[10px] leading-[14px]",
+                    family ? "font-semibold" : "font-normal"
                   )}
                 >
-                  <Icon
-                    className="size-[20px]"
-                    strokeWidth={family ? 2 : 1.8}
-                  />
-                </span>
-                <span className="max-w-full truncate text-[11px] leading-tight">
                   {destination.bottomNavLabel ?? destination.label}
                 </span>
               </Link>
             </li>
           )
         })}
+        {/*
+          The fourth slot opens the drawer — the design's `Nav:Expand`
+          (node 49:10386). It is a button, not a link: it reveals the
+          destinations rather than travelling to one.
+        */}
+        <li className="flex">
+          <NavDrawer showAdmin={showAdmin} variant="nav-item" />
+        </li>
       </ul>
     </nav>
   )

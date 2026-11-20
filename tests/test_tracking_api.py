@@ -143,15 +143,80 @@ class TestListEndpoint:
         assert body["items"][0]["status"] == "verified"
 
     def test_the_status_filter_accepts_several_values(self, client, session_factory):
+        """Two statuses mean "either of these", never "the filter is dropped".
+
+        The third application is the point of this test. Until 2026-11-19 the
+        route parsed a multi-status request and then discarded all but the
+        first when there were two or more — so a two-status query returned
+        **every** application. With only the two requested rows in the
+        database that bug was invisible, because unfiltered and filtered
+        returned the same count. A row in a status nobody asked for makes a
+        dropped filter produce a different answer from a correct one.
+        """
         _track(session_factory, title="One", status=ApplicationStatus.VERIFIED)
         _track(
             session_factory, title="Two", status=ApplicationStatus.PREPARED, job_url=JOB_URL + "2"
+        )
+        _track(
+            session_factory,
+            title="Three",
+            status=ApplicationStatus.REJECTED,
+            job_url=JOB_URL + "3",
         )
 
         response = client.get("/api/applications?status=verified&status=prepared")
 
         assert response.status_code == 200
-        assert response.json()["total"] == 2
+        body = response.json()
+        assert body["total"] == 2
+        assert {item["status"] for item in body["items"]} == {"verified", "prepared"}
+
+    def test_the_comma_separated_status_filter_behaves_the_same(self, client, session_factory):
+        """Both documented spellings filter identically."""
+        _track(session_factory, title="One", status=ApplicationStatus.VERIFIED)
+        _track(
+            session_factory, title="Two", status=ApplicationStatus.PREPARED, job_url=JOB_URL + "2"
+        )
+        _track(
+            session_factory,
+            title="Three",
+            status=ApplicationStatus.REJECTED,
+            job_url=JOB_URL + "3",
+        )
+
+        response = client.get("/api/applications", params={"status": "verified,prepared"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert {item["status"] for item in body["items"]} == {"verified", "prepared"}
+
+    def test_the_page_total_agrees_with_the_statuses_filter(self, client, session_factory):
+        """The count is filtered the same way the page is.
+
+        A total that counted a different set from the items would make the
+        board's column counts disagree with the cards a reader can see.
+        """
+        _track(session_factory, title="One", status=ApplicationStatus.VERIFIED)
+        _track(
+            session_factory, title="Two", status=ApplicationStatus.REJECTED, job_url=JOB_URL + "2"
+        )
+        _track(
+            session_factory,
+            title="Three",
+            status=ApplicationStatus.WITHDRAWN,
+            job_url=JOB_URL + "3",
+        )
+
+        response = client.get(
+            "/api/applications",
+            params={"status": "rejected,withdrawn", "limit": 1},
+        )
+
+        body = response.json()
+        assert body["total"] == 2, "the total counts only the requested statuses"
+        assert len(body["items"]) == 1, "the page is bounded by limit"
+        assert body["items"][0]["status"] in {"rejected", "withdrawn"}
 
     def test_an_unknown_status_is_a_400(self, client, session_factory):
         response = client.get("/api/applications", params={"status": "nonsense"})

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, String, false
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from src.db.base import Base
 from src.jobs.contracts import JobListing
@@ -279,6 +279,8 @@ def save_jobs(listings: Iterable[JobListing], session_factory: sessionmaker | No
 def location_for_application_url(
     application_url: str | None,
     session_factory: sessionmaker | None = None,
+    *,
+    session: "Session | None" = None,
 ) -> str | None:
     """The stored location of the listing at *application_url*, or ``None``.
 
@@ -300,6 +302,14 @@ def location_for_application_url(
     Failure to read is also ``None``, for the same reason a missing row is:
     the caller's fallback is to withhold the answer, which is safe, and the
     alternative (raising) would block a prepare over an enhancement.
+
+    **Pass ``session`` when the caller already has one.** A request-scoped
+    session can be used directly and opens nothing new. A bare ``Engine``
+    cannot — it is not callable into a session — and passing one, as the
+    prepare route did until 2026-11-19, made every lookup raise, get swallowed
+    by the ``except`` below, and quietly answer "unknown". The function then
+    withheld a fact it could have read, so WS-25c's country-qualified
+    authorization question was inert on the API prepare path.
     """
     if not application_url or not str(application_url).strip():
         return None
@@ -308,11 +318,25 @@ def location_for_application_url(
 
     from src.db.session import SessionLocal
 
+    target = str(application_url).strip()
+
+    if session is not None:
+        # The caller's session is already open for this request. Reuse it:
+        # no second connection, and no lifetime question to get wrong.
+        try:
+            row = session.execute(
+                select(JobDB.location).where(JobDB.application_url == target)
+            ).first()
+        except Exception:
+            logger.debug("Could not read the location for %s", application_url, exc_info=True)
+            return None
+        return str(row[0]) if row is not None and row[0] else None
+
     factory = session_factory or SessionLocal
     try:
-        with factory() as session:
-            row = session.execute(
-                select(JobDB.location).where(JobDB.application_url == str(application_url).strip())
+        with factory() as owned_session:
+            row = owned_session.execute(
+                select(JobDB.location).where(JobDB.application_url == target)
             ).first()
     except Exception:
         # Deliberately the same outcome as "no row": the caller's fallback is

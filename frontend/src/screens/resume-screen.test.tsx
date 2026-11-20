@@ -141,7 +141,7 @@ describe("the resume screen", () => {
     expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument()
     await waitFor(() => expect(getCurrentProfileId()).toBe("profile-1"))
     expect(
-      screen.queryByText(/Let's build your career profile/)
+      screen.queryByText(/Start with your real experience/)
     ).not.toBeInTheDocument()
   })
 
@@ -190,7 +190,7 @@ describe("the resume screen", () => {
     // error about a profile the operator cannot see anyway.
     expect(
       await screen.findByRole("heading", {
-        name: /Let's build your career profile/,
+        name: /Start with your real experience/,
       })
     ).toBeInTheDocument()
     await waitFor(() => expect(getCurrentProfileId()).toBeNull())

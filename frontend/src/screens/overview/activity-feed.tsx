@@ -29,20 +29,16 @@ import {
   endpoint returns), never presented as the account's whole history.
 */
 
-const DOT: Record<EventTone, string> = {
-  agent: "bg-lime",
-  human: "bg-terracotta",
-  system: "bg-border",
-  attention: "bg-terracotta",
-  failure: "bg-destructive",
-}
-
-const WHO: Record<EventTone, string> = {
-  agent: "The agent",
-  human: "A person",
-  system: "The system",
-  attention: "The system",
-  failure: "The system",
+/*
+  The chip's own word (the design's chips read AGENT / YOU — node 49:811,
+  49:820): first-person for a human act, named for the machine actors.
+*/
+const CHIP_LABEL: Record<EventTone, string> = {
+  agent: "Agent",
+  human: "You",
+  system: "System",
+  attention: "System",
+  failure: "System",
 }
 
 /**
@@ -85,6 +81,19 @@ export function eventLink(
   }
 }
 
+/*
+  The chip washes, by tone (the design's node 49:811): the agent's lime-soft,
+  a person's clay wash, the system's sage. Failure keeps its destructive
+  detail text — the chip names the actor, the detail line names the problem.
+*/
+const CHIP: Record<EventTone, string> = {
+  agent: "bg-lime-soft text-forest",
+  human: "bg-terracotta-soft text-terracotta-foreground",
+  system: "bg-forest-soft text-forest",
+  attention: "bg-forest-soft text-forest",
+  failure: "bg-forest-soft text-forest",
+}
+
 function ActivityRow({ event, index }: { event: AuditEvent; index: number }) {
   const tone = eventTone(event)
   const action = describeAction(event.action)
@@ -93,42 +102,48 @@ function ActivityRow({ event, index }: { event: AuditEvent; index: number }) {
 
   return (
     <li
-      className="enter-up relative py-2.5 ps-6"
+      className="enter-up border-b border-border-surface py-3 first:pt-0 last:border-b-0 last:pb-0"
       style={{ "--i": Math.min(index, 12) } as CSSProperties}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute start-[-4.5px] top-4 size-2 rounded-full ring-4 ring-background",
-          DOT[tone]
-        )}
-      />
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <p className="text-sm text-foreground">
-          <span className="font-medium">{WHO[tone]}</span>{" "}
-          {action.label.toLowerCase()}{" "}
-          <span
-            className={cn(
-              "text-muted-foreground",
-              attention && "text-destructive"
-            )}
-          >
-            — {describeOutcome(event.outcome)}
-          </span>
-        </p>
+      {/*
+        The design's digest row (node 49:810): actor chip and time on one
+        line, then the title, the detail, and the quiet action. The chip
+        still names the actor for the screen reader — attribution survives
+        the restyle verbatim ("Agent", "You", "System").
+      */}
+      <div className="flex items-center gap-2.5">
+        <span
+          className={cn(
+            "type-eyebrow rounded-md px-2 py-1 uppercase",
+            CHIP[tone]
+          )}
+        >
+          {CHIP_LABEL[tone]}
+        </span>
         <time
-          className="text-xs text-muted-foreground tabular-nums"
+          className="type-caption"
           dateTime={event.recorded_at ?? undefined}
           title={formatDateTime(event.recorded_at)}
         >
           <RelativeTime value={event.recorded_at} />
         </time>
       </div>
+      <p className="mt-1.5 text-[15px] leading-[22px] font-semibold text-forest">
+        {action.label}
+      </p>
+      <p
+        className={cn(
+          "type-caption mt-1.5",
+          attention && "text-destructive"
+        )}
+      >
+        {describeOutcome(event.outcome)}
+      </p>
       {link ? (
         <Link
           to={link.to}
           viewTransition
-          className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          className="mt-1.5 inline-flex items-center gap-1 rounded text-[13px] font-semibold text-forest outline-none hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {link.label} <span aria-hidden="true">→</span>
           <span className="sr-only">
@@ -143,7 +158,7 @@ function ActivityRow({ event, index }: { event: AuditEvent; index: number }) {
 /** The newest few audit rows, attributed and linked. */
 export function ActivityFeed({ events }: { events: AuditEvent[] }) {
   return (
-    <ol className="relative space-y-1 border-s border-border ps-0">
+    <ol className="space-y-0">
       {events.map((event, index) => (
         <ActivityRow key={event.id} event={event} index={index} />
       ))}

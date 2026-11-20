@@ -501,15 +501,20 @@ describe("the approvals screen", () => {
 
     await prepare(user)
 
-    // The assist truth: the human's submit is the final one; challenges are
-    // handed back, never bypassed; no submit capability exists.
+    // The assist truth: the design's own boundary sentence (49:1092) — the
+    // human's submit is the final one, nothing has been sent — and this
+    // deployment's real-board adapters hold no submit capability at all.
     expect(
-      screen.getByText("You're in control. The final submit is yours.")
+      screen.getByText(
+        "Your approval is specific. Your final submit stays yours."
+      )
     ).toBeInTheDocument()
-    expect(screen.getByText(/handed back to you/)).toBeInTheDocument()
     expect(
-      screen.getByText(/never bypassed|Those are never bypassed/)
-    ).toBeTruthy()
+      screen.getByText(
+        /You review it and press the final Submit button on the employer site/
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText(/No application has been sent/)).toBeInTheDocument()
     expect(screen.getByText(/hold no submit capability/)).toBeInTheDocument()
   })
 

@@ -122,6 +122,18 @@ export const server = setupServer(
   http.post(`${BASE}/api/jobs/search`, () =>
     HttpResponse.json(jobSearchResponse())
   ),
+  // WS-42: the corpus's shared source registry — empty by default, so the
+  // Operations panels render their honest empty states unless a test
+  // overrides this handler with real boards. Registered BEFORE the
+  // `/api/jobs/:jobId` catch-all below, which would otherwise swallow it.
+  http.get(`${BASE}/api/jobs/sources`, () =>
+    HttpResponse.json({
+      adapters: [],
+      boards: [],
+      last_refresh_completed_at: null,
+      jobs_stored: 0,
+    })
+  ),
   http.get(`${BASE}/api/jobs/:jobId`, () => HttpResponse.json(jobDetail())),
   http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
     HttpResponse.json(matchesHistory())

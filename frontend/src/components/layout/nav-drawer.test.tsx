@@ -56,7 +56,7 @@ describe("the navigation drawer", () => {
     ).toBe("page")
   })
 
-  it("holds the phone's diagnostics in its footer", async () => {
+  it("carries the account block in its footer, as the design draws it", async () => {
     const user = userEvent.setup()
     renderScreen(<NavDrawer />)
 
@@ -65,9 +65,13 @@ describe("the navigation drawer", () => {
     )
 
     const drawer = within(await screen.findByRole("dialog"))
-    // The API pulse and the profile handle move out of the compact top
-    // bar and live at the foot of the drawer.
-    expect(drawer.getByText(/API online/i)).toBeInTheDocument()
-    expect(drawer.getByText(/no profile/i)).toBeInTheDocument()
+    // The design's drawer footer (node 49:11961) is the account block —
+    // avatar, name, preferences — the same account control the chrome
+    // carries elsewhere. The environment marker lives in the top bar, so
+    // it does not appear here.
+    expect(
+      drawer.getByRole("button", { name: "Account and display settings" })
+    ).toBeInTheDocument()
+    expect(drawer.queryByText(/API online/i)).not.toBeInTheDocument()
   })
 })

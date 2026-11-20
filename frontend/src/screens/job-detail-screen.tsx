@@ -19,10 +19,10 @@ import { useCurrentProfileId } from "@/lib/profile"
 import { isSafeLinkUrl } from "@/lib/safe-url"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 
-import { MatchReasoning } from "@/screens/discover/match-reasoning"
+import { MatchReasoning, fitVerdict } from "@/screens/discover/match-reasoning"
 import { matchFromHistoryEntry } from "@/screens/discover/match-history"
 
-import type { JobListing } from "@/lib/api/types"
+import type { JobListing, JobMatchResult } from "@/lib/api/types"
 
 /*
   One job listing, with the match the current profile scored against it
@@ -196,6 +196,46 @@ function ListingFields({ listing }: { listing: JobListing }) {
   )
 }
 
+/**
+ * The rail's sponsorship block, from the match record and nothing else.
+ *
+ * WS-22's three register states each get their own honest sentence: a
+ * verified employer says so with the register's finding; a checked-and-empty
+ * register says a register was consulted and holds no record; and no
+ * register data says exactly that. The guardrail sentence is the design's
+ * own copy (node `49:1962`) and holds in every state — sponsorship never
+ * boosts a score or promises eligibility.
+ */
+function sponsorGuardrails(match: JobMatchResult | null): {
+  heading: string
+  note: string | null
+  body: string
+} {
+  const guardrail =
+    "Sponsorship information never boosts a match score or promises future eligibility."
+  const status = match?.sponsor_status ?? null
+  const note = match?.sponsor_note ?? null
+  if (status === "verified") {
+    return {
+      heading: "Sponsorship: verified",
+      note: note ?? "Verified visa sponsor",
+      body: guardrail,
+    }
+  }
+  if (status === "not_found") {
+    return {
+      heading: "Sponsorship: no record found",
+      note: null,
+      body: `A sponsor register was checked and holds no record for this employer. ${guardrail}`,
+    }
+  }
+  return {
+    heading: "Sponsorship: unknown",
+    note: null,
+    body: `No register data is available. ${guardrail}`,
+  }
+}
+
 export function JobDetailScreen() {
   const { jobId = "" } = useParams()
   const profileId = useCurrentProfileId()
@@ -242,118 +282,208 @@ export function JobDetailScreen() {
   }
 
   return (
-    <div className="space-y-10">
-      <header className="mb-0 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div className="console-reading min-w-0 flex-1">
-          <Link
-            to="/app/matches"
-            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
-            Back to Discover
-          </Link>
-          <h1 className="mt-2 font-heading text-3xl leading-[1.15] font-semibold tracking-tight wrap-anywhere text-foreground">
-            {listing.title}
-          </h1>
-          <div className="mt-2 text-base leading-relaxed wrap-anywhere text-muted-foreground">
-            {listing.company}
-            {listing.location ? ` · ${listing.location}` : ""}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] leading-relaxed text-muted-foreground">
-            <span>
-              Source{" "}
-              <PlainText as="span" className="text-[13px] wrap-anywhere">
-                {listing.source}
-                {listing.source_job_id ? ` · ${listing.source_job_id}` : ""}
-              </PlainText>
-            </span>
-            {listing.posted_at ? (
+    <div className="space-y-6">
+      {/*
+        The design file's screen `47:488` puts the actions in their own row
+        under the heading. The back pill carries the real number of matches
+        the profile holds — the count is the history's length, never a guess.
+      */}
+      <header className="space-y-4">
+        <div className="min-w-0">
+          <h1 className="type-display wrap-anywhere">{listing.title}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm leading-snug wrap-anywhere text-muted-foreground">
+            <PlainText as="span">{listing.company}</PlainText>
+            {listing.location ? <span>· {listing.location}</span> : null}
+            {listing.employment_type ? (
+              <span>· {listing.employment_type}</span>
+            ) : null}
+            {/*
+              The design's meta line (node `47:524`) names the source — not
+              the source's internal id. The raw `source_job_id` stays in the
+              listing's own field table below, where it belongs.
+            */}
+            {listing.source ? (
               <span>
-                Posted <RelativeTime value={listing.posted_at} />
+                ·{" "}
+                <PlainText as="span">{listing.source}</PlainText>
               </span>
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            to="/app/matches"
+            className="inline-flex h-[37px] items-center gap-1.5 rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
+            {history.data
+              ? `Back to ${history.data.matches.length} match${history.data.matches.length === 1 ? "" : "es"}`
+              : "Back to Discover"}
+          </Link>
           {match ? <OverallScore value={match.overall_score} /> : null}
           <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
-            Tailor for this job
+            Tailor for this role →
           </LinkButton>
+          {/*
+            The design's "Open original listing ↗" — and the one untrusted→
+            link conversion on this screen, still guarded by `isSafeLinkUrl`.
+          */}
+          {listing.application_url && isSafeLinkUrl(listing.application_url) ? (
+            <a
+              href={listing.application_url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex h-[37px] items-center rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              Open original listing ↗
+            </a>
+          ) : null}
         </div>
       </header>
 
-      {match ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Why this job ranked</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MatchReasoning match={match} breakdown="expanded" />
-          </CardContent>
-        </Card>
-      ) : history.isError ? (
-        /*
-          The read failed, so nothing is known about this profile's match —
-          which is NOT "no match history". Saying the latter would claim an
-          outcome nobody observed (WS-36 review fix).
-        */
-        <Card>
-          <CardHeader>
-            <CardTitle>Why this job ranked</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div role="status" className="space-y-2">
-              <p className="text-sm font-medium text-foreground">
-                The match for this listing could not be read.
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+        <div className="min-w-0 space-y-6">
+          {match ? (
+            <Card>
+              <CardHeader>
+                {/*
+                  The design's verdict slot (node `49:1920`): the card leads
+                  with what the match means — derived from the engine's own
+                  component verdicts and the recorded gaps, never invented.
+                  The type is the card's 20/600/29 Geist, not the display
+                  face — a verdict, not a headline.
+                */}
+                <CardTitle className="font-sans text-[20px] leading-[29px] font-semibold">
+                  {fitVerdict(match)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MatchReasoning match={match} breakdown="expanded" />
+              </CardContent>
+            </Card>
+          ) : history.isError ? (
+            /*
+              The read failed, so nothing is known about this profile's match —
+              which is NOT "no match history". Saying the latter would claim an
+              outcome nobody observed (WS-36 review fix).
+            */
+            <Card>
+              <CardHeader>
+                <CardTitle>Why this job ranked</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div role="status" className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    The match for this listing could not be read.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    This is not a score of zero and not a missing match — the
+                    stored history did not answer. Trying again is safe.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void history.refetch()}
+                  >
+                    Try reading it again
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <EmptyState
+              title="No match history for this job"
+              message="The current profile has not been matched against this listing yet. Run a search on Discover — the ranking is built from what the corpus holds."
+              action={
+                <LinkButton to="/app/matches" variant="outline" size="sm">
+                  Open Discover
+                </LinkButton>
+              }
+            />
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>The listing</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ListingFields listing={listing} />
+
+              <div className="mt-4 space-y-2">
+                <SectionTitle>Description</SectionTitle>
+                {listing.description ? (
+                  <PlainText className="max-w-[72ch] wrap-anywhere">
+                    {listing.description}
+                  </PlainText>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    The listing has no description.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/*
+          The rail, rebuilt to the design's "Match guardrails" card
+          (node `49:1958`): the POSTED chip, the sponsorship guardrails
+          (heading, note, and the guardrail sentence), then — after the
+          divider — the one step the route hands off to. Sponsorship moved
+          here from the reasoning body because a guardrail is what it is:
+          a constraint that holds no matter what the match says.
+        */}
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
+          <section className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-5">
+            {listing.posted_at ? (
+              <p className="self-start rounded-[6px] px-[9px] py-1 text-[11px] font-semibold uppercase leading-4 tracking-wide text-forest">
+                Posted <RelativeTime value={listing.posted_at} />
               </p>
-              <p className="text-sm text-muted-foreground">
-                This is not a score of zero and not a missing match — the stored
-                history did not answer. Trying again is safe.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void history.refetch()}
-              >
-                Try reading it again
-              </Button>
+            ) : null}
+            {(() => {
+              const guardrails = sponsorGuardrails(match)
+              return (
+                <>
+                  <h2 className="text-[19px] font-semibold leading-[28px] text-forest">
+                    {guardrails.heading}
+                  </h2>
+                  {guardrails.note ? (
+                    /*
+                      The outer box is a div on purpose: PlainText renders a
+                      `<p>` by default, and a paragraph inside a paragraph is
+                      invalid HTML the browser (and React) will flag.
+                    */
+                    <div className="text-sm leading-5 text-muted-foreground">
+                      <PlainText className="text-sm leading-5">
+                        {guardrails.note}
+                      </PlainText>
+                    </div>
+                  ) : null}
+                  <div className="text-sm leading-5 text-muted-foreground">
+                    <PlainText className="text-sm leading-5">
+                      {guardrails.body}
+                    </PlainText>
+                  </div>
+                </>
+              )
+            })()}
+            <div aria-hidden="true" className="h-px bg-border-surface" />
+            <h2 className="text-base font-semibold leading-[23px] text-forest">
+              Your next step
+            </h2>
+            <p className="text-sm leading-5 text-muted-foreground">
+              Tailor a draft, review the changes, then confirm every required
+              employer answer.
+            </p>
+            <div className="mt-1">
+              <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
+                Open résumé studio →
+              </LinkButton>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <EmptyState
-          title="No match history for this job"
-          message="The current profile has not been matched against this listing yet. Run a search on Discover — the ranking is built from what the corpus holds."
-          action={
-            <LinkButton to="/app/matches" variant="outline" size="sm">
-              Open Discover
-            </LinkButton>
-          }
-        />
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>The listing</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ListingFields listing={listing} />
-
-          <div className="mt-4 space-y-2">
-            <SectionTitle>Description</SectionTitle>
-            {listing.description ? (
-              <PlainText className="max-w-[72ch] wrap-anywhere">
-                {listing.description}
-              </PlainText>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                The listing has no description.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </section>
+        </aside>
+      </div>
     </div>
   )
 }
