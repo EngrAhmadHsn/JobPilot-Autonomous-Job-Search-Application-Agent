@@ -182,6 +182,12 @@ describe("the application shell", () => {
 
     expect(await screen.findByText("Operator console")).toBeInTheDocument()
     expect(screen.getByText("Sign out")).toBeInTheDocument()
+    // WS-43: the menu carries the way back to the account screen itself —
+    // rendered as an anchor, but with the menuitem role Base UI keeps for
+    // items inside the menu.
+    expect(
+      screen.getByRole("menuitem", { name: "Account & security" })
+    ).toHaveAttribute("href", "/app/account")
   })
 
   it("says when no profile is selected", async () => {
@@ -231,6 +237,72 @@ describe("the application shell", () => {
     expect(screen.queryByRole("navigation", { name: "Screens" })).toBeNull()
     expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull()
     expect(screen.queryByRole("complementary")).toBeNull()
+  })
+
+  it("keeps the content gutter constant while the rail overlays it", async () => {
+    /*
+      WS-43. Expanding the rail used to pad the content column out to
+      240 px and reflow every element on screen — the violent layout shift
+      the user pass caught. The recorded deviation is the overlay: the
+      gutter stays at 72 px, the expanded rail floats over the column with
+      an elevated shadow, and navigation auto-collapses it. The column's
+      class must therefore never change, expanded or not.
+    */
+    const user = userEvent.setup()
+    renderApp({ route: "/app/resume" })
+
+    const main = await screen.findByRole("main")
+    const column = main.parentElement
+    expect(column).toHaveClass("lg:pl-[72px]")
+    expect(column).not.toHaveClass("lg:pl-60")
+
+    await user.click(screen.getByRole("button", { name: "Expand navigation" }))
+
+    // The gutter is untouched; the rail takes the expanded width and the
+    // floating panel's shadow.
+    expect(column).toHaveClass("lg:pl-[72px]")
+    expect(column).not.toHaveClass("lg:pl-60")
+    expect(screen.getByRole("complementary")).toHaveClass("w-60", "shadow-2xl")
+
+    // WS-43's toggle and radius contract, pinned where cheap: the control
+    // is the design's 40×32 chip at the `rounded-lg` control radius with a
+    // nav-sized glyph, and the rows carry the `rounded-2xl` pill radius.
+    const collapse = screen.getByRole("button", {
+      name: "Collapse navigation",
+    })
+    expect(collapse).toHaveClass("h-8", "w-10", "rounded-lg")
+    const chevron = collapse.querySelector("svg")
+    expect(chevron).toHaveClass("size-5")
+    expect(chevron).toHaveAttribute("stroke-width", "1.8")
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    expect(within(nav).getByRole("link", { name: "Home" })).toHaveClass(
+      "rounded-2xl"
+    )
+  })
+
+  it("collapses the rail on navigation and keeps the toggle usable", async () => {
+    const user = userEvent.setup()
+    renderApp({ route: "/app/resume" })
+
+    const nav = await screen.findByRole("navigation", { name: "Screens" })
+    await user.click(screen.getByRole("button", { name: "Expand navigation" }))
+    const collapse = screen.getByRole("button", {
+      name: "Collapse navigation",
+    })
+    expect(collapse).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("complementary")).toHaveClass("w-60")
+
+    // A route change must not leave the next screen under the strip: the
+    // shell collapses the rail — and nothing collapses on first load,
+    // where the rail starts collapsed already.
+    await user.click(within(nav).getByRole("link", { name: "Discover" }))
+    await waitFor(() => {
+      expect(screen.getByRole("complementary")).toHaveClass("w-[72px]")
+      expect(screen.getByRole("complementary")).not.toHaveClass("w-60")
+    })
+    expect(
+      screen.getByRole("button", { name: "Expand navigation" })
+    ).toHaveAttribute("aria-expanded", "false")
   })
 
   it("does not read a failed identity request as a sign-out", async () => {

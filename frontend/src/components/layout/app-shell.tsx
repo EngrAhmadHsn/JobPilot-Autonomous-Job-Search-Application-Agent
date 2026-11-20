@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useRef, useState } from "react"
-import { Link, Outlet } from "react-router-dom"
-import { cn } from "cn"
+import { Link, Outlet, useLocation } from "react-router-dom"
 
 import { useHeaderHeight } from "@/hooks/use-header-height"
 import { ApiError } from "@/lib/api/client"
@@ -38,12 +37,29 @@ export function AppShell() {
   const headerRef = useRef<HTMLElement>(null)
   useHeaderHeight(headerRef)
   /*
-    The rail's expanded state lives here, not in the rail: the design shifts
-    the content column with the rail (node `47:450` puts the body at x=272 —
-    240 px of rail plus the 32 px gutter), so one state drives both widths
-    and their transitions stay on the same clock.
+    The rail's expanded state lives here, not in the rail: the shell is what
+    knows a navigation happened (WS-43's auto-collapse) and what the rail
+    floats **over** — the content column's gutter is constant (below), so
+    the expansion is an overlay, not a reflow.
   */
   const [railExpanded, setRailExpanded] = useState(false)
+  /*
+    WS-43: the expanded rail overlays the content, so a route change that
+    left it open would park 168 px of forest over the screen the operator
+    just asked for. Collapse on every pathname change — the toggle stays
+    usable — with React's adjust-state-on-prop-change pattern: compare
+    against the location the last render saw, and reset *during* that
+    render, so the rail is already collapsed when the new screen commits
+    (an effect would paint one frame of rail-over-content). The initial
+    state is collapsed and the tracker starts on the current pathname, so
+    nothing collapses on first load.
+  */
+  const { pathname } = useLocation()
+  const [lastPathname, setLastPathname] = useState(pathname)
+  if (lastPathname !== pathname) {
+    setLastPathname(pathname)
+    setRailExpanded(false)
+  }
   const identity = useQuery({
     queryKey: ["identity"],
     queryFn: ({ signal }) => api.identity(signal),
@@ -154,16 +170,21 @@ export function AppShell() {
         The content column. `lg:pl-[72px]` clears the collapsed rail — the
         rail is `fixed`, so it takes no space in the flow, and the design
         file's own inset (node 47:33 at x=104 with a 72 px rail) is exactly
-        a 32 px gutter on top of the rail's width. The top bar is `sticky`
-        and lives *inside* this column, so a long board scrolls under it
-        without the rail moving.
+        a 32 px gutter on top of the rail's width.
+
+        WS-43: the gutter is **constant**. Expanding the rail used to pad
+        this column out to 240 px and reflow every element on screen — the
+        violent layout shift the user pass caught. The design pushes the
+        content with the rail (node `47:450` puts the body at x=272), but
+        the push reflows the whole column on every toggle, so the recorded
+        deviation (spec, WS-43) is the overlay: the expanded rail floats
+        **over** this column with an elevated shadow, the gutter never
+        moves, and navigation auto-collapses the rail so the screen is
+        never left under the strip. The top bar is `sticky` and lives
+        *inside* this column, so a long board scrolls under it without the
+        rail moving.
       */}
-      <div
-        className={cn(
-          "transition-[padding] duration-200 ease-[var(--ease-soft)] motion-reduce:transition-none",
-          railExpanded ? "lg:pl-60" : "lg:pl-[72px]"
-        )}
-      >
+      <div className="lg:pl-[72px]">
         <div className="hidden lg:block">
           <TopBar />
         </div>
