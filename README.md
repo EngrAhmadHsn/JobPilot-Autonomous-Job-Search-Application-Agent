@@ -329,6 +329,8 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/applications` | List the tracked applications | WS-07 |
 | `GET /api/applications/{application_id}` | Read one application and its events | WS-07 |
 | `PATCH /api/applications/{application_id}/status` | Change an application status | WS-07 |
+| `GET /api/applications/{application_id}/answers` | Read the answers saved for an application | WS-45 |
+| `PUT /api/applications/{application_id}/answers` | Save the answers a human gave (upsert; EEO/attestation refused) | WS-45 |
 | `GET /api/applications/{application_id}/evidence` | Read the evidence records of an application | WS-13 |
 | `GET /api/applications/{application_id}/evidence/{filename}` | Download one evidence artifact (screenshot, trace) | WS-13 |
 | `POST /api/auth/register` | Create an account | WS-14 |

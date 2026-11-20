@@ -83,6 +83,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
+# WS-45: the event type and audit action for one save of the per-application
+# answers. ``event_type`` is a free string by design (the existing types are
+# named in ``src.applications.tracking``); this one is defined here because it
+# is written by this module's route and nowhere else.
+EVENT_ANSWERS_RECORDED = "answers_recorded"
+ACTION_ANSWERS_RECORDED = "application.answers_recorded"
+
+#: WS-45: the bounds of one saved answer. The cap keeps a request from
+#: carrying a novel into the payload the browser layer submits; the item cap
+#: keeps a request from enumerating the whole form in one call.
+MAX_ANSWER_CHARS = 500
+MAX_ANSWER_ITEMS = 100
+
 # The adapter registry lives in ``src.graph.executor`` (WS-32), not here, and
 # this module does not keep a second copy of it. The worker resolves the adapter
 # an approval recorded from that same list, so a list here would be a second
@@ -162,6 +175,14 @@ class BoardQuestion(BaseModel):
     fields: list[str] = Field(
         default_factory=list, description="The form fields the answer is written to"
     )
+    #: WS-45: the stable key the console saves a saved answer under. It is
+    #: the question's normalized label — so the console can echo it back in
+    #: the ``PUT .../answers`` body and the plan merge will match it, even
+    #: though the merge also accepts the raw label or the category.
+    question_key: str = Field(
+        "",
+        description="The stable key to save an answer under (the normalized label)",
+    )
 
 
 class ApplicationPrepareResponse(BaseModel):
@@ -185,6 +206,72 @@ class ApplicationPrepareResponse(BaseModel):
     blocking_questions: list[str] = Field(
         default_factory=list,
         description="Required questions the profile does not answer",
+    )
+
+
+class SavedAnswerView(BaseModel):
+    """One saved per-application answer, as the console reads it back (WS-45)."""
+
+    question_key: str = Field(..., description="The key the answer was saved under")
+    label: str = Field("", description="The board's own wording, as displayed when saved")
+    category: str | None = Field(None, description="The taxonomy category, when known")
+    answer: str = Field(..., description="What the human answered")
+    answered_at: datetime = Field(..., description="When the answer was last saved")
+
+
+class ApplicationAnswersResponse(BaseModel):
+    """The saved answers of one application (WS-45).
+
+    The same shape answers both ``GET`` and ``PUT``: a save returns the
+    whole saved set, so the console renders "5 of 6 answers confirmed"
+    straight off the response.
+    """
+
+    application_id: str
+    answers: list[SavedAnswerView] = Field(default_factory=list)
+
+
+class AnswerItemInput(BaseModel):
+    """One answer in a save request (WS-45).
+
+    ``question_key`` is required; ``label`` and ``category`` are what the
+    console knows from the prepare response and are kept on the row for
+    display. ``answer`` is bounded — a save is a sentence, not a novel.
+    """
+
+    question_key: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+        description="The stable key to save under: the question's normalized label "
+        "or its taxonomy category",
+    )
+    label: str | None = Field(
+        None, max_length=300, description="The board's own wording, as displayed"
+    )
+    category: str | None = Field(
+        None, max_length=64, description="The taxonomy category, when known"
+    )
+    answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_ANSWER_CHARS,
+        description=f"What the human answered (at most {MAX_ANSWER_CHARS} characters)",
+    )
+
+
+class AnswersUpsertRequest(BaseModel):
+    """The body of ``PUT /api/applications/{id}/answers`` (WS-45).
+
+    An empty list is refused: saving is an upsert, and deleting answers is
+    not in scope — there is no ``DELETE`` route to confuse it with.
+    """
+
+    answers: list[AnswerItemInput] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_ANSWER_ITEMS,
+        description=f"The answers to save (at most {MAX_ANSWER_ITEMS} items)",
     )
 
 
@@ -264,7 +351,7 @@ def _load_approval(approval_id: str, db: Session, scope: UserScope) -> ApprovalR
     return row
 
 
-def _build_form_plans(adapter, job_url: str, facts: dict[str, str]) -> list:
+def _build_form_plans(adapter, job_url: str, facts: dict[str, str], *, answers=None) -> list:
     """Read the board's form and decide what the agent may answer.
 
     WS-25b. Returns an empty list when the adapter publishes no schema
@@ -277,6 +364,9 @@ def _build_form_plans(adapter, job_url: str, facts: dict[str, str]) -> list:
     The fetch is bounded by the same timeout the rest of the outbound
     HTTP uses (``JOB_SOURCE_TIMEOUT``), so a hanging board cannot hang
     the route.
+
+    ``answers`` (WS-45) are the human's saved per-application answers for
+    this posting; the merge unblocks the questions they answer.
     """
     fetch = getattr(adapter, "fetch_form_schema", None)
     if fetch is None:
@@ -294,7 +384,7 @@ def _build_form_plans(adapter, job_url: str, facts: dict[str, str]) -> list:
     try:
         from src.applications.form_plan import build_question_plan
 
-        return build_question_plan(schema, facts)
+        return build_question_plan(schema, facts, answers=answers)
     except Exception:
         logger.warning("Could not build the question plan for %s", job_url, exc_info=True)
         return []
@@ -356,6 +446,38 @@ def _adapter_for_url(job_url: str):
         return select_adapter_for_url(job_url)
     except Exception:  # noqa: BLE001 - no adapter is a valid answer here
         return None
+
+
+def _saved_answers_for_job(db: Session, scope: UserScope, job_url: str) -> list[dict]:
+    """The answers the human already saved for this posting (WS-45).
+
+    The prepare flow is the only way the console reaches the questions
+    screen, and every prepare creates a **new** application — so the flow
+    the console actually runs is *prepare → answer → prepare again*, and
+    the answers live on the application that existed **before** this
+    prepare. They are looked up by the posting (the same ``job_url``, the
+    same owner), newest first, deduplicated per question key: the newest
+    answer to a question is the answer. When no prior application exists,
+    no answer can exist either, and this returns ``[]``.
+
+    A superuser scope reads no cross-owner answers here either — the
+    answer accessors filter on the scope's own id, never relaxed, so the
+    merge cannot inherit somebody else's answers into another account's
+    plan.
+    """
+    if not job_url:
+        return []
+    merged: dict[str, dict] = {}
+    for application in access.list_applications_for_job(db, scope, job_url):
+        for row in access.list_application_answers(db, scope, application.id):
+            if row.question_key not in merged:
+                merged[row.question_key] = {
+                    "question_key": row.question_key,
+                    "label": row.label,
+                    "category": row.category,
+                    "answer": row.answer_text,
+                }
+    return list(merged.values())
 
 
 def _expire_if_stale(row: ApprovalRequestDB, db: Session) -> bool:
@@ -483,6 +605,15 @@ def prepare_application(
     # megabyte of form data into a submission.
     custom_fields = _validated_custom_fields(req.custom_fields)
 
+    # WS-45: the answers the human already saved for this posting. The
+    # console reaches prepare with a fresh form each time, so the flow it
+    # runs is *prepare → answer → prepare again*: the answers live on the
+    # application that existed before this one, keyed to the same job URL.
+    # They are merged into both the plan (the verdicts) and the facts (the
+    # submitted payload), and inherited onto the application this prepare
+    # creates, so the third prepare cannot regress.
+    saved_answers = _saved_answers_for_job(db, scope, req.job_url)
+
     app_request = ApplicationRequest(
         job_title=req.job_title,
         company_name=req.company_name,
@@ -498,7 +629,10 @@ def prepare_application(
         # answer stays unanswered.
         # WS-25c: the posting's URL is passed so the work-authorization fact is
         # answered for **this** job's country, not in the abstract.
-        profile_facts=_profile_facts(db, req.profile_id, scope, job_url=req.job_url),
+        # WS-45: the human's saved answers are applied last and win.
+        profile_facts=_profile_facts(
+            db, req.profile_id, scope, job_url=req.job_url, answers=saved_answers
+        ),
     )
 
     try:
@@ -517,7 +651,9 @@ def prepare_application(
     # fixed field map, not fail a prepare. A required question the agent
     # cannot answer stops the flow with a named reason instead of being
     # discovered at submission time.
-    form_plans = _build_form_plans(adapter, req.job_url, app_request.profile_facts)
+    form_plans = _build_form_plans(
+        adapter, req.job_url, app_request.profile_facts, answers=saved_answers
+    )
     from src.applications.form_plan import blocking_questions, plan_as_dicts
 
     blockers = blocking_questions(form_plans)
@@ -553,6 +689,11 @@ def prepare_application(
         company_name=req.company_name,
         profile_id=req.profile_id,
         tailored_resume_id=req.tailored_resume_id,
+        # WS-45: the saved answers follow the posting. The application this
+        # prepare creates carries them, so the Review screen reads them off
+        # ``GET .../answers`` for the *new* application and the next prepare
+        # merges the same set — answering once keeps the question answered.
+        inherit_answers=saved_answers,
     )
 
     logger.info(
@@ -638,6 +779,7 @@ def _profile_facts(
     scope: UserScope,
     *,
     job_url: str | None = None,
+    answers: list[dict] | None = None,
 ) -> dict[str, str]:
     """The grounded facts of a stored candidate profile (WS-08).
 
@@ -653,6 +795,11 @@ def _profile_facts(
     handed to the fact map. When it cannot be resolved the fact is withheld
     and the question goes to a human — never answered from a blanket
     statement the posting's own field does not support.
+
+    ``answers`` (WS-45) are the human's saved per-application answers; they
+    are applied last and override the derived values for the fields they
+    answer, so the payload that is approved and submitted carries what the
+    human themselves said.
     """
     if not profile_id:
         return {}
@@ -662,7 +809,7 @@ def _profile_facts(
             logger.info("No candidate profile %r; the application has no profile facts", profile_id)
             return {}
         job_country = _job_country_for(db, job_url)
-        return facts_from_profile(profile_from_row(row), job_country=job_country)
+        return facts_from_profile(profile_from_row(row), job_country=job_country, answers=answers)
     except Exception as exc:  # noqa: BLE001 - a missing profile must not block the flow
         logger.warning("The profile facts could not be derived: %s", exc)
         return {}
@@ -709,8 +856,17 @@ def _track_prepare(
     company_name: str,
     profile_id: str | None = None,
     tailored_resume_id: str | None = None,
+    inherit_answers: list[dict] | None = None,
 ) -> str | None:
     """Create the tracked application and move it to AWAITING_APPROVAL.
+
+    ``inherit_answers`` (WS-45) are the saved answers the merge used — they
+    are written onto the **new** application, because the console reaches
+    prepare with a fresh form each time and the answers must follow the
+    posting, not the throwaway application id of a previous prepare. A
+    failure is logged and swallowed with the rest of the tracking writes:
+    the plan merge above already used the answers, and an inheritance
+    failure costs the Review screen its "confirmed" chips, never the flow.
 
     A tracking failure is logged and swallowed: the tracking tables are an
     observability feature, and a missing one must not stop an application
@@ -735,6 +891,17 @@ def _track_prepare(
             actor=AGENT_ACTOR,
             db=db,
         )
+        if inherit_answers:
+            try:
+                scope = UserScope(user_id=owner_id)
+                rows = access.upsert_application_answers(
+                    db, scope, application.id, inherit_answers
+                )
+                if rows is not None:
+                    db.commit()
+            except Exception as exc:  # noqa: BLE001 - inheritance must never lose the application
+                logger.error("Inheriting the saved answers failed: %s", exc)
+                _rollback_tracking(db)
         return application.id
     except Exception as exc:  # noqa: BLE001 - tracking must never block the flow
         logger.error("Tracking the prepared application failed: %s", exc)
@@ -1193,4 +1360,193 @@ def get_approval(
         decided_at=row.decided_at,
         success=success,
         message=message,
+    )
+
+
+# --------------------------------------------------------------------------
+# The saved per-application answers (WS-45)
+# --------------------------------------------------------------------------
+
+
+def _answer_view(row) -> SavedAnswerView:
+    """One stored answer as the response model (WS-45)."""
+    return SavedAnswerView(
+        question_key=row.question_key,
+        label=row.label or "",
+        category=row.category,
+        answer=row.answer_text,
+        answered_at=row.answered_at,
+    )
+
+
+def _require_owned_application(application_id: str, db: Session, scope: UserScope):
+    """The application, **owned by the caller**, or a 404.
+
+    A foreign application answers 404 exactly like a missing one — the two
+    must be indistinguishable, or the API becomes an existence oracle. The
+    owner check (not merely the read check) is what denies even a
+    superuser a cross-owner path here: an answer to a work-authorization
+    question is personal data, under the same rule as the stored model
+    credential — the platform's audit view does not extend to it.
+    """
+    application = access.get_application(db, scope, application_id)
+    if application is None or application.owner_id != scope.user_id:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return application
+
+
+def _never_autofill_detail(category: str) -> str:
+    """The refusal the console shows when an EEO/attestation answer arrives."""
+    return (
+        f"Questions in the {category!r} category are never saved by this system. "
+        "Equal-opportunity (EEO) and legal attestation questions are answered by you "
+        "on the employer's own site, at submission time — policy, not a limitation."
+    )
+
+
+def _validated_answer_items(items: list[AnswerItemInput]) -> list[dict]:
+    """Validate the save request against the question taxonomy (WS-45).
+
+    The category, when given, must be a known one. EEO and attestation
+    categories are refused outright — and so is an answer whose **label**
+    classifies into them when no category was given, because a client
+    cannot launder a refused category by omitting it. Length bounds are
+    enforced by the request model; what is left here is policy.
+    """
+    from src.applications.questions import NEVER_AUTOFILL, QuestionCategory, classify_text
+
+    validated: list[dict] = []
+    for item in items:
+        answer = item.answer.strip()
+        if not answer:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The answer to {item.question_key!r} may not be empty",
+            )
+
+        resolved: QuestionCategory | None = None
+        if item.category is not None:
+            try:
+                resolved = QuestionCategory(item.category)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{item.category!r} is not a known question category; "
+                        "the prepare response names the category of each question"
+                    ),
+                ) from exc
+        else:
+            resolved = classify_text(item.label or item.question_key).category
+
+        if resolved is not None and resolved in NEVER_AUTOFILL:
+            raise HTTPException(
+                status_code=422,
+                detail=_never_autofill_detail(resolved.value),
+            )
+
+        # The category is stored as the client sent it; when the client did
+        # not know it, the classification above is kept (a real category —
+        # "unknown" stays ``None``, which the merge reads as "classify me").
+        stored_category = item.category
+        if (
+            stored_category is None
+            and resolved is not None
+            and resolved is not QuestionCategory.UNKNOWN
+        ):
+            stored_category = resolved.value
+
+        validated.append(
+            {
+                "question_key": item.question_key,
+                "label": item.label,
+                "category": stored_category,
+                "answer": answer,
+            }
+        )
+    return validated
+
+
+@router.get("/{application_id}/answers", response_model=ApplicationAnswersResponse)
+def get_application_answers(
+    application_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> ApplicationAnswersResponse:
+    """The answers the human saved for this application (WS-45).
+
+    The same body ``PUT`` returns, so the console renders the Review
+    screen's "answers confirmed" state straight off either call. A foreign
+    application answers 404 exactly like a missing one.
+
+    Raises:
+        HTTPException 404: The application is unknown or belongs to
+            another account (the two answers are indistinguishable).
+    """
+    application = _require_owned_application(application_id, db, scope)
+    rows = access.list_application_answers(db, scope, application.id)
+    return ApplicationAnswersResponse(
+        application_id=application.id,
+        answers=[_answer_view(row) for row in rows],
+    )
+
+
+@router.put("/{application_id}/answers", response_model=ApplicationAnswersResponse)
+def put_application_answers(
+    application_id: str,
+    body: AnswersUpsertRequest,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> ApplicationAnswersResponse:
+    """Save the human's answers for this application — an upsert (WS-45).
+
+    One row per question: a re-answered question updates in place and
+    refreshes ``answered_at``; nothing is ever deleted here (a delete is
+    out of scope, so an empty list is refused). EEO and attestation
+    answers are refused with a 422 — policy, not a bug: they are answered
+    on the employer's own site.
+
+    Every save appends one ``application_events`` row (``answers_recorded``,
+    with the answer count) and one audit row carrying the caller identity
+    and the count — never the answer text, which is personal data.
+
+    Raises:
+        HTTPException 404: The application is unknown or belongs to
+            another account.
+        HTTPException 422: The body is empty, oversized, names an unknown
+            category, or answers a never-autofilled (EEO/attestation)
+            question.
+    """
+    _require_owned_application(application_id, db, scope)
+    items = _validated_answer_items(body.answers)
+    rows = access.upsert_application_answers(db, scope, application_id, items)
+    if rows is None:
+        # Unreachable after the ownership check above; kept so the accessor's
+        # fence can never be turned into a 500 by a future refactor.
+        raise HTTPException(status_code=404, detail="Application not found")
+    db.commit()
+
+    # The save is a human act on the application's history, and an audited
+    # write in the security trail. The event's metadata carries the count —
+    # never the answer text.
+    _record_tracking_event(
+        db,
+        application_id,
+        EVENT_ANSWERS_RECORDED,
+        owner_id=scope.user_id,
+        actor=human_actor(scope.user_id),
+        metadata={"count": len(rows)},
+    )
+    record_audit(
+        ACTION_ANSWERS_RECORDED,
+        actor=Actor.user(scope.user_id),
+        resource=application_id,
+        outcome=OUTCOME_SUCCESS,
+        owner_id=scope.user_id,
+        metadata={"count": len(rows)},
+    )
+
+    return ApplicationAnswersResponse(
+        application_id=application_id,
+        answers=[_answer_view(row) for row in rows],
     )

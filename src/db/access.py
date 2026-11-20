@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from src.db.application_answers import ApplicationAnswerDB
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
@@ -75,7 +76,9 @@ __all__ = [
     "get_run",
     "get_tailored",
     "group_owned",
+    "list_application_answers",
     "list_applications",
+    "list_applications_for_job",
     "list_audit_events",
     "list_profiles",
     "list_run_events",
@@ -83,6 +86,7 @@ __all__ = [
     "list_tailored",
     "list_work_items",
     "touch_llm_credential",
+    "upsert_application_answers",
     "upsert_llm_credential",
 ]
 
@@ -408,6 +412,122 @@ def get_application_by_approval(
         return None
     statement = select(ApplicationDB).where(ApplicationDB.approval_id == approval_id)
     return db.execute(_owned(statement, ApplicationDB, scope)).scalar_one_or_none()
+
+
+def list_applications_for_job(
+    db: Session,
+    scope: UserScope,
+    job_url: str,
+    *,
+    limit: int = 10,
+) -> list[ApplicationDB]:
+    """The applications this scope already has for one posting, newest first.
+
+    WS-45: the prepare flow is the only way the console reaches the
+    questions screen, and every prepare creates a **new** application — so
+    the answers a human saved are attached to the application that existed
+    *before* the prepare that needs them. The merge walks this list newest
+    first and takes the newest answer per question.
+    """
+    if not job_url:
+        return []
+    statement = (
+        select(ApplicationDB)
+        .where(ApplicationDB.job_url == job_url)
+        .order_by(ApplicationDB.created_at.desc())
+        .limit(max(1, min(limit, 50)))
+    )
+    return list(db.execute(_owned(statement, ApplicationDB, scope)).scalars())
+
+
+# -- the saved per-application answers (WS-45) --------------------------------
+
+
+def list_application_answers(
+    db: Session, scope: UserScope, application_id: str
+) -> list[ApplicationAnswerDB]:
+    """The saved answers of one application, if this scope may read it.
+
+    The application is the authorization boundary: a foreign or missing
+    application yields ``[]`` — the same answer, so a caller cannot tell a
+    foreign id from a missing one. The answers themselves carry one more
+    filter, and it is **never** relaxed: an answer is personal data, so
+    even a superuser scope reads no more than its own rows (the same rule
+    as :func:`get_llm_credential`).
+    """
+    if not application_id or get_application(db, scope, application_id) is None:
+        return []
+    statement = (
+        select(ApplicationAnswerDB)
+        .where(
+            ApplicationAnswerDB.application_id == application_id,
+            ApplicationAnswerDB.owner_id == scope.user_id,
+        )
+        .order_by(ApplicationAnswerDB.id)
+    )
+    return list(db.execute(statement).scalars())
+
+
+def upsert_application_answers(
+    db: Session,
+    scope: UserScope,
+    application_id: str,
+    items: Sequence[dict],
+) -> list[ApplicationAnswerDB] | None:
+    """Insert or update the caller's answers for one application (caller commits).
+
+    One row per ``(owner, application, question_key)``: a re-answered
+    question updates its row in place and refreshes ``answered_at`` — it
+    never creates a second one. The rows are stamped with the **scope's**
+    owner id, and the application must be owned by the same principal: the
+    check is on the owner column, so a superuser gets no cross-owner
+    exception here either (the same rule as :func:`get_llm_credential` —
+    nobody writes answers onto somebody else's application).
+
+    Returns:
+        The saved rows, in the order *items* gave them — or ``None`` when
+        the application is missing or not owned by the caller, which the
+        route answers with a 404 exactly like every other foreign resource.
+    """
+    if not application_id:
+        return None
+    application = get_application(db, scope, application_id)
+    if application is None or application.owner_id != scope.user_id:
+        return None
+
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    saved: list[ApplicationAnswerDB] = []
+    for item in items:
+        question_key = str(item["question_key"])
+        row = db.execute(
+            select(ApplicationAnswerDB).where(
+                ApplicationAnswerDB.owner_id == scope.user_id,
+                ApplicationAnswerDB.application_id == application_id,
+                ApplicationAnswerDB.question_key == question_key,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = ApplicationAnswerDB(
+                owner_id=scope.user_id,
+                application_id=application_id,
+                question_key=question_key,
+            )
+            db.add(row)
+        # A partial update (a re-answer that repeats only the key and the
+        # value) preserves the stored label and category: the wording the
+        # console displayed is not the caller's to erase by omission.
+        if item.get("label") is not None:
+            row.label = item["label"]
+        if item.get("category") is not None:
+            row.category = item["category"]
+        row.answer_text = str(item["answer"])
+        row.answered_at = now
+        row.updated_at = now
+        saved.append(row)
+    db.flush()
+    return saved
 
 
 def list_application_events(

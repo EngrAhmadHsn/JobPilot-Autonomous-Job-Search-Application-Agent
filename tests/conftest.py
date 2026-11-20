@@ -50,6 +50,7 @@ from sqlalchemy.orm import sessionmaker
 # one test file on its own would fail with "no such table" while the full
 # suite passed. The import list is the fix, not the collection order.
 from src.db import (  # noqa: F401  (imported for the model registration)
+    application_answers,
     applications,
     approval,
     audit,
