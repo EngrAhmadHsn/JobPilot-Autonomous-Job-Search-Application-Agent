@@ -126,7 +126,12 @@ const viewports = viewportKeys?.length ? viewportKeys : VIEWPORTS
  */
 function addDiscoveredSurface(surface) {
   SURFACES.push(surface)
-  if (!onlyKeys || onlyKeys.includes(surface.key)) surfaces.push(surface)
+  // With no `--only` filter, `surfaces` **is** `SURFACES` (the same array
+  // object), so pushing to both would sweep the surface twice — which the
+  // first full run of this did.
+  if (surfaces === SURFACES) return
+  if (!onlyKeys?.includes(surface.key)) return
+  surfaces.push(surface)
 }
 
 /** The in-page probe. Returns observations, never mutates anything. */
@@ -275,10 +280,22 @@ const ctx = await browser.newContext({
 })
 const page = await ctx.newPage()
 const consoleErrors = []
+/**
+ * Discovery probes 404 on purpose (they ask for applications this caller does
+ * not own until one answers 200), and those probes are requests the *page*
+ * never makes — so they are excluded from the console-error record. Without
+ * this flag the run reports 30-odd "404" findings that describe the
+ * instrument, not the console.
+ */
+let probingForDiscovery = false
 page.on("console", (m) => {
+  if (probingForDiscovery) return
   if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300))
 })
-page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`))
+page.on("pageerror", (e) => {
+  if (probingForDiscovery) return
+  consoleErrors.push(`pageerror: ${e.message}`)
+})
 
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" })
 await page.getByLabel("Email").fill(EMAIL)
@@ -289,29 +306,73 @@ const signedIn = page.url()
 console.log(`signed in → ${signedIn}`)
 
 // ---- the discovered surface ----------------------------------------------
-// The per-application questions page (WS-45) is the one console surface
-// whose path carries a record id. Ask the signed-in session for the first
-// tracked application; with none, skip the surface and say so rather than
-// photograph a 404 as if it were the page.
-const firstApplicationId = await page.evaluate(async () => {
+// The per-application questions page (WS-45) is the one console surface whose
+// path carries a record id, so the sweep finds a real one.
+//
+// The list alone is not enough. An operator who is a **superuser** sees every
+// account's applications in the listing (the platform's audit view), while the
+// questions route answers 404 for an application this caller does not own —
+// deliberately, because an answer to a work-authorization question is personal
+// data (the rule the answers routes follow too). Picking the listing's first
+// row therefore swept another user's application and photographed the
+// console's honest 404.
+//
+// So the discovery pages through the listing — bounded — and probes the very
+// endpoint the page will read, taking the first application that answers 200
+// for **this** session.
+probingForDiscovery = true
+const discoveredApplicationId = await page.evaluate(async () => {
+  const PAGE = 50
+  const MAX_PROBES = 400
+  const ownsQuestions = async (id) => {
+    try {
+      const probe = await fetch(
+        `/api/applications/${encodeURIComponent(id)}/questions`,
+        { credentials: "include" }
+      )
+      return probe.ok
+    } catch {
+      return false
+    }
+  }
   try {
-    const response = await fetch("/api/applications?limit=1", {
-      credentials: "include",
-    })
-    if (!response.ok) return null
-    const body = await response.json()
-    return body?.items?.[0]?.id ?? null
+    let offset = 0
+    let probes = 0
+    let total = Infinity
+    while (offset < total && probes < MAX_PROBES) {
+      const list = await fetch(
+        `/api/applications?limit=${PAGE}&offset=${offset}`,
+        {
+          credentials: "include",
+        }
+      )
+      if (!list.ok) return null
+      const body = await list.json()
+      const items = body?.items ?? []
+      total =
+        typeof body?.total === "number" ? body.total : offset + items.length
+      if (items.length === 0) return null
+      for (const item of items) {
+        probes += 1
+        if (await ownsQuestions(item.id)) return item.id
+        if (probes >= MAX_PROBES) break
+      }
+      offset += items.length
+    }
+    return null
   } catch {
     return null
   }
 })
-if (firstApplicationId) {
+probingForDiscovery = false
+
+if (discoveredApplicationId) {
   addDiscoveredSurface({
     key: "questions",
-    path: `/app/tracker/${firstApplicationId}/questions`,
+    path: `/app/tracker/${discoveredApplicationId}/questions`,
   })
   console.log(
-    `questions surface → /app/tracker/${firstApplicationId}/questions`
+    `questions surface → /app/tracker/${discoveredApplicationId}/questions`
   )
 } else {
   console.log("no tracked application — the questions surface is skipped")
