@@ -231,6 +231,41 @@ class ApplicationAnswersResponse(BaseModel):
     answers: list[SavedAnswerView] = Field(default_factory=list)
 
 
+class ApplicationQuestionsResponse(BaseModel):
+    """One application's questions, as the questions page reads them (WS-45).
+
+    The plan is the one stored on the approval this application was
+    prepared for, with the human's saved answers folded back in — so a
+    question answered on the questions page reads ``answerable``
+    (``answer_from="you"``) on the very next read, without a re-prepare.
+
+    ``plan_available`` is false for an application prepared before the
+    plan was persisted (or one that never went through prepare): its
+    questions are then *unknown*, not empty, and the console says so
+    instead of rendering an empty form.
+    """
+
+    application_id: str
+    approval_id: str | None = Field(None, description="The approval that carries the plan")
+    job_title: str = ""
+    company_name: str = ""
+    job_url: str = ""
+    status: str = Field("", description="The tracked application's status")
+    plan_available: bool = Field(
+        False, description="Whether the prepared question plan was recorded"
+    )
+    questions: list[BoardQuestion] = Field(
+        default_factory=list, description="The board's questions, in the board's own order"
+    )
+    answers: list[SavedAnswerView] = Field(
+        default_factory=list, description="The answers the human saved for this application"
+    )
+    blocking_questions: list[str] = Field(
+        default_factory=list,
+        description="Labels still blocking approval — the questions the human has not answered",
+    )
+
+
 class AnswerItemInput(BaseModel):
     """One answer in a save request (WS-45).
 
@@ -668,6 +703,11 @@ def prepare_application(
         # the human reviewed is no longer the payload that would be
         # submitted.
         profile_version=profile_version_for(prepared.profile_facts),
+        # WS-45: the board's question plan is stored **with the packet**,
+        # so the per-application questions page reads the questions this
+        # approval was built around instead of re-fetching a live form
+        # that may since have changed.
+        form_questions=plan_as_dicts(form_plans),
     )
     db.add(row)
     db.commit()
@@ -894,9 +934,7 @@ def _track_prepare(
         if inherit_answers:
             try:
                 scope = UserScope(user_id=owner_id)
-                rows = access.upsert_application_answers(
-                    db, scope, application.id, inherit_answers
-                )
+                rows = access.upsert_application_answers(db, scope, application.id, inherit_answers)
                 if rows is not None:
                     db.commit()
             except Exception as exc:  # noqa: BLE001 - inheritance must never lose the application
@@ -1550,3 +1588,67 @@ def put_application_answers(
         application_id=application_id,
         answers=[_answer_view(row) for row in rows],
     )
+
+
+@router.get("/{application_id}/questions", response_model=ApplicationQuestionsResponse)
+def get_application_questions(
+    application_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> ApplicationQuestionsResponse:
+    """The questions of one tracked application, with its answers (WS-45).
+
+    This is the per-application questions page's read: the board's own
+    question list **as the prepared packet recorded it**, the human's
+    saved answers, and what still blocks approval. It is a read of the
+    stored approval — no board is contacted and no prepare is re-run, so
+    the page shows the packet that exists rather than whatever the
+    employer's form publishes today.
+
+    An application that never went through prepare (a manually tracked
+    one) has no plan: the response says ``plan_available=false`` and the
+    console reports the questions as unknown.
+
+    Raises:
+        HTTPException 404: The application is unknown or belongs to
+            another account (indistinguishable answers, as everywhere).
+    """
+    from src.applications.form_plan import apply_saved_answers
+
+    application = _require_owned_application(application_id, db, scope)
+
+    approval = None
+    if application.approval_id:
+        approval = access.get_approval(db, scope, application.approval_id)
+
+    stored_plan = list(approval.form_questions or []) if approval is not None else []
+    answers = [
+        _answer_view(row) for row in access.list_application_answers(db, scope, application.id)
+    ]
+    # The saved answers are folded back into the stored verdicts, so a
+    # question answered here stops reading as "needs you" on the next read.
+    merged = apply_saved_answers(stored_plan, answers)
+    blocking = [str(item.get("label") or "") for item in merged if _plan_blocks(item)]
+
+    return ApplicationQuestionsResponse(
+        application_id=application.id,
+        approval_id=application.approval_id,
+        job_title=application.job_title,
+        company_name=application.company_name,
+        job_url=application.job_url,
+        status=application.status,
+        plan_available=approval is not None and approval.form_questions is not None,
+        questions=[BoardQuestion.model_validate(item) for item in merged],
+        answers=answers,
+        blocking_questions=blocking,
+    )
+
+
+def _plan_blocks(item: dict) -> bool:
+    """Whether one stored plan entry still stops approval (WS-45).
+
+    Mirrors :attr:`QuestionPlan.blocks_submission` — only a ``needs_human``
+    verdict does. It is read off the plan dict rather than through the
+    dataclass because the plan is stored as JSON.
+    """
+    return item.get("verdict") == "needs_human"

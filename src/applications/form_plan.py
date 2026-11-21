@@ -46,6 +46,7 @@ __all__ = [
     "VERDICT_OPTIONAL_UNANSWERED",
     "QuestionPlan",
     "SavedAnswer",
+    "apply_saved_answers",
     "blocking_questions",
     "build_question_plan",
     "coerce_saved_answers",
@@ -271,6 +272,41 @@ def build_question_plan(
 def blocking_questions(plans: list[QuestionPlan]) -> list[QuestionPlan]:
     """The questions that stop the flow, if any."""
     return [plan for plan in plans if plan.blocks_submission]
+
+
+def apply_saved_answers(plan_dicts: list[dict[str, Any]], answers: Any) -> list[dict[str, Any]]:
+    """The stored plan with the human's saved answers applied (WS-45).
+
+    The approval row keeps the plan as it stood at prepare time, and a
+    human may answer more questions afterwards (the per-application
+    questions page saves through ``PUT .../answers``, which does not
+    re-prepare). A read of that plan therefore folds the saved answers back
+    in with the same rule the prepare-time merge uses: a matching answer
+    flips the verdict to ``answerable`` with ``answer_from="you"`` and the
+    question leaves the blocking set.
+
+    A ``never_autofill`` verdict is never flipped — the storage layer
+    refuses those answers before one could exist, and policy must not be
+    reachable through a stale plan row.
+
+    The input dicts are copied, never mutated: the stored plan is the
+    approval's own record.
+    """
+    saved = coerce_saved_answers(answers)
+    result: list[dict[str, Any]] = []
+    for item in plan_dicts:
+        current = dict(item)
+        if current.get("verdict") != VERDICT_NEVER_AUTOFILL:
+            match = _matching_saved_answer(
+                saved,
+                str(current.get("label") or ""),
+                str(current.get("category") or ""),
+            )
+            if match is not None:
+                current["verdict"] = VERDICT_ANSWERABLE
+                current["answer_from"] = "you"
+        result.append(current)
+    return result
 
 
 def plan_as_dicts(plans: list[QuestionPlan]) -> list[dict[str, Any]]:

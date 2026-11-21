@@ -85,6 +85,13 @@ class ApprovalRequestDB(Base):
     #: candidate edits their profile afterwards, the approval no longer
     #: matches what it authorized.
     profile_version: Mapped[str | None] = mapped_column(String(length=64), nullable=True)
+    #: WS-45: the board's question plan as it stood when this approval was
+    #: prepared — the exact list (labels, verdicts, categories, answer
+    #: sources) the human is asked about. Persisting it is what lets a
+    #: per-application questions page answer for *this* packet without
+    #: re-fetching the board's form: the plan belongs to the prepared
+    #: application, not to whatever the board publishes later.
+    form_questions: Mapped[list | None] = mapped_column(JSON, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
@@ -107,6 +114,8 @@ class StoredApproval(BaseModel):
     expires_at: datetime | None = None
     #: WS-25: the digest of the profile the payload was built from.
     profile_version: str | None = None
+    #: WS-45: the board's question plan recorded at prepare time.
+    form_questions: list[dict] | None = None
     result: ApplicationResult | None = None
 
     def is_expired(self, *, now: datetime | None = None) -> bool:
@@ -189,8 +198,15 @@ def build_approval_row(
     adapter_name: str,
     prepared: PreparedApplication,
     profile_version: str | None = None,
+    form_questions: list[dict] | None = None,
 ) -> ApprovalRequestDB:
-    """Map a prepared application onto a new pending approval row."""
+    """Map a prepared application onto a new pending approval row.
+
+    ``form_questions`` (WS-45) is the board's question plan at prepare
+    time. It is stored with the approval so the packet the human reviewed
+    is also the packet whose questions they answer — the questions page
+    reads this row, never a live form fetch.
+    """
     request = prepared.request
     now = datetime.now(UTC)
     return ApprovalRequestDB(
@@ -206,6 +222,7 @@ def build_approval_row(
         created_at=now,
         expires_at=approval_expiry(now),
         profile_version=profile_version,
+        form_questions=form_questions,
     )
 
 
@@ -226,5 +243,6 @@ def approval_from_row(row: ApprovalRequestDB) -> StoredApproval:
         decided_at=row.decided_at,
         expires_at=row.expires_at,
         profile_version=row.profile_version,
+        form_questions=row.form_questions,
         result=ApplicationResult.model_validate(row.result) if row.result else None,
     )
