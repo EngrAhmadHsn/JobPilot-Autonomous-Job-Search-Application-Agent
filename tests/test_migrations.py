@@ -138,6 +138,8 @@ APPROVAL_REQUESTS_COLUMNS = {
     # WS-25: the approval's window, and the profile digest it is bound to.
     "expires_at",
     "profile_version",
+    # WS-45: the board's question plan, kept with the packet it belongs to.
+    "form_questions",
 }
 
 AUDIT_EVENTS_COLUMNS = {
