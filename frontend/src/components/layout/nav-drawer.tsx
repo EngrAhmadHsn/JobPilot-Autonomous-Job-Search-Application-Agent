@@ -27,41 +27,24 @@ import { BrandMark } from "./brand-mark"
  * picks a destination, and returns focus to the trigger on close (the
  * Base UI dialog's own focus management).
  */
-export function NavDrawer({
-  showAdmin = false,
-  variant = "top",
-}: {
-  showAdmin?: boolean
-  /**
-   * `top` — the standalone hamburger button the old phone top bar used.
-   * `nav-item` — the bottom bar's fourth slot (the design's `Nav:Expand`,
-   * node 49:10386): a glyph-over-label control matching the bar's three
-   * links, opening the same drawer.
-   */
-  variant?: "top" | "nav-item"
-}) {
+export function NavDrawer({ showAdmin = false }: { showAdmin?: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      {variant === "nav-item" ? (
-        <SheetTrigger className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 text-forest transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-ring">
-          <Menu aria-hidden="true" className="size-5" strokeWidth={1.7} />
-          <span className="text-[10px] leading-[14px]">More</span>
-        </SheetTrigger>
-      ) : (
-        /*
-          `size-11` is 44px. Below `lg` this button is the console's only
-          path to the drawer's destinations, so a thumb that misses it has
-          no way to reach them. It was `size-9`.
-        */
-        <SheetTrigger
-          aria-label="Open the navigation menu"
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors duration-150 hover:bg-accent/60 lg:hidden"
-        >
-          <Menu className="size-4" strokeWidth={1.8} aria-hidden="true" />
-        </SheetTrigger>
-      )}
+      {/*
+        The trigger is the bottom bar's fourth slot (the design's
+        `Nav:Expand`, node 49:10386): a glyph-over-label control matching the
+        bar's three links, opening the same drawer. WS-49 removed the
+        standalone hamburger this component used to offer as a second
+        variant — nothing had mounted it since WS-43 moved the mobile
+        trigger into the bar, so it was a branch only its own unit test
+        rendered.
+      */}
+      <SheetTrigger className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 text-forest transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-ring">
+        <Menu aria-hidden="true" className="size-5" strokeWidth={1.7} />
+        <span className="text-[10px] leading-[14px]">More</span>
+      </SheetTrigger>
 
       {/*
         The design's mobile drawer (`13 · Expanded navigation · 768/390`,

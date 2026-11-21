@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
+import { accountTrigger, signIn } from "./session"
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESUME = join(HERE, "fixtures", "resume.txt")
 
@@ -161,62 +163,6 @@ test("the operator can go from a resume to a tracked application", async ({
  * The console is signed in through the cookie transport, so the browser
  * holds an `HttpOnly` session cookie and the console holds no token.
  */
-async function signIn(page: import("@playwright/test").Page) {
-  // A **fresh** account per run. The account is a real one, and a real
-  // account from a previous run would carry a password this run does
-  // not know — so the run would fail on a credential rather than on a
-  // defect.
-  const stamp = Date.now().toString(36)
-  const email = process.env.E2E_ACCOUNT ?? `operator-${stamp}@example.com`
-  const password = process.env.E2E_PASSWORD ?? "a-long-enough-password"
-
-  // The console renders itself for a moment before the identity check
-  // answers, so the presence of a control proves nothing about whether
-  // the session is good. The two real signals are: the account menu
-  // showing an **address** (signed in), and the sign-in screen (signed
-  // out). The helper waits for one of them.
-  const accountText = await page.evaluate(() => {
-    const element = document.querySelector(
-      'button[aria-label="Account and display settings"]'
-    )
-    return element?.textContent ?? ""
-  })
-  if (accountText.includes("@")) return
-
-  const needsCredentials = await page
-    .getByRole("heading", { name: "Sign in" })
-    .waitFor({ timeout: 20_000 })
-    .then(() => true)
-    .catch(() => false)
-  if (!needsCredentials) return
-
-  await page.getByLabel("Email").waitFor({ state: "visible", timeout: 15_000 })
-  await page.getByLabel("Email").fill(email)
-  await page.getByLabel("Password").fill(password)
-  await page.getByRole("button", { name: "Sign in" }).click()
-
-  // The console either signs in, or refuses the credentials because the
-  // account does not exist yet. In the second case it creates it and
-  // signs in again.
-  const signedIn = await page
-    .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 30_000 })
-    .then(() => true)
-    .catch(() => false)
-  if (signedIn) return
-
-  await page.getByRole("button", { name: /No account yet/ }).click()
-  await page.getByLabel("Email").fill(email)
-  await page.getByLabel("Password").fill(password)
-  await page.getByRole("button", { name: "Create the account" }).click()
-  // Creating the account hashes the password with argon2, which takes
-  // seconds when the machine is busy. The wait has to allow for that, or
-  // the run fails on the provider's cost and not on the console.
-  await page
-    .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 90_000 })
-}
-
 /**
  * The keyboard path.
  *
@@ -288,9 +234,7 @@ test("the account menu opens", async ({ page }) => {
   await page.goto("/app/resume")
   await signIn(page)
 
-  await page
-    .getByRole("button", { name: "Account and display settings" })
-    .click()
+  await accountTrigger(page).click()
 
   await expect(page.getByText("Sign out")).toBeVisible()
   await expect(page.getByText("Operator console")).toBeVisible()
@@ -315,14 +259,15 @@ test("the navigation is a drawer on a narrow screen", async ({ page }) => {
   // must never meet the same destination twice.
   await expect(page.getByRole("navigation", { name: "Screens" })).toHaveCount(0)
 
-  await page.getByRole("button", { name: "Open the navigation menu" }).click()
+  // Below `lg` the drawer opens from the bottom bar's own slot.
+  await page.getByRole("button", { name: "More" }).click()
 
   const drawer = page.getByRole("dialog")
   await expect(drawer).toBeVisible()
-  await expect(drawer.getByRole("link", { name: "Matches" })).toBeVisible()
+  await expect(drawer.getByRole("link", { name: "Discover" })).toBeVisible()
   await expect(drawer.getByRole("link", { name: "Operations" })).toBeVisible()
 
-  await drawer.getByRole("link", { name: "Tracker" }).click()
+  await drawer.getByRole("link", { name: "Applications" }).click()
 
   await expect(page).toHaveURL(/\/app\/tracker$/)
   // The drawer closes on the choice, the way a drawer should.

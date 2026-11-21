@@ -22,9 +22,7 @@ describe("the navigation drawer", () => {
     const user = userEvent.setup()
     renderScreen(<NavDrawer />)
 
-    await user.click(
-      screen.getByRole("button", { name: "Open the navigation menu" })
-    )
+    await user.click(screen.getByRole("button", { name: "More" }))
 
     const drawer = within(await screen.findByRole("dialog"))
     for (const label of [
@@ -44,9 +42,7 @@ describe("the navigation drawer", () => {
     const user = userEvent.setup()
     renderScreen(<NavDrawer />, { route: "/app/matches" })
 
-    await user.click(
-      screen.getByRole("button", { name: "Open the navigation menu" })
-    )
+    await user.click(screen.getByRole("button", { name: "More" }))
 
     const drawer = within(await screen.findByRole("dialog"))
     expect(
@@ -60,9 +56,7 @@ describe("the navigation drawer", () => {
     const user = userEvent.setup()
     renderScreen(<NavDrawer />)
 
-    await user.click(
-      screen.getByRole("button", { name: "Open the navigation menu" })
-    )
+    await user.click(screen.getByRole("button", { name: "More" }))
 
     const drawer = within(await screen.findByRole("dialog"))
     // The design's drawer footer (node 49:11961) is the account block —
@@ -79,9 +73,7 @@ describe("the navigation drawer", () => {
     const user = userEvent.setup()
     renderScreen(<NavDrawer />, { route: "/app/matches" })
 
-    await user.click(
-      screen.getByRole("button", { name: "Open the navigation menu" })
-    )
+    await user.click(screen.getByRole("button", { name: "More" }))
 
     const panel = await screen.findByRole("dialog")
     const drawer = within(panel)

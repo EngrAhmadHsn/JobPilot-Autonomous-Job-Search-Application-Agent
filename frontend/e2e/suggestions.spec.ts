@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
+import { signIn } from "./session"
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESUME = join(HERE, "fixtures", "resume.txt")
 
@@ -61,49 +63,3 @@ test("the query suggestions extend past the search card", async ({ page }) => {
   await page.keyboard.press("Escape")
   await expect(panel).not.toBeVisible()
 })
-
-/**
- * The sign-in flow, mirroring smoke.spec.ts: a fresh account per run — a
- * real account from a previous run would carry a password this run does not
- * know, so the run would fail on a credential rather than on a defect.
- */
-async function signIn(page: import("@playwright/test").Page) {
-  const stamp = Date.now().toString(36)
-  const email = `suggestions-${stamp}@example.com`
-  const password = "a-long-enough-password"
-
-  const accountText = await page.evaluate(() => {
-    const element = document.querySelector(
-      'button[aria-label="Account and display settings"]'
-    )
-    return element?.textContent ?? ""
-  })
-  if (accountText.includes("@")) return
-
-  const needsCredentials = await page
-    .getByRole("heading", { name: "Sign in" })
-    .waitFor({ timeout: 20_000 })
-    .then(() => true)
-    .catch(() => false)
-  if (!needsCredentials) return
-
-  await page.getByLabel("Email").waitFor({ state: "visible", timeout: 15_000 })
-  await page.getByLabel("Email").fill(email)
-  await page.getByLabel("Password").fill(password)
-  await page.getByRole("button", { name: "Sign in" }).click()
-
-  const signedIn = await page
-    .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 30_000 })
-    .then(() => true)
-    .catch(() => false)
-  if (signedIn) return
-
-  await page.getByRole("button", { name: /No account yet/ }).click()
-  await page.getByLabel("Email").fill(email)
-  await page.getByLabel("Password").fill(password)
-  await page.getByRole("button", { name: "Create the account" }).click()
-  await page
-    .getByRole("button", { name: "Account and display settings" })
-    .waitFor({ timeout: 60_000 })
-}

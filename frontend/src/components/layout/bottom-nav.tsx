@@ -85,7 +85,7 @@ export function BottomNav({
           destinations rather than travelling to one.
         */}
         <li className="flex">
-          <NavDrawer showAdmin={showAdmin} variant="nav-item" />
+          <NavDrawer showAdmin={showAdmin} />
         </li>
       </ul>
     </nav>
