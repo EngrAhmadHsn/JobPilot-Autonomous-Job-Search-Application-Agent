@@ -20,22 +20,25 @@ import {
 
 /*
   The evidence rail of the Resume Studio (WS-42, design node `49:997` —
-  "Make every claim count.").
+  "Make every claim count."; WS-47 tightens it to the design's right card).
 
-  The design's rail: required and preferred keyword progress, the matched
-  and not-evidenced terms as washes, the sentence that missing keywords are
-  gaps — not permission to invent — the factuality chip, and the step to
-  review. The console adds one group the design's example never needed:
-  terms the candidate's own profile states but the tailoring did not
-  emphasize. Erasing that distinction would read as permission to quietly
-  absorb a gap, and the backend draws the same line itself
-  (`_keyword_supported`, `src/resume/ats.py`).
+  The design's rail: required and preferred keyword progress with the counts
+  in the labels, the matched and not-evidenced terms as washes under dark
+  headings, the sentence that missing keywords are gaps — not permission to
+  invent — the factuality chip under its own divider, and the step to review
+  as the card's last element. The console adds one group the design's
+  example never needed: terms the candidate's own profile states but the
+  tailoring did not emphasize. Erasing that distinction would read as
+  permission to quietly absorb a gap, and the backend draws the same line
+  itself (`_keyword_supported`, `src/resume/ats.py`).
 
   Where the design's example can say "0 unsupported claims" and stop, this
   rail derives the chip from the real factuality report: a stripped claim
   is named, never smoothed over. And the deliverable caption adapts to how
   the document was actually produced — an in-place edit has no regenerated
-  layout to check.
+  layout to check, and a rewrite names the format the delivered file really
+  is (`deliverableFormat`, WS-47), which is the design's own "Check
+  regenerated DOCX layout before export." made true per case.
 */
 
 type TermState = "hit" | "supported" | "gap"
@@ -229,6 +232,29 @@ function ChipGroup({
   )
 }
 
+/**
+ * The format of the **deliverable**, named for the caption (WS-47).
+ *
+ * An in-place deliverable keeps the uploaded format (WS-31), so the label is
+ * that format. A regenerated deliverable is the renderer's output — a DOCX,
+ * except for a text upload the fallback renderer carried through — so the
+ * label names what the file really is, never the unknown source. "Check the
+ * regenerated document layout" told the candidate nothing; the design's own
+ * sentence names the format, and the honest version does too.
+ */
+function deliverableFormat(render: TailorResponse["render"]): string {
+  const format = render.source_format.toLowerCase()
+  if (render.mode === "in_place") {
+    return format === "none" || format === ""
+      ? "document"
+      : format.replace(".", "").toUpperCase()
+  }
+  if (format === ".txt" || format === ".md") {
+    return format.slice(1).toUpperCase()
+  }
+  return "DOCX"
+}
+
 /** The whole rail: keywords, the factuality verdict, and the step to review. */
 export function EvidenceRail({
   coverage,
@@ -269,14 +295,9 @@ export function EvidenceRail({
     factuality.removed_experience.length +
     factuality.removed_projects.length
 
-  const sourceLabel =
-    render.source_format === "none"
-      ? "document"
-      : render.source_format.replace(".", "").toUpperCase()
-
   return (
-    <aside className="flex min-w-0 flex-col gap-4 rounded-surface border border-border-surface bg-card p-5">
-      <h2 className="text-[21px] font-semibold leading-[30px] text-primary">
+    <aside className="flex min-w-0 flex-col gap-4 rounded-surface border border-border-surface bg-card p-6">
+      <h2 className="text-[22px] font-semibold leading-[30px] text-primary">
         Make every claim count.
       </h2>
 
@@ -312,10 +333,6 @@ export function EvidenceRail({
 
       {measurable ? (
         <>
-          <div
-            className="h-px w-full shrink-0 bg-border-surface"
-            aria-hidden
-          />
           <ChipGroup
             heading="Matched in your source"
             headingClass="text-primary"
@@ -334,7 +351,7 @@ export function EvidenceRail({
           />
           <ChipGroup
             heading="Not evidenced"
-            headingClass="text-terracotta-foreground"
+            headingClass="text-primary"
             terms={gaps}
             state="gap"
             selected={selected}
@@ -376,7 +393,7 @@ export function EvidenceRail({
         <p className="text-xs leading-[17px] text-muted-foreground">
           {render.mode === "in_place"
             ? "Original preserved. Your own file was edited in place — check the delivered layout before export."
-            : `Original preserved. Check the regenerated ${sourceLabel} layout before export.`}
+            : `Original preserved. Check the regenerated ${deliverableFormat(render)} layout before export.`}
         </p>
       </div>
 
