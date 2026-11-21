@@ -12,22 +12,17 @@ import { renderScreen } from "@/test/render"
 const BASE = "http://api.test"
 
 /**
- * WS-27 · Where the model-credentials card sits.
+ * WS-46 · Where the model-credentials card sits now.
  *
- * The card was appended to the bottom of the Profile screen as a **bare
- * card**, after the résumé block: the only orphan card in the console, last
- * on a page about profile answers, and outside the heading outline. Its own
- * docstring calls it an account setting.
+ * It used to be appended to the foot of Profile — WS-27 moved it out of the
+ * data guard so a `required`-mode deployment could take a key before the
+ * first résumé existed, but it remained an orphan card on a screen about
+ * profile answers. WS-46 gives it a real home: the Account & Security
+ * screen at `/app/account`, reachable from the account menu in every state.
  *
- * Two properties are pinned here, and both have a real regression behind
- * them:
- *
- * 1. it belongs with the answer cards, **above** the résumé — a setting
- *    before reference material;
- * 2. it renders **without a stored profile**, which the old code claimed in
- *    a comment and then contradicted with an early return. A deployment in
- *    `required` mode could not take a key before the first résumé, so the
- *    one screen that fixes a rejected tailoring run was unreachable.
+ * What is pinned here is the move itself: the card renders **nowhere** on
+ * Profile — on any tab, with or without a profile — and the "Private by
+ * design." card says where it went and links there.
  */
 
 function stubCredentials() {
@@ -43,96 +38,166 @@ function stubCredentials() {
   )
 }
 
-describe("the credential card on the profile screen", () => {
-  it("sits below the tab set, reachable on every tab", async () => {
+function stubProfile() {
+  server.use(
+    http.get(`${BASE}/api/resumes/:profileId`, () =>
+      HttpResponse.json(profileResponse())
+    )
+  )
+}
+
+/** A library big enough to need more than one page (five per page). */
+function stubDocuments(count: number) {
+  const documents = Array.from({ length: count }, (_, index) => ({
+    id: `doc-${index + 1}`,
+    kind: "resume" as const,
+    title: `Résumé ${index + 1}`,
+    filename: `doc-${index + 1}.docx`,
+    path: `data/resumes/doc-${index + 1}.docx`,
+    size_bytes: 1024,
+    created_at: "2026-10-21T10:00:00Z",
+    profile_id: "profile-1",
+    job_id: null,
+  }))
+  server.use(
+    http.get(`${BASE}/api/documents`, () =>
+      HttpResponse.json({ documents, count })
+    )
+  )
+}
+
+describe("the model key has moved to Account & Security (WS-46)", () => {
+  it("renders no credential card on any tab", async () => {
     setCurrentProfileId("profile-1")
     stubCredentials()
+    stubProfile()
 
-    const { container } = renderScreen(<ProfileScreen />)
+    const user = userEvent.setup()
+    renderScreen(<ProfileScreen />)
 
-    // Both are on the page.
-    expect(
-      await screen.findByRole("button", { name: "Save key" })
-    ).toBeInTheDocument()
+    await screen.findByRole("tablist")
+    // The card's controls and its section heading are gone — on the tab the
+    // screen opens with…
+    expect(screen.queryByRole("button", { name: "Save key" })).toBeNull()
+    expect(screen.queryByRole("heading", { name: "Your model" })).toBeNull()
 
-    /*
-      WS-40 tabbed the profile. WS-27's rule survives: the card renders in
-      **all three** states, so it sits outside the `storedProfile.data` guard
-      that wraps the tabs — a `required`-mode deployment must be able to take
-      a key before the first résumé exists. Asserted on the rendered document
-      with `compareDocumentPosition`, so any future re-wrap of the JSX keeps
-      the check meaningful.
-    */
-    const tabs = await screen.findByRole("tablist")
-    const credentials = screen.getByRole("button", { name: "Save key" })
-    expect(
-      tabs.compareDocumentPosition(credentials) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-
-    // And the section is a real section: it contributes an h2.
-    expect(
-      container.querySelectorAll("h2") &&
-        screen.getByRole("heading", { name: "Your model" })
-    ).toBeInTheDocument()
+    // …and after visiting both other tabs.
+    await user.click(screen.getByRole("tab", { name: "Application answers" }))
+    await screen.findByText("Questions that still need you")
+    await user.click(screen.getByRole("tab", { name: "Work preferences" }))
+    await screen.findByText(/What you want from a job/)
+    expect(screen.queryByRole("button", { name: "Save key" })).toBeNull()
   })
 
-  it("renders even when the account has no profile yet", async () => {
+  it("leaves the no-profile state on the account screen too", async () => {
     /*
-      No profile id, and no documents: `useProfileWithFallback` resolves to
-      "missing", which used to hit the early return. The card must still be
-      reachable — otherwise a `BYOK_MODE=required` deployment is unstartable.
-      This is the regression the WS-40 tabbing could have reintroduced by
-      putting the card inside the tabs.
+      WS-27's guarantee did not die with the move: a `required`-mode
+      deployment must be able to take a key before the first résumé exists.
+      The card no longer renders here — the guarantee is kept by the account
+      screen, which has no profile guard at all.
     */
     setCurrentProfileId(null)
     stubCredentials()
     server.use(
       http.get(`${BASE}/api/documents`, () =>
-        HttpResponse.json({ documents: [] })
+        HttpResponse.json({ documents: [], count: 0 })
       )
     )
 
     renderScreen(<ProfileScreen />)
 
-    expect(
-      await screen.findByRole("button", { name: "Save key" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("heading", { name: "Your model" })
-    ).toBeInTheDocument()
-    // And the page still explains the missing profile — once the document
-    // list resolves and the hook stops being pending.
     expect(await screen.findByText("No profile yet")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Save key" })).toBeNull()
+    expect(screen.queryByRole("heading", { name: "Your model" })).toBeNull()
   })
 
-  it("keeps the preferences editor reachable on its tab", async () => {
-    /*
-      The reorder must not have pushed the answer cards off the page. WS-42
-      rebuilt the tabs to the design's three, so reachability — not mere
-      presence in the tree — is what this pins now: click the tab, then see
-      the editor.
-    */
+  it("says where the credentials went, and links there", async () => {
     setCurrentProfileId("profile-1")
     stubCredentials()
-    server.use(
-      http.get(`${BASE}/api/resumes/:profileId`, () =>
-        HttpResponse.json(profileResponse())
+    stubProfile()
+
+    renderScreen(<ProfileScreen />)
+
+    // The design's verbatim line on the "Private by design." card.
+    expect(
+      await screen.findByText(
+        "Model credentials and account controls remain in your account menu."
       )
-    )
+    ).toBeInTheDocument()
+    const link = screen.getByRole("link", { name: "Privacy & account →" })
+    expect(link).toHaveAttribute("href", "/app/account")
+  })
+})
+
+describe("the profile document library's pagination (WS-46)", () => {
+  it("pages the library at five per page with the shared pager", async () => {
+    setCurrentProfileId("profile-1")
+    stubCredentials()
+    stubProfile()
+    stubDocuments(8)
 
     const user = userEvent.setup()
     renderScreen(<ProfileScreen />)
 
-    await user.click(
-      await screen.findByRole("tab", { name: "Work preferences" })
-    )
-    // The editor's own description proves the card is mounted — the tab
-    // trigger carries the same words, so the count is at least two.
-    expect(screen.getAllByText(/What you want from a job/).length).toBeGreaterThan(
-      0
-    )
-    expect(screen.getByRole("button", { name: "Save key" })).toBeInTheDocument()
+    await screen.findByRole("tablist")
+
+    /*
+      Each row names its file twice — the visible name and the Preview
+      link's screen-reader-only span — so presence is asserted through
+      `getAllByText` and absence through `queryByText`.
+    */
+    expect(screen.getAllByText("doc-1.docx").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("doc-5.docx").length).toBeGreaterThan(0)
+    expect(screen.queryByText("doc-6.docx")).toBeNull()
+    expect(screen.getByText("1–5 of 8 documents")).toBeInTheDocument()
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument()
+
+    // The counter moves with the page, and the row set follows.
+    await user.click(screen.getByRole("button", { name: "Next" }))
+    expect(screen.getAllByText("doc-6.docx").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("doc-8.docx").length).toBeGreaterThan(0)
+    expect(screen.queryByText("doc-1.docx")).toBeNull()
+    expect(screen.getByText("6–8 of 8 documents")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Previous" }))
+    expect(screen.getAllByText("doc-1.docx").length).toBeGreaterThan(0)
+  })
+
+  it("renders no pager while everything fits on one page", async () => {
+    setCurrentProfileId("profile-1")
+    stubCredentials()
+    stubProfile()
+    stubDocuments(3)
+
+    renderScreen(<ProfileScreen />)
+
+    await screen.findAllByText("doc-1.docx")
+    expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
+    expect(screen.queryByText(/of 3 documents/)).toBeNull()
+  })
+
+  it("starts over when the library changes underneath the pager", async () => {
+    setCurrentProfileId("profile-1")
+    stubCredentials()
+    stubProfile()
+    stubDocuments(8)
+
+    const user = userEvent.setup()
+    const { queryClient } = renderScreen(<ProfileScreen />)
+
+    await screen.findAllByText("doc-1.docx")
+    await user.click(screen.getByRole("button", { name: "Next" }))
+    expect(screen.getAllByText("doc-6.docx").length).toBeGreaterThan(0)
+
+    // A new tailored résumé arrives: the library refetches, and the pager
+    // goes back to its first page rather than pointing at rows that moved.
+    stubDocuments(9)
+    await queryClient.refetchQueries({ queryKey: ["documents"] })
+
+    await screen.findAllByText("doc-1.docx")
+    expect(screen.queryByText("doc-6.docx")).toBeNull()
+    expect(screen.getByText("1–5 of 9 documents")).toBeInTheDocument()
   })
 })
 
@@ -147,17 +212,17 @@ describe("the design's tabbed profile (WS-42, from WS-40)", () => {
   it("offers the design's three tabs and every one opens onto real content", async () => {
     setCurrentProfileId("profile-1")
     stubCredentials()
-    server.use(
-      http.get(`${BASE}/api/resumes/:profileId`, () =>
-        HttpResponse.json(profileResponse())
-      )
-    )
+    stubProfile()
 
     const user = userEvent.setup()
     renderScreen(<ProfileScreen />)
 
     const tabs = await screen.findByRole("tablist")
-    for (const name of ["Documents", "Application answers", "Work preferences"]) {
+    for (const name of [
+      "Documents",
+      "Application answers",
+      "Work preferences",
+    ]) {
       expect(within(tabs).getByRole("tab", { name })).toBeInTheDocument()
     }
 
@@ -180,15 +245,37 @@ describe("the design's tabbed profile (WS-42, from WS-40)", () => {
     // Application answers: the confirmed-answers panel, gaps included.
     await user.click(screen.getByRole("tab", { name: "Application answers" }))
     expect(
-      await screen.findByText("Questions the boards actually ask")
+      await screen.findByText("Questions that still need you")
     ).toBeInTheDocument()
-    expect(screen.getByText("Voluntary self-identification")).toBeInTheDocument()
+    expect(
+      screen.getByText("Your choice. Never a ranking signal.")
+    ).toBeInTheDocument()
 
     // Work preferences: the one editor, shared with the intake page.
     await user.click(screen.getByRole("tab", { name: "Work preferences" }))
     expect(
       await screen.findByText(/What you want from a job/)
     ).toBeInTheDocument()
+  })
+
+  it("opens the answers tab from a ?tab= deep link", async () => {
+    /*
+      The account screen's privacy panel links to the profile's answers tab,
+      where the voluntary EEO answers live. The link must land there, not on
+      Documents.
+    */
+    setCurrentProfileId("profile-1")
+    stubCredentials()
+    stubProfile()
+
+    renderScreen(<ProfileScreen />, { route: "/app/profile?tab=answers" })
+
+    expect(
+      await screen.findByText("Questions that still need you")
+    ).toBeInTheDocument()
+    // And the Documents content is not on the page — the link landed on
+    // answers, not on the default tab.
+    expect(screen.queryByText("Your original stays original.")).toBeNull()
   })
 
   it("never invents a completeness percentage", async () => {
@@ -198,11 +285,7 @@ describe("the design's tabbed profile (WS-42, from WS-40)", () => {
     */
     setCurrentProfileId("profile-1")
     stubCredentials()
-    server.use(
-      http.get(`${BASE}/api/resumes/:profileId`, () =>
-        HttpResponse.json(profileResponse())
-      )
-    )
+    stubProfile()
     renderScreen(<ProfileScreen />)
 
     await screen.findByRole("tablist")

@@ -1,15 +1,17 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { FileText, Link2, Lock } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
 
 import { ApplicationAnswersPanel } from "@/components/profile/application-profile-panel"
-import { ModelCredentialsCard } from "@/components/profile/model-credentials-card"
 import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { ProfileView } from "@/components/profile/profile-view"
 import { ErrorNotice } from "@/components/common/error-notice"
 import { EmptyState } from "@/components/common/progress-state"
 import { CardSkeleton } from "@/components/common/card-skeleton"
-import { PageHeader, Section } from "@/components/common/page-header"
+import { Pagination } from "@/components/common/pagination"
+import { PageHeader } from "@/components/common/page-header"
+import { DOCUMENTS_PER_PAGE } from "@/components/documents/document-picker"
 import { LinkButton } from "@/components/ui/link-button"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -23,30 +25,39 @@ import { ProfileIdentityCard } from "@/screens/facts/profile/identity-card"
 /** The tabs, in the design file's order (node `16:202`). */
 type ProfileTab = "documents" | "answers" | "preferences"
 
+/** Which tab a `?tab=` deep link may open, so an unknown value stays honest. */
+const TABS: ProfileTab[] = ["documents", "answers", "preferences"]
+
+function tabFromSearch(value: string | null): ProfileTab {
+  return TABS.includes(value as ProfileTab)
+    ? (value as ProfileTab)
+    : "documents"
+}
+
 /** How a measured gap reads as a chip, in the coverage words the backend uses. */
 function coverageChip(coverage: string) {
   switch (coverage) {
     case "answered":
       return (
-        <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-lime-foreground">
+        <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-lime-foreground">
           Confirmed
         </span>
       )
     case "not_in_profile":
       return (
-        <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-terracotta-foreground">
+        <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-terracotta-foreground">
           Needs your answer
         </span>
       )
     case "never_autofill":
       return (
-        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] font-semibold leading-4 text-muted-foreground">
+        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] leading-4 font-semibold text-muted-foreground">
           Never autofilled
         </span>
       )
     default:
       return (
-        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] font-semibold leading-4 text-muted-foreground">
+        <span className="inline-flex items-center rounded-[6px] border border-border-surface px-2.5 py-1 text-[11px] leading-4 font-semibold text-muted-foreground">
           Unclassified
         </span>
       )
@@ -82,10 +93,14 @@ function coverageChip(coverage: string) {
  * fabricated metric. The measured question gaps in the side rail are the
  * honest coverage signal.
  *
- * The BYOK credential card sits **below the tab set, outside the
- * `storedProfile.data` guard** — WS-27's rule that it must render in all
- * three states (resolving / no profile / populated), because a `required`-
- * mode deployment needs a key before the first résumé exists.
+ * Model credentials no longer sit on this screen (WS-46): they live on the
+ * Account & Security screen at `/app/account`, which a `required`-mode
+ * deployment can reach before the first résumé exists — the same guarantee
+ * WS-27 pinned when the card lived here. The "Private by design." card
+ * says so and links there.
+ *
+ * A `?tab=` query parameter opens a tab directly (`/app/profile?tab=answers`
+ * from the account screen's privacy panel); an unknown value opens Documents.
  */
 export function ProfileScreen() {
   const {
@@ -94,9 +109,23 @@ export function ProfileScreen() {
     profileId,
     documents,
   } = useProfileWithFallback()
-  const [tab, setTab] = useState<ProfileTab>("documents")
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<ProfileTab>(() =>
+    tabFromSearch(searchParams.get("tab"))
+  )
   /** Whether the parsed source facts are expanded under the library. */
   const [showFacts, setShowFacts] = useState(false)
+  /**
+   * The page selection, held **against the list it was made from**: when the
+   * library itself changes — an upload, a new tailored copy — the selection
+   * no longer stands, and the pager reads page one again. Derived during
+   * render rather than reset by an effect, so a changed list and its page
+   * never disagree for a frame.
+   */
+  const [pageSelection, setPageSelection] = useState<{
+    list: unknown
+    page: number
+  } | null>(null)
 
   /*
     The stored preferences and the measured gaps, for the Documents tab's
@@ -133,6 +162,30 @@ export function ProfileScreen() {
   const library = documents.data?.documents ?? []
   const preferences = storedAnswers.data?.application_profile.preferences
   const gapRows = gaps.data?.questions ?? []
+
+  /*
+    The library pages client-side (the backend returns the whole list, the
+    same as the résumé screen's picker). React Query's structural sharing
+    keeps `documents.data` identical while the documents are unchanged, so a
+    selection made against one list survives unrelated rerenders — and a
+    changed list drops it, which is the reset the pager needs.
+  */
+  const documentPage =
+    pageSelection && pageSelection.list === documents.data
+      ? pageSelection.page
+      : 0
+  const changeDocumentPage = (page: number) =>
+    setPageSelection({ list: documents.data, page })
+
+  const documentPages = Math.max(
+    1,
+    Math.ceil(library.length / DOCUMENTS_PER_PAGE)
+  )
+  const safeDocumentPage = Math.min(documentPage, documentPages - 1)
+  const visibleDocuments = library.slice(
+    safeDocumentPage * DOCUMENTS_PER_PAGE,
+    (safeDocumentPage + 1) * DOCUMENTS_PER_PAGE
+  )
 
   return (
     <div className="space-y-6">
@@ -184,7 +237,7 @@ export function ProfileScreen() {
                 */}
                 <section className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5">
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                       Your original stays original.
                     </h2>
                     <LinkButton to="/app/resume" variant="ghost">
@@ -194,92 +247,112 @@ export function ProfileScreen() {
                   <p className="text-sm text-muted-foreground">
                     Tailored copies always point back to their source.
                   </p>
-                  <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
+                  <div
+                    className="h-px w-full shrink-0 bg-border-surface"
+                    aria-hidden
+                  />
 
                   {library.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No documents yet — upload a résumé to start.
                     </p>
                   ) : (
-                    <ul className="space-y-3">
-                      {library.map((document) => (
-                        <li
-                          key={document.id}
-                          className="flex min-w-0 items-center gap-3 border-b border-border-surface pb-3 last:border-b-0 last:pb-0"
-                        >
-                          <FileText
-                            className="size-5 shrink-0 text-forest/70"
-                            strokeWidth={1.7}
-                            aria-hidden
-                          />
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="truncate text-sm font-semibold text-primary">
-                                {document.filename}
+                    <>
+                      <ul className="space-y-3">
+                        {visibleDocuments.map((document) => (
+                          <li
+                            key={document.id}
+                            className="flex min-w-0 items-center gap-3 border-b border-border-surface pb-3 last:border-b-0 last:pb-0"
+                          >
+                            <FileText
+                              className="size-5 shrink-0 text-forest/70"
+                              strokeWidth={1.7}
+                              aria-hidden
+                            />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-primary">
+                                  {document.filename}
+                                </p>
+                                {document.kind === "tailored" ? (
+                                  <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-lime-foreground">
+                                    TAILORED
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-primary">
+                                    ORIGINAL
+                                  </span>
+                                )}
+                                {document.profile_id === profileId ? (
+                                  <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-primary">
+                                    In use
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="text-xs leading-[17px] text-muted-foreground">
+                                {document.kind === "tailored"
+                                  ? `Produced by the agent for a job${
+                                      document.created_at
+                                        ? ` · ${formatDateTime(document.created_at)}`
+                                        : ""
+                                    }`
+                                  : `Your uploaded résumé${
+                                      document.created_at
+                                        ? ` · ${formatDateTime(document.created_at)}`
+                                        : ""
+                                    } · used for matching and tailoring`}
                               </p>
-                              {document.kind === "tailored" ? (
-                                <span className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-lime-foreground">
-                                  TAILORED
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
-                                  ORIGINAL
-                                </span>
-                              )}
-                              {document.profile_id === profileId ? (
-                                <span className="inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary">
-                                  In use
-                                </span>
-                              ) : null}
                             </div>
-                            <p className="text-xs leading-[17px] text-muted-foreground">
-                              {document.kind === "tailored"
-                                ? `Produced by the agent for a job${
-                                    document.created_at
-                                      ? ` · ${formatDateTime(document.created_at)}`
-                                      : ""
-                                  }`
-                                : `Your uploaded résumé${
-                                    document.created_at
-                                      ? ` · ${formatDateTime(document.created_at)}`
-                                      : ""
-                                  } · used for matching and tailoring`}
-                            </p>
-                          </div>
-                          {/*
+                            {/*
                             The design's per-row "Preview ↗" (node 49:1285):
                             the document opens from its real download route
                             in a new tab, so a candidate can check what will
                             be sent before it is sent — the same route the
                             résumé picker uses.
                           */}
-                          <a
-                            href={apiUrl(
-                              `/api/documents/${encodeURIComponent(document.id)}/download`
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-[37px] shrink-0 items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest transition-colors outline-none hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            Preview
-                            <span aria-hidden="true" className="ml-1">
-                              ↗
-                            </span>
-                            <span className="sr-only"> {document.filename}</span>
-                          </a>
-                          {document.kind === "tailored" && document.job_id ? (
-                            <LinkButton
-                              to={`/app/tailor/${encodeURIComponent(document.job_id)}`}
-                              variant="ghost"
-                              size="sm"
+                            <a
+                              href={apiUrl(
+                                `/api/documents/${encodeURIComponent(document.id)}/download`
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-[37px] shrink-0 items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest transition-colors outline-none hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                             >
-                              <Link2 className="size-3.5" aria-hidden />
-                              Open in Studio
-                            </LinkButton>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
+                              Preview
+                              <span aria-hidden="true" className="ml-1">
+                                ↗
+                              </span>
+                              <span className="sr-only">
+                                {" "}
+                                {document.filename}
+                              </span>
+                            </a>
+                            {document.kind === "tailored" && document.job_id ? (
+                              <LinkButton
+                                to={`/app/tailor/${encodeURIComponent(document.job_id)}`}
+                                variant="ghost"
+                                size="sm"
+                              >
+                                <Link2 className="size-3.5" aria-hidden />
+                                Open in Studio
+                              </LinkButton>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                      {/*
+                        The shared pager (WS-46): the library pages at five
+                        per page, exactly like the résumé screen's picker,
+                        and renders nothing while everything fits on one.
+                      */}
+                      <Pagination
+                        page={safeDocumentPage}
+                        pageSize={DOCUMENTS_PER_PAGE}
+                        total={library.length}
+                        onPageChange={changeDocumentPage}
+                        label="documents"
+                      />
+                    </>
                   )}
 
                   {profile ? (
@@ -293,8 +366,15 @@ export function ProfileScreen() {
                           : "The parsed résumé states no skills."}
                       </p>
                       <div className="mt-3">
-                        <Button variant="ghost" size="sm" onClick={() => setShowFacts((v) => !v)} aria-expanded={showFacts}>
-                          {showFacts ? "Hide source facts" : "View source facts →"}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowFacts((v) => !v)}
+                          aria-expanded={showFacts}
+                        >
+                          {showFacts
+                            ? "Hide source facts"
+                            : "View source facts →"}
                         </Button>
                       </div>
                       {showFacts ? (
@@ -315,10 +395,13 @@ export function ProfileScreen() {
                 */}
                 <section className="flex min-w-0 flex-col gap-3 rounded-surface border border-border-surface bg-card p-5">
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                       One source for your preferences
                     </h2>
-                    <Button variant="ghost" onClick={() => setTab("preferences")}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setTab("preferences")}
+                    >
                       Edit →
                     </Button>
                   </div>
@@ -333,7 +416,9 @@ export function ProfileScreen() {
                     <dd className="text-sm font-medium text-foreground">
                       {preferences?.remote_preference || "Not stated"}
                     </dd>
-                    <dt className="text-sm text-muted-foreground">Role focus</dt>
+                    <dt className="text-sm text-muted-foreground">
+                      Role focus
+                    </dt>
                     <dd className="text-sm font-medium text-foreground">
                       {preferences?.target_roles?.length
                         ? formatList(preferences.target_roles)
@@ -351,7 +436,7 @@ export function ProfileScreen() {
                 */}
                 {gapRows.length > 0 ? (
                   <section className="flex min-w-0 flex-col gap-3 rounded-surface border border-border-surface bg-card p-5">
-                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                       Ready for the questions that matter.
                     </h2>
                     <p className="text-sm text-muted-foreground">
@@ -391,13 +476,16 @@ export function ProfileScreen() {
                   </div>
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     Voluntary EEO answers are stored separately and never used
-                    to rank jobs. Your model credentials live on this page,
-                    below the tabs.
+                    to rank jobs.
+                  </p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Model credentials and account controls remain in your
+                    account menu.
                   </p>
                   <div>
-                    <Button variant="ghost" size="sm" onClick={() => setTab("answers")}>
-                      Review EEO answers →
-                    </Button>
+                    <LinkButton to="/app/account" variant="ghost" size="sm">
+                      Privacy &amp; account →
+                    </LinkButton>
                   </div>
                 </section>
               </aside>
@@ -405,7 +493,9 @@ export function ProfileScreen() {
           </TabsContent>
 
           <TabsContent value="answers">
-            <ApplicationAnswersPanel profileId={storedProfile.data.profile_id} />
+            <ApplicationAnswersPanel
+              profileId={storedProfile.data.profile_id}
+            />
           </TabsContent>
 
           <TabsContent value="preferences">
@@ -424,20 +514,24 @@ export function ProfileScreen() {
                   guess.
                 */}
                 <section className="flex min-w-0 flex-col gap-3 rounded-surface bg-forest-soft p-[18px]">
-                  <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                  <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                     Your answers have a clear source.
                   </h2>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Parsed résumé facts and your confirmed employer answers
-                    are separate. A missing answer stops form filling instead
-                    of triggering a guess.
+                    Parsed résumé facts and your confirmed employer answers are
+                    separate. A missing answer stops form filling instead of
+                    triggering a guess.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Required fields are labeled. Tab moves between fields.
-                    Enter selects an option. Escape dismisses a popup.
+                    Required fields are labeled. Tab moves between fields. Enter
+                    selects an option. Escape dismisses a popup.
                   </p>
                   <div>
-                    <Button variant="ghost" size="sm" onClick={() => setTab("answers")}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setTab("answers")}
+                    >
                       Review board questions →
                     </Button>
                   </div>
@@ -447,24 +541,6 @@ export function ProfileScreen() {
           </TabsContent>
         </Tabs>
       ) : null}
-
-      {/*
-        WS-27 keeps a hard rule that the tabbing must not break: the
-        credential card renders in **all three** states — resolving, no
-        profile, and populated. It is an account setting, and a deployment in
-        `BYOK_MODE=required` must be able to take a key before the first
-        résumé exists, or the console is unstartable. So it sits OUTSIDE the
-        `storedProfile.data` guard (where the tabs live) rather than inside a
-        tab that only exists once a profile does.
-      */}
-      <Section
-        title="Your model"
-        description="Optional. Use your own AI provider key and your calls run on your quota and your bill."
-      >
-        <div className="max-w-3xl">
-          <ModelCredentialsCard />
-        </div>
-      </Section>
     </div>
   )
 }
