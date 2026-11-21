@@ -16,9 +16,13 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.base import Base
 from src.db.jobs import JobDB, save_jobs
+from src.graph.job_executor import search_stored_jobs
 from src.jobs import registry
 from src.jobs.contracts import JobListing
 from src.jobs.search_planner import SourceQuery
+from src.resume.profile import CandidateProfile, PersonalInformation
+from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store
+from tests.fixtures.fake_source import make_listing
 
 
 def _listing(
@@ -324,3 +328,194 @@ async def test_search_all_detailed_empty_queries():
     listings, errors = await registry.search_all_detailed([], sources={})
     assert listings == []
     assert errors == {}
+
+
+# ------------------------------------------------- WS-44: search filters --
+#
+# The store-only search (`search_stored_jobs`, the executor behind
+# POST /api/jobs/search) gains the workplace axis here — the file owns the
+# search-side tests, and the filter is a service-level narrowing, not an
+# HTTP detail.
+
+
+@pytest.fixture()
+def filter_profile() -> CandidateProfile:
+    return CandidateProfile(
+        personal_information=PersonalInformation(name="Ahmad Hassan", title="AI Engineer"),
+        skills=["Python", "FastAPI", "AWS"],
+    )
+
+
+def _mixed_policy_corpus() -> list[JobListing]:
+    """Listings whose remote_policy covers every workplace axis value."""
+    return [
+        make_listing("r1", "Python Engineer", "Remote Co", remote_policy="Remote"),
+        make_listing("h1", "Python Engineer", "Hybrid Co", remote_policy="Hybrid (2 days/week)"),
+        make_listing("o1", "Python Engineer", "Onsite Co", remote_policy="onsite"),
+        make_listing("u1", "Python Engineer", "Unstated Co", remote_policy=None),
+    ]
+
+
+def test_search_stored_jobs_workplace_filter_narrows_the_corpus_before_ranking(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """WS-44: the workplace filter narrows the corpus over remote_policy
+    (case-insensitive contains) **before** scoring, so the ranked slice only
+    holds matching listings, and the report echoes the filter it applied."""
+    mixed = _mixed_policy_corpus()
+    save_jobs(mixed, session_factory=tmp_session_factory)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(mixed)
+
+    report = search_stored_jobs(
+        filter_profile,
+        workplace="hybrid",
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+    )
+
+    assert {pair.job.id for pair in report.results} == {"fixture:h1"}
+    assert report.stats.stored == 1  # the narrowed corpus, not the whole table
+    assert report.stats.workplace == "hybrid"  # the applied filter is echoed
+
+
+def test_search_stored_jobs_workplace_matches_case_insensitively_as_contains(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """The needle is one of remote/hybrid/onsite, matched case-insensitively
+    as a **contains** — the boards word the policy freely ("Remote",
+    "Remote - US candidates", "HYBRID"), and a needle present in the wording
+    states the policy without inventing one."""
+    listings = [
+        make_listing("r1", "Python Engineer", "Remote Co", remote_policy="Remote"),
+        make_listing("us", "Python Engineer", "US Co", remote_policy="Remote - US candidates"),
+        make_listing("h1", "Python Engineer", "Hybrid Co", remote_policy="HYBRID"),
+        make_listing("u1", "Python Engineer", "Unstated Co", remote_policy=None),
+    ]
+    save_jobs(listings, session_factory=tmp_session_factory)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(listings)
+
+    remote = search_stored_jobs(
+        filter_profile,
+        workplace="REMOTE",
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+    )
+    assert {pair.job.id for pair in remote.results} == {"fixture:r1", "fixture:us"}
+    assert remote.stats.workplace == "remote"  # echoed normalized, not as sent
+
+    hybrid = search_stored_jobs(
+        filter_profile,
+        workplace="Hybrid",
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+    )
+    assert {pair.job.id for pair in hybrid.results} == {"fixture:h1"}
+
+
+def test_search_stored_jobs_workplace_applies_before_top_n(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """top_n ranks only the matching listings: with three remote listings and
+    top_n=1, the one survivor is a remote listing — and the narrowed corpus
+    behind it is still three, not the whole table."""
+    listings = [
+        make_listing("r1", "Python Engineer", "Remote Co", remote_policy="Remote"),
+        make_listing("r2", "Python Engineer", "Also Remote Co", remote_policy="Fully remote"),
+        make_listing("r3", "Python Engineer", "Still Remote Co", remote_policy="remote-first"),
+        make_listing("o1", "Python Engineer", "Onsite Co", remote_policy="onsite"),
+    ]
+    save_jobs(listings, session_factory=tmp_session_factory)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(listings)
+
+    report = search_stored_jobs(
+        filter_profile,
+        workplace="remote",
+        top_n=1,
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+    )
+
+    assert len(report.results) == 1
+    assert "remote" in report.results[0].job.remote_policy.lower()
+    assert report.stats.stored == 3  # narrowed before the slice
+
+
+def test_search_stored_jobs_without_workplace_is_unchanged(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """Absent workplace filter: the corpus is whole and no echo is set."""
+    mixed = _mixed_policy_corpus()
+    save_jobs(mixed, session_factory=tmp_session_factory)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(mixed)
+
+    report = search_stored_jobs(
+        filter_profile, store_factory=lambda: store, session_factory=tmp_session_factory
+    )
+
+    assert report.stats.stored == 4  # every listing considered
+    assert report.stats.workplace is None
+
+
+def test_search_stored_jobs_workplace_combines_with_query_and_location(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """The filters narrow together: workplace AND query-token AND location."""
+    listings = [
+        make_listing(
+            "rl",
+            "Python Engineer",
+            "London Co",
+            location="London",
+            remote_policy="Remote",
+            description="Backend services in Python for the London team.",
+        ),
+        make_listing(
+            "rb",
+            "Python Engineer",
+            "Berlin Co",
+            location="Berlin",
+            remote_policy="Remote",
+            description="Backend services in Python for the Berlin team.",
+        ),
+        make_listing(
+            "hl",
+            "Java Architect",
+            "London Hybrid Co",
+            location="London",
+            remote_policy="Hybrid",
+            description="Architect distributed Java platforms.",
+        ),
+    ]
+    save_jobs(listings, session_factory=tmp_session_factory)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(listings)
+
+    report = search_stored_jobs(
+        filter_profile,
+        query="python",
+        location="london",
+        workplace="remote",
+        store_factory=lambda: store,
+        session_factory=tmp_session_factory,
+    )
+
+    assert {pair.job.id for pair in report.results} == {"fixture:rl"}
+    assert report.stats.stored == 1
+
+
+def test_search_stored_jobs_rejects_an_unknown_workplace(
+    tmp_path, tmp_session_factory, filter_profile
+):
+    """A value outside the axis is an error, not a silently-ignored filter —
+    returning the unfiltered corpus would be dishonest."""
+    with pytest.raises(ValueError, match="workplace"):
+        search_stored_jobs(
+            filter_profile,
+            workplace="contract-to-hire",
+            store_factory=lambda: make_store(tmp_path / "chroma", FakeEmbeddingFn()),
+            session_factory=tmp_session_factory,
+        )

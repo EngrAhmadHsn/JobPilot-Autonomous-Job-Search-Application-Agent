@@ -299,9 +299,10 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/resumes` | Upload a resume, get a validated profile | WS-04 |
 | `GET /api/resumes/{profile_id}` | Read a stored profile | WS-04 |
 | `POST /api/jobs/refresh` | Accept a durable corpus refresh (`202` + a run id; a worker executes it) | WS-02, WS-04, WS-18 |
-| `POST /api/jobs/search` | Rank the stored corpus for a profile | WS-04 |
+| `POST /api/jobs/search` | Rank the stored corpus for a profile (query, location and workplace filters apply before ranking; workplace is one of remote/hybrid/onsite over the corpus's remote policy) | WS-04, WS-44 |
 | `GET /api/jobs/{job_id}` | Read one stored listing | WS-04 |
 | `GET /api/jobs/suggest` | Autocomplete the query field from the corpus's own job titles | WS-20 |
+| `GET /api/jobs/locations` | The distinct locations the stored corpus carries, with their listing counts (feeds the filters dialog's Location select) | WS-44 |
 | `GET /api/jobs/sources` | The corpus's source registry and freshness (watched boards, last completed refresh, stored count) — shared like the corpus | WS-42 |
 | `POST /api/admin/workers` | Start a background worker process (bounded; administrator only) | WS-20 |
 | `POST /api/admin/workers/{worker_id}/stop` | Ask a worker to finish its batch and exit (administrator only) | WS-20 |

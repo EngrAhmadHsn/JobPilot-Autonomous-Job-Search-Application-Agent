@@ -41,6 +41,38 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOP_N = 10
 MAX_TOP_N = 50
 
+#: WS-44: the workplace axis the store-only search's filter accepts. The
+#: corpus's ``remote_policy`` column is free text the boards word differently
+#: ("Remote", "Remote - US candidates", "Hybrid (2 days/week)"), so the
+#: filter matches it as a case-insensitive **contains** — a needle present in
+#: the wording states the policy; a listing without one stays out of every
+#: workplace slice rather than being invented into one.
+WORKPLACE_VALUES: tuple[str, ...] = ("remote", "hybrid", "onsite")
+
+
+def normalize_workplace(workplace: str | None) -> str | None:
+    """Normalize the workplace filter to one of :data:`WORKPLACE_VALUES`.
+
+    ``None`` or a blank value means "no filter" and returns ``None``; the
+    accepted values are matched case-insensitively and returned lowercased.
+
+    Raises:
+        ValueError: on any other value. The API's request validation turns
+            this into a 422; a direct caller gets the error instead of a
+            silently-ignored filter (an unfiltered answer to a filtered
+            question would be dishonest).
+    """
+    if workplace is None:
+        return None
+    value = workplace.strip().lower()
+    if not value:
+        return None
+    if value not in WORKPLACE_VALUES:
+        raise ValueError(
+            f"workplace must be one of {', '.join(WORKPLACE_VALUES)}; got {workplace!r}"
+        )
+    return value
+
 
 class JobSearchStats(BaseModel):
     """Pipeline counters for one search run."""
@@ -52,6 +84,9 @@ class JobSearchStats(BaseModel):
     stored: int = 0  # listings loaded from the jobs table (store-only search)
     #: WS-20: how many of the considered listings had a usable semantic vector.
     semantic_covered: int = 0
+    #: WS-44: the workplace filter this search applied, echoed back
+    #: (normalized lowercase; ``None`` when no workplace filter was set).
+    workplace: str | None = None
 
 
 class JobSearchReport(BaseModel):
@@ -884,6 +919,7 @@ def search_stored_jobs(
     top_n: int = DEFAULT_TOP_N,
     *,
     only_embedded: bool = False,
+    workplace: str | None = None,
     store_factory: StoreFactory | None = None,
     session_factory: sessionmaker | None = None,
 ) -> JobSearchReport:
@@ -892,9 +928,14 @@ def search_stored_jobs(
     Loads every listing from the ``jobs`` table, scores it with the hybrid
     engine (semantics from the vector store, one query-embedding request for
     the candidate text; a BM25 lexical channel over the full posting), ranks,
-    and returns the top-N. Optional ``query`` and ``location`` narrow the
-    corpus client-side (ANY query token in title+description; case-insensitive
-    location substring) — deterministic, no sources are ever contacted.
+    and returns the top-N. Optional ``query``, ``location`` and ``workplace``
+    narrow the corpus client-side (ANY query token in title+description;
+    case-insensitive location substring; a workplace axis value — one of
+    ``remote``/``hybrid``/``onsite``, matched as a case-insensitive contains
+    against the ``remote_policy`` column) — deterministic, no sources are
+    ever contacted. Every filter applies **before** scoring and before the
+    ``top_n`` slice, so the ranked slice only holds matching listings, and
+    the applied workplace filter is echoed in ``stats.workplace``.
 
     WS-20: a listing with no vector is **not** advantaged. The WS-18 queue is
     consulted for its embedding state (``EMBEDDING_PENDING`` vs
@@ -909,9 +950,16 @@ def search_stored_jobs(
     """
     workflow_id = uuid.uuid4().hex[:8]
     clamped_top_n = max(1, min(int(top_n), MAX_TOP_N))
+    # WS-44: normalize (and reject unknown values) before anything runs.
+    workplace = normalize_workplace(workplace)
     logger.info(
         "Stored-job search started",
-        extra={"workflow_id": workflow_id, "query": query, "location": location},
+        extra={
+            "workflow_id": workflow_id,
+            "query": query,
+            "location": location,
+            "workplace": workplace,
+        },
     )
 
     factory = session_factory
@@ -953,6 +1001,12 @@ def search_stored_jobs(
     if location and location.strip():
         needle = location.strip().lower()
         jobs = [job for job in jobs if needle in (job.location or "").lower()]
+    # WS-44: the workplace axis narrows the corpus over the ``remote_policy``
+    # column (case-insensitive contains) — like the query/location filters,
+    # before scoring and before the top_n slice, so top_n ranks only the
+    # matching listings. A listing without a stated policy is in no slice.
+    if workplace:
+        jobs = [job for job in jobs if workplace in (job.remote_policy or "").lower()]
 
     store = None
     if jobs:
@@ -1134,6 +1188,7 @@ def search_stored_jobs(
         deduped=len(jobs),
         stored=len(jobs),
         semantic_covered=semantic_covered,
+        workplace=workplace,
     )
     report = JobSearchReport(
         results=top, stats=stats, degraded=degraded, semantic_coverage=semantic_coverage
@@ -1154,11 +1209,13 @@ def search_stored_jobs(
 __all__ = [
     "DEFAULT_TOP_N",
     "MAX_TOP_N",
+    "WORKPLACE_VALUES",
     "JobRefreshReport",
     "JobRefreshStats",
     "JobSearchReport",
     "JobSearchStats",
     "default_store_factory",
+    "normalize_workplace",
     "refresh_jobs",
     "run_job_search",
     "search_stored_jobs",

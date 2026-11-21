@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,7 @@ from src.db.session import get_db
 from src.graph.job_executor import (
     JobSearchReport,
     JobSearchStats,
+    normalize_workplace,
     search_stored_jobs,
 )
 from src.graph.job_state import JobMatchPair
@@ -74,6 +75,16 @@ class JobSearchRequest(BaseModel):
     location: str | None = Field(
         None, description="Optional case-insensitive location substring filter"
     )
+    workplace: str | None = Field(
+        None,
+        description=(
+            "WS-44: optional workplace filter — one of remote/hybrid/onsite "
+            "(case-insensitive; absent or blank means no filter). Matched as a "
+            "case-insensitive contains against the corpus's remote_policy column "
+            "before scoring and before top_n, so the ranked slice only holds "
+            "matching listings."
+        ),
+    )
     top_n: int = Field(10, ge=1, description="Size of the ranked slice (clamped server-side)")
     only_embedded: bool = Field(
         False,
@@ -83,6 +94,15 @@ class JobSearchRequest(BaseModel):
             "semantic credit."
         ),
     )
+
+    @field_validator("workplace")
+    @classmethod
+    def _normalize_workplace(cls, value: str | None) -> str | None:
+        """WS-44: accept the axis values case-insensitively; anything else is 422."""
+        try:
+            return normalize_workplace(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class JobSearchResponse(BaseModel):
@@ -189,6 +209,18 @@ class JobSuggestResponse(BaseModel):
     suggestions: list[JobSuggestion] = Field(default_factory=list)
 
 
+class JobLocationsResponse(BaseModel):
+    """The distinct locations the stored corpus carries (WS-44).
+
+    The same shape as :class:`JobSuggestResponse` — the filters dialog's
+    Location select reads this, and a select must offer values the corpus
+    actually holds, never a static list.
+    """
+
+    query: str = ""
+    suggestions: list[JobSuggestion] = Field(default_factory=list)
+
+
 def get_job_search_executor(
     db: Annotated[Session, Depends(get_db)],
 ) -> Callable[..., JobSearchReport]:
@@ -200,10 +232,18 @@ def get_job_search_executor(
     """
     from sqlalchemy.orm import sessionmaker
 
-    def execute(profile, query, location, top_n, *, only_embedded=False) -> JobSearchReport:
+    def execute(
+        profile, query, location, top_n, *, workplace=None, only_embedded=False
+    ) -> JobSearchReport:
         factory = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)
         return search_stored_jobs(
-            profile, query, location, top_n, only_embedded=only_embedded, session_factory=factory
+            profile,
+            query,
+            location,
+            top_n,
+            workplace=workplace,
+            only_embedded=only_embedded,
+            session_factory=factory,
         )
 
     return execute
@@ -391,11 +431,19 @@ def search_jobs(
             "profile_id": req.profile_id,
             "has_query": bool(req.query),
             "has_location": bool(req.location),
+            "has_workplace": bool(req.workplace),
             "top_n": req.top_n,
         },
     )
 
-    report = executor(profile, req.query, req.location, req.top_n, only_embedded=req.only_embedded)
+    report = executor(
+        profile,
+        req.query,
+        req.location,
+        req.top_n,
+        workplace=req.workplace,
+        only_embedded=req.only_embedded,
+    )
 
     # WS-22: attach the verified sponsorship finding (one batched lookup over
     # the imported registers). It is evidence for the operator, never a score
@@ -420,6 +468,7 @@ def search_jobs(
             "degraded": report.degraded,
             "has_query": bool(req.query),
             "has_location": bool(req.location),
+            "has_workplace": bool(req.workplace),
             "failed_sources": sorted(report.source_errors),
         },
     )
@@ -493,6 +542,45 @@ def suggest_job_queries(
         if title
     ]
     return JobSuggestResponse(query=q, suggestions=suggestions)
+
+
+@router.get("/locations", response_model=JobLocationsResponse)
+def suggest_job_locations(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+    limit: int = 20,
+) -> JobLocationsResponse:
+    """The distinct locations the stored corpus carries, ranked by count (WS-44).
+
+    The filters dialog's Location select is fed by this: a select can only
+    offer a value the corpus actually holds, so the suggestions are drawn
+    from the ``jobs`` table itself — every distinct non-empty location with
+    its listing count, most common first (then alphabetically, for a stable
+    order across calls). The corpus is shared board data, so no owner filter
+    applies; the route still asks who is asking, like its siblings.
+
+    ``limit`` is clamped to 1..100 (default 20).
+    """
+    bounded = max(1, min(int(limit), 100))
+    statement = (
+        # ``select(JobDB)`` (not ``select(JobDB.location, …)``): the shared
+        # corpus is named as the model, so the route/isolation AST check can
+        # see that this reads ``jobs`` and not a user-scoped table.
+        select(JobDB)
+        .with_only_columns(JobDB.location, func.count().label("listings"))
+        .where(JobDB.location.isnot(None))
+        # Blank locations (empty or whitespace) are not places; excluding
+        # them in SQL keeps the limit honest.
+        .where(func.trim(JobDB.location) != "")
+        .group_by(JobDB.location)
+        .order_by(func.count().desc(), JobDB.location.asc())
+        .limit(bounded)
+    )
+    rows = db.execute(statement).all()
+    suggestions = [
+        JobSuggestion(value=str(location), count=int(count)) for location, count in rows if location
+    ]
+    return JobLocationsResponse(query="", suggestions=suggestions)
 
 
 @router.get("/{job_id}")

@@ -24,7 +24,7 @@ from src.db.session import get_db
 from src.graph.job_executor import JobSearchReport, JobSearchStats
 from src.graph.job_state import JobMatchPair
 from src.main import app
-from tests.fixtures.fake_source import FIXTURE_JOBS
+from tests.fixtures.fake_source import FIXTURE_JOBS, make_listing
 
 FIXTURE_DOCX = Path(__file__).parent / "fixtures" / "Ahmad_Hassan_AI_Engineer_Resume.docx"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -37,9 +37,16 @@ class RecordingExecutor:
         self._report = report
         self.calls: list[tuple] = []
 
-    def __call__(self, profile, query, location, top_n, *, only_embedded=False):
+    def __call__(self, profile, query, location, top_n, *, workplace=None, only_embedded=False):
         self.calls.append(
-            (profile.personal_information.name, query, location, top_n, only_embedded)
+            (
+                profile.personal_information.name,
+                query,
+                location,
+                top_n,
+                workplace,
+                only_embedded,
+            )
         )
         return self._report
 
@@ -130,7 +137,7 @@ def test_search_with_overridden_executor(api: TestClient, profile_id: str) -> No
     assert len(body["results"]) == 2
 
     # The stored profile (not a fresh parse) reached the executor, with args.
-    assert executor.calls == [("Ahmad Hassan", "python engineer", "Remote", 5, False)]
+    assert executor.calls == [("Ahmad Hassan", "python engineer", "Remote", 5, None, False)]
 
     first = body["results"][0]
     assert first["job"]["id"].startswith("fixture:")
@@ -181,6 +188,200 @@ def test_search_source_errors_pass_through(api: TestClient, profile_id: str) -> 
     assert body["source_errors"] == {"greenhouse": "RuntimeError: down"}
     assert body["degraded"] is True
     assert body["results"] == []
+
+
+# ------------------------------------ WS-44: search filters + locations --
+
+
+def test_search_passes_workplace_to_the_executor(api: TestClient, profile_id: str) -> None:
+    """The request's workplace filter reaches the executor normalized."""
+    executor = RecordingExecutor(_fixture_report())
+    from src.api.routes import jobs as jobs_route
+
+    app.dependency_overrides[jobs_route.get_job_search_executor] = lambda: executor
+
+    response = api.post(
+        "/api/jobs/search",
+        json={"profile_id": profile_id, "workplace": "Hybrid", "top_n": 3},
+    )
+
+    assert response.status_code == 200
+    assert executor.calls == [("Ahmad Hassan", None, None, 3, "hybrid", False)]
+
+
+def test_search_rejects_an_unknown_workplace_with_422(api: TestClient, profile_id: str) -> None:
+    """Anything outside remote/hybrid/onsite is a validation error (422),
+    rejected at the boundary before the executor is ever reached."""
+    from src.api.routes import jobs as jobs_route
+
+    executor = RecordingExecutor(_fixture_report())
+    app.dependency_overrides[jobs_route.get_job_search_executor] = lambda: executor
+
+    response = api.post(
+        "/api/jobs/search",
+        json={"profile_id": profile_id, "workplace": "contract-to-hire"},
+    )
+
+    assert response.status_code == 422
+    assert "workplace" in response.text
+    assert executor.calls == []
+
+
+def _persist_corpus(tmp_path: Path, listings: list) -> None:
+    """Save listings into the file DB the `api` fixture's engine reads."""
+    engine = create_engine(f"sqlite:///{(tmp_path / 'api.db').as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    save_jobs(
+        listings, session_factory=sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    )
+    engine.dispose()
+
+
+def _chroma_overridden(store):
+    """Context-manager-free chroma swap used by the store-only executor tests."""
+    import src.rag.chroma_store as chroma_module
+
+    def _store_factory(*args, **kwargs):
+        return store
+
+    class _Overridden:
+        def __enter__(self):
+            self._original = chroma_module.ChromaVectorStore
+            chroma_module.ChromaVectorStore = _store_factory
+            return store
+
+        def __exit__(self, *exc_info) -> None:
+            chroma_module.ChromaVectorStore = self._original
+
+    return _Overridden()
+
+
+def test_search_workplace_filters_the_stored_corpus_and_echoes_in_stats(
+    api: TestClient, tmp_path: Path, profile_id: str
+) -> None:
+    """End to end on the real store-only executor: the workplace filter
+    narrows the stored corpus server-side and stats echoes what was applied."""
+    from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store
+
+    mixed = [
+        make_listing("h1", "Python Engineer", "Hybrid Co", remote_policy="Hybrid (2 days/week)"),
+        make_listing("o1", "Python Engineer", "Onsite Co", remote_policy="onsite"),
+        make_listing("u1", "Python Engineer", "Unstated Co", remote_policy=None),
+    ]
+    _persist_corpus(tmp_path, mixed)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(mixed)
+
+    with _chroma_overridden(store):
+        response = api.post(
+            "/api/jobs/search",
+            json={"profile_id": profile_id, "workplace": "Hybrid"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {pair["job"]["id"] for pair in body["results"]} == {"fixture:h1"}
+    assert body["stats"]["stored"] == 1
+    assert body["stats"]["workplace"] == "hybrid"
+
+
+def test_search_without_workplace_leaves_the_corpus_whole(
+    api: TestClient, tmp_path: Path, profile_id: str
+) -> None:
+    """No workplace field: unchanged behavior — every listing is considered
+    and the echo carries no filter."""
+    from tests.fixtures.fake_embeddings import FakeEmbeddingFn, make_store
+
+    mixed = [
+        make_listing("h1", "Python Engineer", "Hybrid Co", remote_policy="Hybrid (2 days/week)"),
+        make_listing("o1", "Python Engineer", "Onsite Co", remote_policy="onsite"),
+        make_listing("u1", "Python Engineer", "Unstated Co", remote_policy=None),
+    ]
+    _persist_corpus(tmp_path, mixed)
+    store = make_store(tmp_path / "chroma", FakeEmbeddingFn())
+    store.upsert_jobs(mixed)
+
+    with _chroma_overridden(store):
+        response = api.post("/api/jobs/search", json={"profile_id": profile_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stats"]["stored"] == 3
+    assert {pair["job"]["id"] for pair in body["results"]} == {
+        "fixture:h1",
+        "fixture:o1",
+        "fixture:u1",
+    }
+    assert body["stats"]["workplace"] is None
+
+
+def test_locations_lists_the_corpus_locations_ranked_by_count(
+    api: TestClient, tmp_path: Path, profile_id: str
+) -> None:
+    """GET /api/jobs/locations — the distinct locations the corpus holds,
+    with their listing counts, count descending (alphabetical tiebreak), and
+    empty values excluded: a select can only offer a value the corpus holds."""
+    _persist_corpus(
+        tmp_path,
+        [
+            make_listing("l1", "Role One", "Co One", location="London"),
+            make_listing("l2", "Role Two", "Co Two", location="London"),
+            make_listing("l3", "Role Three", "Co Three", location="London"),
+            make_listing("l4", "Role Four", "Co Four", location="Remote - UK"),
+            make_listing("l5", "Role Five", "Co Five", location="Remote - UK"),
+            make_listing("l6", "Role Six", "Co Six", location="Berlin"),
+            make_listing("l7", "Role Seven", "Co Seven", location="Amsterdam"),
+            make_listing("l8", "Role Eight", "Co Eight", location=None),
+            make_listing("l9", "Role Nine", "Co Nine", location="   "),
+        ],
+    )
+
+    response = api.get("/api/jobs/locations")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query"] == ""
+    assert [(item["value"], item["count"]) for item in body["suggestions"]] == [
+        ("London", 3),
+        ("Remote - UK", 2),
+        ("Amsterdam", 1),
+        ("Berlin", 1),
+    ]
+
+
+def test_locations_limit_is_clamped(api: TestClient, tmp_path: Path, profile_id: str) -> None:
+    """limit is clamped to 1..100 (default 20): 0 becomes 1, huge becomes all."""
+    _persist_corpus(
+        tmp_path,
+        [
+            make_listing("l1", "Role One", "Co One", location="London"),
+            make_listing("l2", "Role Two", "Co Two", location="London"),
+            make_listing("l3", "Role Three", "Co Three", location="Remote - UK"),
+            make_listing("l4", "Role Four", "Co Four", location="Berlin"),
+        ],
+    )
+
+    top_two = api.get("/api/jobs/locations", params={"limit": 2}).json()
+    # Count desc, then the alphabetical tiebreak: Berlin and Remote - UK both
+    # carry one listing, and "Berlin" sorts first.
+    assert [item["value"] for item in top_two["suggestions"]] == ["London", "Berlin"]
+
+    clamped_low = api.get("/api/jobs/locations", params={"limit": 0}).json()
+    assert [item["value"] for item in clamped_low["suggestions"]] == ["London"]
+
+    clamped_high = api.get("/api/jobs/locations", params={"limit": 500}).json()
+    assert len(clamped_high["suggestions"]) == 3  # the corpus's distinct count
+
+    default = api.get("/api/jobs/locations").json()
+    assert len(default["suggestions"]) == 3
+
+
+def test_locations_on_an_empty_corpus_returns_no_suggestions(api: TestClient) -> None:
+    """A corpus with no listings answers the same shape, with no suggestions."""
+    response = api.get("/api/jobs/locations")
+
+    assert response.status_code == 200
+    assert response.json() == {"query": "", "suggestions": []}
 
 
 def test_get_job_from_db(api: TestClient, tmp_path: Path) -> None:
@@ -349,9 +550,9 @@ def test_source_status_reports_registry_and_freshness(
 
     from src.db.boards import BoardDB
     from src.db.runs import JobRunDB
+    from src.db.session import get_db as real_get_db
     from src.db.users import LEGACY_OWNER_ID
     from src.main import app as fastapi_app
-    from src.db.session import get_db as real_get_db
 
     engine = create_engine(f"sqlite:///{(tmp_path / 'sources.db').as_posix()}", future=True)
     Base.metadata.create_all(engine)
@@ -377,7 +578,7 @@ def test_source_status_reports_registry_and_freshness(
                         company_name="Stripe",
                         enabled=True,
                         listings_seen=776,
-                        last_ok_at=datetime(2026, 11, 10, 19, 15),
+                        last_ok_at=datetime(2026, 11, 10, 19, 15, tzinfo=UTC),
                         consecutive_failures=0,
                     ),
                     BoardDB(
@@ -403,8 +604,8 @@ def test_source_status_reports_registry_and_freshness(
                     # is a platform run and correctly invisible here.
                     owner_id=LEGACY_OWNER_ID,
                     correlation_id="corr-1",
-                    created_at=datetime(2026, 11, 7, 13, 36),
-                    completed_at=datetime(2026, 11, 7, 13, 40),
+                    created_at=datetime(2026, 11, 7, 13, 36, tzinfo=UTC),
+                    completed_at=datetime(2026, 11, 7, 13, 40, tzinfo=UTC),
                 )
             )
             db.commit()
@@ -436,6 +637,8 @@ def test_source_status_reports_registry_and_freshness(
         assert stripe["listings_seen"] == 776
 
         # The freshness facts: the last completed refresh and the corpus size.
+        # SQLite stores the timestamp naive, so the round-tripped value
+        # serializes without an offset even though the fixture is UTC-aware.
         assert body["last_refresh_completed_at"] == "2026-11-07T13:40:00"
         assert body["jobs_stored"] == 0
     finally:
