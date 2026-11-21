@@ -42,6 +42,11 @@ const ProfileScreen = lazy(() =>
     default: module.ProfileScreen,
   }))
 )
+const AccountScreen = lazy(() =>
+  import("@/screens/account-screen").then((module) => ({
+    default: module.AccountScreen,
+  }))
+)
 const MatchesScreen = lazy(() =>
   import("@/screens/matches-screen").then((module) => ({
     default: module.MatchesScreen,
@@ -146,6 +151,7 @@ export const routes: RouteObject[] = [
       { index: true, element: frame(<OverviewScreen />) },
       { path: "resume", element: frame(<ResumeScreen />) },
       { path: "profile", element: frame(<ProfileScreen />) },
+      { path: "account", element: frame(<AccountScreen />) },
       { path: "matches", element: frame(<MatchesScreen />) },
       { path: "matches/:jobId", element: frame(<JobDetailScreen />) },
       { path: "tailor", element: frame(<TailorIndexScreen />) },

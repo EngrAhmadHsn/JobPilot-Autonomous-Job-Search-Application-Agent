@@ -184,7 +184,7 @@ describe("the Model credentials card", () => {
 
     renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
     await screen.findByText("Your key is in use")
-    await user.click(screen.getByRole("button", { name: "Test the key" }))
+    await user.click(screen.getByRole("button", { name: "Test connection" }))
 
     await waitFor(() => expect(tested).toBe(1))
     expect(await screen.findByText("The key works")).toBeInTheDocument()
@@ -220,7 +220,7 @@ describe("the Model credentials card", () => {
 
     renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
     await screen.findByText("Your key is in use")
-    await user.click(screen.getByRole("button", { name: "Test the key" }))
+    await user.click(screen.getByRole("button", { name: "Test connection" }))
 
     expect(await screen.findByText("The key did not work")).toBeInTheDocument()
     expect(
@@ -320,6 +320,71 @@ describe("the Model credentials card", () => {
 
     expect(
       await screen.findByText(/cannot store credentials/)
+    ).toBeInTheDocument()
+  })
+})
+
+/*
+  WS-46 restyled the card into the design's "Your model key" card
+  (`15 · Account & security`): a state chip under the title, the masked-only
+  promise in the description, and the economics of testing stated where the
+  button is. The API surface did not change; these pin the new surface.
+*/
+describe("the Your model key card (WS-46)", () => {
+  it("reads its state chip from the stored credential, never the key", async () => {
+    serveState(state())
+
+    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+
+    expect(await screen.findByTestId("model-key-state")).toHaveTextContent(
+      "No key configured"
+    )
+    // The test action needs a key to test; without one it is not offered,
+    // because testing the deployment's own key would spend it unasked.
+    expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull()
+    // The card's own economics line, in the design's words.
+    expect(
+      screen.getByText(
+        "Testing makes a separate, billable provider call. It does not run automatically when saving."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("names the provider and the masked hint when a key is stored", async () => {
+    serveState(
+      state({
+        using: "user",
+        credential: {
+          provider: "google",
+          model: "gemini-3.8-flash",
+          base_url: null,
+          hint: "cret",
+          created_at: "2026-11-08T00:00:00Z",
+          updated_at: "2026-11-08T00:00:00Z",
+          last_used_at: null,
+        },
+      })
+    )
+
+    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+
+    const chip = await screen.findByTestId("model-key-state")
+    expect(chip).toHaveTextContent("google")
+    expect(chip).toHaveTextContent("••••••••cret")
+    // The chip is a mask, not the key: the read only ever returns the hint,
+    // and the chip renders exactly that.
+    expect(chip.textContent).not.toContain("gemini-3.8-flash-key")
+  })
+
+  it("promises only a masked state after saving, in the description", async () => {
+    serveState(state())
+
+    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+
+    expect(
+      await screen.findByText(
+        "Store, replace, or remove your key. Only a masked state is returned after saving."
+      )
     ).toBeInTheDocument()
   })
 })

@@ -16,20 +16,30 @@ import { api } from "@/lib/api/endpoints"
 import type { LlmCredentialInput } from "@/lib/api/types"
 
 /**
- * Model credentials — bring your own key (WS-22).
+ * Model credentials — bring your own key (WS-22 · restyled WS-46).
  *
  * The user may register their own provider key. When one is stored, every
  * model call their requests make runs on **their** key, their quota and their
  * bill; the deployment's own key is only a fallback (and the deployment may
  * instead *require* a personal key).
  *
- * Two rules this card is built around:
+ * Three rules this card is built around:
  *
  * 1. **The key is write-only.** The read returns a mask (the last four
  *    characters). The field is cleared after a successful save and is never
- *    re-rendered from server data, because the server never has it to send.
+ *    re-rendered from server data, because the server never has it to send —
+ *    which is why the header says "only a masked state is returned after
+ *    saving".
  * 2. **Saving does not spend.** Registering a key is free; proving it works
- *    is a button, because the test call is billed to the user's own quota.
+ *    is a separate button, because the test call is a billable provider call
+ *    against the user's own quota. The card states that next to the button
+ *    rather than letting "save" quietly test.
+ * 3. **The state chip states the truth.** "No key configured" or the stored
+ *    provider with its masked hint — never the key itself.
+ *
+ * WS-46 moved this card from the foot of Profile to the Account & Security
+ * screen's Model credentials tab. The API surface (`/api/llm/credentials*`)
+ * and the behavior are unchanged.
  */
 
 const labelClass = "text-xs font-medium text-muted-foreground"
@@ -124,14 +134,35 @@ export function ModelCredentialsCard() {
     (!NEEDS_BASE_URL.has(provider) || baseUrl.trim().length > 0) &&
     !save.isPending
 
+  /*
+    The state chip (design `15 · Account & security`): the honest key state
+    at a glance. When a key is stored the chip names the provider and the
+    masked hint — the same mask the read returns, never more.
+  */
+  const stateChip = stored ? (
+    <span
+      data-testid="model-key-state"
+      className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-lime-foreground"
+    >
+      {stored.provider} · {maskingKey(stored.hint)}
+    </span>
+  ) : (
+    <span
+      data-testid="model-key-state"
+      className="inline-flex items-center rounded-[6px] bg-muted px-2.5 py-1 text-[11px] leading-4 font-semibold text-muted-foreground"
+    >
+      No key configured
+    </span>
+  )
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Model credentials</CardTitle>
+      <CardHeader className="space-y-2.5">
+        <CardTitle>Your model key</CardTitle>
+        {state.isPending ? null : stateChip}
         <CardDescription>
-          Use your own AI provider key for tailoring and research. Your calls
-          then run on your key, your quota and your bill — the key is stored
-          encrypted and never shown again.
+          Store, replace, or remove your key. Only a masked state is returned
+          after saving.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -206,17 +237,20 @@ export function ModelCredentialsCard() {
             />
           </label>
           <label className={fieldClass}>
-            <span className={labelClass}>API key</span>
+            <span className={labelClass}>Provider API key</span>
             <Input
               type="password"
               autoComplete="off"
-              placeholder={stored ? maskingKey(stored.hint) : "Paste your key"}
+              placeholder={
+                stored ? maskingKey(stored.hint) : "Paste your key securely"
+              }
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
             <span className="block text-xs text-muted-foreground">
-              Stored encrypted. It is never shown again and never written to a
-              log or the audit trail.
+              This field is masked after saving. The key is stored encrypted —
+              it is never shown again and never written to a log or the audit
+              trail.
             </span>
           </label>
           {MAY_HAVE_BASE_URL.has(provider) ? (
@@ -274,18 +308,28 @@ export function ModelCredentialsCard() {
                 onClick={() => test.mutate()}
                 disabled={test.isPending}
               >
-                {test.isPending ? "Testing…" : "Test the key"}
+                {test.isPending ? "Testing…" : "Test connection"}
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => remove.mutate()}
                 disabled={remove.isPending}
               >
-                {remove.isPending ? "Removing…" : "Remove"}
+                {remove.isPending ? "Removing…" : "Remove key"}
               </Button>
             </>
           ) : null}
         </div>
+
+        {/*
+          The economics, stated where the button is: saving a key is free,
+          and nothing runs a provider call unless the operator presses the
+          test button themselves.
+        */}
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Testing makes a separate, billable provider call. It does not run
+          automatically when saving.
+        </p>
       </CardContent>
     </Card>
   )

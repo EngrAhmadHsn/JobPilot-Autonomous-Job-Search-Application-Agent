@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link } from "react-router-dom"
 import { cn } from "cn"
 
 import { useTheme } from "@/components/theme-provider"
@@ -166,6 +167,22 @@ export function AccountMenu({
               )}
             </span>
           </DropdownMenuLabel>
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        {/*
+          WS-43 (with the account screen): the menu's way back to the
+          account itself. `render` puts the Link on the item, so the whole
+          row is one anchor and the menu closes on select as items do.
+        */}
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            className="justify-start gap-2"
+            render={<Link to="/app/account" />}
+          >
+            Account &amp; security
+          </DropdownMenuItem>
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
