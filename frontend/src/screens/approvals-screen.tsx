@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { LinkButton } from "@/components/ui/link-button"
 
 import { ApiError } from "@/lib/api/client"
 import {
@@ -909,17 +910,35 @@ export function ApprovalsScreen() {
                       }{" "}
                       of {questions.length} answers confirmed
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        document
-                          .getElementById("board-questions")
-                          ?.scrollIntoView({ block: "start" })
-                      }
-                      className={GHOST_PILL}
-                    >
-                      View all questions →
-                    </button>
+                    {/*
+                      The design's way into the full list (WS-45). It leads to
+                      the application's own questions page — every question of
+                      this packet, answerable in place — and falls back to
+                      scrolling this screen's queue only if the prepare never
+                      produced a tracked application to point at.
+                    */}
+                    {prepared.application_id ? (
+                      <LinkButton
+                        variant="ghost"
+                        size="sm"
+                        className={GHOST_PILL}
+                        to={`/app/tracker/${prepared.application_id}/questions`}
+                      >
+                        View all questions →
+                      </LinkButton>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          document
+                            .getElementById("board-questions")
+                            ?.scrollIntoView({ block: "start" })
+                        }
+                        className={GHOST_PILL}
+                      >
+                        View all questions →
+                      </button>
+                    )}
                   </div>
                 </>
               ) : null}

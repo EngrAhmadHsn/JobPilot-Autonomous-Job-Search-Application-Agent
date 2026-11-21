@@ -792,10 +792,20 @@ describe("the tracker detail", () => {
     ).toBeInTheDocument()
   })
 
-  it("links an application that awaits a decision to the questions review (WS-45)", async () => {
+  it("links the application to its own questions page (WS-45)", async () => {
+    // WS-45: every application has its questions page — the prepared
+    // packet's questions, answerable in place. It is *this* application's
+    // questions, not the console-wide Review screen.
+    renderApp({ route: "/app/tracker/application-1" })
+
+    expect(await screen.findByText("Ordered history")).toBeInTheDocument()
+    const link = screen.getByRole("link", { name: "Questions →" })
+    expect(link).toHaveAttribute("href", "/app/tracker/application-1/questions")
+  })
+
+  it("links an application that awaits a decision to the review screen (WS-45)", async () => {
     // A prepared application still waiting for the human's decision is the
-    // one state where questions can still be answered in the console —
-    // after a decision the Review screen is not where the application lives.
+    // one state where the packet itself can still be authorized.
     server.use(
       http.get(`${BASE}/api/applications/:applicationId`, () =>
         HttpResponse.json({
@@ -808,20 +818,20 @@ describe("the tracker detail", () => {
     renderApp({ route: "/app/tracker/application-1" })
 
     const link = await screen.findByRole("link", {
-      name: "Review the questions →",
+      name: "Review & authorize →",
     })
     // The deep-link the approvals screen itself reads on arrival.
     expect(link).toHaveAttribute("href", "/app/approvals")
   })
 
-  it("offers no questions-review link once the application has moved on", async () => {
+  it("offers no authorize link once the application has moved on", async () => {
     // The shared factory's detail is verified with a recorded approval —
-    // there is nothing left to answer on the Review screen.
+    // there is nothing left to authorize on the Review screen.
     renderApp({ route: "/app/tracker/application-1" })
 
     expect(await screen.findByText("Ordered history")).toBeInTheDocument()
     expect(
-      screen.queryByRole("link", { name: "Review the questions →" })
+      screen.queryByRole("link", { name: "Review & authorize →" })
     ).not.toBeInTheDocument()
   })
 })

@@ -82,6 +82,11 @@ const TrackerDetailScreen = lazy(() =>
     default: module.TrackerDetailScreen,
   }))
 )
+const QuestionsScreen = lazy(() =>
+  import("@/screens/questions-screen").then((module) => ({
+    default: module.QuestionsScreen,
+  }))
+)
 const ActivityScreen = lazy(() =>
   import("@/screens/activity-screen").then((module) => ({
     default: module.ActivityScreen,
@@ -161,6 +166,10 @@ export const routes: RouteObject[] = [
       {
         path: "tracker/:applicationId",
         element: frame(<TrackerDetailScreen />),
+      },
+      {
+        path: "tracker/:applicationId/questions",
+        element: frame(<QuestionsScreen />),
       },
       { path: "activity", element: frame(<ActivityScreen />) },
       { path: "operations", element: frame(<OperationsScreen />) },

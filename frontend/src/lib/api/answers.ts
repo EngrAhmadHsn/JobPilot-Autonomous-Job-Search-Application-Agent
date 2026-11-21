@@ -101,3 +101,42 @@ export function questionKeyOf(question: QuestionWithKey): string {
   if (typeof raw === "string" && raw.trim()) return raw.trim()
   return question.label
 }
+
+/**
+ * One application's employer questions, as the questions page reads them
+ * (WS-45).
+ *
+ * `questions` is the **prepared packet's** plan — the board's own order,
+ * the verdict the agent reached on each question, and the source of the
+ * answer it has (`answer_from` names a profile fact, or `"you"` when the
+ * human's own saved answer answers it). It is a read of the stored
+ * approval: no board is contacted, so the page shows the packet that
+ * exists rather than whatever the employer's form publishes today.
+ *
+ * `plan_available` is false for an application that never went through
+ * prepare. Its questions are then *unknown*, not empty — the page says so
+ * instead of rendering an empty form that reads as "no questions asked".
+ */
+export interface ApplicationQuestions {
+  application_id: string
+  approval_id: string | null
+  job_title: string
+  company_name: string
+  job_url: string
+  status: string
+  plan_available: boolean
+  questions: QuestionWithKey[]
+  answers: SavedAnswerRecord[]
+  blocking_questions: string[]
+}
+
+/** The questions of one application, with its saved answers folded in. */
+export function getApplicationQuestions(
+  applicationId: string,
+  signal?: AbortSignal
+) {
+  return request<ApplicationQuestions>(
+    `/api/applications/${encodeURIComponent(applicationId)}/questions`,
+    { signal, timeoutMs: 20_000 }
+  )
+}

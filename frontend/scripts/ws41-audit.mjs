@@ -58,21 +58,37 @@ const SURFACES = [
   { key: "review", path: "/app/approvals" },
   { key: "tracker", path: "/app/tracker" },
   { key: "profile", path: "/app/profile" },
+  { key: "account", path: "/app/account" },
   { key: "activity", path: "/app/activity" },
   { key: "operations", path: "/app/operations" },
   { key: "admin", path: "/app/admin" },
 ]
 
-/** Tab steps that reveal a region the master prompt requires us to check. */
+/**
+ * Tab steps that reveal a region the master prompt requires us to check.
+ *
+ * The labels are the **real** ones the screen renders (WS-46 moved Profile's
+ * tabs to Documents / Application answers / Work preferences). A stale label
+ * here is worse than no step: the sweep asks for a tab that does not exist,
+ * photographs the first tab instead, and reports a clean surface it never
+ * visited.
+ */
 const TAB_STEPS = {
   profile: [
-    { tab: "Preferences", key: "profile-preferences" },
-    { tab: "Settings", key: "profile-settings" },
+    { tab: "Application answers", key: "profile-answers" },
+    { tab: "Work preferences", key: "profile-preferences" },
+  ],
+  account: [
+    { tab: "Model credentials", key: "account-credentials" },
+    { tab: "Privacy", key: "account-privacy" },
   ],
 }
 
 const VIEWPORTS = [
+  // The four frames the design is drawn at, then the three the sweep has
+  // always carried (a laptop, a tablet-landscape and two phones).
   { w: 1440, h: 1000, key: "1440x1000" },
+  { w: 1024, h: 1000, key: "1024x1000" },
   { w: 1280, h: 800, key: "1280x800" },
   { w: 900, h: 1000, key: "900x1000" },
   { w: 768, h: 1024, key: "768x1024" },
@@ -98,6 +114,20 @@ const surfaces = onlyKeys
   ? SURFACES.filter((s) => onlyKeys.includes(s.key))
   : SURFACES
 const viewports = viewportKeys?.length ? viewportKeys : VIEWPORTS
+
+/**
+ * A surface whose path cannot be a constant.
+ *
+ * One application's questions page lives at
+ * `/app/tracker/<application id>/questions`, so the sweep discovers the id
+ * from the signed-in session and appends the surface. Nothing is invented:
+ * with no tracked application in the database the surface is skipped and
+ * the run says so.
+ */
+function addDiscoveredSurface(surface) {
+  SURFACES.push(surface)
+  if (!onlyKeys || onlyKeys.includes(surface.key)) surfaces.push(surface)
+}
 
 /** The in-page probe. Returns observations, never mutates anything. */
 async function probe(page) {
@@ -257,6 +287,33 @@ await page.getByRole("button", { name: /^Sign in$/ }).click()
 await page.waitForURL(/\/app(\/|$)/, { timeout: 30_000 })
 const signedIn = page.url()
 console.log(`signed in → ${signedIn}`)
+
+// ---- the discovered surface ----------------------------------------------
+// The per-application questions page (WS-45) is the one console surface
+// whose path carries a record id. Ask the signed-in session for the first
+// tracked application; with none, skip the surface and say so rather than
+// photograph a 404 as if it were the page.
+const firstApplicationId = await page.evaluate(async () => {
+  try {
+    const response = await fetch("/api/applications?limit=1", {
+      credentials: "include",
+    })
+    if (!response.ok) return null
+    const body = await response.json()
+    return body?.items?.[0]?.id ?? null
+  } catch {
+    return null
+  }
+})
+if (firstApplicationId) {
+  addDiscoveredSurface({
+    key: "questions",
+    path: `/app/tracker/${firstApplicationId}/questions`,
+  })
+  console.log(`questions surface → /app/tracker/${firstApplicationId}/questions`)
+} else {
+  console.log("no tracked application — the questions surface is skipped")
+}
 
 const storage = await ctx.storageState()
 

@@ -18,6 +18,13 @@ import {
 } from "@/lib/api/answers"
 
 import { CLAY_CHIP, FOREST_CHIP, OUTLINE_CHIP, SAGE_CHIP } from "./chips"
+import {
+  BOOLEAN_CATEGORIES,
+  answerFor,
+  answerInputMode,
+  answerInputType,
+  isNeverAutofill,
+} from "./question-taxonomy"
 
 /*
   The answering card of the Review screen (WS-45, design node `49:1096` —
@@ -31,13 +38,10 @@ import { CLAY_CHIP, FOREST_CHIP, OUTLINE_CHIP, SAGE_CHIP } from "./chips"
   walk and the drafts; the screen owns the save and the re-prepare.
 
   The control is derived from the taxonomy category, because the prepare
-  payload carries no per-question answer type or option list: the boolean
-  categories (work authorization, sponsorship, citizenship) get the design's
-  Yes/No radio pair, the numeric ones a numeric input, the availability date
-  a date input, and everything else — including the categories a form draws
-  as a dropdown (employment type, work mode) — a plain text input, since the
-  console cannot offer options the employer never published. A dropdown
-  would have to invent them.
+  payload carries no per-question answer type or option list — the mapping
+  lives in `question-taxonomy.ts`, shared with the per-application
+  questions page, so the two surfaces can never disagree about which
+  answers are saveable.
 
   Question labels are board-supplied text, so they render through
   `PlainText` like every other untrusted string.
@@ -82,61 +86,6 @@ function CountChip({
         </motion.span>
       </AnimatePresence>
     </span>
-  )
-}
-
-/** Categories whose answer is a strict Yes/No. */
-const BOOLEAN_CATEGORIES = new Set([
-  "work_authorization",
-  "visa_sponsorship",
-  "citizenship_status",
-])
-
-/** Categories whose answer is a number (coordinates, years, salary). */
-const NUMBER_CATEGORIES = new Set([
-  "location_latitude",
-  "location_longitude",
-  "total_experience",
-  "skill_experience",
-  "desired_salary",
-  "current_salary",
-])
-
-/** Categories whose answer is a date. */
-const DATE_CATEGORIES = new Set(["availability_date"])
-
-/**
- * The categories the console never stores an answer for (WS-45's
- * `NEVER_AUTOFILL`): EEO and legal attestations are answered by the human
- * on the employer's own site, at submission time — policy, not a
- * limitation. The verdict names them too; the category is checked as well
- * so an older payload's vocabulary cannot route one into a save.
- */
-const NEVER_AUTOFILL_CATEGORIES = new Set([
-  "eeo_race",
-  "eeo_gender",
-  "eeo_disability",
-  "eeo_veteran",
-  "attestation",
-])
-
-const isNeverAutofill = (question: QuestionWithKey) =>
-  question.verdict === "never_autofill" ||
-  NEVER_AUTOFILL_CATEGORIES.has(question.category ?? "")
-
-/** The server-side answer bound for a saved question key, when there is one. */
-const answerFor = (
-  answers: SavedAnswerRecord[],
-  question: QuestionWithKey
-): SavedAnswerRecord | null => {
-  const key = questionKeyOf(question).toLowerCase()
-  const label = question.label.toLowerCase()
-  return (
-    answers.find(
-      (record) =>
-        record.question_key.toLowerCase() === key ||
-        (Boolean(record.label) && record.label.toLowerCase() === label)
-    ) ?? null
   )
 }
 
@@ -343,18 +292,8 @@ export function QuestionAnswer({
       ) : (
         <Input
           aria-label={current.label}
-          type={
-            DATE_CATEGORIES.has(current.category ?? "")
-              ? "date"
-              : NUMBER_CATEGORIES.has(current.category ?? "")
-                ? "number"
-                : "text"
-          }
-          inputMode={
-            NUMBER_CATEGORIES.has(current.category ?? "")
-              ? "decimal"
-              : undefined
-          }
+          type={answerInputType(current.category)}
+          inputMode={answerInputMode(current.category)}
           maxLength={500}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

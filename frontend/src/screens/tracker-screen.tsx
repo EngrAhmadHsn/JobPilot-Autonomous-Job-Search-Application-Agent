@@ -354,16 +354,25 @@ export function TrackerDetailScreen() {
           Open activity →
         </LinkButton>
         {/*
-          WS-45: an application that is still waiting for the human's
-          decision is the one state where its questions can still be
-          answered in the console — after a decision, the Review screen is
-          not where the application lives. The link goes to the Review
-          screen itself, which renders the real question state.
+          WS-45: the application's own questions page — every question the
+          prepared packet carries, answerable in place. Before it existed
+          this link could only point at the console-wide Review screen,
+          which is not where *this* application's questions live.
+        */}
+        <LinkButton
+          variant="outline"
+          to={`/app/tracker/${applicationId}/questions`}
+        >
+          Questions →
+        </LinkButton>
+        {/*
+          WS-45: an application still waiting for the human's decision is
+          the one state where the packet itself can still be authorized.
         */}
         {record.status === "awaiting_approval" ||
         record.status === "prepared" ? (
           <LinkButton variant="outline" to="/app/approvals">
-            Review the questions →
+            Review &amp; authorize →
           </LinkButton>
         ) : null}
       </div>
