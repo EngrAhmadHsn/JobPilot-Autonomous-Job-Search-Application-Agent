@@ -166,10 +166,17 @@ describe("stating work eligibility by country", () => {
 
     const picker = await screen.findByTestId("authorized-countries")
     const field = picker.closest("label") as HTMLElement
-    // The hint must name the reason: the answer is per-country, because a form
-    // asks it for the job's country.
+    // The primary question's label, from the design (`11 · Application
+    // profile`): eligibility is asked per country, not in the abstract.
     expect(
-      within(field).getByText(/country you can work in/i)
+      within(field).getByText("Work eligibility country")
+    ).toBeInTheDocument()
+    // And the hint must name the cost of leaving it unanswered: a stop, not
+    // a guess.
+    expect(
+      within(field).getByText(
+        "Choose every country you may work in. A missing answer stops form filling instead of guessing."
+      )
     ).toBeInTheDocument()
   })
 })
