@@ -28,7 +28,7 @@ export const BOOLEAN_CATEGORIES = new Set([
 ])
 
 /** Categories whose answer is a number (coordinates, years, salary). */
-export const NUMBER_CATEGORIES = new Set([
+const NUMBER_CATEGORIES = new Set([
   "location_latitude",
   "location_longitude",
   "total_experience",
@@ -38,7 +38,7 @@ export const NUMBER_CATEGORIES = new Set([
 ])
 
 /** Categories whose answer is a date. */
-export const DATE_CATEGORIES = new Set(["availability_date"])
+const DATE_CATEGORIES = new Set(["availability_date"])
 
 /**
  * The categories the console never stores an answer for (WS-45's
@@ -47,7 +47,7 @@ export const DATE_CATEGORIES = new Set(["availability_date"])
  * limitation. The verdict names them too; the category is checked as well
  * so an older payload's vocabulary cannot route one into a save.
  */
-export const NEVER_AUTOFILL_CATEGORIES = new Set([
+const NEVER_AUTOFILL_CATEGORIES = new Set([
   "eeo_race",
   "eeo_gender",
   "eeo_disability",

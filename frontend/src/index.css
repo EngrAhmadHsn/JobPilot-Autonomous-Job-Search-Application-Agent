@@ -624,7 +624,22 @@ aside.bg-sidebar {
     pointer-events: none;
   }
 
-  .shine:hover::before,
+  /*
+    The sweep runs on hover **only where hovering is real**.
+
+    Tailwind v4 already scopes its own `hover:` variant to
+    `@media (hover: hover)`; this hand-written rule did not, and a tap on a
+    touch screen leaves `:hover` stuck on the element it touched — the
+    light would sit at the end of its travel until something else was
+    tapped. Keyboard focus keeps its sweep everywhere: a focus ring is not
+    a hover state.
+  */
+  @media (hover: hover) {
+    .shine:hover::before {
+      transform: translateX(430%) skewX(-16deg);
+    }
+  }
+
   .shine:focus-visible::before {
     transform: translateX(430%) skewX(-16deg);
   }
