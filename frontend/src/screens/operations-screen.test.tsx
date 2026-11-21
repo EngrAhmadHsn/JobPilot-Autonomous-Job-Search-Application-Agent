@@ -64,10 +64,9 @@ describe("the operations screen", () => {
         const text = card.closest(".surface")?.textContent ?? ""
         // Two adapter entries (greenhouse, lever) — the count is providers,
         // not boards.
-        expect(
-          text,
-          `freshness card rendered: ${text}`
-        ).toContain("2 configured")
+        expect(text, `freshness card rendered: ${text}`).toContain(
+          "2 configured"
+        )
         expect(text).toContain("Stored jobs available")
         expect(text).toContain("Nov 7")
       },

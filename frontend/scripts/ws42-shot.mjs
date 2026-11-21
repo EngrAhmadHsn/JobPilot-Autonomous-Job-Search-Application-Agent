@@ -23,7 +23,9 @@ const PASSWORD = process.env.WS42_PASSWORD ?? "operator-local-password"
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`)
-  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback
+  return index >= 0 && process.argv[index + 1]
+    ? process.argv[index + 1]
+    : fallback
 }
 
 const path = arg("path", "/app")
@@ -99,7 +101,9 @@ const landed = new URL(page.url()).pathname
 // the landing page — not to reject a URL that correctly kept its query.
 const wantedPath = path.split("?")[0]
 if (landed !== wantedPath) {
-  console.warn(`landed on ${landed}, not ${wantedPath} — the screenshot is of ${landed}`)
+  console.warn(
+    `landed on ${landed}, not ${wantedPath} — the screenshot is of ${landed}`
+  )
 }
 
 mkdirSync(dirname(out), { recursive: true })

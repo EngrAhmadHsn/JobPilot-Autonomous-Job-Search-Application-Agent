@@ -304,8 +304,7 @@ export function JobDetailScreen() {
             */}
             {listing.source ? (
               <span>
-                ·{" "}
-                <PlainText as="span">{listing.source}</PlainText>
+                · <PlainText as="span">{listing.source}</PlainText>
               </span>
             ) : null}
           </div>
@@ -313,7 +312,7 @@ export function JobDetailScreen() {
         <div className="flex flex-wrap items-center gap-2.5">
           <Link
             to="/app/matches"
-            className="inline-flex h-[37px] items-center gap-1.5 rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="inline-flex h-[37px] items-center gap-1.5 rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
             {history.data
@@ -333,7 +332,7 @@ export function JobDetailScreen() {
               href={listing.application_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex h-[37px] items-center rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="inline-flex h-[37px] items-center rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               Open original listing ↗
             </a>
@@ -437,7 +436,7 @@ export function JobDetailScreen() {
         <aside className="min-w-0 space-y-3 xl:sticky xl:top-[calc(var(--header-height,7rem)+1rem)]">
           <section className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-5">
             {listing.posted_at ? (
-              <p className="self-start rounded-[6px] px-[9px] py-1 text-[11px] font-semibold uppercase leading-4 tracking-wide text-forest">
+              <p className="self-start rounded-[6px] px-[9px] py-1 text-[11px] leading-4 font-semibold tracking-wide text-forest uppercase">
                 Posted <RelativeTime value={listing.posted_at} />
               </p>
             ) : null}
@@ -445,7 +444,7 @@ export function JobDetailScreen() {
               const guardrails = sponsorGuardrails(match)
               return (
                 <>
-                  <h2 className="text-[19px] font-semibold leading-[28px] text-forest">
+                  <h2 className="text-[19px] leading-[28px] font-semibold text-forest">
                     {guardrails.heading}
                   </h2>
                   {guardrails.note ? (
@@ -469,7 +468,7 @@ export function JobDetailScreen() {
               )
             })()}
             <div aria-hidden="true" className="h-px bg-border-surface" />
-            <h2 className="text-base font-semibold leading-[23px] text-forest">
+            <h2 className="text-base leading-[23px] font-semibold text-forest">
               Your next step
             </h2>
             <p className="text-sm leading-5 text-muted-foreground">

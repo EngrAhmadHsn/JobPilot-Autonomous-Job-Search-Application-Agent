@@ -262,8 +262,8 @@ export function QueryCombobox({
                         {item.value}
                       </span>
                       <span className="block text-xs leading-[17px] text-muted-foreground">
-                        {item.count} listing{item.count === 1 ? "" : "s"} in
-                        the stored corpus
+                        {item.count} listing{item.count === 1 ? "" : "s"} in the
+                        stored corpus
                       </span>
                     </span>
                   </li>
@@ -320,8 +320,8 @@ export function QueryCombobox({
               aria-hidden="true"
               className="px-1 pt-2 text-[11px] leading-4 text-muted-foreground"
             >
-              {items.length} suggestion{items.length === 1 ? "" : "s"} from
-              your saved listings
+              {items.length} suggestion{items.length === 1 ? "" : "s"} from your
+              saved listings
             </p>
           </div>
 

@@ -41,7 +41,7 @@ export function ActivityFilters({
             aria-checked={active}
             onClick={() => onChange(filter.value)}
             className={cn(
-              "inline-flex h-[37px] items-center rounded-lg px-3.5 py-2 text-[13px] font-semibold leading-[19px] transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+              "inline-flex h-[37px] items-center rounded-lg px-3.5 py-2 text-[13px] leading-[19px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               active
                 ? "bg-primary text-primary-foreground"
                 : "border border-border-surface bg-card text-primary hover:bg-accent"

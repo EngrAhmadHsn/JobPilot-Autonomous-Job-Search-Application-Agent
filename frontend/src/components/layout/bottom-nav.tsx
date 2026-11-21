@@ -66,11 +66,7 @@ export function BottomNav({
                   "focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-ring"
                 )}
               >
-                <Icon
-                  aria-hidden="true"
-                  className="size-5"
-                  strokeWidth={1.7}
-                />
+                <Icon aria-hidden="true" className="size-5" strokeWidth={1.7} />
                 <span
                   className={cn(
                     "max-w-full truncate text-[10px] leading-[14px]",

@@ -1,6 +1,14 @@
 import { useState } from "react"
 
-import { CircleAlert, Columns2, Minus, PenLine, Plus, Rows3, Type } from "lucide-react"
+import {
+  CircleAlert,
+  Columns2,
+  Minus,
+  PenLine,
+  Plus,
+  Rows3,
+  Type,
+} from "lucide-react"
 import { cn } from "cn"
 
 import { PlainText } from "@/components/common/plain-text"
@@ -204,7 +212,7 @@ function PassageBlock({
   return (
     <figure className={cn("min-w-0 rounded-surface p-3", wash)}>
       <figcaption className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           {side}
         </span>
         <StatusChip status={status} />
@@ -243,7 +251,7 @@ function PassagePair({
     return (
       <div className="min-w-0 rounded-surface border border-dashed border-terracotta bg-terracotta-soft/40 p-3">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
             {pair.original !== null ? "Original résumé" : "Tailored"}
           </span>
           <StatusChip status="notCompared" />
@@ -287,7 +295,7 @@ function PassagePair({
 /** A section heading on the paper: `13/600`, forest, uppercase. */
 function DocSectionLabel({ children }: { children: string }) {
   return (
-    <h3 className="text-[13px] font-semibold uppercase leading-[19px] text-primary">
+    <h3 className="text-[13px] leading-[19px] font-semibold text-primary uppercase">
       {children}
     </h3>
   )
@@ -549,7 +557,7 @@ export function ResumeDiffView({
 
       {/* The paper (node `49:977`): `#fffdfa` on the sage mat, pad 30. */}
       <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
-        <h2 className="text-[22px] font-semibold uppercase leading-8 text-primary">
+        <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
           {jobTitle}
         </h2>
         <p className="text-xs leading-[17px] text-muted-foreground">
@@ -597,9 +605,9 @@ export function ResumeDiffView({
         />
 
         <p className="text-[11px] leading-4 text-muted-foreground">
-          Read-only comparison — wording changes go through Edit draft above:
-          a save revalidates the sections against your résumé and regenerates
-          the deliverable. The Preview tab names the deliverable of record.
+          Read-only comparison — wording changes go through Edit draft above: a
+          save revalidates the sections against your résumé and regenerates the
+          deliverable. The Preview tab names the deliverable of record.
         </p>
       </article>
     </div>

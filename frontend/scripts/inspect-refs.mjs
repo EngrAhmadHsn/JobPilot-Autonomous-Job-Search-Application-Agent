@@ -49,7 +49,13 @@ await visit("formless", "https://formless.xyz/", async (page, r) => {
       canvases,
       bodyBackground: body.backgroundColor,
       bodyBackgroundImage: body.backgroundImage.slice(0, 200),
-      fonts: [...new Set([...document.querySelectorAll("h1,h2,p")].map((e) => getComputedStyle(e).fontFamily))].slice(0, 6),
+      fonts: [
+        ...new Set(
+          [...document.querySelectorAll("h1,h2,p")].map(
+            (e) => getComputedStyle(e).fontFamily
+          )
+        ),
+      ].slice(0, 6),
       h1: document.querySelector("h1")?.textContent?.trim() ?? null,
       textSample: document.body.innerText.slice(0, 400),
     }
@@ -60,9 +66,11 @@ await visit("formless", "https://formless.xyz/", async (page, r) => {
 await visit("agencly", "https://agencly.app/", async (page, r) => {
   const info = await page.evaluate(() => ({
     h1: document.querySelector("h1")?.textContent?.trim() ?? null,
-    sections: [...document.querySelectorAll("section")].slice(0, 12).map((s) =>
-      (s.textContent || "").replace(/\s+/g, " ").trim().slice(0, 90)
-    ),
+    sections: [...document.querySelectorAll("section")]
+      .slice(0, 12)
+      .map((s) =>
+        (s.textContent || "").replace(/\s+/g, " ").trim().slice(0, 90)
+      ),
   }))
   Object.assign(r, info)
   // Try to click a demo module if present.
@@ -70,31 +78,57 @@ await visit("agencly", "https://agencly.app/", async (page, r) => {
   if (await btn.count()) r.notes.push("found 'click any module' hint")
 })
 
-await visit("yt1", "https://www.youtube.com/watch?v=Fog8WpdTnYU", async (page, r) => {
-  r.desc = await page
-    .locator('meta[name="description"]')
-    .getAttribute("content")
-    .catch(() => null)
-  const t = await page.title()
-  r.notes.push(`title=${t}`)
-})
+await visit(
+  "yt1",
+  "https://www.youtube.com/watch?v=Fog8WpdTnYU",
+  async (page, r) => {
+    r.desc = await page
+      .locator('meta[name="description"]')
+      .getAttribute("content")
+      .catch(() => null)
+    const t = await page.title()
+    r.notes.push(`title=${t}`)
+  }
+)
 
-await visit("yt2", "https://www.youtube.com/watch?v=pbhLsV-Dyho", async (page, r) => {
-  r.desc = await page
-    .locator('meta[name="description"]')
-    .getAttribute("content")
-    .catch(() => null)
-  const t = await page.title()
-  r.notes.push(`title=${t}`)
-})
+await visit(
+  "yt2",
+  "https://www.youtube.com/watch?v=pbhLsV-Dyho",
+  async (page, r) => {
+    r.desc = await page
+      .locator('meta[name="description"]')
+      .getAttribute("content")
+      .catch(() => null)
+    const t = await page.title()
+    r.notes.push(`title=${t}`)
+  }
+)
 
-await visit("fb1", "https://www.facebook.com/share/r/1HhjPLqoRj/", async (page, r) => {
-  r.text = (await page.locator("body").innerText().catch(() => "")).slice(0, 300)
-})
+await visit(
+  "fb1",
+  "https://www.facebook.com/share/r/1HhjPLqoRj/",
+  async (page, r) => {
+    r.text = (
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    ).slice(0, 300)
+  }
+)
 
-await visit("fb2", "https://www.facebook.com/reel/1146520814389665", async (page, r) => {
-  r.text = (await page.locator("body").innerText().catch(() => "")).slice(0, 300)
-})
+await visit(
+  "fb2",
+  "https://www.facebook.com/reel/1146520814389665",
+  async (page, r) => {
+    r.text = (
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    ).slice(0, 300)
+  }
+)
 
 await browser.close()
 console.log(JSON.stringify(results, null, 2))

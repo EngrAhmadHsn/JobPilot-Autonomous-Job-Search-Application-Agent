@@ -310,7 +310,9 @@ if (firstApplicationId) {
     key: "questions",
     path: `/app/tracker/${firstApplicationId}/questions`,
   })
-  console.log(`questions surface → /app/tracker/${firstApplicationId}/questions`)
+  console.log(
+    `questions surface → /app/tracker/${firstApplicationId}/questions`
+  )
 } else {
   console.log("no tracked application — the questions surface is skipped")
 }

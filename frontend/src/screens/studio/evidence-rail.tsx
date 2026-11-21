@@ -94,9 +94,7 @@ function KeywordChip({
       aria-label={`${term} — ${meta.label}`}
       className={cn(
         "inline-flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition-colors",
-        selected
-          ? "bg-primary text-primary-foreground"
-          : meta.chipClass,
+        selected ? "bg-primary text-primary-foreground" : meta.chipClass,
         "outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       )}
     >
@@ -139,7 +137,7 @@ function CoverageMeter({
 }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-[13px] font-semibold leading-[19px] text-primary">
+      <p className="text-[13px] leading-[19px] font-semibold text-primary">
         {label} · {hit} of {total}
       </p>
       {/*
@@ -150,7 +148,9 @@ function CoverageMeter({
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-forest-soft">
         <div
           className={cn("h-full rounded-full", fill)}
-          style={{ width: `${total > 0 ? Math.round((hit / total) * 100) : 0}%` }}
+          style={{
+            width: `${total > 0 ? Math.round((hit / total) * 100) : 0}%`,
+          }}
         />
       </div>
     </div>
@@ -214,7 +214,9 @@ function ChipGroup({
   if (terms.length === 0) return null
   return (
     <div className="space-y-2">
-      <p className={cn("text-[13px] font-semibold leading-[19px]", headingClass)}>
+      <p
+        className={cn("text-[13px] leading-[19px] font-semibold", headingClass)}
+      >
         {heading}
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -297,7 +299,7 @@ export function EvidenceRail({
 
   return (
     <aside className="flex min-w-0 flex-col gap-4 rounded-surface border border-border-surface bg-card p-6">
-      <h2 className="text-[22px] font-semibold leading-[30px] text-primary">
+      <h2 className="text-[22px] leading-[30px] font-semibold text-primary">
         Make every claim count.
       </h2>
 
@@ -322,11 +324,11 @@ export function EvidenceRail({
             Coverage could not be measured
           </p>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            This listing declares no structured skill requirements, so there
-            is nothing to measure the resume against. The ATS analyzer scored
-            keywords neutrally rather than pretending a perfect or a zero
-            score. Read the listing yourself and check the terms that matter —
-            the resume text is on the Inline diff tab.
+            This listing declares no structured skill requirements, so there is
+            nothing to measure the resume against. The ATS analyzer scored
+            keywords neutrally rather than pretending a perfect or a zero score.
+            Read the listing yourself and check the terms that matter — the
+            resume text is on the Inline diff tab.
           </p>
         </div>
       )}
@@ -368,10 +370,7 @@ export function EvidenceRail({
         <EvidenceBlock term={selected} profile={profile} />
       ) : (
         <p className="text-[11px] leading-4 text-muted-foreground">
-          <Sparkles
-            className="mr-1 inline size-3 align-[-1px]"
-            aria-hidden
-          />
+          <Sparkles className="mr-1 inline size-3 align-[-1px]" aria-hidden />
           “In your profile, not emphasized” marks a term your own résumé
           supports — the tailoring could surface it, and whether to is your
           call. Nothing is added automatically.

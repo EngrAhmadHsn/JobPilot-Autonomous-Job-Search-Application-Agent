@@ -39,7 +39,7 @@ function ActorChip({ event }: { event: AuditEvent }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[6px] px-2.5 py-1 text-[11px] font-semibold leading-4",
+        "inline-flex items-center rounded-[6px] px-2.5 py-1 text-[11px] leading-4 font-semibold",
         meta.class
       )}
     >
@@ -73,9 +73,13 @@ function EventTime({ event }: { event: AuditEvent }) {
  * and as a trace when a human asks for it.
  */
 export function EventList({ events }: { events: AuditEvent[] }) {
-  return <ol className="min-w-0">{events.map((event) => (
-    <EventRow key={event.id} event={event} />
-  ))}</ol>
+  return (
+    <ol className="min-w-0">
+      {events.map((event) => (
+        <EventRow key={event.id} event={event} />
+      ))}
+    </ol>
+  )
 }
 
 export function EventRow({ event }: { event: AuditEvent }) {
@@ -128,7 +132,10 @@ export function EventRow({ event }: { event: AuditEvent }) {
             {event.workflow_id ? (
               <Detail label="Workflow" value={event.workflow_id} mono />
             ) : null}
-            <Detail label="Recorded" value={formatDateTime(event.recorded_at)} />
+            <Detail
+              label="Recorded"
+              value={formatDateTime(event.recorded_at)}
+            />
           </dl>
           {Object.keys(event.metadata).length > 0 ? (
             <div>
@@ -183,7 +190,7 @@ export function RunTimeline({ run }: { run: AgentRun }) {
     <section className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-5">
       <span
         className={cn(
-          "inline-flex w-fit items-center rounded-[6px] px-2.5 py-1 text-[11px] font-semibold leading-4 uppercase",
+          "inline-flex w-fit items-center rounded-[6px] px-2.5 py-1 text-[11px] leading-4 font-semibold uppercase",
           run.hasFailure
             ? "bg-terracotta-soft text-terracotta-foreground"
             : "bg-lime-soft text-lime-foreground"
@@ -191,9 +198,8 @@ export function RunTimeline({ run }: { run: AgentRun }) {
       >
         {run.hasFailure ? "Needs attention" : "Accepted and queued"}
       </span>
-      <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
-        Workflow{" "}
-        <span className="font-mono text-base">{run.workflowId}</span>
+      <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
+        Workflow <span className="font-mono text-base">{run.workflowId}</span>
       </h2>
       <p className="text-xs leading-[17px] text-muted-foreground">
         {run.events.length} step{run.events.length === 1 ? "" : "s"} · started{" "}

@@ -39,9 +39,7 @@ const TEXTAREA_CLASSES =
 
 /** The experience bullets as one bullet per line, for the textarea. */
 function flattenBullets(tailored: TailoredResume): string {
-  return tailored.experience
-    .flatMap((entry) => entry.bullets)
-    .join("\n")
+  return tailored.experience.flatMap((entry) => entry.bullets).join("\n")
 }
 
 export function ResumeEditor({
@@ -67,7 +65,9 @@ export function ResumeEditor({
   const [summary, setSummary] = useState(tailored.summary)
   const [bullets, setBullets] = useState(() => flattenBullets(tailored))
   const [letter, setLetter] = useState(tailored.cover_letter)
-  const bulletLines = bullets.split("\n").filter((line) => line.trim().length > 0)
+  const bulletLines = bullets
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
 
   return (
     <div className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-4">
@@ -81,11 +81,22 @@ export function ResumeEditor({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => onSave({ summary, experience: bullets, cover_letter: letter })} disabled={saving}>
+          <Button
+            size="sm"
+            onClick={() =>
+              onSave({ summary, experience: bullets, cover_letter: letter })
+            }
+            disabled={saving}
+          >
             <PenLine className="size-3.5" aria-hidden />
             {saving ? "Saving…" : "Save changes"}
           </Button>
-          <Button size="sm" variant="outline" onClick={onDiscard} disabled={saving}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onDiscard}
+            disabled={saving}
+          >
             Discard changes
           </Button>
         </div>
@@ -102,7 +113,7 @@ export function ResumeEditor({
       ) : null}
 
       <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
-        <h2 className="text-[22px] font-semibold uppercase leading-8 text-primary">
+        <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
           {jobTitle}
         </h2>
         <p className="text-xs leading-[17px] text-muted-foreground">
@@ -113,7 +124,7 @@ export function ResumeEditor({
         <section className="min-w-0 space-y-2">
           <label
             htmlFor="studio-edit-summary"
-            className="text-[13px] font-semibold uppercase leading-[19px] text-primary"
+            className="text-[13px] leading-[19px] font-semibold text-primary uppercase"
           >
             Professional summary
           </label>
@@ -134,7 +145,7 @@ export function ResumeEditor({
         <section className="min-w-0 space-y-2">
           <label
             htmlFor="studio-edit-experience"
-            className="text-[13px] font-semibold uppercase leading-[19px] text-primary"
+            className="text-[13px] leading-[19px] font-semibold text-primary uppercase"
           >
             Experience bullets
           </label>
@@ -148,10 +159,10 @@ export function ResumeEditor({
             className={TEXTAREA_CLASSES}
           />
           <p className="text-[11px] leading-4 text-muted-foreground">
-            One bullet per line. The lines are applied to your entries in
-            order — entries themselves (company, title) stay as the tailoring
-            produced them, and lines beyond an entry&apos;s originals are
-            appended after its last bullet. Currently{" "}
+            One bullet per line. The lines are applied to your entries in order
+            — entries themselves (company, title) stay as the tailoring produced
+            them, and lines beyond an entry&apos;s originals are appended after
+            its last bullet. Currently{" "}
             <span className="tabular-nums">{bulletLines.length}</span> bullet
             line(s).
           </p>
@@ -160,7 +171,7 @@ export function ResumeEditor({
         <section className="min-w-0 space-y-2">
           <label
             htmlFor="studio-edit-cover-letter"
-            className="text-[13px] font-semibold uppercase leading-[19px] text-primary"
+            className="text-[13px] leading-[19px] font-semibold text-primary uppercase"
           >
             Cover letter
           </label>
@@ -180,8 +191,8 @@ export function ResumeEditor({
 
         <p className="text-[11px] leading-4 text-muted-foreground">
           The validator still runs on a save: anything your résumé does not
-          state is stripped and reported, and the wording that survives is
-          what the regenerated deliverable carries.
+          state is stripped and reported, and the wording that survives is what
+          the regenerated deliverable carries.
         </p>
       </article>
     </div>

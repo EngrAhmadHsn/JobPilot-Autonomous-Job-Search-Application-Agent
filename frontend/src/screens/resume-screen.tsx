@@ -214,8 +214,8 @@ export function ResumeScreen() {
           ) : (
             <>
               Upload a source résumé and review the parsed facts. The résumé is
-              read once, on this machine, and the agent never claims anything
-              it cannot find there.
+              read once, on this machine, and the agent never claims anything it
+              cannot find there.
             </>
           )
         }

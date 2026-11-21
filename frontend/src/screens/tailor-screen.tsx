@@ -243,7 +243,7 @@ export function TailorJobScreen() {
       <PageHeader
         title="Your experience. Better told."
         description="Tailor for one role without changing the facts."
-          actions={
+        actions={
           <Button
             disabled={tailor.isPending}
             onClick={() => {
@@ -324,8 +324,8 @@ export function TailorJobScreen() {
           <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
             The agent rewrites your résumé for this job using only what it
             already says, then checks every claim against the original and
-            scores the result. The original is preserved; nothing is sent to
-            the employer from here.
+            scores the result. The original is preserved; nothing is sent to the
+            employer from here.
           </p>
         </section>
       ) : null}
@@ -384,7 +384,9 @@ export function TailorJobScreen() {
                 record's `edited_at` — server state, so a reload keeps it).
               */}
               <span className={STATUS_CHIP}>
-                {edited ? "Diff review · edited by you" : "Diff review · proposed"}
+                {edited
+                  ? "Diff review · edited by you"
+                  : "Diff review · proposed"}
               </span>
             </div>
 

@@ -133,8 +133,9 @@ export function AdminScreen() {
   })
 
   const runItems = runs.data?.runs ?? []
-  const recoverable = runItems.filter((run) => run.status === "RECOVERABLE")
-    .length
+  const recoverable = runItems.filter(
+    (run) => run.status === "RECOVERABLE"
+  ).length
   // The server's own liveness count (healthy heartbeats), not a client-side
   // guess at "running".
   const activeWorkers = workers.data?.workers.healthy
@@ -207,14 +208,14 @@ export function AdminScreen() {
                   className={
                     view === key
                       ? "inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 text-[13px] leading-[19px] font-semibold text-primary-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                      : "inline-flex h-[37px] items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest outline-none transition-colors hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      : "inline-flex h-[37px] items-center rounded-lg border border-[#dce1d6] bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest transition-colors outline-none hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   }
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-terracotta-foreground">
+            <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-terracotta-foreground">
               Admin only
             </span>
           </div>
@@ -222,8 +223,12 @@ export function AdminScreen() {
           {view === "overview" || view === "metrics" ? (
             <OpsMetricsGrid
               recoverable={runs.isSuccess ? recoverable : undefined}
-              queued={awaiting.isSuccess ? (awaiting.data?.total ?? 0) : undefined}
-              adapters={sources.isSuccess ? sources.data.adapters.length : undefined}
+              queued={
+                awaiting.isSuccess ? (awaiting.data?.total ?? 0) : undefined
+              }
+              adapters={
+                sources.isSuccess ? sources.data.adapters.length : undefined
+              }
               activeWorkers={workers.isSuccess ? activeWorkers : undefined}
             />
           ) : null}
@@ -237,7 +242,9 @@ export function AdminScreen() {
             away: the design's Overview draws the ops picture, and the
             platform's own totals belong with the other metrics.
           */}
-          {view === "metrics" ? <AdminOverviewBody data={overview.data} /> : null}
+          {view === "metrics" ? (
+            <AdminOverviewBody data={overview.data} />
+          ) : null}
         </div>
       )}
     </div>

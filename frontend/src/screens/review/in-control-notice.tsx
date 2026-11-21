@@ -46,7 +46,7 @@ function BoundaryPanel({
 }) {
   return (
     <section className="flex flex-col gap-2 rounded-surface bg-forest-soft p-[18px]">
-      <h2 className="text-[15px] font-semibold leading-[22px] text-primary">
+      <h2 className="text-[15px] leading-[22px] font-semibold text-primary">
         {heading}
       </h2>
       <p className="max-w-prose text-[13px] leading-[19px] text-muted-foreground">
@@ -66,11 +66,11 @@ export function InControlNotice({ adapterName }: { adapterName: string }) {
     return (
       <BoundaryPanel heading="You're in control. Nothing runs before you approve it.">
         This packet targets{" "}
-        <code className="font-mono text-[11px]">{adapterName}</code>, the
-        local test board of this deployment — not an employer. Approving
-        records your decision and queues a run against that test server,
-        which runs on this machine. Nothing reaches any employer, and the
-        run is only queued once you approve.
+        <code className="font-mono text-[11px]">{adapterName}</code>, the local
+        test board of this deployment — not an employer. Approving records your
+        decision and queues a run against that test server, which runs on this
+        machine. Nothing reaches any employer, and the run is only queued once
+        you approve.
       </BoundaryPanel>
     )
   }
@@ -78,9 +78,8 @@ export function InControlNotice({ adapterName }: { adapterName: string }) {
     <BoundaryPanel heading="Your approval is specific. Your final submit stays yours.">
       JobPilot may fill the employer form. You review it and press the final
       Submit button on the employer site. No application has been sent —
-      approving queues the run, and this deployment's real-board adapters
-      hold no submit capability at all: the run stops where a human takes
-      over.
+      approving queues the run, and this deployment's real-board adapters hold
+      no submit capability at all: the run stops where a human takes over.
     </BoundaryPanel>
   )
 }

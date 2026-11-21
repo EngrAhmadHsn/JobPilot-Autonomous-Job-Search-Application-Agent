@@ -161,7 +161,9 @@ describe("the Home dashboard", () => {
     // pipeline panel's title, which is the one place that says how many
     // applications exist in all.
     await waitFor(() => {
-      expect(screen.getByText(/Your pipeline · 7 applications/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Your pipeline · 7 applications/)
+      ).toBeInTheDocument()
     })
     // The awaiting page returns one row and the prepared page two; the
     // server says 1 + 2 = 3 applications await a decision. The tile speaks
@@ -182,7 +184,9 @@ describe("the Home dashboard", () => {
     expect(within(tileFor("In progress")).getByText("3")).toBeInTheDocument()
     // The outcome group is the multi-status read over the four human
     // outcomes; the server says two.
-    expect(within(tileFor("Outcome recorded")).getByText("2")).toBeInTheDocument()
+    expect(
+      within(tileFor("Outcome recorded")).getByText("2")
+    ).toBeInTheDocument()
   })
 
   it("aggregates need-your-attention from real statuses and links each row to its resolver", async () => {
@@ -306,7 +310,9 @@ describe("the Home dashboard", () => {
     // replaced the old four metric tiles with the design's four pipeline
     // stages, and each of them must read the server's own zero.
     await waitFor(() => {
-      expect(within(tileFor("Awaiting review")).getByText("0")).toBeInTheDocument()
+      expect(
+        within(tileFor("Awaiting review")).getByText("0")
+      ).toBeInTheDocument()
     })
     expect(within(tileFor("Needs you")).getByText("0")).toBeInTheDocument()
     expect(within(tileFor("In progress")).getByText("0")).toBeInTheDocument()
@@ -405,9 +411,9 @@ describe("the Home dashboard", () => {
     // The rest of the link table is the feed's own mapping, pinned directly:
     // submission work → Tracker, uploads → Resume, and an action the map
     // does not know → nowhere rather than a guessed destination.
-    expect(
-      eventLink(auditEvent({ action: "application.submit" }))?.to
-    ).toBe("/app/tracker")
+    expect(eventLink(auditEvent({ action: "application.submit" }))?.to).toBe(
+      "/app/tracker"
+    )
     expect(eventLink(auditEvent({ action: "resume.upload" }))?.to).toBe(
       "/app/resume"
     )
@@ -560,7 +566,9 @@ describe("the Home dashboard", () => {
     expect(screen.getByText(/newest 100 events/i)).toBeInTheDocument()
     // The trail's window is stated once — the feed is the first audit page,
     // never presented as the whole history.
-    expect(screen.getByText(/the first page, not the whole history/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/the first page, not the whole history/i)
+    ).toBeInTheDocument()
     // And no "Live" badge, anywhere.
     expect(screen.queryByText("Live")).not.toBeInTheDocument()
   })

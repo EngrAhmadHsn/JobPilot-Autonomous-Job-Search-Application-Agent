@@ -150,9 +150,7 @@ describe("the tailor screen", () => {
     expect(
       screen.getByRole("heading", { name: "Make every claim count." })
     ).toBeInTheDocument()
-    expect(
-      screen.getByText("Required keywords · 1 of 2")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Required keywords · 1 of 2")).toBeInTheDocument()
 
     // The factuality chip is the validator's own finding, derived — the
     // design's example just asserts "0".
@@ -166,7 +164,9 @@ describe("the tailor screen", () => {
     // Every changed passage carries a provenance line, and a passed
     // factuality check is what licenses "no new claims added" (node 49:996).
     expect(
-      screen.getByText("Source: summary · wording changed, no new claims added.")
+      screen.getByText(
+        "Source: summary · wording changed, no new claims added."
+      )
     ).toBeInTheDocument()
   })
 

@@ -104,7 +104,9 @@ describe("the administration screen", () => {
 
     // The platform totals live under the design's "Metrics" view chip
     // (node 49:1589); the Overview view shows the ops tiles instead.
-    await userEvent.click(await screen.findByRole("button", { name: "Metrics" }))
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Metrics" })
+    )
     expect(await screen.findByText("Accounts")).toBeInTheDocument()
     expect(await screen.findByText("Job corpus")).toBeInTheDocument()
     // The mocked overview reports a corpus of 5,854 listings.
@@ -288,7 +290,7 @@ describe("the administration screen", () => {
     renderApp({ route: "/app/admin" })
 
     expect(
-      await screen.findByText("No active worker", {}, { timeout: 4000 }),
+      await screen.findByText("No active worker", {}, { timeout: 4000 })
     ).toBeInTheDocument()
     expect(
       screen.getByText(/Queued work waits until a worker is running/)
@@ -296,7 +298,9 @@ describe("the administration screen", () => {
     // Wait for the control state to load before asserting the button, so the
     // assertion is about the loaded screen and not about the first paint.
     expect(await screen.findByText(/Up to 4 at once/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Start bounded worker" })).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Start bounded worker" })
+    ).toBeEnabled()
     // The queued run is listed, with the state a person can act on.
     expect(await screen.findByText("reconcile")).toBeInTheDocument()
     expect(screen.getByText(/Waiting for a worker/)).toBeInTheDocument()
@@ -571,7 +575,9 @@ describe("the administration screen", () => {
     expect(inactive.querySelectorAll("tbody tr")).toHaveLength(5)
     expect(within(inactive).getByText(/1–5 of 7/)).toBeInTheDocument()
 
-    await user.click(within(inactive).getByRole("button", { name: "Next page" }))
+    await user.click(
+      within(inactive).getByRole("button", { name: "Next page" })
+    )
 
     expect(inactive.querySelectorAll("tbody tr")).toHaveLength(2)
     expect(within(inactive).getByText(/6–7 of 7/)).toBeInTheDocument()
@@ -599,7 +605,7 @@ describe("the administration screen", () => {
     // ("No worker is running · 1 not running"), so the match is on the
     // liveness sentence, not the whole line.
     expect(
-      await screen.findByText(/No active worker/, {}, { timeout: 4000 }),
+      await screen.findByText(/No active worker/, {}, { timeout: 4000 })
     ).toBeInTheDocument()
     // The worker list is inside the runs section, which settles its query
     // first; wait for that to land before asserting the rows.

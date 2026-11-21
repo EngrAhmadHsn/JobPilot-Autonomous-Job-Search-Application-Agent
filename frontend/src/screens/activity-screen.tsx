@@ -81,8 +81,7 @@ export function ActivityScreen() {
   const events = useMemo(() => audit.data?.events ?? [], [audit.data])
   const runs = useMemo(() => groupRuns(events), [events])
   const visible = useMemo(
-    () =>
-      events.filter((event) => matchesFilter(event, filter)),
+    () => events.filter((event) => matchesFilter(event, filter)),
     [events, filter]
   )
   /*
@@ -149,15 +148,17 @@ export function ActivityScreen() {
           <RelativeTime
             value={lastRead ? new Date(lastRead).toISOString() : null}
           />{" "}
-          · refreshes every 30s — polling, not a live stream (the backend has
-          no event stream yet).
+          · refreshes every 30s — polling, not a live stream (the backend has no
+          event stream yet).
         </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
         <div className="min-w-0 space-y-3">
           {audit.isPending ? (
-            <p className="text-sm text-muted-foreground">Reading the trail...</p>
+            <p className="text-sm text-muted-foreground">
+              Reading the trail...
+            </p>
           ) : visible.length === 0 ? (
             <EmptyState
               title={
@@ -184,7 +185,7 @@ export function ActivityScreen() {
                     key={group.label}
                     className="rounded-surface border border-border-surface bg-card p-5"
                   >
-                    <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+                    <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                       {group.label}
                     </h2>
                     <div className="mt-3">
@@ -219,12 +220,12 @@ export function ActivityScreen() {
             <RunTimeline run={latestRun} />
           ) : (
             <section className="flex min-w-0 flex-col gap-2 rounded-surface border border-border-surface bg-card p-5">
-              <h2 className="text-[20px] font-semibold leading-[29px] text-primary">
+              <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
                 No execution recorded yet
               </h2>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                An application workflow is recorded here once the agent
-                prepares one — every step that shares a workflow id, in order.
+                An application workflow is recorded here once the agent prepares
+                one — every step that shares a workflow id, in order.
               </p>
             </section>
           )}

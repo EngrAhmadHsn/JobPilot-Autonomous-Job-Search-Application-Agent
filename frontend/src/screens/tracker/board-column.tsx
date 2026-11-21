@@ -52,7 +52,7 @@ export function BoardColumn({
   return (
     <section
       aria-label={`${group.label} — ${countLabel}`}
-      className="flex h-[412px] shrink-0 flex-col gap-3 rounded-[var(--radius-surface)] bg-[#eeefe7] p-3 md:h-[575px] md:w-[314px] w-[304px] xl:h-[601px] xl:w-auto xl:flex-1"
+      className="flex h-[412px] w-[304px] shrink-0 flex-col gap-3 rounded-[var(--radius-surface)] bg-[#eeefe7] p-3 md:h-[575px] md:w-[314px] xl:h-[601px] xl:w-auto xl:flex-1"
     >
       {/*
         The header. It stays put while the cards scroll, which is what makes a
@@ -66,7 +66,7 @@ export function BoardColumn({
           title={`The server reports ${
             total ?? "an unknown number of"
           } application${total === 1 ? "" : "s"} in this stage`}
-          className="shrink-0 rounded-md bg-forest-soft px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary tabular-nums"
+          className="shrink-0 rounded-md bg-forest-soft px-[9px] py-1 text-[11px] leading-4 font-semibold text-primary tabular-nums"
         >
           {query.isPending ? "…" : (total ?? "—")}
         </span>

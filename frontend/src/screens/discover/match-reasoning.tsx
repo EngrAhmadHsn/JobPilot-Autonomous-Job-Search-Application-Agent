@@ -57,7 +57,10 @@ function MatchedSkillChips({ items }: { items: string[] }) {
           key={item}
           className="inline-flex max-w-full items-center rounded-[6px] bg-lime-soft px-[9px] py-1"
         >
-          <PlainText as="span" className="text-[11px] font-semibold leading-4 text-lime-foreground">
+          <PlainText
+            as="span"
+            className="text-[11px] leading-4 font-semibold text-lime-foreground"
+          >
             {item}
           </PlainText>
         </li>
@@ -85,7 +88,7 @@ function EvidenceGapPanel({
   if (variant === "panel") {
     return (
       <div className="rounded-surface bg-terracotta-soft p-3.5">
-        <p className="text-[11px] font-semibold uppercase leading-4 tracking-wide text-forest">
+        <p className="text-[11px] leading-4 font-semibold tracking-wide text-forest uppercase">
           Evidence gap
         </p>
         <PlainText className="mt-1.5 block text-[13px] leading-[19px] text-terracotta-foreground">
@@ -96,7 +99,7 @@ function EvidenceGapPanel({
   }
   return (
     <div className="space-y-2 rounded-surface bg-terracotta-soft p-4">
-      <PlainText className="text-[15px] font-semibold leading-[22px] text-terracotta-foreground">
+      <PlainText className="text-[15px] leading-[22px] font-semibold text-terracotta-foreground">
         {missing.length === 1
           ? `${items} is not in your source résumé.`
           : `${items} are not in your source résumé.`}
@@ -122,9 +125,7 @@ export function MatchReasoning({
         <PlainText
           className={cn(
             "max-w-[68ch] text-muted-foreground",
-            isPanel
-              ? "text-[15px] leading-[22px]"
-              : "text-base leading-[23px]"
+            isPanel ? "text-[15px] leading-[22px]" : "text-base leading-[23px]"
           )}
         >
           {match.explanation}
@@ -156,7 +157,10 @@ export function MatchReasoning({
               target roles, so the overall score is capped.
             </p>
           ) : null}
-          <SponsorSignal status={match.sponsor_status} note={match.sponsor_note} />
+          <SponsorSignal
+            status={match.sponsor_status}
+            note={match.sponsor_note}
+          />
           <Disclosure
             summary="See all 8 score components and evidence"
             hint="every component's state, in words"
@@ -172,7 +176,7 @@ export function MatchReasoning({
             grid closes with the role-cap line and the evidence coverage.
           */}
           <div className="space-y-4 border-t border-border-surface pt-5">
-            <h3 className="text-[19px] font-semibold leading-[28px] text-forest">
+            <h3 className="text-[19px] leading-[28px] font-semibold text-forest">
               How the match is explained
             </h3>
             <ScoreGrid match={match} />

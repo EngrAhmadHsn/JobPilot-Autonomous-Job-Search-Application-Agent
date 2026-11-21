@@ -180,7 +180,9 @@ describe("the job detail screen (WS-36)", () => {
     // the guardrail sentence visible under the finding (WS-42, node
     // 49:1958).
     expect(await screen.findByText("Sponsorship: unknown")).toBeInTheDocument()
-    expect(screen.getByText(/No register data is available/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/No register data is available/)
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
         /never boosts a match score or promises future eligibility/

@@ -196,7 +196,7 @@ export function OperationsScreen() {
                   <Link
                     to="/app/admin"
                     viewTransition
-                    className="inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 text-[13px] leading-[19px] font-semibold text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="inline-flex h-[37px] items-center rounded-lg bg-primary px-3.5 text-[13px] leading-[19px] font-semibold text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
                     Open administration →
                   </Link>
@@ -430,7 +430,10 @@ function SourceStatusTable({
   error: unknown
   onRetry: () => void
 }) {
-  const [sort, setSort] = useState<{ key: SourceSortKey; dir: "asc" | "desc" | null }>({
+  const [sort, setSort] = useState<{
+    key: SourceSortKey
+    dir: "asc" | "desc" | null
+  }>({
     key: "source",
     dir: null,
   })
@@ -520,7 +523,9 @@ function SourceStatusTable({
                     className="py-[13px] text-xs text-muted-foreground"
                     title={board.last_error ?? undefined}
                   >
-                    {board.last_ok_at ? freshnessDate(board.last_ok_at) : "Never"}
+                    {board.last_ok_at
+                      ? freshnessDate(board.last_ok_at)
+                      : "Never"}
                   </TableCell>
                   <TableCell
                     className={
@@ -574,7 +579,10 @@ function RunsTable({
   trackedId: string | null
   onTrack: (runId: string) => void
 }) {
-  const [sort, setSort] = useState<{ key: RunSortKey; dir: "asc" | "desc" | null }>({
+  const [sort, setSort] = useState<{
+    key: RunSortKey
+    dir: "asc" | "desc" | null
+  }>({
     key: "created",
     dir: null,
   })

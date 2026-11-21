@@ -92,14 +92,12 @@ function eventPresentation(event: ApplicationEvent): {
         detail: "The submission is not confirmed.",
       }
     case "status_transition": {
-      const to = event.to_status
-        ? describeStatus(event.to_status).label
-        : null
+      const to = event.to_status ? describeStatus(event.to_status).label : null
       const from = event.from_status
         ? describeStatus(event.from_status).label
         : null
       return {
-        title: to ? `Moved to ${to}` : (event.event_type),
+        title: to ? `Moved to ${to}` : event.event_type,
         detail:
           from && to
             ? `From ${from} to ${to}.`
@@ -177,14 +175,14 @@ export function ApplicationTimeline({
               <span
                 data-actor-kind={actor.kind}
                 className={cn(
-                  "inline-flex shrink-0 items-center rounded-md border px-[9px] py-1 text-[11px] font-semibold leading-4",
+                  "inline-flex shrink-0 items-center rounded-md border px-[9px] py-1 text-[11px] leading-4 font-semibold",
                   ACTOR_CHIP_CLASSES[actor.kind]
                 )}
               >
                 {actor.kind === "human" ? `Human · ${actor.name}` : actor.name}
               </span>
               <span className="min-w-0 flex-1 basis-48">
-                <span className="block text-sm font-semibold leading-5 text-primary">
+                <span className="block text-sm leading-5 font-semibold text-primary">
                   {presentation.title}
                 </span>
                 {presentation.detail ? (
@@ -195,7 +193,7 @@ export function ApplicationTimeline({
               </span>
             </div>
             {entries.length > 0 ? (
-              <dl className="ml-[110px] mt-1.5 space-y-1 text-xs text-muted-foreground md:ml-[118px]">
+              <dl className="mt-1.5 ml-[110px] space-y-1 text-xs text-muted-foreground md:ml-[118px]">
                 {entries.map(([key, value]) => (
                   <div key={key} className="flex gap-2">
                     <dt className="shrink-0">{key}:</dt>

@@ -19,7 +19,9 @@ const snapshot = async (label) => {
     const sub = Array.from(document.querySelectorAll("h1 ~ p"))[0]
     return {
       dataMotion: document.documentElement.getAttribute("data-motion"),
-      h1Animation: h1 ? `${getComputedStyle(h1).animationName} ${getComputedStyle(h1).animationDuration} delay ${getComputedStyle(h1).animationDelay}` : null,
+      h1Animation: h1
+        ? `${getComputedStyle(h1).animationName} ${getComputedStyle(h1).animationDuration} delay ${getComputedStyle(h1).animationDelay}`
+        : null,
       subAnimationDelay: sub ? getComputedStyle(sub).animationDelay : null,
     }
   })
@@ -27,7 +29,10 @@ const snapshot = async (label) => {
 }
 
 const canvasHash = () =>
-  page.locator("canvas").first().evaluate((c) => c.toDataURL().slice(-3000))
+  page
+    .locator("canvas")
+    .first()
+    .evaluate((c) => c.toDataURL().slice(-3000))
 
 const before = await snapshot("on load (OS = reduce)")
 
@@ -58,7 +63,8 @@ await page.locator("#demo").scrollIntoViewIfNeeded()
 const selected = () =>
   page.evaluate(
     () =>
-      document.querySelector('[role="tab"][aria-selected="true"]')
+      document
+        .querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent?.trim() ?? null
   )
 const tabBefore = await selected()

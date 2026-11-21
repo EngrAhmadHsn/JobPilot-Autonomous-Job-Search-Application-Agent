@@ -3,5 +3,8 @@ coverage/
 .pnpm-store/
 pnpm-lock.yaml
 package-lock.json
-pnpm-lock.yaml
 yarn.lock
+
+# Local scratch space: the sweeps' own JSON reports are machine-written and
+# git-ignored, so `format:check` must not treat them as source.
+.scratch/

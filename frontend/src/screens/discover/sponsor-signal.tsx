@@ -28,7 +28,8 @@ export function SponsorSignal({
   if (status === "verified") {
     line = `Sponsorship: verified · ${finding}`
   } else if (status === "not_found") {
-    line = "Sponsorship: no record found · checked against the sponsor registers"
+    line =
+      "Sponsorship: no record found · checked against the sponsor registers"
   } else {
     line = "Sponsorship: unknown · no register data available"
   }

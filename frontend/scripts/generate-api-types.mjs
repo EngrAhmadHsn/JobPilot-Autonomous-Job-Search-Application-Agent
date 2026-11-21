@@ -24,7 +24,10 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, "..")
 const OUT = resolve(ROOT, "src/lib/api/schema.ts")
 
-const API_BASE = (process.env.API_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "")
+const API_BASE = (process.env.API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+  /\/+$/,
+  ""
+)
 
 const url = `${API_BASE}/openapi.json`
 process.stdout.write(`Fetching ${url} ... `)
@@ -39,7 +42,7 @@ try {
 } catch (error) {
   process.stderr.write(
     `\nCould not fetch the OpenAPI schema: ${error.message}\n` +
-      `Is the API running in development mode (APP_ENV=development)?\n`,
+      `Is the API running in development mode (APP_ENV=development)?\n`
   )
   process.exit(1)
 }

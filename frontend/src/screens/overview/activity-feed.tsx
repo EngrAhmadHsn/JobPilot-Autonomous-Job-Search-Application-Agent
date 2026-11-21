@@ -131,12 +131,7 @@ function ActivityRow({ event, index }: { event: AuditEvent; index: number }) {
       <p className="mt-1.5 text-[15px] leading-[22px] font-semibold text-forest">
         {action.label}
       </p>
-      <p
-        className={cn(
-          "type-caption mt-1.5",
-          attention && "text-destructive"
-        )}
-      >
+      <p className={cn("type-caption mt-1.5", attention && "text-destructive")}>
         {describeOutcome(event.outcome)}
       </p>
       {link ? (

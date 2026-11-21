@@ -127,10 +127,10 @@ export function BoardView({
           type="button"
           onClick={onOpenList}
           title="The server-side status filter lives on the List view"
-          className="inline-flex h-[39px] items-center gap-2 rounded-lg border border-border-surface bg-paper px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex h-[39px] items-center gap-2 rounded-lg border border-border-surface bg-paper px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Filters
-          <span className="text-[11px] font-normal leading-4 text-muted-foreground">
+          <span className="text-[11px] leading-4 font-normal text-muted-foreground">
             F
           </span>
         </button>
@@ -142,7 +142,7 @@ export function BoardView({
         <LinkButton
           to="/app/matches"
           variant="outline"
-          className="h-[39px] rounded-lg px-3.5 py-2 text-[13px] font-semibold leading-[19px]"
+          className="h-[39px] rounded-lg px-3.5 py-2 text-[13px] leading-[19px] font-semibold"
         >
           Find another role →
         </LinkButton>
@@ -178,7 +178,7 @@ export function BoardView({
         aria-label="What a stage means"
         className="flex flex-col gap-1.5 rounded-[var(--radius-surface)] bg-forest-soft p-4 max-md:hidden"
       >
-        <p className="text-[15px] font-semibold leading-[22px] text-primary">
+        <p className="text-[15px] leading-[22px] font-semibold text-primary">
           A stage is a fact, not a guess.
         </p>
         <p className="text-[13px] leading-[19px] text-muted-foreground">

@@ -289,8 +289,12 @@ export function OverviewScreen() {
   // question gaps are the one source whose failure is surfaced as its own
   // row (with a retry), and the queue's all-clear is withheld while it is
   // unknown.
-  const failures: { key: string; title: string; body: string; onRetry: () => void }[] =
-    []
+  const failures: {
+    key: string
+    title: string
+    body: string
+    onRetry: () => void
+  }[] = []
   if (gaps.isError && profileId) {
     failures.push({
       key: "gaps",
@@ -489,7 +493,8 @@ export function OverviewScreen() {
         }
       : gapCount > 0
         ? {
-            statement: "The boards are asking questions your profile cannot answer.",
+            statement:
+              "The boards are asking questions your profile cannot answer.",
             subject: `${gapCount} employer question${gapCount === 1 ? "" : "s"} appear${gapCount === 1 ? "s" : ""} most often in this corpus.`,
             consequence:
               "A missing answer stops form filling instead of triggering a guess, so answering them is what unlocks approval.",
@@ -518,20 +523,19 @@ export function OverviewScreen() {
       />
 
       <div className="flex flex-col gap-6">
+        {applicationsError ? (
+          <ErrorNotice
+            error={applicationsError}
+            onRetry={() => {
+              void tracked.refetch()
+              void awaiting.refetch()
+              void prepared.refetch()
+              void submitted.refetch()
+            }}
+          />
+        ) : null}
 
-      {applicationsError ? (
-        <ErrorNotice
-          error={applicationsError}
-          onRetry={() => {
-            void tracked.refetch()
-            void awaiting.refetch()
-            void prepared.refetch()
-            void submitted.refetch()
-          }}
-        />
-      ) : null}
-
-      {/*
+        {/*
         The design's two columns (node 49:754): a wide primary column holding
         the next step, the metrics and the action queue, and a narrower
         secondary column holding the digest and the featured opportunity.
@@ -542,73 +546,71 @@ export function OverviewScreen() {
         The order swap is a flex `order`, so the desktop layout is untouched
         and no content is duplicated (the WS-41 rule, preserved).
       */}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
-        {/* -- Primary column -------------------------------------------- */}
-        <div className="order-1 flex min-w-0 flex-col gap-3">
-          {/*
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
+          {/* -- Primary column -------------------------------------------- */}
+          <div className="order-1 flex min-w-0 flex-col gap-3">
+            {/*
             The next step. It renders only when there is a real one: an
             "all clear" hero would be a decorative block wearing
             information's clothes.
           */}
-          {nextStep ? (
-            <NextStepPanel
-              statement={nextStep.statement}
-              subject={nextStep.subject}
-              consequence={nextStep.consequence}
-              action={
-                <LinkButton to={nextStep.to}>
-                  {nextStep.label}
-                </LinkButton>
-              }
-              chip={nextStep.chip}
-            />
-          ) : null}
+            {nextStep ? (
+              <NextStepPanel
+                statement={nextStep.statement}
+                subject={nextStep.subject}
+                consequence={nextStep.consequence}
+                action={
+                  <LinkButton to={nextStep.to}>{nextStep.label}</LinkButton>
+                }
+                chip={nextStep.chip}
+              />
+            ) : null}
 
-          {/*
+            {/*
             "Keep your momentum" — the four stage counts. Every value is a
             server total, and a source that has not answered renders an em
             dash rather than a zero.
           */}
-          <Section
-            title="Keep your momentum"
-            action={
-              <QuietLink to="/app/tracker">View all applications →</QuietLink>
-            }
-          >
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <MetricTile
-                value={
-                  awaiting.isSuccess && prepared.isSuccess
-                    ? awaitingDecisionTotal
-                    : "—"
-                }
-                label="Awaiting review"
-                loading={awaiting.isPending || prepared.isPending}
-              />
-              <MetricTile
-                value={handoffCount ?? "—"}
-                label="Needs you"
-                loading={handoffQuery.isPending}
-              />
-              <MetricTile
-                value={inProgressValue ?? "—"}
-                label="In progress"
-                loading={inProgressQuery.isPending}
-              />
-              <MetricTile
-                value={outcomeCount ?? "—"}
-                label="Outcome recorded"
-                loading={outcomeQuery.isPending}
-              />
-            </div>
-          </Section>
+            <Section
+              title="Keep your momentum"
+              action={
+                <QuietLink to="/app/tracker">View all applications →</QuietLink>
+              }
+            >
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <MetricTile
+                  value={
+                    awaiting.isSuccess && prepared.isSuccess
+                      ? awaitingDecisionTotal
+                      : "—"
+                  }
+                  label="Awaiting review"
+                  loading={awaiting.isPending || prepared.isPending}
+                />
+                <MetricTile
+                  value={handoffCount ?? "—"}
+                  label="Needs you"
+                  loading={handoffQuery.isPending}
+                />
+                <MetricTile
+                  value={inProgressValue ?? "—"}
+                  label="In progress"
+                  loading={inProgressQuery.isPending}
+                />
+                <MetricTile
+                  value={outcomeCount ?? "—"}
+                  label="Outcome recorded"
+                  loading={outcomeQuery.isPending}
+                />
+              </div>
+            </Section>
 
-          {/* The action queue — every row resolves to a real screen. */}
-          {attentionItems.length > 0 || failures.length > 0 ? (
-            <div className="surface px-5 py-4">
-              <Section title="A little progress, on your terms.">
-                <div className="-my-1">
-                  {/*
+            {/* The action queue — every row resolves to a real screen. */}
+            {attentionItems.length > 0 || failures.length > 0 ? (
+              <div className="surface px-5 py-4">
+                <Section title="A little progress, on your terms.">
+                  <div className="-my-1">
+                    {/*
                     The **specific** applications come first, because the
                     design's queue names the thing to act on ("Review your
                     Acorn application") rather than only its count. Each row
@@ -617,114 +619,116 @@ export function OverviewScreen() {
                     presentation, so `prepared` and `awaiting_approval` read
                     with the same words everywhere.
                   */}
-                  {attentionApplications.map((item) => (
-                    <ApplicationActionRow
-                      key={item.id}
-                      applicationId={item.id}
-                      title={item.title}
-                      body={item.body}
-                      actionLabel="Review draft"
-                    />
-                  ))}
-                  {/*
+                    {attentionApplications.map((item) => (
+                      <ApplicationActionRow
+                        key={item.id}
+                        applicationId={item.id}
+                        title={item.title}
+                        body={item.body}
+                        actionLabel="Review draft"
+                      />
+                    ))}
+                    {/*
                     Then the aggregate asks — a missing résumé, the trail
                     events a human should read, the questions the boards ask
                     and the profile cannot answer.
                   */}
-                  {attentionItems
-                    .filter((item) => item.key !== "approvals")
-                    .slice(0, ATTENTION_ROWS)
-                    .map((item) => (
-                      <ActionRow
-                        key={item.key}
-                        icon={FileText}
-                        title={item.title}
-                        body={item.body}
-                        action={
-                          <LinkButton to={item.to} variant="ghost" size="sm">
-                            {item.label} →
-                          </LinkButton>
-                        }
-                      />
-                    ))}
-                  {/*
+                    {attentionItems
+                      .filter((item) => item.key !== "approvals")
+                      .slice(0, ATTENTION_ROWS)
+                      .map((item) => (
+                        <ActionRow
+                          key={item.key}
+                          icon={FileText}
+                          title={item.title}
+                          body={item.body}
+                          action={
+                            <LinkButton to={item.to} variant="ghost" size="sm">
+                              {item.label} →
+                            </LinkButton>
+                          }
+                        />
+                      ))}
+                    {/*
                     The approval count, as the **server total**. It appears
                     whenever anything waits, including when every waiting
                     application is already named above: the count is what says
                     "and nothing else", and a reader who sees three rows has no
                     way to know whether a fourth exists without it.
                   */}
-                  {awaitingDecisionTotal > 0 ? (
-                    <ActionRow
-                      icon={FileText}
-                      title={`${awaitingDecisionTotal} application${awaitingDecisionTotal === 1 ? "" : "s"} awaiting your approval`}
-                      body="Nothing is submitted without that decision."
-                      action={
-                        <LinkButton
-                          to="/app/approvals"
-                          variant="ghost"
-                          size="sm"
-                        >
-                          Review approvals →
-                        </LinkButton>
-                      }
-                    />
-                  ) : null}
-                  {/*
+                    {awaitingDecisionTotal > 0 ? (
+                      <ActionRow
+                        icon={FileText}
+                        title={`${awaitingDecisionTotal} application${awaitingDecisionTotal === 1 ? "" : "s"} awaiting your approval`}
+                        body="Nothing is submitted without that decision."
+                        action={
+                          <LinkButton
+                            to="/app/approvals"
+                            variant="ghost"
+                            size="sm"
+                          >
+                            Review approvals →
+                          </LinkButton>
+                        }
+                      />
+                    ) : null}
+                    {/*
                     And a source that could not be read gets its own row with
                     a retry — the section must never look all-clear while one
                     of its sources is unknown.
                   */}
-                  {failures.map((failure) => (
-                    <FailureActionRow
-                      key={failure.key}
-                      title={failure.title}
-                      body={failure.body}
-                      onRetry={failure.onRetry}
-                    />
-                  ))}
-                </div>
-              </Section>
-            </div>
-          ) : null}
+                    {failures.map((failure) => (
+                      <FailureActionRow
+                        key={failure.key}
+                        title={failure.title}
+                        body={failure.body}
+                        onRetry={failure.onRetry}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              </div>
+            ) : null}
 
-          <PipelineBar
-            title={`Your pipeline · ${trackedTotal ?? 0} application${trackedTotal === 1 ? "" : "s"}`}
-            total={trackedTotal ?? 0}
-            segments={pipelineSegments}
-          />
-        </div>
+            <PipelineBar
+              title={`Your pipeline · ${trackedTotal ?? 0} application${trackedTotal === 1 ? "" : "s"}`}
+              total={trackedTotal ?? 0}
+              segments={pipelineSegments}
+            />
+          </div>
 
-        {/* -- Secondary column ------------------------------------------ */}
-        <div className="order-2 flex min-w-0 flex-col gap-3">
-          {/*
+          {/* -- Secondary column ------------------------------------------ */}
+          <div className="order-2 flex min-w-0 flex-col gap-3">
+            {/*
             "While you were away" — the newest trail rows, each with the
             actor chip that says whether the agent or a person acted.
           */}
-          <div className="surface px-5 py-4">
-            <Section
-              title="While you were away"
-              action={<QuietLink to="/app/activity">All activity →</QuietLink>}
-            >
-              {audit.isPending ? (
-                <p className="type-caption py-2" role="status">
-                  Reading the trail…
-                </p>
-              ) : audit.isError ? (
-                <ErrorState
-                  error={audit.error}
-                  onRetry={() => void audit.refetch()}
-                />
-              ) : events.length === 0 ? (
-                <div className="py-2">
-                  <p className="type-card-title">No recorded activity yet</p>
-                  <p className="type-caption mt-1">
-                    Upload a résumé or run a search and the agent's steps appear
-                    here.
+            <div className="surface px-5 py-4">
+              <Section
+                title="While you were away"
+                action={
+                  <QuietLink to="/app/activity">All activity →</QuietLink>
+                }
+              >
+                {audit.isPending ? (
+                  <p className="type-caption py-2" role="status">
+                    Reading the trail…
                   </p>
-                </div>
-              ) : (
-                /*
+                ) : audit.isError ? (
+                  <ErrorState
+                    error={audit.error}
+                    onRetry={() => void audit.refetch()}
+                  />
+                ) : events.length === 0 ? (
+                  <div className="py-2">
+                    <p className="type-card-title">No recorded activity yet</p>
+                    <p className="type-caption mt-1">
+                      Upload a résumé or run a search and the agent's steps
+                      appear here.
+                    </p>
+                  </div>
+                ) : (
+                  /*
                   The digest renders the **shared** trail component rather
                   than a Home-only list. It already solves three things a
                   bespoke list gets wrong: three-way attribution (the agent,
@@ -734,23 +738,23 @@ export function OverviewScreen() {
                   and a neutral treatment for an unlabelled action. Restyling
                   for the design must not re-derive those rules.
                 */
-                <ActivityFeed events={events.slice(0, FEED_ROWS)} />
-              )}
-              {/*
+                  <ActivityFeed events={events.slice(0, FEED_ROWS)} />
+                )}
+                {/*
                 The window's provenance sits at the foot of the card, the one
                 place it informs without inflating the header row the design
                 specifies (heading + action only): the feed is the first
                 audit page, never presented as the whole history.
               */}
-              <p className="type-caption mt-3">
-                The newest {AUDIT_PAGE_SIZE} events in this account's trail —
-                the first page, not the whole history · updated every{" "}
-                {intervalLabel(OVERVIEW_POLL_MS)}
-              </p>
-            </Section>
-          </div>
+                <p className="type-caption mt-3">
+                  The newest {AUDIT_PAGE_SIZE} events in this account's trail —
+                  the first page, not the whole history · updated every{" "}
+                  {intervalLabel(OVERVIEW_POLL_MS)}
+                </p>
+              </Section>
+            </div>
 
-          {/*
+            {/*
             The featured opportunity.
 
             This renders the **existing** `FeaturedMatch`, not a new card,
@@ -765,60 +769,62 @@ export function OverviewScreen() {
             column on forest ground. The wrapper supplies that ground; the
             component supplies the truth.
           */}
-          {featured && featuredJobQuery?.isSuccess && jobsById.has(featured.jobId) ? (
-            <div className="overflow-hidden rounded-[var(--radius-surface)] bg-card">
-              <FeaturedMatch
-                job={jobsById.get(featured.jobId) as JobListing}
-                match={featured.match}
+            {featured &&
+            featuredJobQuery?.isSuccess &&
+            jobsById.has(featured.jobId) ? (
+              <div className="overflow-hidden rounded-[var(--radius-surface)] bg-card">
+                <FeaturedMatch
+                  job={jobsById.get(featured.jobId) as JobListing}
+                  match={featured.match}
+                />
+              </div>
+            ) : featured && featuredJobQuery?.isError ? (
+              <FeaturedMatchMissing />
+            ) : ranked.isPending && profileId ? (
+              <section aria-label="Best match">
+                <FeaturedMatchSkeleton />
+              </section>
+            ) : ranked.isError ? (
+              <ErrorNotice
+                error={ranked.error}
+                onRetry={() => void ranked.refetch()}
               />
-            </div>
-          ) : featured && featuredJobQuery?.isError ? (
-            <FeaturedMatchMissing />
-          ) : ranked.isPending && profileId ? (
-            <section aria-label="Best match">
-              <FeaturedMatchSkeleton />
-            </section>
-          ) : ranked.isError ? (
-            <ErrorNotice
-              error={ranked.error}
-              onRetry={() => void ranked.refetch()}
-            />
-          ) : (
-            <section
-              aria-label="Best match"
-              className="surface flex flex-col items-start gap-2 p-5"
-            >
-              <p className="type-card-title">No matches yet</p>
-              <p className="type-caption">
-                {profileId
-                  ? "The profile has not been matched against the stored corpus. Run a search on Discover — the ranking is built from what the corpus holds."
-                  : "Matches appear once a résumé is added and becomes the profile the agent works from."}
-              </p>
-              <LinkButton
-                to={profileId ? "/app/matches" : "/app/resume"}
-                variant="outline"
-                size="sm"
+            ) : (
+              <section
+                aria-label="Best match"
+                className="surface flex flex-col items-start gap-2 p-5"
               >
-                {profileId ? "Open Discover" : "Add a résumé"}
-              </LinkButton>
-            </section>
-          )}
+                <p className="type-card-title">No matches yet</p>
+                <p className="type-caption">
+                  {profileId
+                    ? "The profile has not been matched against the stored corpus. Run a search on Discover — the ranking is built from what the corpus holds."
+                    : "Matches appear once a résumé is added and becomes the profile the agent works from."}
+                </p>
+                <LinkButton
+                  to={profileId ? "/app/matches" : "/app/resume"}
+                  variant="outline"
+                  size="sm"
+                >
+                  {profileId ? "Open Discover" : "Add a résumé"}
+                </LinkButton>
+              </section>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/*
+        {/*
         The shortlist stays below both columns: it is a list, and a list
         reads best at full width. It is the same ranked history the featured
         card comes from, so the two can never disagree about "the best match".
       */}
-      {shortlistEntries.length > 0 ? (
-        <Section
-          title="Also strong"
-          description="The next best-ranked matches from the same history."
-        >
-          <Shortlist entries={shortlistEntries} />
-        </Section>
-      ) : null}
+        {shortlistEntries.length > 0 ? (
+          <Section
+            title="Also strong"
+            description="The next best-ranked matches from the same history."
+          >
+            <Shortlist entries={shortlistEntries} />
+          </Section>
+        ) : null}
       </div>
     </div>
   )

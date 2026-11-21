@@ -100,7 +100,8 @@ function rationaleFor(
     }
   }
   return {
-    text: STATE_PHRASE[state as keyof typeof STATE_PHRASE] ??
+    text:
+      STATE_PHRASE[state as keyof typeof STATE_PHRASE] ??
       "Measured against your profile.",
     unknown: false,
   }
@@ -155,7 +156,7 @@ export function ScoreBar({
  */
 export function OverallScore({ value }: { value: number }) {
   return (
-    <span className="inline-flex max-w-full shrink-0 items-center rounded-[6px] bg-lime-soft px-[9px] py-1 text-[11px] font-semibold leading-4 text-lime-foreground tabular-nums">
+    <span className="inline-flex max-w-full shrink-0 items-center rounded-[6px] bg-lime-soft px-[9px] py-1 text-[11px] leading-4 font-semibold text-lime-foreground tabular-nums">
       {wholeScore(value)} / 100 match
     </span>
   )
@@ -210,11 +211,11 @@ export function ScoreGrid({
               key={key}
               className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2"
             >
-              <span className="text-xs font-semibold leading-[17px] text-muted-foreground">
+              <span className="text-xs leading-[17px] font-semibold text-muted-foreground">
                 {label}
               </span>
               {unknown ? (
-                <span className="text-[13px] italic leading-[19px] text-muted-foreground">
+                <span className="text-[13px] leading-[19px] text-muted-foreground italic">
                   {text}
                 </span>
               ) : (

@@ -60,7 +60,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative inline-flex h-9 items-center gap-1.5 px-3 text-sm outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60",
+        "relative inline-flex h-9 items-center gap-1.5 px-3 text-sm transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
         variant === "underline" &&
           cn(
             "rounded-t-md text-muted-foreground hover:text-foreground data-active:font-medium data-active:text-foreground",
@@ -79,7 +79,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
               The design's measured pill (node `49:954`): 37 px tall, r=8,
               13/600, the active one forest-filled with paper text.
             */
-            "h-[37px] rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary hover:bg-accent data-active:border-primary data-active:bg-primary data-active:text-primary-foreground"
+            "h-[37px] rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary hover:bg-accent data-active:border-primary data-active:bg-primary data-active:text-primary-foreground"
           ),
         className
       )}

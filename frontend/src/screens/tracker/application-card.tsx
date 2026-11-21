@@ -44,11 +44,11 @@ export function ApplicationCard({
   return (
     <li {...stagger(index)}>
       <div className="flex flex-col gap-3 rounded-[var(--radius-surface)] border border-border-surface bg-paper p-4">
-        <span className="text-xs font-semibold leading-[17px] wrap-anywhere text-muted-foreground">
+        <span className="text-xs leading-[17px] font-semibold wrap-anywhere text-muted-foreground">
           {application.company_name}
         </span>
 
-        <h4 className="text-lg font-semibold leading-[26px] wrap-anywhere text-primary">
+        <h4 className="text-lg leading-[26px] font-semibold wrap-anywhere text-primary">
           <Link
             to={detail}
             className="underline-offset-4 outline-none hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
@@ -59,7 +59,7 @@ export function ApplicationCard({
 
         <span
           className={cn(
-            "inline-block max-w-full rounded-md px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary",
+            "inline-block max-w-full rounded-md px-[9px] py-1 text-[11px] leading-4 font-semibold text-primary",
             chip.tone
           )}
         >
@@ -78,7 +78,7 @@ export function ApplicationCard({
         <span>
           <Link
             to={detail}
-            className="inline-block rounded-lg border border-[#dce1d6] bg-paper px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary underline-offset-4 outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="inline-block rounded-lg border border-[#dce1d6] bg-paper px-3.5 py-2 text-[13px] leading-[19px] font-semibold text-primary underline-offset-4 outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             {cta}
           </Link>

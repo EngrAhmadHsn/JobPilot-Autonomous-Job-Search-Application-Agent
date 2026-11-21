@@ -16,7 +16,7 @@ import type { CandidateProfile } from "@/lib/api/types"
 /** A section heading on the paper: `13/600`, forest, uppercase. */
 function DocSectionLabel({ children }: { children: string }) {
   return (
-    <h3 className="text-[13px] font-semibold uppercase leading-[19px] text-primary">
+    <h3 className="text-[13px] leading-[19px] font-semibold text-primary uppercase">
       {children}
     </h3>
   )
@@ -29,12 +29,12 @@ export function OriginalDocument({ profile }: { profile: CandidateProfile }) {
 
   return (
     <article className="mx-auto flex w-full max-w-[869px] flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
-      <h2 className="text-[22px] font-semibold uppercase leading-8 text-primary">
+      <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
         Original résumé
       </h2>
       <p className="text-xs leading-[17px] text-muted-foreground">
-        As the parser read your uploaded file — the delivered file is fixed,
-        and this is the source every tailored claim is checked against.
+        As the parser read your uploaded file — the delivered file is fixed, and
+        this is the source every tailored claim is checked against.
       </p>
       <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
 

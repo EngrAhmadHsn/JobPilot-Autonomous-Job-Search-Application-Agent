@@ -45,8 +45,9 @@ const SECTION_LABELS: { prefix: string; label: string }[] = [
 
 /** The breadcrumb's second segment for a pathname. */
 export function sectionLabelFor(pathname: string): string {
-  const match = SECTION_LABELS.find((entry) =>
-    pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`)
+  const match = SECTION_LABELS.find(
+    (entry) =>
+      pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`)
   )
   return match?.label ?? "Home"
 }

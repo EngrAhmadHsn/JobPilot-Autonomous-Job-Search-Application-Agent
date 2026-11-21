@@ -20,7 +20,9 @@ describe("the agent activity screen", () => {
     renderApp({ route: "/app/activity" })
 
     expect(
-      await screen.findByRole("heading", { name: "Nothing happens in the dark." })
+      await screen.findByRole("heading", {
+        name: "Nothing happens in the dark.",
+      })
     ).toBeInTheDocument()
     expect(
       await screen.findByText(/uploaded and parsed a résumé/i)

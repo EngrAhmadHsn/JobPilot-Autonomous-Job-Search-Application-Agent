@@ -21,7 +21,12 @@ const env = await page.evaluate(() => ({
     const c = document.querySelector("canvas")
     if (!c) return null
     const r = c.getBoundingClientRect()
-    return { w: Math.round(r.width), h: Math.round(r.height), bitmapW: c.width, bitmapH: c.height }
+    return {
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+      bitmapW: c.width,
+      bitmapH: c.height,
+    }
   })(),
 }))
 

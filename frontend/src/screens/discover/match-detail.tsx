@@ -92,8 +92,11 @@ export function MatchDetail({
         */}
         <div className="min-w-0 space-y-2.5">
           {match ? <OverallScore value={match.overall_score} /> : null}
-          <h3 className="font-semibold leading-[34px] tracking-tight text-balance text-forest">
-            <PlainText as="span" className="text-[28px] leading-[34px] wrap-anywhere">
+          <h3 className="leading-[34px] font-semibold tracking-tight text-balance text-forest">
+            <PlainText
+              as="span"
+              className="text-[28px] leading-[34px] wrap-anywhere"
+            >
               {job.title}
             </PlainText>
           </h3>
@@ -103,7 +106,7 @@ export function MatchDetail({
             </PlainText>
           ) : null}
           {hasPosted || hasSource ? (
-            <p className="text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
+            <p className="text-[11px] leading-4 tracking-wide text-muted-foreground uppercase">
               {hasPosted ? (
                 <>
                   Posted <RelativeTime value={job.posted_at as string} />
@@ -123,7 +126,7 @@ export function MatchDetail({
 
         {match ? (
           <div className="space-y-4">
-            <h4 className="text-[19px] font-semibold leading-[28px] text-forest">
+            <h4 className="text-[19px] leading-[28px] font-semibold text-forest">
               Why this could be a good fit
             </h4>
             <MatchReasoning match={match} breakdown="disclosed" />
@@ -143,7 +146,8 @@ export function MatchDetail({
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               This is not a score of zero and not a missing match — the stored
-              history did not answer. Trying again is safe and reads nothing new.
+              history did not answer. Trying again is safe and reads nothing
+              new.
             </p>
             {onRetryMatch ? (
               <Button
@@ -184,7 +188,7 @@ export function MatchDetail({
                   href={safeApplicationUrl}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex h-9 items-center rounded-lg border border-border-surface bg-card px-3.5 text-[13px] font-semibold leading-[19px] text-forest transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  className="inline-flex h-9 items-center rounded-lg border border-border-surface bg-card px-3.5 text-[13px] leading-[19px] font-semibold text-forest transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   Open original listing ↗
                 </a>

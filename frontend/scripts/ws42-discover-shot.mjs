@@ -13,12 +13,16 @@ const PASSWORD = process.env.WS42_PASSWORD ?? "operator-local-password"
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`)
-  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback
+  return index >= 0 && process.argv[index + 1]
+    ? process.argv[index + 1]
+    : fallback
 }
 
 const profileId = arg("profile", "")
 const query = arg("query", "backend engineer")
-const out = resolve(arg("out", "../docs/design/ws42/browser/discover-search.png"))
+const out = resolve(
+  arg("out", "../docs/design/ws42/browser/discover-search.png")
+)
 const size = arg("size", "1440x1000")
 const [width, height] = size.split("x").map(Number)
 
@@ -60,15 +64,16 @@ await page.getByLabel(/query/i).fill(query)
   this line clicked that instead, navigated, and photographed an empty screen
   while believing it had run a search.
 */
-await page
-  .getByRole("button", { name: "Search jobs", exact: true })
-  .click()
+await page.getByRole("button", { name: "Search jobs", exact: true }).click()
 
 // The ranking can take a while on a cold corpus; wait for a result row.
 try {
-  await page.waitForSelector('[aria-label="Ranked matches"] li, [aria-label="Ranked matches"] a', {
-    timeout: 180_000,
-  })
+  await page.waitForSelector(
+    '[aria-label="Ranked matches"] li, [aria-label="Ranked matches"] a',
+    {
+      timeout: 180_000,
+    }
+  )
 } catch {
   console.warn("no ranked rows appeared within 180s")
 }
