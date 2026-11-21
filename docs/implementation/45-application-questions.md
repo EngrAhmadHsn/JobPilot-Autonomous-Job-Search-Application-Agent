@@ -42,6 +42,14 @@ FE suite at **407 tests / 49 files**.
 - EEO and attestation questions are listed with their verdict and **no control**, because the API
   refuses to store such an answer (422) — policy, not a limitation.
 
+**Live evidence (2026-11-21).** The answering loop was exercised over HTTP against an isolated copy
+of the real database: the prepared packet reported the sponsorship question as `needs_human` with
+it in `blocking_questions`; `PUT .../answers` returned 200; the very next `GET .../questions`
+reported that question `answerable` with `answer_from="you"` and `blocking_questions` empty, with
+the saved answer listed. An EEO answer was refused **422** with the policy message, and a `PUT`
+sent without the `X-CSRF-Token` header was refused **403** — the CSRF control doing its job, not a
+gap. The per-application page swept clean at 12 surfaces × 7 viewports (see WS-49).
+
 ## Goal
 
 The per-application questions flow exists only as a read-only queue — the backend has nowhere to save a human answer, so a required employer question blocks approval with no path through the console. Build the answering flow end to end (design's Review screen), and fix the profile questions that pretend to be context-free when they are not — work authorization depends on the country being asked about.

@@ -80,6 +80,12 @@ the compositor can take:
 
 - The `animate all` CLI sweep ran in Wave 0, before the feature waves, so the new surfaces were
   built on the animated primitives instead of retrofitted.
+- `verify-motion-control.mjs` is green (2026-11-21, isolated stack): with the machine reporting
+  `reduce`, the landing page sets `data-motion="reduced"` and its heading animates on
+  `reduced-fade 0.32s`; after the visitor chooses **Full**, `data-motion="full"` and the heading
+  animates on `enter-up 0.42s`, the animated colour field repaints, and the demo walkthrough still
+  advances. Both halves of the contract are therefore real: the OS preference is honoured *and*
+  the in-app override restores motion.
 - The `jsdom` shims (`fc09991`) are load-bearing: the animated primitives need browser APIs jsdom
   does not implement, and without them the suite is red on a pristine checkout. The earlier
   "verification" that missed this had piped vitest through `tail`, which masked the exit code —
