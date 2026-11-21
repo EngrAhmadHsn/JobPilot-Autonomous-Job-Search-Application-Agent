@@ -1,4 +1,10 @@
 import { useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
+import {
+  blur,
+  motionTokens,
+  useTempoTransition,
+} from "@animate-ui/react/utils/motion"
 
 import { ErrorNotice } from "@/components/common/error-notice"
 import { PlainText } from "@/components/common/plain-text"
@@ -36,6 +42,48 @@ import { CLAY_CHIP, FOREST_CHIP, OUTLINE_CHIP, SAGE_CHIP } from "./chips"
   Question labels are board-supplied text, so they render through
   `PlainText` like every other untrusted string.
 */
+
+/**
+ * A queue chip whose count changes as answers are saved.
+ *
+ * WS-48: the number is news ("Needs you 2" → "Needs you 1"), so the chip is
+ * **replaced** rather than mutated in place — the old label leaves through
+ * `blur.icon` while the new one arrives through it, on `transition.swap`.
+ * Nothing scales: a number that grows is a stretch (rules.md B9), and the
+ * swap recipe's `scale.icon` is for icons only. The key is the whole label,
+ * so a new count is a new element and the two overlap for one frame.
+ *
+ * The wrapper is `relative inline-flex` so the leaving chip stays where it
+ * was while `popLayout` takes it out of the flow (the row of chips does not
+ * reflow mid-swap), and `initial={false}` keeps the first paint static — a
+ * card that animates its own arrival is a card that is still loading.
+ */
+function CountChip({
+  label,
+  count,
+  className,
+}: {
+  label: string
+  count: number
+  className: string
+}) {
+  const swap = useTempoTransition(motionTokens.transition.swap)
+  return (
+    <span className="relative inline-flex">
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={`${label}-${count}`}
+          className={className}
+          initial={{ opacity: 0, filter: blur.icon }}
+          animate={{ opacity: 1, filter: "blur(0px)", transition: swap }}
+          exit={{ opacity: 0, filter: blur.icon, transition: swap }}
+        >
+          {label} {count}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  )
+}
 
 /** Categories whose answer is a strict Yes/No. */
 const BOOLEAN_CATEGORIES = new Set([
@@ -222,10 +270,16 @@ export function QuestionAnswer({
       </h2>
 
       <div className="flex flex-wrap items-center gap-2.5">
-        <span className={needsYou > 0 ? FOREST_CHIP : OUTLINE_CHIP}>
-          Needs you {needsYou}
-        </span>
-        <span className={OUTLINE_CHIP}>Confirmed {confirmed}</span>
+        <CountChip
+          label="Needs you"
+          count={needsYou}
+          className={needsYou > 0 ? FOREST_CHIP : OUTLINE_CHIP}
+        />
+        <CountChip
+          label="Confirmed"
+          count={confirmed}
+          className={OUTLINE_CHIP}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

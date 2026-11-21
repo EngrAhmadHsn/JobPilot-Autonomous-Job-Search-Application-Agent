@@ -1,5 +1,10 @@
 import { useRef } from "react"
 import { cn } from "cn"
+import { motion } from "motion/react"
+import {
+  motionTokens,
+  useTempoTransition,
+} from "@animate-ui/react/utils/motion"
 
 import { PlainText } from "@/components/common/plain-text"
 import { RelativeTime } from "@/components/common/relative-time"
@@ -43,6 +48,15 @@ import type { JobMatchPair } from "@/lib/api/types"
   Top N), so the "Show more" control extends the client-side window — it
   never implies another server page. The count line above the list states
   the honest total; the slice-at-cap wording lives with it.
+
+  Selection (WS-48): the sage wash is an **absolutely positioned layer under
+  the row's content**, not a background class that changes — so it fades in
+  and out on `transition.fade` instead of snapping. It is a layer rather
+  than a `layoutId` highlight because the row is a hot path: a `layoutId`
+  move is projected on the main thread over rows whose heights the board
+  supplies, and a scroll-full of those is exactly where main-thread work
+  must not go. Opacity is compositor-only and the row's geometry never
+  changes, so keyboard focus and the roving tabindex stay instant.
 */
 
 /**
@@ -56,7 +70,7 @@ function RowScore({ value, selected }: { value: number; selected: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center rounded-[6px] px-[9px] text-[11px] leading-4 font-semibold text-lime-foreground tabular-nums",
+        "inline-flex h-6 shrink-0 items-center rounded-[6px] px-[9px] text-[11px] leading-4 font-semibold text-lime-foreground tabular-nums transition-colors duration-150",
         selected ? "bg-lime-soft" : "bg-forest-soft"
       )}
       aria-label={`Match score ${whole} out of 100`}
@@ -80,6 +94,9 @@ function ResultRow({
   refCallback: (element: HTMLButtonElement | null) => void
 }) {
   const { job, match } = pair
+  // The wash eases rather than snaps, on the library's own fade timing and
+  // through the tempo, so a slower motion setting slows it too.
+  const wash = useTempoTransition(motionTokens.transition.fade)
   // The date the listing carries, or the board it came from — one of the
   // two is always known; neither is invented.
   const freshness = job.posted_at ? (
@@ -101,12 +118,27 @@ function ResultRow({
         aria-current={selected || undefined}
         onClick={() => onSelect(job.id)}
         className={cn(
-          "w-full space-y-2 rounded-[var(--radius-surface)] border p-4 text-start transition-colors duration-150",
+          "relative isolate w-full space-y-2 rounded-[var(--radius-surface)] border bg-card p-4 text-start transition-colors duration-150",
           selected
-            ? "border-transparent bg-forest-soft"
-            : "border-border-surface bg-card hover:bg-accent/50"
+            ? "border-transparent"
+            : "border-border-surface hover:bg-accent/50"
         )}
       >
+        {/*
+          The selected row's sage wash (design node `49:875`, #e6ece8).
+          Painted under the row's own background and above its border —
+          negative z-index children draw over the element's background and
+          border in the CSS painting order, which is why `isolate` is here:
+          it keeps the layer inside this row's stacking context instead of
+          falling behind the pane. `aria-hidden` because selection is
+          already announced by `aria-current`.
+        */}
+        <motion.span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 rounded-[var(--radius-surface)] bg-forest-soft"
+          initial={false}
+          animate={{ opacity: selected ? 1 : 0, transition: wash }}
+        />
         {/*
           The design's row anatomy (node 49:875/49:887): the title with the
           score chip on its trailing edge, then company · location, then the

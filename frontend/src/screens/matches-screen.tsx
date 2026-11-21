@@ -2,6 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "react-router-dom"
 import { cn } from "cn"
+import { motion } from "motion/react"
+import {
+  motionTokens,
+  useTempoTransition,
+} from "@animate-ui/react/utils/motion"
 
 import { CardSkeleton } from "@/components/common/card-skeleton"
 import { ErrorNotice } from "@/components/common/error-notice"
@@ -545,6 +550,30 @@ export function MatchesScreen() {
 
   const total = data?.results.length ?? 0
 
+  /*
+    WS-48: the bones hand over to the ranking instead of blinking into it.
+
+    Only the **arrival from the skeleton** is animated: `arrivedFromSkeleton`
+    mirrors `search.isPending`, so a ranking that was already cached on mount
+    (a reload, a return visit) paints at once — animating it would make a
+    screen the operator already has look like it was still loading. The
+    mirror is state adjusted during render rather than a `useRef` read-then-
+    write, which StrictMode's double render would consume too early.
+
+    The reveal is opacity-only on purpose: the branch is the screen's whole
+    two-pane body, one pane of which is a scroll container, and a `filter`
+    over that area is a full-surface re-raster for the length of the fade
+    with nothing on screen yet to make it worth it. Opacity alone is
+    compositor-only and reads the same at this size.
+  */
+  const [wasSearchPending, setWasSearchPending] = useState(search.isPending)
+  const [arrivedFromSkeleton, setArrivedFromSkeleton] = useState(false)
+  if (wasSearchPending !== search.isPending) {
+    setWasSearchPending(search.isPending)
+    setArrivedFromSkeleton(!search.isPending)
+  }
+  const settle = useTempoTransition(motionTokens.transition.reveal)
+
   let detail: ReactNode = null
   if (!selectedId) {
     detail = (
@@ -676,7 +705,11 @@ export function MatchesScreen() {
           <SearchBanners data={data} />
 
           {
-            <div className="grid gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] lg:grid-rows-[minmax(0,1fr)]">
+            <motion.div
+              initial={arrivedFromSkeleton ? { opacity: 0 } : false}
+              animate={{ opacity: 1, transition: settle }}
+              className="grid gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] lg:grid-rows-[minmax(0,1fr)]"
+            >
               {/*
                 The list column. On a phone the columns take turns: the
                 results lead, and a selected job replaces the list with a
@@ -753,7 +786,7 @@ export function MatchesScreen() {
               >
                 {detail}
               </section>
-            </div>
+            </motion.div>
           }
         </>
       ) : selectedId && lookupJob.isPending ? (
