@@ -717,9 +717,272 @@ describe("the resume studio (WS-37, composition from WS-42)", () => {
         "Your model credential was rejected by the provider. Register a working key under Profile → Model credentials."
       )
     ).toBeInTheDocument()
-    // The recovery path the error names.
+    // The recovery path the error names — the account screen now hosts the
+    // model credentials (WS-46), so that is where the link goes (WS-47).
     expect(
       screen.getByRole("link", { name: "Open Profile → Model credentials" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Open Profile → Model credentials" })
+    ).toHaveAttribute("href", "/app/account")
+  })
+})
+
+/*
+  WS-47: the studio's edit flow. The studio can now edit the draft's sections
+  and save them: the server revalidates factuality against the profile, re-runs
+  the ATS analysis, regenerates the deliverable, and answers with the updated
+  record — which is what the screen then shows.
+*/
+describe("the studio editor (ws-47)", () => {
+  /** Run the tailoring and wait for the studio pills. */
+  async function runTailoring() {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+    await screen.findByText("The tailored resume is ready")
+    return user
+  }
+
+  /** A stored record shaped like the PUT answers, with an edit stamp. */
+  function editedRecord() {
+    return {
+      ...tailorResponse({
+        tailored: {
+          ...tailorResponse().tailored,
+          summary: "Edited summary in the studio.",
+        },
+      }),
+      created_at: "2026-10-21T10:00:00Z",
+      edited_at: "2026-11-21T10:05:00Z",
+    }
+  }
+
+  it("renders the real deliverable format in the toolbar row, and no fake formatting controls", async () => {
+    await runTailoring()
+
+    // The render report says what the deliverable really is: the caller's own
+    // DOCX, edited in place. That is the toolbar row's format truth — not a
+    // "Body · 11 pt" control pretending to edit runs the editor never touches.
+    expect(screen.getByText("Body · DOCX")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Body ·/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Bold$/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it("edits the sections, saves them, and shows the edited record", async () => {
+    let putBody: unknown = null
+    let putCount = 0
+    server.use(
+      http.put(`${BASE}/api/tailored/tailoring-1`, async ({ request }) => {
+        putCount += 1
+        putBody = await request.json()
+        return HttpResponse.json(editedRecord())
+      })
+    )
+    const user = await runTailoring()
+
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+
+    // The editor opens with the record's own content, labelled and editable.
+    const summary = await screen.findByLabelText("Professional summary")
+    expect(summary).toHaveValue(
+      "AI Engineer with analytical and machine learning experience."
+    )
+    // One bullet per line — the mapping the server re-chunks onto the entries.
+    expect(screen.getByLabelText("Experience bullets")).toHaveValue(
+      "Designed the first published algorithm."
+    )
+    expect(
+      screen.getByLabelText("Cover letter", { selector: "textarea" })
+    ).toHaveValue("Dear hiring team, I build analytical systems.")
+
+    await user.clear(summary)
+    await user.type(summary, "Edited summary in the studio.")
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    // The save sends the edited sections as the contract carries them.
+    expect(putCount).toBe(1)
+    expect(putBody).toEqual({
+      summary: "Edited summary in the studio.",
+      experience: "Designed the first published algorithm.",
+      cover_letter: "Dear hiring team, I build analytical systems.",
+    })
+
+    // The chip tells the truth about whose words these now are.
+    expect(
+      await screen.findByText("Diff review · edited by you")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Diff review · proposed")).not.toBeInTheDocument()
+
+    // The comparison shows the saved wording (server-authoritative), and the
+    // editor is closed again — the canvas is back to read-only.
+    expect(
+      await screen.findByText("Edited summary in the studio.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("Professional summary")
+    ).not.toBeInTheDocument()
+  })
+
+  it("discards an edit without saving anything", async () => {
+    let putCount = 0
+    server.use(
+      http.put(`${BASE}/api/tailored/tailoring-1`, async () => {
+        putCount += 1
+        return HttpResponse.json(editedRecord())
+      })
+    )
+    const user = await runTailoring()
+
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    const summary = await screen.findByLabelText("Professional summary")
+    await user.clear(summary)
+    await user.type(summary, "A draft that will be thrown away.")
+
+    await user.click(screen.getByRole("button", { name: "Discard changes" }))
+
+    // Nothing was sent, nothing changed: the record is still the proposal.
+    expect(putCount).toBe(0)
+    expect(screen.getByText("Diff review · proposed")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "AI Engineer with analytical and machine learning experience."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("Professional summary")
+    ).not.toBeInTheDocument()
+  })
+
+  it("reports a post-save factuality violation as content, never as an error", async () => {
+    server.use(
+      http.put(`${BASE}/api/tailored/tailoring-1`, async () =>
+        HttpResponse.json({
+          ...tailorResponse({
+            factuality: {
+              passed: false,
+              removed_skills: ["Kubernetes"],
+              removed_experience: [],
+              removed_projects: [],
+              violations: ["'Kubernetes' is not stated by the resume"],
+            },
+          }),
+          created_at: "2026-10-21T10:00:00Z",
+          edited_at: "2026-11-21T10:05:00Z",
+        })
+      )
+    )
+    const user = await runTailoring()
+
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    // The verdict rides above the tabs, exactly as it does after a run…
+    expect(
+      await screen.findByText(
+        "The factuality check changed the resume before delivery"
+      )
+    ).toBeInTheDocument()
+    // …the editor is closed…
+    expect(
+      screen.queryByLabelText("Professional summary")
+    ).not.toBeInTheDocument()
+    // …the chip says the edit was saved…
+    expect(screen.getByText("Diff review · edited by you")).toBeInTheDocument()
+    // …and nothing is an error: no refusal banner.
+    expect(
+      screen.queryByText("The save did not go through")
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the editor open with the server's own error when a save fails", async () => {
+    server.use(
+      http.put(`${BASE}/api/tailored/tailoring-1`, async () =>
+        HttpResponse.json(
+          {
+            detail:
+              "The profile this tailoring was built from no longer exists, so the edit cannot be validated against it. Re-tailor the resume instead.",
+          },
+          { status: 409 }
+        )
+      )
+    )
+    const user = await runTailoring()
+
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    const summary = await screen.findByLabelText("Professional summary")
+    await user.clear(summary)
+    await user.type(summary, "Work the server refused to accept.")
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    // The server's actionable detail, verbatim…
+    expect(
+      await screen.findByText(/no longer exists, so the edit cannot be/)
+    ).toBeInTheDocument()
+    // …and the work is not lost: the editor is still open with the draft.
+    expect(summary).toHaveValue("Work the server refused to accept.")
+    expect(screen.getByText("Diff review · proposed")).toBeInTheDocument()
+  })
+})
+
+/*
+  WS-47: the rail's deliverable caption adapts to how the file was actually
+  produced — an in-place edit has no regenerated layout to check, and a
+  rewrite must say so. Pinned per case, from the render report's real data.
+*/
+describe("the evidence rail's deliverable caption (ws-47)", () => {
+  async function runTailoring() {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+    await screen.findByText("The tailored resume is ready")
+    return user
+  }
+
+  it("says the delivered layout is the one to check after an in-place edit", async () => {
+    await runTailoring()
+    expect(
+      screen.getByText(
+        "Original preserved. Your own file was edited in place — check the delivered layout before export."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("says the regenerated layout is the one to check after a rewrite", async () => {
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          tailorResponse({
+            render: {
+              mode: "regenerated",
+              source_format: "none",
+              edits: 0,
+              appended: 0,
+              removed: 0,
+              skipped: [],
+              notes: [],
+            },
+          })
+        )
+      )
+    )
+    await runTailoring()
+    expect(
+      screen.getByText(
+        "Original preserved. Check the regenerated DOCX layout before export."
+      )
     ).toBeInTheDocument()
   })
 })

@@ -53,6 +53,7 @@ import type {
   StatusUpdateRequest,
   StoredTailoring,
   TailorRequest,
+  TailoredEditRequest,
   TailorResponse,
   WorkerActionResponse,
   WorkerHealthResponse,
@@ -317,6 +318,25 @@ export const api = {
         signal,
         timeoutMs: 30_000,
       }
+    ),
+
+  /**
+   * Save the studio's section edits (WS-47).
+   *
+   * The server revalidates factuality against the profile, re-runs the ATS
+   * analysis and regenerates the deliverable — all deterministic, so the wait
+   * is a render's, not a model's — and answers with the updated record
+   * (including its new `edited_at`). A factuality violation is **not** an
+   * error: the response is 200 with the report, and the screen shows it.
+   */
+  editTailored: (
+    tailoringId: string,
+    body: TailoredEditRequest,
+    signal?: AbortSignal
+  ) =>
+    request<StoredTailoring>(
+      `/api/tailored/${encodeURIComponent(tailoringId)}`,
+      { method: "PUT", json: body, signal, timeoutMs: 60_000 }
     ),
 
   /** Prepare an application for review. Nothing is submitted. */

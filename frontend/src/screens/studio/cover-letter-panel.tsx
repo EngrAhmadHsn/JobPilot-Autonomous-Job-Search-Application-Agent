@@ -14,11 +14,12 @@ import { Button } from "@/components/ui/button"
   the letter's alone. No edit here touches the resume diff, the reports or
   the delivered file, and no edit anywhere else touches this text.
 
-  **What persistence supports:** nothing, for the letter. The tailoring
-  stores the resume document and this draft as delivered; the API has no
-  endpoint to save an edited letter, so the editor does not pretend one
-  exists. Edits live in this window; the copy button moves the text where
-  it can be kept; a fresh draft arrives with a fresh tailoring run.
+  **What persistence supports, and where it lives:** this tab's draft stays
+  in the window — the copy button moves the text where it can be kept, and
+  a fresh draft arrives with a fresh tailoring run. Since WS-47 the letter
+  *can* be saved to the server, but only through the studio's Edit draft on
+  the Inline diff tab (which saves it together with the resume sections and
+  revalidates both); the banner says so rather than implying no save exists.
 */
 
 export function CoverLetterPanel({
@@ -52,7 +53,9 @@ export function CoverLetterPanel({
           only in this window — copy the text out before you leave the page. A
           new letter comes with a new tailoring run (Tailor again, top of the
           screen); nothing you type changes the resume, its reports or the
-          delivered file.
+          delivered file. To save the letter to the server, use Edit draft on
+          the Inline diff tab — a save there revalidates it together with the
+          resume sections.
         </p>
       </Banner>
 

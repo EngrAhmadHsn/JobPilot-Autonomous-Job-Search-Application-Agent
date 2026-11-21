@@ -141,7 +141,33 @@ export type ResumeUploadResponse = DeepRequired<
 export type StatusUpdateRequest = components["schemas"]["StatusUpdateRequest"]
 export type StoredTailoring = DeepRequired<
   components["schemas"]["StoredTailoringResponse"]
->
+> & {
+  /**
+   * WS-47: when the candidate last saved an edit of their own, or `null`
+   * while the record is still the tailoring run's own output. Written here
+   * as an intersection because the generated schema predates the edit
+   * endpoint (`npm run api:types` reads a running server and is not
+   * available to this sprint); the shape mirrors `edited_at` on
+   * `StoredTailoringResponse` in `src/api/routes/tailoring.py`.
+   */
+  edited_at?: string | null
+}
+
+/**
+ * The studio's edit request (WS-47) — the sections being saved, as plain
+ * text: one bullet per line for `experience`/`projects`. Every field is
+ * optional (the console edits one section at a time) and the server refuses
+ * a body that edits nothing. Written here because the generated schema
+ * predates `PUT /api/tailored/{id}`; it mirrors `TailoredEditRequest` in
+ * `src/api/routes/tailoring.py`, including the 8000-character bound the
+ * server enforces.
+ */
+export interface TailoredEditRequest {
+  summary?: string
+  experience?: string
+  projects?: string
+  cover_letter?: string
+}
 export type TailorRequest = components["schemas"]["TailorRequest"]
 export type TailorResponse = DeepRequired<
   components["schemas"]["TailorResponse"]

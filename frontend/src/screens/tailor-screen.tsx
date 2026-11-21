@@ -17,7 +17,7 @@ import { api } from "@/lib/api/endpoints"
 import { formatDateTime } from "@/lib/format"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
 import { asRecord, asString } from "@/lib/safe"
-import type { TailorResponse } from "@/lib/api/types"
+import type { TailorResponse, TailoredEditRequest } from "@/lib/api/types"
 
 import { CoverLetterPanel } from "@/screens/studio/cover-letter-panel"
 import { EvidenceRail } from "@/screens/studio/evidence-rail"
@@ -30,6 +30,7 @@ import {
   StylePanel,
 } from "@/screens/studio/report-panels"
 import { ResumeDiffView } from "@/screens/studio/resume-diff"
+import { ResumeEditor } from "@/screens/studio/resume-editor"
 
 /*
   The Resume Studio (WS-37), rebuilt to the design file's screen `16:82`
@@ -49,15 +50,23 @@ import { ResumeDiffView } from "@/screens/studio/resume-diff"
     run; hiding them behind no tab at all would bury the checks the safety
     story depends on. The design's example data passed factuality, so its
     five pills never needed them.
-  - **No editor toolbar.** The design draws B / I / U / "Body · 11 pt" on an
-    editable canvas. The comparison is read-only — there is no per-change
-    revision model behind it (the WS-37 Task 1 audit found none) — and
-    formatting controls that change nothing would be a lie about what this
-    surface can do. The canvas carries the design's diff legend and a real
-    view toggle instead.
-  - The **status chip is the design's own copy** ("Diff review · proposed"):
-    the tailored wording is the agent's proposal, and it stays a proposal
-    until the candidate authorizes the application on Review.
+  - **The toolbar row states facts, not editor cosplay.** The design draws
+    B / I / U / "Body · 11 pt" on an editable canvas. Formatting controls
+    that change nothing would be a lie about what the in-place editor can
+    regenerate, so the row's first chip names the deliverable's **real**
+    format from the render report ("Body · DOCX"), the design's diff legend
+    sits on the paper where the design puts it, and the one real edit this
+    surface has — Edit draft (WS-47) — opens the section editor.
+  - **Editing is wording, and a save is the pipeline minus the model**
+    (WS-47): the sections go to `PUT /api/tailored/{id}`, which revalidates
+    factuality against the profile, re-runs the ATS analysis, regenerates
+    the deliverable in place, and answers with the updated record — which
+    becomes what this screen shows. A factuality violation after a save is
+    content (the warning banner stays), never an error.
+  - The **status chip tells the truth about whose words these are**:
+    "Diff review · proposed" while the record is the run's own output,
+    "Diff review · edited by you" once an edit has been saved (the record's
+    `edited_at` — server state, not screen state, so a reload keeps it).
   - "Preview DOCX" and "Download DOCX" name the **real** deliverable format
     (WS-31): a text deliverable says "text version", because promising a
     DOCX that is not there is the exact defect WS-31 fixed.
@@ -109,10 +118,21 @@ const STATUS_CHIP =
  * and offers a Cancel — which abandons the *wait*, not the server's work,
  * and says so.
  */
+/**
+ * What the screen displays for the tailoring: the run's response, or — once
+ * an edit has been saved — the server's updated stored record (which carries
+ * everything the run response carries, plus the `edited_at` stamp the status
+ * chip reads). The PUT's response **is** the refreshed record, so the screen
+ * adopts it instead of issuing a second GET for the same bytes.
+ */
+type StudioRecord = TailorResponse & { edited_at?: string | null }
+
 export function TailorJobScreen() {
   const { jobId = "" } = useParams()
   const { profileId, profile } = useProfileWithFallback()
   const [run, setRun] = useState(0)
+  const [savedRecord, setSavedRecord] = useState<StudioRecord | null>(null)
+  const [editing, setEditing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const job = useQuery({
@@ -126,6 +146,22 @@ export function TailorJobScreen() {
       const controller = new AbortController()
       abortRef.current = controller
       return api.tailor({ profile_id: profile, job_id: job }, controller.signal)
+    },
+  })
+
+  const edit = useMutation({
+    mutationFn: ({
+      tailoringId,
+      body,
+    }: {
+      tailoringId: string
+      body: TailoredEditRequest
+    }) => api.editTailored(tailoringId, body),
+    // The response is the updated stored record: adopt it as what the screen
+    // shows, and close the editor. Nothing else to refetch.
+    onSuccess: (record) => {
+      setSavedRecord(record)
+      setEditing(false)
     },
   })
 
@@ -164,7 +200,13 @@ export function TailorJobScreen() {
     )
   }
 
-  const result = tailor.data
+  /*
+    What the studio shows: the run's record, or the server's updated record
+    once an edit was saved. A new run resets the saved record — its content
+    is a fresh proposal again.
+  */
+  const result: StudioRecord | undefined = savedRecord ?? tailor.data
+  const edited = Boolean(result?.edited_at)
 
   /*
     Recovery truth (master prompt §9.4): the model's own error text names its
@@ -180,6 +222,18 @@ export function TailorJobScreen() {
   const needsCredentials =
     runError instanceof ApiError && runError.status === 409
 
+  /*
+    A failed save says what the server said and keeps the editor open with
+    the draft: the caller can repair the cause without retyping anything.
+    A transport failure has no server detail, so the message is ours — and
+    honest about what happened (nothing was saved).
+  */
+  const editErrorDetail = edit.error
+    ? edit.error instanceof ApiError && edit.error.detail
+      ? edit.error.detail
+      : "The server could not save the edit. Your draft is unchanged on the server — try again."
+    : null
+
   const jobData = job.data?.job
   const parsedProfile = profile.data?.profile
   const deliverable = result ? deliverableLabel(result.docx_path) : "DOCX"
@@ -189,11 +243,15 @@ export function TailorJobScreen() {
       <PageHeader
         title="Your experience. Better told."
         description="Tailor for one role without changing the facts."
-        actions={
+          actions={
           <Button
             disabled={tailor.isPending}
             onClick={() => {
               setRun((value) => value + 1)
+              // A new run is a fresh proposal: the previous edit's record and
+              // any open editor belong to the replaced deliverable.
+              setSavedRecord(null)
+              setEditing(false)
               tailor.mutate({ profile: profileId, job: jobId })
             }}
           >
@@ -232,7 +290,13 @@ export function TailorJobScreen() {
           />
           {needsCredentials ? (
             <p className="text-sm">
-              <LinkButton variant="outline" size="sm" to="/app/profile">
+              {/*
+                WS-46 moved the model credentials onto the account screen, so
+                the recovery link goes where the fix actually lives now
+                (WS-47 retarget). The label keeps the wording the API's 409
+                detail tells the caller to look for.
+              */}
+              <LinkButton variant="outline" size="sm" to="/app/account">
                 Open Profile → Model credentials
               </LinkButton>
             </p>
@@ -314,7 +378,14 @@ export function TailorJobScreen() {
                     pill names what it really is rather than assuming DOCX. */}
                 Download the {deliverable}
               </a>
-              <span className={STATUS_CHIP}>Diff review · proposed</span>
+              {/*
+                The status chip tells the truth about whose words these are:
+                the run's proposal, or the candidate's saved edit (the
+                record's `edited_at` — server state, so a reload keeps it).
+              */}
+              <span className={STATUS_CHIP}>
+                {edited ? "Diff review · edited by you" : "Diff review · proposed"}
+              </span>
             </div>
 
             <TabsContent value="diff" keepMounted>
@@ -330,14 +401,37 @@ export function TailorJobScreen() {
                 </div>
               ) : (
                 <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                  <ResumeDiffView
-                    profile={parsedProfile}
-                    tailored={result.tailored}
-                    render={result.render}
-                    jobTitle={jobData ? jobData.title : "Tailored resume"}
-                    company={jobData ? jobData.company : "the employer"}
-                    claimsVerified={result.factuality.passed}
-                  />
+                  {editing ? (
+                    <ResumeEditor
+                      tailored={result.tailored}
+                      render={result.render}
+                      jobTitle={jobData ? jobData.title : "Tailored resume"}
+                      company={jobData ? jobData.company : "the employer"}
+                      saving={edit.isPending}
+                      error={editErrorDetail}
+                      onSave={(body) =>
+                        edit.mutate({ tailoringId: result.tailoring_id, body })
+                      }
+                      onDiscard={() => {
+                        edit.reset()
+                        setEditing(false)
+                      }}
+                    />
+                  ) : (
+                    <ResumeDiffView
+                      profile={parsedProfile}
+                      tailored={result.tailored}
+                      render={result.render}
+                      jobTitle={jobData ? jobData.title : "Tailored resume"}
+                      company={jobData ? jobData.company : "the employer"}
+                      claimsVerified={result.factuality.passed}
+                      onStartEdit={() => {
+                        // A stale save failure must not greet a new session.
+                        edit.reset()
+                        setEditing(true)
+                      }}
+                    />
+                  )}
                   <EvidenceRail
                     coverage={result.ats_report.keyword_coverage}
                     profile={parsedProfile}

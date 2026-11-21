@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { CircleAlert, Columns2, Minus, PenLine, Plus, Rows3 } from "lucide-react"
+import { CircleAlert, Columns2, Minus, PenLine, Plus, Rows3, Type } from "lucide-react"
 import { cn } from "cn"
 
 import { PlainText } from "@/components/common/plain-text"
@@ -13,7 +13,8 @@ import {
 import type { CandidateProfile, TailoredResume } from "@/lib/api/types"
 
 /*
-  The document canvas of the Resume Studio (WS-42, design node `16:82`).
+  The document canvas of the Resume Studio (WS-42, design node `16:82`;
+  WS-47 adds the edit entry point and the toolbar's format truth).
 
   The design draws the comparison as the tailored document itself: a paper
   sheet on a sage desk mat, where every changed passage is a full-width
@@ -33,13 +34,52 @@ import type { CandidateProfile, TailoredResume } from "@/lib/api/types"
   is never the only signal: every wash also carries a text caption (which
   side it is) and a status chip (what happened to it), and the five states
   the data model actually has — the design's example only exercises two —
-  each render with their own words. The design's editor toolbar (B / I / U
-  / "Body · 11 pt") is deliberately not rendered: the comparison is
-  read-only, there is no per-change revision model behind it (the WS-37
-  Task 1 audit found none), and formatting controls that change nothing
-  would be a lie about what this surface can do. The honest toolbar row
-  carries the design's own two-chip legend and the real view toggle.
+  each render with their own words.
+
+  The toolbar row keeps the design's composition but states **facts** where
+  the design's mock drew editor controls: the B / I / U buttons would lie
+  about a comparison the in-place editor cannot regenerate run formatting
+  through, so the row's first control is the deliverable's real format from
+  the render report ("Body · DOCX" — the WS-31 truth) beside the design's
+  own two-chip legend, and the last is the one real edit this surface has:
+  Edit draft, which opens the studio's section editor (WS-47).
 */
+
+/**
+ * The deliverable's format, named from the render report (WS-47).
+ *
+ * An in-place deliverable keeps the uploaded format (WS-31), so the label is
+ * that format. A regenerated deliverable is a fresh document — the renderer's
+ * DOCX, or the text fallback for an upload the text editor could not carry —
+ * and the label says "regenerated", because promising an edit that did not
+ * happen is the exact defect WS-31 fixed.
+ */
+export function sourceFormatLabel(render: RenderReport): string {
+  const format = render.source_format.replace(".", "").toUpperCase()
+  const known = format && format !== "NONE"
+  if (render.mode === "in_place") {
+    return known ? `Body · ${format}` : "Body · document"
+  }
+  return known ? `Body · regenerated ${format}` : "Body · regenerated document"
+}
+
+/** The toolbar row's format chip: what the deliverable really is. */
+export function FormatChip({ render }: { render: RenderReport }) {
+  const label = sourceFormatLabel(render)
+  const detail =
+    render.mode === "in_place"
+      ? "The deliverable keeps your uploaded format; the original file itself is never modified."
+      : "The original could not be edited in place, so a fresh document was rendered."
+  return (
+    <span
+      title={detail}
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border-surface bg-card px-2.5 text-xs font-medium text-foreground"
+    >
+      <Type className="size-3.5 text-muted-foreground" aria-hidden />
+      {label}
+    </span>
+  )
+}
 
 type DiffStatus = DiffPair["status"]
 
@@ -436,6 +476,7 @@ export function ResumeDiffView({
   jobTitle,
   company,
   claimsVerified,
+  onStartEdit,
 }: {
   profile: CandidateProfile
   tailored: TailoredResume
@@ -444,6 +485,8 @@ export function ResumeDiffView({
   company: string
   /** The factuality validator passed: provenance may claim verified wording. */
   claimsVerified: boolean
+  /** WS-47: opens the studio's section editor. Absent while already editing. */
+  onStartEdit?: () => void
 }) {
   const diff = buildResumeDiff(profile, tailored, render)
   /*
@@ -457,38 +500,50 @@ export function ResumeDiffView({
 
   return (
     <div className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-4">
-      {/* The honest toolbar row: the design's legend and a real toggle. */}
+      {/* The toolbar row: the deliverable's real format, then the real controls. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <DiffLegend />
-        <div className="hidden items-center gap-1 md:flex">
-          <button
-            type="button"
-            aria-pressed={layout === "stacked"}
-            onClick={() => setLayout("stacked")}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors",
-              layout === "stacked"
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border-surface bg-card text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Rows3 className="size-3.5" aria-hidden />
-            Stacked
-          </button>
-          <button
-            type="button"
-            aria-pressed={layout === "side-by-side"}
-            onClick={() => setLayout("side-by-side")}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors",
-              layout === "side-by-side"
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border-surface bg-card text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Columns2 className="size-3.5" aria-hidden />
-            Side-by-side
-          </button>
+        <FormatChip render={render} />
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1 md:flex">
+            <button
+              type="button"
+              aria-pressed={layout === "stacked"}
+              onClick={() => setLayout("stacked")}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors",
+                layout === "stacked"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border-surface bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Rows3 className="size-3.5" aria-hidden />
+              Stacked
+            </button>
+            <button
+              type="button"
+              aria-pressed={layout === "side-by-side"}
+              onClick={() => setLayout("side-by-side")}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors",
+                layout === "side-by-side"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border-surface bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Columns2 className="size-3.5" aria-hidden />
+              Side-by-side
+            </button>
+          </div>
+          {onStartEdit ? (
+            <button
+              type="button"
+              onClick={onStartEdit}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors outline-none hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <PenLine className="size-3.5" aria-hidden />
+              Edit draft
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -501,6 +556,8 @@ export function ResumeDiffView({
           {company} · tailored draft · source preserved
         </p>
         <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
+        {/* The design's legend sits on the paper, under the meta line. */}
+        <DiffLegend />
 
         {diff.summary ? (
           <section className="min-w-0 space-y-2.5">
@@ -540,9 +597,9 @@ export function ResumeDiffView({
         />
 
         <p className="text-[11px] leading-4 text-muted-foreground">
-          Read-only comparison — nothing here can be edited or accepted line
-          by line: the delivered file is fixed, and per-change review is not
-          built yet. The Preview tab names the deliverable of record.
+          Read-only comparison — wording changes go through Edit draft above:
+          a save revalidates the sections against your résumé and regenerates
+          the deliverable. The Preview tab names the deliverable of record.
         </p>
       </article>
     </div>
