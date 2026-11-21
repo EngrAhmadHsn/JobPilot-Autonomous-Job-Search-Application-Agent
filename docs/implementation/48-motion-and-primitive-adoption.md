@@ -1,6 +1,89 @@
 # WS-48 — shadcn/animate-ui adoption at the base + motion wiring
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Skill: `animate-ui` (installed at sprint start) · Deps: `@animate-ui/react@2.4.6`, `motion@14.14.0` (installed 2026-11-21, unused so far)
+Status: **Delivered 2026-11-21** — the primitive inventory is closed with a ruling per component, three primitives were rebased on their canonical bases, the provider and the sprint's new surfaces moved onto the library's tokens, and the motion audit's 126 facts are adjudicated below.
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `b60ee70` | the ui primitives animate through `@animate-ui/react` (the CLI sweep, 8 primitives) |
+| `fc09991` | the jsdom shims the animated primitives need |
+| `76c71dd` | the animate-ui skill joins the project tooling |
+| `eb1d228` | badge sits on its canonical base without clipping the skill chips |
+| `02d31e1` | separator sits on its canonical base |
+| `9b76f28` | the pagination shell sits on its canonical base |
+| `fbb71aa` | motion runs through the animate-ui provider and its tokens |
+
+### The primitive inventory (every `components/ui/*`, with its ruling)
+
+`button`, `input`, `card`, `table`, `skeleton` and `empty-state`'s structure were diffed byte-wise
+against the canonical `base-nova` sources (the registry the project's `components.json` style
+resolves to) and are **already on their canonical bases**: the only deltas are the token restyle
+and the console's measured geometry (control heights, radius scale), each documented in-file.
+`card`'s single divergence is a token rename (`cn-font-heading` → our own `font-heading`).
+
+Three primitives genuinely diverged and were **rebased**: `badge` (now `useRender` + `mergeProps`
+with the canonical variant family; export/prop API a superset), `separator` (the canonical
+`data-horizontal:`/`data-vertical:` variants and `self-stretch`), and the `pagination` shell (both
+pagers are now `<nav aria-label="pagination">` landmarks).
+
+Five were **rejected** as compositions, with the reasons recorded in the agent's inventory
+(`.scratch/ws43-sprint/c1-report.md`, which also keeps the fetched canonical sources for a
+re-diff): `status-badge` (no canonical base exists, and composing it would import `shrink-0` /
+`overflow-hidden` plus `[a]:hover:` washes that would tint a status chip when its parent link was
+hovered), `page-header` (404s in every shadcn registry style; it owns `document.title` and the
+screen's single `h1` — app contracts, not primitive styling), `link-button` (no canonical base; it
+already rides the canonical button's cva via `buttonVariants`), `error-state` and `empty-state`
+(their part trees were evaluated part-by-part and rejected: the canonical parts would have to be
+overridden on nearly every one, leaving a fork wearing a canonical costume — `empty-state`'s
+`text-balance` could not even be overridden cleanly through `cn()`).
+
+Every **registry adoption** (liquid/flip buttons, animated icons, a theme toggler, backgrounds) was
+**rejected**: the design frames draw plain controls on data-dense screens, and the console's theme
+control is the account menu's radio group ("Ivory / Charcoal / Match the system"), not a sun/moon
+button.
+
+### The motion audit, adjudicated (task 5)
+
+`npx @animate-ui/cli@latest audit --json` reports **126 facts across 20 files**. Judged in context,
+not fixed blindly:
+
+| Kind | Count | Ruling |
+|---|---|---|
+| `animated-properties` | 91 | Almost all are `transition-colors` — a paint-only transition on a hover/focus state, which is exactly what a colour change should be. The flagged pattern is `transition-all`, which appears **nowhere** in the console. |
+| `no-reduced-motion` | 17 | The per-file check cannot see the console's **global** reduced-motion path: `html[data-motion="reduced"] *` zeroes animation durations and narrows transitions to non-moving properties (`index.css`), `motion.ts` sets that attribute before the first render, and `AnimateUIProvider reducedMotion="user"` does the same job for the library's own primitives. The skeleton's `animate-pulse` is already zeroed by that block — a `motion-reduce:` class beside it would be redundant, not safer. |
+| `long-duration` | 7 | The console's own entrance timings (420–700 ms for section reveals and the agent-progress sweep). These are page-reveal affordances, not control feedback, and the reduced-motion block collapses them to a fade. |
+| `layout-animation` | 5 | **False positives**: the `layout` prop in `screens/studio/resume-diff.tsx` is the diff's stacked/side-by-side domain prop, not Motion's `layout` attribute. No Motion layout animation exists in the console. |
+| `hover-scale` | 3 | The canonical button's `hover:scale-[1.02]` and the landing page's `hover:scale-[1.03]`. Tailwind v4 scopes its `hover:` variant to `@media (hover: hover)` already, so a touch screen never sticks in the hovered state. |
+| `infinite-loop` | 2 | The skeleton pulse and the agent-progress sweep — the console's honest "work in progress" affordances, both collapsed by the reduced-motion block. |
+| `hover-not-gated` | 1 | **Fixed**: the hand-written `.shine:hover::before` rule ran outside `@media (hover: hover)`, so a tap on a touch screen left the light at the end of its travel. The hover sweep is now gated the way Tailwind's own variant is; `:focus-visible` keeps its sweep everywhere, because a focus ring is not a hover state. |
+
+### What the motion itself is
+
+`AnimateUIProvider` (tempo 1, `reducedMotion: "user"`) wraps the app in `main.tsx`, so every
+library primitive and every hand-written value reads one clock. Hand-motion is written only from
+`@animate-ui/react/utils/motion` — never a hand-typed spring or duration — and only on properties
+the compositor can take:
+
+- the Discover result row's selection wash is an absolutely positioned layer whose opacity eases on
+  `transition.fade` (not a background class that snaps, and deliberately **not** a `layoutId`:
+  the row list is a hot path, and a projected move over board-supplied row heights is main-thread
+  work exactly where it must not go);
+- the question counter chips swap on `transition.swap`, with `popLayout` so the chip row does not
+  reflow mid-swap;
+- the Profile skeleton hands over to content (fade out, `blur.surface` reveal in), with the gate
+  read during render rather than in an effect;
+- the sheet's CSS transition classes are gone — the animate-ui Base-UI dialog primitive owns the
+  panel and backdrop travel now, on its own curve.
+
+**Reader's notes.**
+
+- The `animate all` CLI sweep ran in Wave 0, before the feature waves, so the new surfaces were
+  built on the animated primitives instead of retrofitted.
+- The `jsdom` shims (`fc09991`) are load-bearing: the animated primitives need browser APIs jsdom
+  does not implement, and without them the suite is red on a pristine checkout. The earlier
+  "verification" that missed this had piped vitest through `tail`, which masked the exit code —
+  the lesson is recorded in the sprint ledger.
 
 ## Goal
 

@@ -1,6 +1,33 @@
 # WS-46 — Profile documents pagination + Account & Security screen (BYOK move)
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Design authority: `docs/Job Pilot (Copy).pdf` + `docs/design/Images-figma/Job Pilot/`
+Status: **Delivered 2026-11-21** — two commits; Profile's library pages, the model key has a screen of its own reached from the account menu, and the audit instrument's stale tab labels are repaired.
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `36a3efc` | an account and security screen hosts the model key, reached from the account menu |
+| `1846713` | the profile library pages and model credentials move to account and security |
+
+**Evidence.** `screens/account-screen.test.tsx` (6, new), `screens/profile-screen.test.tsx` (9),
+`components/profile/model-credentials-card.test.tsx` (12),
+`components/profile/application-answers-card.test.tsx` (13),
+`components/profile/work-eligibility-countries.test.tsx` (5),
+`components/profile/work-preferences-card.test.tsx` (5) — 50 tests green in the agent's own pass;
+the full FE suite is green at **407 tests / 49 files**.
+
+**Reader's notes.**
+
+- **No Sessions tab.** The API has no sessions surface, so a tab would have to invent device names
+  and last-active times. The screen ships the three surfaces the backend can honestly serve:
+  Profile, Model credentials, Privacy.
+- **The identity card is genuinely editable** because `PATCH /api/auth/me` was verified to exist
+  (WS-14) — name, email and password, with the backend's own "your other sessions are signed out"
+  side effect stated in the copy.
+- The audit script's `TAB_STEPS.profile` was **stale**: it asked for "Preferences"/"Settings",
+  labels the Profile screen no longer renders, so the sweep photographed the first tab and reported
+  a clean surface it had never visited. Repaired in `d4e8ea5`, along with the `/app/account`
+  surface, the design's 1024×1000 frame and the discovered questions surface.
 
 ## Goal
 

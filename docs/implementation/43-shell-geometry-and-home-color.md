@@ -1,6 +1,37 @@
 # WS-43 — Shell & sidebar geometry, Home featured-match color
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Design authority: `docs/Job Pilot (Copy).pdf` + the resolution-matched renders in `docs/design/Images-figma/Job Pilot/`
+Status: **Delivered 2026-11-21** — four commits; the shell no longer reflows, the rail matches the expanded-navigation render, and the featured-match title reads white on the forest card. The manual frame-by-frame browser pass is the one item this doc still owes (the automated sweep covers it).
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `1ce6033` | the rail expands over the content instead of reflowing it |
+| `4391723` | the rail's toggle, active pill and account footer match the expanded-navigation design |
+| `bb174f5` | the mobile navigation drawer matches the expanded-navigation design |
+| `8fa9420` | the featured match title reads white on the forest card |
+
+**Evidence.** `frontend/src/components/layout/app-shell.test.tsx` and `nav-drawer.test.tsx`
+carry the assertions for the constant gutter, the overlay expansion and the drawer's rows;
+`frontend/src/screens/overview/featured-match.test.tsx` pins the card's own foreground on the
+text spans ("carries the card's own foreground inside the text spans") — the regression that
+produced the wrong color. The full FE suite is green at **407 tests / 49 files** with these
+changes.
+
+**Reader's notes.**
+
+- The design draws the expanded rail **pushing** the content (the frame's content column starts
+  at x=240). The approved deviation stands: at ≥1024 the content gutter is a constant
+  `lg:pl-[72px]` and the expanded rail floats over it, because the push *is* the reflow defect
+  this workstream removes.
+- The design's collapse chevron does sit adjacent to the wordmark
+  (`13 · Expanded navigation · 1440`, x≈200), which is what `4391723` implements; the
+  toggle's collapsed slot is unchanged.
+- Tasks 2–4 land in one commit: the toggle's position, the radius scale and the footer's
+  padding are three attributes of one header/footer structure in `app-rail.tsx`, and splitting
+  those hunks would risk the file for no review value (ledgered ruling).
+- The wrong title color came from a nested `PlainText` span dropping the inherited
+  `text-primary-foreground`; the test now pins the color on the span itself, not on the card.
 
 ## Goal
 

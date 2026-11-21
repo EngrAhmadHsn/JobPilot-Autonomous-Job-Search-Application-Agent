@@ -1,6 +1,29 @@
 # WS-47 — Resume Studio: editing, persistence, revalidation
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Design authority: `docs/Job Pilot (Copy).pdf` + `docs/design/Images-figma/Job Pilot/`
+Status: **Delivered 2026-11-21** — three commits; a tailored resume can be edited and revalidated, the studio's sections save, and the keyword evidence rail is the design's right card.
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `be2ce9e` | a tailored resume can be edited and revalidated (`PUT /api/tailored/{id}`) |
+| `01e1dde` | the studio edits sections and saves them |
+| `3d3ee63` | the studio's evidence rail becomes the design's right card |
+
+**Evidence.** `tests/test_tailored_edit.py`, `tests/test_tailoring_api.py`,
+`tests/test_migrations.py` — 46 passed in the agent's pass; the full backend suite is green at
+**2275 passed / 0 failed** after the README row for the new route. The frontend half carries 10 new
+tests; the FE suite is green at **407 tests / 49 files**.
+
+**Reader's notes.**
+
+- An edit is **revalidated, not trusted**: the saved text re-runs factuality (no new claim the
+  profile does not support), ATS and the existing deliverable path, and a factuality violation is a
+  **200 with the report** rather than a refusal — the honesty lives in the report the human reads,
+  not in a blocked save.
+- The toolbar renders the **real** source document's format from the render report ("Body · 11 pt",
+  "source preserved"). There are no fake B/I/U controls, because the editor cannot faithfully
+  regenerate DOCX runs it does not own.
 
 ## Goal
 

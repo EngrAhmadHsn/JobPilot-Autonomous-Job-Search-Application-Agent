@@ -1,6 +1,37 @@
 # WS-44 — Discover: design filters, default selection, pane scroll
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Design authority: `docs/Job Pilot (Copy).pdf` + `docs/design/Images-figma/Job Pilot/`
+Status: **Delivered 2026-11-21** — three commits (one backend contract, two frontend features); Discover filters the stored corpus by workplace and location, selects the best match by default, and scrolls its two panes instead of the page.
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `02c3566` | job search filters by workplace and lists corpus locations (backend contract) |
+| `da0e7b7` | discover filters match the design's dialog and chips |
+| `a0d7f2c` | discover selects the best match by default and scrolls its panes, not the page |
+
+**Evidence.** The backend half is `JobSearchRequest.workplace` plus `GET /api/jobs/locations`
+(README API table, machine-checked); the backend agent's run of the full suite was **2246 passed /
+8 skipped / 0 failed**. The frontend half is `screens/discover/filters-dialog.test.tsx` and the
+Discover cases in `matches-screen.test.tsx` (default selection + pane scroll). The full FE suite is
+green at **407 tests / 49 files**.
+
+**Reader's notes.**
+
+- **One commit, not two, for the backend:** the workplace filter, the location list and the
+  pass-through that carries them both sit on the same executor seam in five files of
+  `src/api/routes/jobs.py` and the search pipeline; splitting them would have cut one contract in
+  half (ledgered ruling).
+- **No employment-type filter — deliberately.** `employmentType` is populated on 0 of the corpus's
+  rows (WS-23), so a control for it would be a lie. The dialog ships Location, Workplace, Skills
+  and Rank top N.
+- **A contract caveat worth knowing.** The workplace match is a normalized contains-match against
+  the raw `remote_policy` column. Lever and Ashby write lowercase `onsite`; Greenhouse metadata is
+  free text and can say `On-site`, which does not contains-match `onsite`. The result is a thin
+  onsite slice on Greenhouse-sourced rows — a data-reality limit, recorded rather than papered over
+  with fuzzy matching.
+- Filters apply **server-side before scoring and `top_n`**, and the dialog's honesty note is
+  verbatim: "These filters apply to the stored corpus. They do not fetch job boards."
 
 ## Goal
 

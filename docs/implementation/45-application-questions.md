@@ -1,6 +1,46 @@
 # WS-45 — Per-application questions: answering, persistence, context-dependent profile questions
 
-Status: **In progress — 2026-11-21** · Owner: sprint WS-43…49 · Design authority: `docs/Job Pilot (Copy).pdf` + `docs/design/Images-figma/Job Pilot/`
+Status: **Delivered 2026-11-21** — seven commits; a human answer persists per application, the plan merges it so the approval gate unlocks, Review answers one question at a time, the profile asks work authorization per country, and one page answers every question of a prepared application.
+
+## What shipped
+
+| Commit | Feature |
+|---|---|
+| `4b63c45` | employer answers persist per application (`application_answers` + `GET`/`PUT .../answers`) |
+| `b81cc99` | saved answers unblock the prepare plan (the merge) |
+| `42d99b1` | employer questions are answered one at a time on Review |
+| `c842967` | the tracker links to the application's questions |
+| `9fb07b9` | work authorization is asked per country, and the question gaps read like the design |
+| `6d0a964` | the packet keeps its questions (`approval_requests.form_questions` + `GET .../questions`) |
+| `d4e8ea5` | one page answers every question of a prepared application |
+
+**Evidence.** `tests/test_ws45_answers.py` (23 tests: CRUD, ownership, the never-autofill 422, the
+plan merge, the event row), `tests/test_ws45_questions_page.py` (6 tests: the stored plan, the
+saved-answer fold, the never-autofill guard, the 404 matrix), `tests/test_form_plan.py` (41 tests),
+`frontend/src/screens/questions-screen.test.tsx` (4 tests) and the existing
+`approvals-screen-answers.test.tsx`. The backend suite is green at **2275 passed / 0 failed**; the
+FE suite at **407 tests / 49 files**.
+
+**Reader's notes.**
+
+- **The plan moved onto the approval row.** `GET .../questions` reads the questions the *packet*
+  was built around (`approval_requests.form_questions`, migration `d3e4f5a6b7c8`) instead of
+  re-fetching the employer's live form — otherwise the page would describe a form the reviewed
+  packet was never built from. A saved answer is folded back into the stored verdicts on the read,
+  so an answered question stops reading as "needs you" without a re-prepare.
+- **The per-application page was new scope.** The sprint plan named the Review screen; the design's
+  "View all questions →" had no destination at all. The page
+  (`/app/tracker/:applicationId/questions`) is that missing half, reached from Review and from the
+  application's own detail screen.
+- **`prepare` creates a new application, and the answers follow the posting.** The console reaches
+  prepare with a fresh form each time, so answers saved against a prior application for the same
+  owner + `job_url` are merged into the plan and the facts, and copied onto the newly created
+  application (`inherit_answers`). Without that copy a third prepare would regress to blocked.
+- **Known limits recorded, not addressed here:** an unknown-category question (no fact key)
+  unblocks the gate but can still stop the browser-fill walk at `FIELD_MAP`; same-category
+  collisions ("Website" / "Portfolio") share one injected fact key, so last save wins.
+- EEO and attestation questions are listed with their verdict and **no control**, because the API
+  refuses to store such an answer (422) — policy, not a limitation.
 
 ## Goal
 
