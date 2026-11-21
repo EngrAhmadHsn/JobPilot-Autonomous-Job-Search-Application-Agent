@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { cn } from "cn"
 
 /**
  * A page control for a list the console has already loaded.
@@ -6,6 +7,14 @@ import { Button } from "@/components/ui/button"
  * The total is the console's own count (the backend returns the whole list
  * for these screens), so the counter says exactly what is on screen. When
  * everything fits on one page, the control renders nothing.
+ *
+ * WS-48: the root sits on the canonical base-nova pagination shell — a
+ * `<nav role="navigation" aria-label="pagination" data-slot="pagination">`.
+ * The canonical base's page-link parts (`PaginationLink` renders anchors
+ * through `Button render`) don't fit a console whose lists are already
+ * loaded in memory, so only the shell is adopted; the buttons and the
+ * counter keep their measured layout classes, and the prop API is
+ * unchanged.
  */
 export function Pagination({
   page,
@@ -31,11 +40,14 @@ export function Pagination({
   const last = Math.min(total, (page + 1) * pageSize)
 
   return (
-    <div
-      className={
-        "flex flex-wrap items-center justify-between gap-3 pt-1 " +
-        (className ?? "")
-      }
+    <nav
+      role="navigation"
+      aria-label="pagination"
+      data-slot="pagination"
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3 pt-1",
+        className
+      )}
     >
       <p className="text-xs text-muted-foreground tabular-nums">
         {first}–{last} of {total}
@@ -64,12 +76,11 @@ export function Pagination({
           Next
         </Button>
       </div>
-    </div>
+    </nav>
   )
 }
 
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { cn } from "cn"
 
 /**
  * The design's table pager (nodes 49:2420–49:2428): the range on the left;
@@ -101,8 +112,15 @@ export function TablePager({
   const first = total === 0 ? 0 : page * pageSize + 1
   const last = Math.min(total, (page + 1) * pageSize)
 
+  /*
+    The same canonical pagination shell as the list pager above: a
+    navigation landmark named "pagination", whatever the inner layout.
+  */
   return (
-    <div
+    <nav
+      role="navigation"
+      aria-label="pagination"
+      data-slot="pagination"
       className={cn(
         "flex flex-wrap items-center justify-between gap-3",
         className
@@ -153,6 +171,6 @@ export function TablePager({
           <ChevronRight aria-hidden="true" className="size-4" />
         </button>
       </div>
-    </div>
+    </nav>
   )
 }
