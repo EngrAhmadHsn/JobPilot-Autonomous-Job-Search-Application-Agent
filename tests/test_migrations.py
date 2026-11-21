@@ -115,6 +115,8 @@ TAILORED_RESUMES_COLUMNS = {
     "render",
     "docx_path",
     "created_at",
+    # WS-47: when the candidate last saved a studio edit (NULL = never).
+    "edited_at",
     "owner_id",
 }
 

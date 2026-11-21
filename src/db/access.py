@@ -75,6 +75,7 @@ __all__ = [
     "get_profile",
     "get_run",
     "get_tailored",
+    "get_tailored_for_update",
     "group_owned",
     "list_application_answers",
     "list_applications",
@@ -299,6 +300,25 @@ def get_tailored(db: Session, scope: UserScope, tailoring_id: str) -> TailoredRe
         return None
     statement = select(TailoredResumeDB).where(TailoredResumeDB.id == tailoring_id)
     return db.execute(_owned(statement, TailoredResumeDB, scope)).scalar_one_or_none()
+
+
+def get_tailored_for_update(
+    db: Session, scope: UserScope, tailoring_id: str
+) -> TailoredResumeDB | None:
+    """The tailored resume *tailoring_id* if this scope may **edit** it.
+
+    A write is fenced harder than a read. The read accessor above grants the
+    platform's superuser scope its cross-owner audit view; a write must not:
+    an edit replaces the candidate's deliverable content, and nobody rewrites
+    somebody else's résumé — the same rule as :func:`upsert_application_answers`
+    (the check is on the owner column, never relaxed). A foreign row and a
+    missing row are both ``None``, so the route answers one 404 and the API
+    stays a non-oracle.
+    """
+    row = get_tailored(db, scope, tailoring_id)
+    if row is None or row.owner_id != scope.user_id:
+        return None
+    return row
 
 
 def list_tailored(

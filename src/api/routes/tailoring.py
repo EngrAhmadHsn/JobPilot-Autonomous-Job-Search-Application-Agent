@@ -10,19 +10,26 @@ The deliverable is the caller's **own uploaded résumé, edited in place**
 document is rendered instead and the response's ``render`` report says which
 happened and why.
 
-``GET /api/tailored/{id}`` returns a stored tailoring record.
+``GET /api/tailored/{id}`` returns a stored tailoring record, and
+``PUT /api/tailored/{id}`` (WS-47) saves the studio's section edits: the
+edited content is revalidated against the stored profile with the pipeline's
+own factuality validator, the ATS report is re-run, the deliverable is
+re-produced through the WS-31 in-place path, and the row is stamped with
+``edited_at``.
 
-A factuality failure is **not** an error: the stripped-safe content plus the
-violations *is* the product, so the endpoint answers 200 with the report.
+A factuality failure is **not** an error — in either direction: the
+stripped-safe content plus the violations *is* the product, so the endpoint
+answers 200 with the report.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
@@ -31,14 +38,14 @@ from src.db import access
 from src.db.jobs import JobDB, listing_from_row
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
-from src.db.tailored import build_tailored_row, stored_from_row
+from src.db.tailored import StoredTailoring, build_tailored_row, stored_from_row
 from src.llm.client import LLMError
 from src.llm.errors import LLMConfigError, LLMCredentialError
 from src.research.engine import JobInsights
-from src.resume.ats import AtsReport
-from src.resume.edit import RenderReport
-from src.resume.pipeline import run_tailoring
-from src.resume.style import StyleReport
+from src.resume.ats import AtsReport, analyze_ats
+from src.resume.edit import RenderReport, deliver_tailored_resume
+from src.resume.pipeline import apply_tailored_edit, revalidate_tailored, run_tailoring
+from src.resume.style import StyleReport, analyze_tailored
 from src.resume.tailor import FactualityReport, GenerateFn, TailoredResume
 from src.storage.paths import KIND_TAILORED, user_dir
 
@@ -77,6 +84,65 @@ class StoredTailoringResponse(TailorResponse):
     """A stored tailoring record (adds the creation time)."""
 
     created_at: str
+    #: WS-47: when the candidate last saved an edit of their own, or ``None``
+    #: while the record is still the tailoring run's own output. The console's
+    #: status chip reads it ("proposed" vs "edited by you").
+    edited_at: str | None = None
+
+
+#: WS-47: the edit contract's bound for every section. A summary, a bullet
+#: set, or a cover letter beyond this length is not an edit, it is a document;
+#: the request is refused before any work is done.
+MAX_SECTION_CHARS = 8000
+
+
+class TailoredEditRequest(BaseModel):
+    """The sections the studio saves, as plain text (WS-47).
+
+    Every field is optional — the console edits one section at a time — and
+    at least one must be present. ``experience`` and ``projects`` are one
+    bullet per line; they are re-chunked onto the resume's **existing**
+    entries in order, so no entry can be added, removed or renamed by an
+    edit (the factuality validator and the in-place editor both rely on that
+    identity). A factuality violation is reported in the response and never
+    blocks the save.
+    """
+
+    summary: str | None = Field(
+        default=None,
+        max_length=MAX_SECTION_CHARS,
+        description="The edited professional summary.",
+    )
+    experience: str | None = Field(
+        default=None,
+        max_length=MAX_SECTION_CHARS,
+        description="The edited experience bullets, one per line.",
+    )
+    projects: str | None = Field(
+        default=None,
+        max_length=MAX_SECTION_CHARS,
+        description="The edited project bullets, one per line.",
+    )
+    cover_letter: str | None = Field(
+        default=None,
+        max_length=MAX_SECTION_CHARS,
+        description="The edited cover letter.",
+    )
+
+    @model_validator(mode="after")
+    def _at_least_one_section(self) -> TailoredEditRequest:
+        """Refuse a body that edits nothing — it would be a no-op save."""
+        if (
+            self.summary is None
+            and self.experience is None
+            and self.projects is None
+            and self.cover_letter is None
+        ):
+            raise ValueError(
+                "At least one section must be provided: summary, experience, "
+                "projects or cover_letter."
+            )
+        return self
 
 
 def get_generate_fn() -> GenerateFn | None:
@@ -219,7 +285,11 @@ def get_tailored(
     row = access.get_tailored(db, scope, tailoring_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Tailoring not found")
-    stored = stored_from_row(row)
+    return _stored_response(stored_from_row(row))
+
+
+def _stored_response(stored: StoredTailoring) -> StoredTailoringResponse:
+    """The stored-tailoring shape the GET and the PUT both answer with."""
     return StoredTailoringResponse(
         tailoring_id=stored.tailoring_id,
         profile_id=stored.profile_id,
@@ -232,4 +302,114 @@ def get_tailored(
         render=stored.render,
         docx_path=stored.docx_path,
         created_at=stored.created_at.isoformat(),
+        edited_at=stored.edited_at.isoformat() if stored.edited_at else None,
     )
+
+
+@router.put("/tailored/{tailoring_id}", response_model=StoredTailoringResponse)
+def edit_tailored(
+    tailoring_id: str,
+    req: TailoredEditRequest,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+) -> StoredTailoringResponse:
+    """Save the studio's section edits and revalidate everything (WS-47).
+
+    The edit is treated exactly like a generation, minus the model: the
+    edited sections are validated against the stored profile (the pipeline's
+    own validator — no new claims), the ATS report is re-run, and the
+    deliverable is re-produced through the WS-31 in-place path onto the same
+    file. Everything is persisted on the same row and stamped ``edited_at``.
+
+    A factuality violation is **not** an error: the stripped content plus the
+    report is the save's result, and the response answers 200 with it. A
+    foreign or missing tailoring answers 404; a tailoring whose profile or
+    job has since been deleted answers 409 — the edit cannot be validated
+    against facts that no longer exist, and re-tailoring is the repair.
+    """
+    row = access.get_tailored_for_update(db, scope, tailoring_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tailoring not found")
+
+    profile_row = access.get_profile(db, scope, row.profile_id)
+    if profile_row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The profile this tailoring was built from no longer exists, so "
+                "the edit cannot be validated against it. Re-tailor the resume instead."
+            ),
+        )
+    job_row = db.get(JobDB, row.job_id)
+    if job_row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The job this tailoring targeted is no longer stored, so the ATS "
+                "report cannot be re-run. Re-tailor the resume instead."
+            ),
+        )
+
+    profile = profile_from_row(profile_row)
+    job = listing_from_row(job_row)
+    stored = stored_from_row(row)
+
+    logger.info("Tailoring edit received", extra={"tailoring_id": tailoring_id})
+
+    try:
+        edited = apply_tailored_edit(
+            stored.tailored,
+            summary=req.summary,
+            experience=req.experience,
+            projects=req.projects,
+            cover_letter=req.cover_letter,
+        )
+    except ValueError as exc:
+        # A section that has nowhere to go (no entries to re-chunk onto) is a
+        # client-contract problem, not a server failure.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    tailored, factuality = revalidate_tailored(edited, profile)
+
+    # The deliverable is re-produced through the same path the run used: the
+    # caller's own uploaded résumé edited in place where that is possible,
+    # with the rendered fallback reported. The file name derives from
+    # (profile, job), so the edit overwrites the previous deliverable and the
+    # download link keeps working unchanged.
+    path, render = deliver_tailored_resume(
+        tailored,
+        profile,
+        upload_path=profile_row.file_path,
+        out_dir=ensure_dir(user_dir(scope.user_id, KIND_TAILORED)),
+        profile_id=row.profile_id,
+        job_id=row.job_id,
+    )
+    ats_report = analyze_ats(tailored, profile, job, docx_path=path)
+    style = analyze_tailored(tailored)
+
+    # Persist everything the edit re-produced, stamped as edited. The JSON
+    # columns are replaced whole (never mutated in place), which is what
+    # marks them dirty under SQLAlchemy.
+    edited_at = datetime.now(UTC)
+    row.tailored = tailored.model_dump(mode="json")
+    row.factuality = factuality.model_dump(mode="json")
+    row.ats_report = ats_report.model_dump(mode="json")
+    row.style = style.model_dump(mode="json")
+    row.render = render.model_dump(mode="json")
+    row.docx_path = str(path.resolve())
+    row.edited_at = edited_at
+    db.commit()
+
+    logger.info(
+        "Tailoring edited",
+        extra={
+            "tailoring_id": tailoring_id,
+            "factuality_passed": factuality.passed,
+            "ats_score": ats_report.score,
+            "render_mode": render.mode,
+        },
+    )
+    # The commit expired the row's state; refresh so the response is rebuilt
+    # from what the database actually holds — the same path the GET serves.
+    db.refresh(row)
+    return _stored_response(stored_from_row(row))

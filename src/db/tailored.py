@@ -62,6 +62,12 @@ class TailoredResumeDB(Base):
     render: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     docx_path: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    #: WS-47: when the candidate last saved an edit through the studio
+    #: (``PUT /api/tailored/{id}``). ``None`` is the honest "never edited":
+    #: the row is the tailoring run's own output, word for word. The content
+    #: columns themselves are replaced on an edit, so this stamp is the only
+    #: trace that the words are the candidate's, not the agent's proposal.
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class StoredTailoring(BaseModel):
@@ -79,6 +85,8 @@ class StoredTailoring(BaseModel):
     render: RenderReport = RenderReport()
     docx_path: str
     created_at: datetime
+    #: WS-47: the last saved edit, or ``None`` when the record is untouched.
+    edited_at: datetime | None = None
 
 
 def generate_tailoring_id() -> str:
@@ -129,4 +137,5 @@ def stored_from_row(row: TailoredResumeDB) -> StoredTailoring:
         render=RenderReport.model_validate(row.render) if row.render else RenderReport(),
         docx_path=row.docx_path,
         created_at=row.created_at,
+        edited_at=row.edited_at,
     )

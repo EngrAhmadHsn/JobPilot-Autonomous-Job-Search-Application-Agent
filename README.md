@@ -316,6 +316,7 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `GET /api/profiles/countries` | The countries a profile may state for work eligibility, for a country picker | WS-25c |
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
+| `PUT /api/tailored/{tailoring_id}` | Save the studio's section edits, revalidated against the profile (factuality, ATS, deliverable) | WS-47 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |
 | `GET /api/documents` | The account's document library (uploaded and tailored résumés) | WS-13 |
 | `GET /api/documents/{document_id}/download` | Download one of the account's documents | WS-13 |
