@@ -1,0 +1,24 @@
+{
+  "skills": [
+    "../.zcode/skills/better-interface",
+    "../.zcode/skills/better-layout",
+    "../.zcode/skills/better-ui",
+    "../.zcode/skills/better-typography",
+    "../.zcode/skills/better-colors",
+    "../.zcode/skills/better-accessibility",
+    "../.zcode/skills/better-writing",
+    "../.zcode/skills/frontend-design",
+    "../.zcode/skills/ui-ux-pro-max",
+    "../.zcode/skills/review-animations",
+    "../.zcode/skills/micro-interaction",
+    "../.zcode/skills/impeccable",
+    "../.zcode/skills/agent-architecture",
+    "../.zcode/skills/agent-evaluation",
+    "../.zcode/skills/browser-automation",
+    "../.zcode/skills/job-matching",
+    "../.zcode/skills/resume-intelligence",
+    "../.zcode/skills/application-security",
+    "../.zcode/skills/gemini-api-dev"
+  ],
+  "enableSkillCommands": true
+}
