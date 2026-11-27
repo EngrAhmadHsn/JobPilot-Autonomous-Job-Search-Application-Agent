@@ -25,6 +25,7 @@ from src.api.routes.jobs import profiles_router as profiles_matches_router
 from src.api.routes.jobs import router as jobs_router
 from src.api.routes.jobs import runs_router
 from src.api.routes.llm_credentials import router as llm_credentials_router
+from src.api.routes.posting_applications import router as posting_applications_router
 from src.api.routes.profile_answers import router as profile_answers_router
 from src.api.routes.resumes import router as resumes_router
 from src.api.routes.tailoring import router as tailoring_router
@@ -125,7 +126,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 # The body cap is inside the rate limiter: a request that is over the rate
@@ -164,6 +165,7 @@ app.include_router(runs_router)
 app.include_router(profiles_matches_router)
 # WS-20: the user-confirmed application profile and the isolated EEO resource.
 app.include_router(profile_answers_router)
+app.include_router(posting_applications_router)
 app.include_router(tailoring_router)
 # WS-22: the caller's own model credential (bring your own key).
 app.include_router(llm_credentials_router)

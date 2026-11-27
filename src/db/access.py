@@ -40,8 +40,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from src.db.application_answers import ApplicationAnswerDB
@@ -50,6 +51,7 @@ from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
 from src.db.byok import LlmCredentialDB
 from src.db.eeo import CandidateEeoDB
+from src.db.employer_answers import EmployerAnswerDB, LocalFillGrantDB
 from src.db.evidence import ApplicationEvidenceDB
 from src.db.jobs import JobDB
 from src.db.matches import JobMatchDB
@@ -548,6 +550,119 @@ def upsert_application_answers(
         saved.append(row)
     db.flush()
     return saved
+
+
+def list_employer_answers(
+    db: Session, scope: UserScope, *, job_id: str | None = None, limit: int = 100, offset: int = 0
+) -> list[EmployerAnswerDB]:
+    """Account-private answers, including when the caller is an administrator."""
+    statement = select(EmployerAnswerDB).where(EmployerAnswerDB.owner_id == scope.user_id)
+    if job_id is not None:
+        statement = statement.where(EmployerAnswerDB.job_id == job_id)
+    return list(
+        db.scalars(
+            statement.order_by(EmployerAnswerDB.updated_at.desc(), EmployerAnswerDB.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+
+
+def get_employer_answer(db: Session, scope: UserScope, answer_id: str) -> EmployerAnswerDB | None:
+    return db.scalars(
+        select(EmployerAnswerDB).where(
+            EmployerAnswerDB.owner_id == scope.user_id, EmployerAnswerDB.id == answer_id
+        )
+    ).one_or_none()
+
+
+def upsert_employer_answers(db: Session, scope: UserScope, job: JobDB, entries: list[dict]) -> None:
+    """Stage writes to exactly these question revisions; the route owns the commit."""
+    keys = [entry["question_key"] for entry in entries]
+    current = {
+        row.question_key: row
+        for row in db.scalars(
+            select(EmployerAnswerDB).where(
+                EmployerAnswerDB.owner_id == scope.user_id,
+                EmployerAnswerDB.job_id == job.id,
+                EmployerAnswerDB.question_key.in_(keys),
+            )
+        )
+    }
+    now = datetime.now(UTC)
+    for entry in entries:
+        row = current.get(entry["question_key"])
+        if row is not None:
+            row.answer = entry["answer"]
+            row.question = entry["question"]
+            row.company_name = job.company
+            row.job_title = job.title
+            row.updated_at = now
+        else:
+            db.add(
+                EmployerAnswerDB(
+                    owner_id=scope.user_id,
+                    job_id=job.id,
+                    company_name=job.company,
+                    job_title=job.title,
+                    updated_at=now,
+                    **entry,
+                )
+            )
+
+
+def replace_local_fill_grant(
+    db: Session, scope: UserScope, app_id: str, digest: str, expiry: datetime
+) -> None:
+    """A new explicit authorization replaces any older code for this review."""
+    application = get_application(db, scope, app_id)
+    if application is None or application.owner_id != scope.user_id:
+        raise ValueError("Posting review not found")
+    row = db.get(LocalFillGrantDB, app_id)
+    if row is None:
+        db.add(
+            LocalFillGrantDB(
+                application_id=app_id, owner_id=scope.user_id, code_digest=digest, expires_at=expiry
+            )
+        )
+    elif row.owner_id == scope.user_id:
+        row.code_digest, row.expires_at, row.used_at = digest, expiry, None
+    else:
+        raise ValueError("Posting review not found")
+
+
+def consume_local_fill_grant(db: Session, digest: str, now: datetime) -> tuple[str, str] | None:
+    """Redeem the bearer grant atomically, only while its owner is active."""
+    already_claimed = db.execute(
+        update(LocalFillGrantDB)
+        .where(
+            LocalFillGrantDB.code_digest == digest,
+            LocalFillGrantDB.used_at.is_(None),
+            LocalFillGrantDB.expires_at > now,
+            LocalFillGrantDB.owner_id.in_(select(UserDB.id).where(UserDB.is_active.is_(True))),
+        )
+        .values(used_at=now)
+        .returning(LocalFillGrantDB.owner_id, LocalFillGrantDB.application_id)
+        .execution_options(synchronize_session=False)
+    ).one_or_none()
+    if already_claimed is None:
+        return None
+    return already_claimed.owner_id, already_claimed.application_id
+
+
+def employer_answers_for_questions(
+    db: Session, scope: UserScope, job_id: str, keys: list[str]
+) -> dict[str, EmployerAnswerDB]:
+    return {
+        row.question_key: row
+        for row in db.scalars(
+            select(EmployerAnswerDB).where(
+                EmployerAnswerDB.owner_id == scope.user_id,
+                EmployerAnswerDB.job_id == job_id,
+                EmployerAnswerDB.question_key.in_(keys),
+            )
+        )
+    }
 
 
 def list_application_events(

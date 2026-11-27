@@ -123,6 +123,17 @@ def list_documents(
     return {"documents": documents, "count": len(documents)}
 
 
+def owned_document_path(stored_path: str, scope: UserScope) -> Path:
+    """Resolve a path already read from the owner's document row."""
+    try:
+        path = assert_within_owned_storage(stored_path, scope.user_id, what="document")
+    except UserPathNotAllowedError as exc:
+        raise HTTPException(status_code=404, detail="The file is not available") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The file is not available")
+    return path
+
+
 @router.get("/{document_id}/download")
 def download_document(
     document_id: str,
@@ -156,18 +167,7 @@ def download_document(
     if row is None or not stored_path:
         raise HTTPException(status_code=404, detail=f"Document {document_id!r} not found")
 
-    try:
-        # WS-15: the containment is against the caller's **own** storage —
-        # their per-user directory, plus the legacy shared directories
-        # their account claimed — and never against the shared roots, which
-        # include the data directory and therefore every user's files.
-        path = assert_within_owned_storage(stored_path, scope.user_id, what="document")
-    except UserPathNotAllowedError as exc:
-        logger.warning("Refused a document download for %r: %s", document_id, exc)
-        raise HTTPException(status_code=404, detail="The file is not available") from exc
-
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="The file is not available")
+    path = owned_document_path(stored_path, scope)
 
     return FileResponse(
         path,

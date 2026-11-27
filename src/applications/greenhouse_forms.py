@@ -132,6 +132,8 @@ class FormSchema:
     requires_gdpr_consent: bool = False
     #: The board's raw ``data_compliance`` array, kept for the record.
     data_compliance: list[dict[str, Any]] = field(default_factory=list)
+    # An omitted or malformed question list is not a published empty form.
+    schema_published: bool = True
 
     @property
     def all_questions(self) -> list[FormQuestion]:
@@ -208,9 +210,9 @@ def build_form_schema(payload: dict[str, Any]) -> FormSchema:
     A response with no question keys is not an error: it means the board
     published no schema, and the caller falls back to the fixed field map.
     """
-    schema = FormSchema()
-
     questions = payload.get("questions")
+    schema = FormSchema(schema_published=isinstance(questions, list))
+
     if isinstance(questions, list):
         for entry in questions:
             question = _read_question(entry, "questions")

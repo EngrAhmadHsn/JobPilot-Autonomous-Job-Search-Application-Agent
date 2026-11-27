@@ -36,11 +36,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from src.db.application_answers import ApplicationAnswerDB
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
+from src.db.employer_answers import EmployerAnswerDB, LocalFillGrantDB
 from src.db.evidence import ApplicationEvidenceDB
 from src.db.matches import JobMatchDB
 from src.db.profiles import CandidateProfileDB
@@ -239,6 +242,11 @@ def purge_expired(
 
     # The applications.
     application_cutoff = _cutoff(policy.application_days, now)
+    db.execute(delete(LocalFillGrantDB).where(LocalFillGrantDB.expires_at < now))
+    db.execute(delete(EmployerAnswerDB).where(EmployerAnswerDB.updated_at < application_cutoff))
+    db.execute(
+        delete(ApplicationAnswerDB).where(ApplicationAnswerDB.updated_at < application_cutoff)
+    )
     application_rows = (
         db.query(ApplicationDB).filter(ApplicationDB.created_at < application_cutoff).all()
     )
@@ -378,6 +386,10 @@ def purge_user(
         db.delete(row)
     removed["approvals"] = len(approval_rows)
 
+    # Owner-private answer rows must not outlive account deletion.
+    db.execute(delete(LocalFillGrantDB).where(LocalFillGrantDB.owner_id == user_id))
+    db.execute(delete(EmployerAnswerDB).where(EmployerAnswerDB.owner_id == user_id))
+    db.execute(delete(ApplicationAnswerDB).where(ApplicationAnswerDB.owner_id == user_id))
     # The applications.
     application_rows = db.query(ApplicationDB).filter(ApplicationDB.owner_id == user_id).all()
     for row in application_rows:

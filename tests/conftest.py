@@ -56,6 +56,7 @@ from src.db import (  # noqa: F401  (imported for the model registration)
     audit,
     byok,
     eeo,
+    employer_answers,
     evidence,
     jobs,
     matches,

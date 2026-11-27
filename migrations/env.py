@@ -29,17 +29,18 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from src.config.settings import get_settings
-
 # Import model modules so they register on Base.metadata before autogenerate.
 # New model modules added by later workstreams must be imported here too.
 from src.auth.tokens import AccessTokenDB  # noqa: F401  (registers the model)
+from src.config.settings import get_settings
 from src.db import (  # noqa: F401
+    application_answers,
     applications,
     approval,
     audit,
     byok,
     eeo,
+    employer_answers,
     evidence,
     jobs,
     matches,
