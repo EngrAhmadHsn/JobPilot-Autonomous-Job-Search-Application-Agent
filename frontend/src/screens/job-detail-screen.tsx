@@ -436,8 +436,7 @@ export function JobDetailScreen() {
         {/*
           The rail, rebuilt to the design's "Match guardrails" card
           (node `49:1958`): the POSTED chip, the sponsorship guardrails
-          (heading, note, and the guardrail sentence), then — after the
-          divider — the one step the route hands off to. Sponsorship moved
+          (heading, note, and the guardrail sentence). Sponsorship moved
           here from the reasoning body because a guardrail is what it is:
           a constraint that holds no matter what the match says.
         */}
@@ -475,19 +474,6 @@ export function JobDetailScreen() {
                 </>
               )
             })()}
-            <div aria-hidden="true" className="h-px bg-border-surface" />
-            <h2 className="text-base leading-[23px] font-semibold text-forest">
-              Your next step
-            </h2>
-            <p className="text-sm leading-5 text-muted-foreground">
-              Tailor a draft, review the changes, then confirm every required
-              employer answer.
-            </p>
-            <div className="mt-1">
-              <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
-                Open résumé studio →
-              </LinkButton>
-            </div>
           </section>
         </aside>
       </div>

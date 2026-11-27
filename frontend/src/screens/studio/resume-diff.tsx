@@ -38,11 +38,9 @@ import type { CandidateProfile, TailoredResume } from "@/lib/api/types"
   comparison itself proves, and the banner above the tabs carries the
   verdict.
 
-  Two deliberate departures from the design's example, both because colour
-  is never the only signal: every wash also carries a text caption (which
-  side it is) and a status chip (what happened to it), and the five states
-  the data model actually has — the design's example only exercises two —
-  each render with their own words.
+  The compact rewording pairs follow the paper legend; their captions are
+  also read by assistive technology. Other states still name what happened
+  visibly because the two-part legend does not explain them.
 
   The toolbar row keeps the design's composition but states **facts** where
   the design's mock drew editor controls: the B / I / U buttons would lie
@@ -57,18 +55,16 @@ import type { CandidateProfile, TailoredResume } from "@/lib/api/types"
  * The deliverable's format, named from the render report (WS-47).
  *
  * An in-place deliverable keeps the uploaded format (WS-31), so the label is
- * that format. A regenerated deliverable is a fresh document — the renderer's
- * DOCX, or the text fallback for an upload the text editor could not carry —
- * and the label says "regenerated", because promising an edit that did not
- * happen is the exact defect WS-31 fixed.
+ * that format. A regenerated deliverable is a freshly formatted DOCX; its
+ * source format can be different.
  */
-export function sourceFormatLabel(render: RenderReport): string {
+function sourceFormatLabel(render: RenderReport): string {
   const format = render.source_format.replace(".", "").toUpperCase()
   const known = format && format !== "NONE"
   if (render.mode === "in_place") {
     return known ? `Body · ${format}` : "Body · document"
   }
-  return known ? `Body · regenerated ${format}` : "Body · regenerated document"
+  return "Body · regenerated DOCX"
 }
 
 /** The toolbar row's format chip: what the deliverable really is. */
@@ -81,7 +77,7 @@ export function FormatChip({ render }: { render: RenderReport }) {
   return (
     <span
       title={detail}
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border-surface bg-card px-2.5 text-xs font-medium text-foreground"
+      className="inline-flex h-[39px] items-center gap-2 rounded-[8px] border border-border-surface bg-card px-3.5 text-[13px] font-semibold text-primary"
     >
       <Type className="size-3.5 text-muted-foreground" aria-hidden />
       {label}
@@ -195,6 +191,7 @@ function PassageBlock({
   empty: string
 }) {
   const isOriginal = side === "Original résumé"
+  const replaced = isOriginal && (status === "reworded" || status === "removed")
   /*
     The wash follows the pair's meaning, not just its status: a replacement
     (reworded) washes the replaced original in clay and the new wording in
@@ -211,23 +208,31 @@ function PassageBlock({
           : "border border-dashed border-terracotta bg-terracotta-soft/40"
   return (
     <figure className={cn("min-w-0 rounded-surface p-3", wash)}>
-      <figcaption className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+      <figcaption
+        className={cn(
+          "mb-1.5 flex flex-wrap items-center justify-between gap-2",
+          status === "reworded" && "sr-only"
+        )}
+      >
         <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           {side}
         </span>
         <StatusChip status={status} />
       </figcaption>
       {text ? (
-        <PlainText className="text-sm leading-relaxed">
-          {/* Unchanged passages read quieter than changed ones, so the eye
-              lands on what the tailoring touched. */}
-          <span
-            className={
-              status === "unchanged" ? "text-muted-foreground" : undefined
-            }
-          >
-            {text}
-          </span>
+        <PlainText className="leading-5 wrap-anywhere">
+          {replaced ? (
+            <del className="text-terracotta-foreground">{text}</del>
+          ) : (
+            <span
+              className={cn(
+                status === "unchanged" && "text-muted-foreground",
+                (status === "added" || status === "reworded") && "text-primary"
+              )}
+            >
+              {text}
+            </span>
+          )}
         </PlainText>
       ) : (
         <p className="text-sm text-muted-foreground italic">{empty}</p>
@@ -285,7 +290,7 @@ function PassagePair({
     )
   }
   return (
-    <div className="grid min-w-0 gap-2">
+    <div className="grid min-w-0 gap-3.5">
       {original}
       {tailored}
     </div>
@@ -509,9 +514,8 @@ export function ResumeDiffView({
   return (
     <div className="flex min-w-0 flex-col gap-3.5 rounded-surface bg-forest-soft p-4">
       {/* The toolbar row: the deliverable's real format, then the real controls. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FormatChip render={render} />
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="hidden items-center gap-1 md:flex">
             <button
               type="button"
@@ -553,10 +557,11 @@ export function ResumeDiffView({
             </button>
           ) : null}
         </div>
+        <FormatChip render={render} />
       </div>
 
       {/* The paper (node `49:977`): `#fffdfa` on the sage mat, pad 30. */}
-      <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
+      <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-4 wrap-anywhere sm:p-[30px]">
         <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
           {jobTitle}
         </h2>
@@ -568,16 +573,14 @@ export function ResumeDiffView({
         <DiffLegend />
 
         {diff.summary ? (
-          <section className="min-w-0 space-y-2.5">
+          <section className="min-w-0 space-y-3.5">
             <DocSectionLabel>Professional summary</DocSectionLabel>
             <PassagePair pair={diff.summary} layout={layout} />
             {summaryLine ? <Provenance line={summaryLine} /> : null}
           </section>
         ) : null}
 
-        <SkillsBlock diff={diff} />
-
-        <section className="min-w-0 space-y-2.5">
+        <section className="min-w-0 space-y-3.5">
           <DocSectionLabel>Experience</DocSectionLabel>
           {diff.experience.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -598,11 +601,19 @@ export function ResumeDiffView({
           )}
         </section>
 
-        <ProjectsBlock
-          diff={diff}
-          claimsVerified={claimsVerified}
-          layout={layout}
-        />
+        <details className="min-w-0 border-t border-border-surface pt-3.5">
+          <summary className="cursor-pointer rounded-md text-[13px] leading-[19px] font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            Skills and projects
+          </summary>
+          <div className="mt-3.5 space-y-4">
+            <SkillsBlock diff={diff} />
+            <ProjectsBlock
+              diff={diff}
+              claimsVerified={claimsVerified}
+              layout={layout}
+            />
+          </div>
+        </details>
 
         <p className="text-[11px] leading-4 text-muted-foreground">
           Read-only comparison — wording changes go through Edit draft above: a

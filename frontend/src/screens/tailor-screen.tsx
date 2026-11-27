@@ -1,6 +1,11 @@
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useRef, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
@@ -14,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { ApiError, apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
+import { preparePath } from "@/lib/api/posting-application"
 import { formatDateTime } from "@/lib/format"
 import { useProfileWithFallback } from "@/hooks/use-profile-fallback"
 import { asRecord, asString } from "@/lib/safe"
@@ -32,51 +38,10 @@ import {
 import { ResumeDiffView } from "@/screens/studio/resume-diff"
 import { ResumeEditor } from "@/screens/studio/resume-editor"
 
-/*
-  The Resume Studio (WS-37), rebuilt to the design file's screen `16:82`
-  (WS-42).
-
-  The design's composition: the headline "Your experience. Better told.",
-  a row of paper pills — Inline diff · Original · Cover letter · Preview
-  DOCX · Download DOCX — beside a "Diff review · proposed" status chip,
-  then the document on its sage desk mat with the "Make every claim count."
-  evidence rail at its right.
-
-  The console's real data adds what the design's example never had to
-  carry, and the additions are named, not smuggled in:
-
-  - **Validation** and **Research** pills — the factuality, ATS and style
-    reports and the grounded insights are real deliverables of the tailoring
-    run; hiding them behind no tab at all would bury the checks the safety
-    story depends on. The design's example data passed factuality, so its
-    five pills never needed them.
-  - **The toolbar row states facts, not editor cosplay.** The design draws
-    B / I / U / "Body · 11 pt" on an editable canvas. Formatting controls
-    that change nothing would be a lie about what the in-place editor can
-    regenerate, so the row's first chip names the deliverable's **real**
-    format from the render report ("Body · DOCX"), the design's diff legend
-    sits on the paper where the design puts it, and the one real edit this
-    surface has — Edit draft (WS-47) — opens the section editor.
-  - **Editing is wording, and a save is the pipeline minus the model**
-    (WS-47): the sections go to `PUT /api/tailored/{id}`, which revalidates
-    factuality against the profile, re-runs the ATS analysis, regenerates
-    the deliverable in place, and answers with the updated record — which
-    becomes what this screen shows. A factuality violation after a save is
-    content (the warning banner stays), never an error.
-  - The **status chip tells the truth about whose words these are**:
-    "Diff review · proposed" while the record is the run's own output,
-    "Diff review · edited by you" once an edit has been saved (the record's
-    `edited_at` — server state, not screen state, so a reload keeps it).
-  - "Preview DOCX" and "Download DOCX" name the **real** deliverable format
-    (WS-31): a text deliverable says "text version", because promising a
-    DOCX that is not there is the exact defect WS-31 fixed.
-
-  Safety lines this screen keeps (master prompt §6.4/§9): the original
-  document is immutable and never edited by this screen; a failed factuality
-  report is content with visual weight above the tabs, never hidden behind a
-  green ATS score; missing keywords stay honest gaps unless the profile
-  supports them; and a model failure shows the API's own actionable error.
-*/
+/* Resume Studio (Figma 16:82). The draft ID in the URL, not the active
+   résumé or the last mutation in memory, names the document on screen. The
+   diff always uses that draft's own parsed source; Review is navigation,
+   not an application action. */
 
 /**
  * What the deliverable's file is, named for the candidate (WS-31).
@@ -93,45 +58,46 @@ function deliverableLabel(path: string): string {
   return "file"
 }
 
-/** The number of facts the validator stripped, for the banner. */
-function removedCount(factuality: TailorResponse["factuality"]): number {
-  return (
-    factuality.removed_skills.length +
-    factuality.removed_experience.length +
-    factuality.removed_projects.length
-  )
-}
-
 /** The paper-pill look for the row's non-tab members (design `49:956`). */
 const PILL_ANCHOR =
-  "inline-flex h-[37px] items-center rounded-lg border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+  "inline-flex h-[39px] shrink-0 items-center rounded-[8px] border border-border-surface bg-card px-3.5 py-2 text-[13px] font-semibold leading-[19px] text-primary transition-colors outline-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 
 /** The design's status chip (node `49:964`): sage, r=6, 11/600. */
 const STATUS_CHIP =
-  "inline-flex items-center rounded-[6px] bg-forest-soft px-2.5 py-1 text-[11px] font-semibold leading-4 text-primary"
+  "inline-flex items-center rounded-[6px] bg-forest-soft px-[9px] py-1 text-[11px] font-semibold leading-4 text-primary"
 
-/**
- * The Studio for one job.
- *
- * The tailoring run takes about a minute (grounded research, generation, the
- * factuality validator, the render), so the screen shows the elapsed time
- * and offers a Cancel — which abandons the *wait*, not the server's work,
- * and says so.
- */
-/**
- * What the screen displays for the tailoring: the run's response, or — once
- * an edit has been saved — the server's updated stored record (which carries
- * everything the run response carries, plus the `edited_at` stamp the status
- * chip reads). The PUT's response **is** the refreshed record, so the screen
- * adopts it instead of issuing a second GET for the same bytes.
- */
 type StudioRecord = TailorResponse & { edited_at?: string | null }
 
 export function TailorJobScreen() {
   const { jobId = "" } = useParams()
-  const { profileId, profile } = useProfileWithFallback()
-  const [run, setRun] = useState(0)
-  const [savedRecord, setSavedRecord] = useState<StudioRecord | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const draftId = searchParams.get("draft")
+
+  return (
+    <TailorWorkspace
+      key={JSON.stringify([jobId, draftId])}
+      jobId={jobId}
+      draftId={draftId}
+      openDraft={(id) => {
+        const next = new URLSearchParams(searchParams)
+        next.set("draft", id)
+        setSearchParams(next, { replace: draftId === null })
+      }}
+    />
+  )
+}
+
+function TailorWorkspace({
+  jobId,
+  draftId,
+  openDraft,
+}: {
+  jobId: string
+  draftId: string | null
+  openDraft: (id: string) => void
+}) {
+  const current = useProfileWithFallback()
+  const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -141,11 +107,34 @@ export function TailorJobScreen() {
     enabled: Boolean(jobId),
   })
 
+  // POST and PUT can seed this view immediately. A direct link or reload
+  // reads the persisted record, and never starts generation as a side effect.
+  const draft = useQuery<StudioRecord>({
+    queryKey: ["studio-draft", draftId],
+    queryFn: ({ signal }) => api.getTailored(draftId!, signal),
+    enabled: Boolean(draftId),
+  })
+  const result =
+    draft.data?.job_id === jobId && draft.data?.tailoring_id === draftId
+      ? draft.data
+      : undefined
+  const sourceId = result?.profile_id ?? current.profileId
+  const sourceProfile = useQuery({
+    queryKey: ["profile", result?.profile_id ?? null],
+    queryFn: ({ signal }) => api.getResume(result!.profile_id, signal),
+    enabled: Boolean(result),
+  })
+  const profile = result ? sourceProfile : current.profile
+
   const tailor = useMutation({
     mutationFn: ({ profile, job }: { profile: string; job: string }) => {
       const controller = new AbortController()
       abortRef.current = controller
       return api.tailor({ profile_id: profile, job_id: job }, controller.signal)
+    },
+    onSuccess: (record) => {
+      queryClient.setQueryData(["studio-draft", record.tailoring_id], record)
+      void queryClient.invalidateQueries({ queryKey: ["documents"] })
     },
   })
 
@@ -157,38 +146,131 @@ export function TailorJobScreen() {
       tailoringId: string
       body: TailoredEditRequest
     }) => api.editTailored(tailoringId, body),
-    // The response is the updated stored record: adopt it as what the screen
-    // shows, and close the editor. Nothing else to refetch.
     onSuccess: (record) => {
-      setSavedRecord(record)
+      queryClient.setQueryData(["studio-draft", record.tailoring_id], record)
+      void queryClient.invalidateQueries({ queryKey: ["documents"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["tailored", record.tailoring_id],
+      })
       setEditing(false)
     },
   })
 
-  if (!profileId) {
-    return (
-      <EmptyState
-        title="Tailoring needs a résumé first"
-        description="A tailored résumé is built from your profile facts. Upload your résumé, then come back to this job."
-        action={
-          <div className="flex flex-wrap justify-center gap-2">
-            <LinkButton to="/app/resume">Add your résumé</LinkButton>
-            <LinkButton variant="outline" to="/app/matches">
-              Find jobs that suit you
-            </LinkButton>
-          </div>
-        }
-      />
+  const draftUnavailable =
+    draftId === "" ||
+    (draft.isError &&
+      draft.error instanceof ApiError &&
+      draft.error.status === 404) ||
+    (draft.isSuccess && !result)
+  const edited = Boolean(result?.edited_at)
+  const runError = tailor.error
+  const runErrorDetail = runError instanceof ApiError ? runError.detail : ""
+  const needsCredentials =
+    runError instanceof ApiError && runError.status === 409
+  const retryHelps =
+    !needsCredentials &&
+    !/not configured|retrying will not help|daily quota/i.test(runErrorDetail)
+  const canRun =
+    Boolean(sourceId && job.isSuccess && profile.isSuccess) &&
+    (draftId === null || Boolean(result)) &&
+    !tailor.isPending &&
+    !editing &&
+    retryHelps
+  const startTailoring = () => {
+    if (!sourceId || !canRun) return
+    // The mutation-level callback caches the record; only this still-mounted
+    // workspace may navigate to it. Leaving the route need not cancel the API.
+    tailor.mutate(
+      { profile: sourceId, job: jobId },
+      {
+        onSuccess: (record) => openDraft(record.tailoring_id),
+      }
     )
   }
 
-  if (job.error instanceof ApiError && job.error.status === 404) {
+  /*
+    A failed save keeps the edits on screen. Without a server response, we
+    cannot know whether the save completed.
+  */
+  const editErrorDetail = edit.error
+    ? edit.error instanceof ApiError && edit.error.detail
+      ? edit.error.detail
+      : "Studio did not receive a save confirmation. Your edits are still open; check the saved draft before retrying."
+    : null
+
+  const jobData = job.data?.job
+  const parsedProfile = profile.data?.profile
+  const deliverable = result ? deliverableLabel(result.docx_path) : "DOCX"
+  const jobNotFound = job.error instanceof ApiError && job.error.status === 404
+  const waitingForDocuments = current.missing && current.documents.isPending
+  const waitingForDraft =
+    draftId !== null && !draftUnavailable && draft.isPending
+  const loadingPrerequisites =
+    waitingForDocuments ||
+    (Boolean(sourceId) && !job.isError && (job.isPending || profile.isPending))
+  const preflight = draftId === null && !tailor.isPending && !tailor.isError
+  const runButton = (
+    <Button disabled={!canRun} onClick={startTailoring}>
+      {tailor.isPending
+        ? "Tailoring…"
+        : result
+          ? "Tailor again"
+          : "Tailor this resume"}
+    </Button>
+  )
+
+  const heading = (
+    <PageHeader
+      title="Your experience. Better told."
+      description="Tailor for one role without changing the facts."
+      className="-mt-2 lg:-mt-1.5 [&_h1]:text-wrap [&_h1+div]:leading-5"
+      actions={
+        draftId === null && jobData ? (
+          <>
+            <LinkButton variant="outline" to={preparePath(jobId)}>
+              Use your original résumé
+            </LinkButton>
+            {profile.isSuccess ? runButton : null}
+          </>
+        ) : undefined
+      }
+    />
+  )
+
+  if (draftUnavailable) {
     return (
-      <div className="space-y-10">
-        <PageHeader
-          title="Your experience. Better told."
-          description="Tailor for one role without changing the facts."
+      <div className="space-y-6">
+        {heading}
+        <EmptyState
+          title="Draft not available"
+          description="This draft may have been removed or the link may be wrong. Open another version from Profile & documents."
+          action={
+            <LinkButton to="/app/profile">Open your documents</LinkButton>
+          }
         />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {heading}
+
+      {waitingForDraft || (preflight && loadingPrerequisites) ? (
+        <ProgressState
+          title={
+            waitingForDraft
+              ? "Opening your saved draft"
+              : "Getting Resume Studio ready"
+          }
+        />
+      ) : null}
+
+      {draftId !== null && draft.isError ? (
+        <ErrorNotice error={draft.error} onRetry={() => void draft.refetch()} />
+      ) : null}
+
+      {preflight && jobNotFound ? (
         <EmptyState
           title="That job is not in your matched list"
           description="Pick one of your matched jobs and we will rewrite your résumé for it."
@@ -196,84 +278,30 @@ export function TailorJobScreen() {
             <LinkButton to="/app/matches">Find jobs that suit you</LinkButton>
           }
         />
-      </div>
-    )
-  }
-
-  /*
-    What the studio shows: the run's record, or the server's updated record
-    once an edit was saved. A new run resets the saved record — its content
-    is a fresh proposal again.
-  */
-  const result: StudioRecord | undefined = savedRecord ?? tailor.data
-  const edited = Boolean(result?.edited_at)
-
-  /*
-    Recovery truth (master prompt §9.4): the model's own error text names its
-    repair. A "not configured" answer says retrying will not help, so the
-    screen does not offer a retry that cannot work; a credential answer
-    (409) points at the one place the caller can fix it themselves.
-  */
-  const runError = tailor.error
-  const runErrorDetail = runError instanceof ApiError ? runError.detail : ""
-  const retryHelps = !(
-    runError instanceof ApiError && runErrorDetail.includes("not configured")
-  )
-  const needsCredentials =
-    runError instanceof ApiError && runError.status === 409
-
-  /*
-    A failed save says what the server said and keeps the editor open with
-    the draft: the caller can repair the cause without retyping anything.
-    A transport failure has no server detail, so the message is ours — and
-    honest about what happened (nothing was saved).
-  */
-  const editErrorDetail = edit.error
-    ? edit.error instanceof ApiError && edit.error.detail
-      ? edit.error.detail
-      : "The server could not save the edit. Your draft is unchanged on the server — try again."
-    : null
-
-  const jobData = job.data?.job
-  const parsedProfile = profile.data?.profile
-  const deliverable = result ? deliverableLabel(result.docx_path) : "DOCX"
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Your experience. Better told."
-        description="Tailor for one role without changing the facts."
-        actions={
-          <Button
-            disabled={tailor.isPending}
-            onClick={() => {
-              setRun((value) => value + 1)
-              // A new run is a fresh proposal: the previous edit's record and
-              // any open editor belong to the replaced deliverable.
-              setSavedRecord(null)
-              setEditing(false)
-              tailor.mutate({ profile: profileId, job: jobId })
-            }}
-          >
-            {tailor.isPending
-              ? "Tailoring…"
-              : tailor.data
-                ? "Tailor again"
-                : "Tailor this resume"}
-          </Button>
-        }
-      />
+      ) : preflight && job.isError ? (
+        <ErrorNotice error={job.error} onRetry={() => void job.refetch()} />
+      ) : preflight && !sourceId && !waitingForDocuments ? (
+        <EmptyState
+          title="Tailoring needs a résumé first"
+          description="A tailored résumé is built from your profile facts. Upload your résumé, then come back to this job."
+          action={<LinkButton to="/app/resume">Add your résumé</LinkButton>}
+        />
+      ) : preflight && profile.isError ? (
+        <ErrorNotice
+          error={profile.error}
+          onRetry={() => void profile.refetch()}
+        />
+      ) : null}
 
       {tailor.isPending ? (
         <ProgressState
-          key={`tailor-${run}`}
           title="Tailoring the resume"
-          description="Grounded research, generation, the factuality validator and the render. This takes about a minute."
+          description="The model drafts wording for this role, then Studio checks the claims and prepares your file."
           onCancel={() => abortRef.current?.abort()}
         >
           <p className="text-xs text-muted-foreground">
-            Cancelling stops the console waiting. The server keeps working, and
-            the result is stored under its own id.
+            Cancelling only stops the wait. If the draft finishes, it will
+            appear in Profile &amp; documents.
           </p>
         </ProgressState>
       ) : null}
@@ -282,24 +310,16 @@ export function TailorJobScreen() {
         <div className="space-y-3">
           <ErrorNotice
             error={runError}
-            onRetry={
-              retryHelps
-                ? () => tailor.mutate({ profile: profileId, job: jobId })
-                : undefined
-            }
+            onRetry={canRun ? startTailoring : undefined}
           />
           {needsCredentials ? (
-            <p className="text-sm">
-              {/*
-                WS-46 moved the model credentials onto the account screen, so
-                the recovery link goes where the fix actually lives now
-                (WS-47 retarget). The label keeps the wording the API's 409
-                detail tells the caller to look for.
-              */}
-              <LinkButton variant="outline" size="sm" to="/app/account">
-                Open Profile → Model credentials
-              </LinkButton>
-            </p>
+            <LinkButton
+              variant="outline"
+              size="sm"
+              to="/app/account?tab=credentials"
+            >
+              Open Account → Model credentials
+            </LinkButton>
           ) : null}
         </div>
       ) : null}
@@ -309,7 +329,7 @@ export function TailorJobScreen() {
         this run will tailor for, and what the run will do. The header's
         button starts it.
       */}
-      {!result && !tailor.isPending && !tailor.isError ? (
+      {preflight && current.profile.isSuccess && job.isSuccess ? (
         <section className="rounded-surface border border-border-surface bg-card p-6">
           <h2 className="font-heading text-xl font-semibold tracking-tight text-primary">
             {jobData ? jobData.title : "Tailor the resume"}
@@ -345,22 +365,35 @@ export function TailorJobScreen() {
               title="The factuality check changed the resume before delivery"
             >
               <p>
-                {removedCount(result.factuality)} item(s) your résumé does not
-                state were stripped — the delivered text is the reduced,
-                truthful one. The findings are on the Validation tab.
+                The validator corrected unsupported wording or removed
+                unsupported items. Review its findings on the Validation tab
+                before using this draft.
               </p>
             </Banner>
           ) : null}
 
           <Tabs defaultValue="diff" variant="pill" className="gap-5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <TabsList>
+            <div className="flex flex-wrap items-center gap-2 min-[1024px]:gap-3">
+              <TabsList
+                aria-label="Resume Studio views"
+                className="min-w-0 gap-2 min-[1024px]:gap-3 [&_[role=tab]]:rounded-[8px] [&_[role=tab]:not([aria-selected=true])]:h-[39px]"
+              >
                 <TabsTrigger value="diff">Inline diff</TabsTrigger>
                 <TabsTrigger value="original">Original</TabsTrigger>
                 <TabsTrigger value="cover-letter">Cover letter</TabsTrigger>
                 <TabsTrigger value="preview">Preview {deliverable}</TabsTrigger>
-                <TabsTrigger value="validation">Validation</TabsTrigger>
-                <TabsTrigger value="research">Research</TabsTrigger>
+                <TabsTrigger
+                  value="validation"
+                  className="border-transparent bg-transparent px-1.5"
+                >
+                  Validation
+                </TabsTrigger>
+                <TabsTrigger
+                  value="research"
+                  className="border-transparent bg-transparent px-1.5"
+                >
+                  Research
+                </TabsTrigger>
               </TabsList>
               {/*
                 The design's last pill is an action, not a view (node
@@ -371,12 +404,13 @@ export function TailorJobScreen() {
                 href={apiUrl(
                   `/api/tailored/${encodeURIComponent(result.tailoring_id)}/download`
                 )}
-                download
                 className={PILL_ANCHOR}
               >
                 {/* WS-31: the deliverable keeps the uploaded format, so the
                     pill names what it really is rather than assuming DOCX. */}
-                Download the {deliverable}
+                {deliverable === "DOCX"
+                  ? "Download DOCX"
+                  : `Download the ${deliverable}`}
               </a>
               {/*
                 The status chip tells the truth about whose words these are:
@@ -402,7 +436,7 @@ export function TailorJobScreen() {
                   </p>
                 </div>
               ) : (
-                <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,2.12fr)_minmax(0,1fr)]">
                   {editing ? (
                     <ResumeEditor
                       tailored={result.tailored}
@@ -427,11 +461,14 @@ export function TailorJobScreen() {
                       jobTitle={jobData ? jobData.title : "Tailored resume"}
                       company={jobData ? jobData.company : "the employer"}
                       claimsVerified={result.factuality.passed}
-                      onStartEdit={() => {
-                        // A stale save failure must not greet a new session.
-                        edit.reset()
-                        setEditing(true)
-                      }}
+                      onStartEdit={
+                        tailor.isPending
+                          ? undefined
+                          : () => {
+                              edit.reset()
+                              setEditing(true)
+                            }
+                      }
                     />
                   )}
                   <EvidenceRail
@@ -439,6 +476,11 @@ export function TailorJobScreen() {
                     profile={parsedProfile}
                     factuality={result.factuality}
                     render={result.render}
+                    reviewPath={
+                      result.factuality.passed
+                        ? `${preparePath(jobId)}?draft=${encodeURIComponent(result.tailoring_id)}`
+                        : preparePath(jobId)
+                    }
                   />
                 </div>
               )}
@@ -462,6 +504,7 @@ export function TailorJobScreen() {
 
             <TabsContent value="cover-letter" keepMounted>
               <CoverLetterPanel
+                key={result.tailored.cover_letter}
                 letter={result.tailored.cover_letter}
                 jobTitle={jobData ? jobData.title : "this role"}
                 company={jobData ? jobData.company : "the employer"}
@@ -505,6 +548,14 @@ export function TailorJobScreen() {
               <InsightsPanel insights={result.insights} />
             </TabsContent>
           </Tabs>
+          {job.isSuccess ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <LinkButton variant="outline" to={preparePath(jobId)}>
+                Use your original résumé
+              </LinkButton>
+              {profile.isSuccess ? runButton : null}
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>

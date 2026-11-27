@@ -62,13 +62,13 @@ export function FactualityReport({
         ) : (
           <Banner
             tone="warning"
-            title={`${removed} unsupported item(s) were removed`}
+            title={
+              removed > 0
+                ? `${removed} unsupported item(s) were removed`
+                : "The factuality check revised the wording"
+            }
           >
-            <p>
-              The validator stripped what the resume does not state. The
-              tailored resume below is the <em>reduced</em> one — the truthful
-              one.
-            </p>
+            <p>Review the changes below before using the tailored draft.</p>
           </Banner>
         )}
 

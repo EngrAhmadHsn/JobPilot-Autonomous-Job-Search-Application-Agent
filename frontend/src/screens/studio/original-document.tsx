@@ -28,7 +28,7 @@ export function OriginalDocument({ profile }: { profile: CandidateProfile }) {
   const skills = profile.skills ?? []
 
   return (
-    <article className="mx-auto flex w-full max-w-[869px] flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
+    <article className="mx-auto flex w-full max-w-[869px] flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-4 sm:p-[30px]">
       <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
         Original résumé
       </h2>

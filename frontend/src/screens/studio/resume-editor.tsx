@@ -65,6 +65,13 @@ export function ResumeEditor({
   const [summary, setSummary] = useState(tailored.summary)
   const [bullets, setBullets] = useState(() => flattenBullets(tailored))
   const [letter, setLetter] = useState(tailored.cover_letter)
+  const hasExperience = tailored.experience.length > 0
+  const changes: TailoredEditRequest = {}
+  if (summary !== tailored.summary) changes.summary = summary
+  if (hasExperience && bullets !== flattenBullets(tailored))
+    changes.experience = bullets
+  if (letter !== tailored.cover_letter) changes.cover_letter = letter
+  const dirty = Object.keys(changes).length > 0
   const bulletLines = bullets
     .split("\n")
     .filter((line) => line.trim().length > 0)
@@ -83,10 +90,8 @@ export function ResumeEditor({
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            onClick={() =>
-              onSave({ summary, experience: bullets, cover_letter: letter })
-            }
-            disabled={saving}
+            onClick={() => onSave(changes)}
+            disabled={saving || !dirty}
           >
             <PenLine className="size-3.5" aria-hidden />
             {saving ? "Saving…" : "Save changes"}
@@ -106,13 +111,13 @@ export function ResumeEditor({
         <Banner tone="warning" title="The save did not go through">
           <p>{error}</p>
           <p className="mt-1 text-xs">
-            Your edits are still here — fix the cause or try again; nothing was
-            saved.
+            Your edits are still here. Check the message above before trying
+            again.
           </p>
         </Banner>
       ) : null}
 
-      <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-[30px]">
+      <article className="flex min-w-0 flex-col gap-3.5 rounded-surface border border-border-surface bg-card p-4 wrap-anywhere sm:p-[30px]">
         <h2 className="text-[22px] leading-8 font-semibold text-primary uppercase">
           {jobTitle}
         </h2>
@@ -142,31 +147,33 @@ export function ResumeEditor({
           </p>
         </section>
 
-        <section className="min-w-0 space-y-2">
-          <label
-            htmlFor="studio-edit-experience"
-            className="text-[13px] leading-[19px] font-semibold text-primary uppercase"
-          >
-            Experience bullets
-          </label>
-          <textarea
-            id="studio-edit-experience"
-            value={bullets}
-            onChange={(event) => setBullets(event.target.value)}
-            rows={6}
-            disabled={saving}
-            spellCheck
-            className={TEXTAREA_CLASSES}
-          />
-          <p className="text-[11px] leading-4 text-muted-foreground">
-            One bullet per line. The lines are applied to your entries in order
-            — entries themselves (company, title) stay as the tailoring produced
-            them, and lines beyond an entry&apos;s originals are appended after
-            its last bullet. Currently{" "}
-            <span className="tabular-nums">{bulletLines.length}</span> bullet
-            line(s).
-          </p>
-        </section>
+        {hasExperience ? (
+          <section className="min-w-0 space-y-2">
+            <label
+              htmlFor="studio-edit-experience"
+              className="text-[13px] leading-[19px] font-semibold text-primary uppercase"
+            >
+              Experience bullets
+            </label>
+            <textarea
+              id="studio-edit-experience"
+              value={bullets}
+              onChange={(event) => setBullets(event.target.value)}
+              rows={6}
+              disabled={saving}
+              spellCheck
+              className={TEXTAREA_CLASSES}
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              One bullet per line. The lines are applied to your entries in
+              order — entries themselves (company, title) stay as the tailoring
+              produced them, and lines beyond an entry&apos;s originals are
+              appended after its last bullet. Currently{" "}
+              <span className="tabular-nums">{bulletLines.length}</span> bullet
+              line(s).
+            </p>
+          </section>
+        ) : null}
 
         <section className="min-w-0 space-y-2">
           <label

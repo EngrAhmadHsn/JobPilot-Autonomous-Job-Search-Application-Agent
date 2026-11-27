@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
 
-import { candidateProfile, jobListing, tailorResponse } from "@/test/factories"
+import {
+  candidateProfile,
+  jobListing,
+  profileResponse,
+  tailorResponse,
+  tailoredResponse,
+} from "@/test/factories"
 import { setCurrentProfileId } from "@/lib/profile"
 import { server } from "@/test/server"
 import { renderApp } from "@/test/render"
@@ -95,6 +101,135 @@ describe("the tailor index", () => {
   })
 })
 
+describe("optional tailoring", () => {
+  it("offers a way to apply with the original when tailoring fails", async () => {
+    setCurrentProfileId("profile-1")
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          { detail: "Tailoring is temporarily unavailable" },
+          { status: 503 }
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+    expect(
+      await screen.findByText(/tailoring is temporarily unavailable/i)
+    ).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: /use your original résumé/i })
+    ).toHaveAttribute("href", "/app/matches/greenhouse%3A1/prepare")
+  })
+})
+
+describe("opening a saved Studio draft", () => {
+  it("loads the exact draft and compares it with its own source résumé", async () => {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    server.use(
+      http.get(`${BASE}/api/tailored/saved-draft`, () =>
+        HttpResponse.json({
+          ...tailoredResponse(),
+          tailoring_id: "saved-draft",
+          profile_id: "archived-profile",
+          edited_at: "2026-11-22T10:05:00Z",
+        })
+      ),
+      http.get(`${BASE}/api/resumes/archived-profile`, () =>
+        HttpResponse.json({
+          ...profileResponse(),
+          profile_id: "archived-profile",
+          profile: candidateProfile({
+            summary: "Source from the archived résumé.",
+          }),
+        })
+      )
+    )
+    renderApp({ route: `${ROUTE}?draft=saved-draft` })
+
+    expect(await screen.findByText("Diff review · edited by you")).toBeVisible()
+    expect(
+      await screen.findByText("Source from the archived résumé.", {
+        selector: "del",
+      })
+    ).toBeVisible()
+    await user.click(screen.getByRole("tab", { name: "Original" }))
+    expect(
+      screen.getByText("Source from the archived résumé.", { selector: "p" })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: /Download.*DOCX/ })
+    ).toHaveAttribute("href", `${BASE}/api/tailored/saved-draft/download`)
+  })
+
+  it.each([404, 200])(
+    "does not open an unavailable draft (%s)",
+    async (status) => {
+      setCurrentProfileId("profile-1")
+      server.use(
+        http.get(`${BASE}/api/tailored/unavailable`, () =>
+          HttpResponse.json(
+            status === 404
+              ? { detail: "Tailoring not found" }
+              : {
+                  ...tailoredResponse(),
+                  tailoring_id: "unavailable",
+                  job_id: "greenhouse:another-job",
+                },
+            { status }
+          )
+        )
+      )
+      renderApp({ route: `${ROUTE}?draft=unavailable` })
+
+      expect(await screen.findByText("Draft not available")).toBeVisible()
+      expect(
+        screen.getByRole("link", { name: "Open your documents" })
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("button", { name: "Tailor this resume" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("link", { name: /Download.*DOCX/ })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it("keeps the last draft and its address if a rerun fails", async () => {
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    const { router } = renderApp({ route: ROUTE })
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+    await screen.findByRole("heading", { name: "Make every claim count." })
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          { detail: "The language model is unavailable; try again later." },
+          { status: 503 }
+        )
+      )
+    )
+
+    await user.click(screen.getByRole("button", { name: "Tailor again" }))
+    expect(
+      await screen.findByText(
+        "The language model is unavailable; try again later."
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "Make every claim count." })
+    ).toBeVisible()
+    expect(screen.getByText("Diff review · proposed")).toBeVisible()
+    expect(router.state.location.search).toBe("?draft=tailoring-1")
+  })
+})
+
 describe("the tailor screen", () => {
   it("tails the resume and shows the reports", async () => {
     setCurrentProfileId("profile-1")
@@ -139,8 +274,13 @@ describe("the tailor screen", () => {
       screen.getByRole("heading", { name: "AI Engineer", level: 2 })
     ).toBeInTheDocument()
     expect(
-      screen.getByText("Acme · tailored draft · source preserved")
-    ).toBeInTheDocument()
+      await screen.findByText("Acme · tailored draft · source preserved")
+    ).toBeVisible()
+
+    const sourceSummary = screen.getByText(candidateProfile().summary!, {
+      selector: "del",
+    })
+    expect(sourceSummary).toBeVisible()
 
     // The design's status chip beside the pills: the tailored wording is a
     // proposal until the candidate authorizes it on Review.
@@ -156,10 +296,13 @@ describe("the tailor screen", () => {
     // design's example just asserts "0".
     expect(screen.getByText("0 unsupported claims")).toBeInTheDocument()
 
-    // The step to review leads somewhere real.
+    // Review is navigation to the exact draft for the posting.
     expect(
       screen.getByRole("link", { name: "Continue to review →" })
-    ).toHaveAttribute("href", "/app/approvals")
+    ).toHaveAttribute(
+      "href",
+      "/app/matches/greenhouse%3A1/prepare?draft=tailoring-1"
+    )
 
     // Every changed passage carries a provenance line, and a passed
     // factuality check is what licenses "no new claims added" (node 49:996).
@@ -179,7 +322,7 @@ describe("the tailor screen", () => {
       await screen.findByRole("button", { name: "Tailor this resume" })
     )
 
-    const link = await screen.findByRole("link", { name: "Download the DOCX" })
+    const link = await screen.findByRole("link", { name: "Download DOCX" })
     expect(link).toHaveAttribute(
       "href",
       "http://api.test/api/tailored/tailoring-1/download"
@@ -204,7 +347,7 @@ describe("the tailor screen", () => {
     expect(screen.getByText(/4 passages rewritten/)).toBeInTheDocument()
     // A `.docx` deliverable keeps the DOCX pill label.
     expect(
-      screen.getByRole("link", { name: "Download the DOCX" })
+      screen.getByRole("link", { name: "Download DOCX" })
     ).toBeInTheDocument()
   })
 
@@ -357,6 +500,38 @@ describe("the tailor screen", () => {
     expect(
       screen.getByText("2 unsupported claims stripped")
     ).toBeInTheDocument()
+  })
+
+  it("reports a factuality correction even when no entire entry was removed", async () => {
+    const violation = "Removed an unsupported claim of 9 years of experience."
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(
+          tailorResponse({
+            factuality: {
+              passed: false,
+              removed_skills: [],
+              removed_experience: [],
+              removed_projects: [],
+              violations: [violation],
+            },
+          })
+        )
+      )
+    )
+    setCurrentProfileId("profile-1")
+    const user = userEvent.setup()
+    renderApp({ route: ROUTE })
+    await user.click(
+      await screen.findByRole("button", { name: "Tailor this resume" })
+    )
+
+    expect(
+      await screen.findByText("Wording corrected · see Validation")
+    ).toBeVisible()
+    expect(screen.queryByText(/0 unsupported/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "Validation" }))
+    expect(screen.getByText(violation)).toBeVisible()
   })
 
   it("says so when the language model is unavailable", async () => {
@@ -580,16 +755,10 @@ describe("the resume studio (WS-37, composition from WS-42)", () => {
     expect(screen.getByText("Required keywords · 1 of 3")).toBeInTheDocument()
     expect(screen.getByText("Preferred keywords · 0 of 1")).toBeInTheDocument()
 
-    // The distinction is named in visible text, not colour alone.
-    expect(
-      screen.getAllByText("In the tailored resume").length
-    ).toBeGreaterThan(0)
-    expect(
-      screen.getAllByText("In your profile, not emphasized").length
-    ).toBeGreaterThan(0)
-    expect(
-      screen.getAllByText("Not in your source evidence").length
-    ).toBeGreaterThan(0)
+    // The group labels distinguish the states without relying on the washes.
+    expect(screen.getByText("Matched in your source")).toBeVisible()
+    expect(screen.getByText("In your profile, not emphasized")).toBeVisible()
+    expect(screen.getByText("Not evidenced")).toBeVisible()
 
     // The three-way split, per term: present (python), supported-but-not-
     // emphasized (sql — the profile states "SQL"), and an honest gap
@@ -697,7 +866,7 @@ describe("the resume studio (WS-37, composition from WS-42)", () => {
         HttpResponse.json(
           {
             detail:
-              "Your model credential was rejected by the provider. Register a working key under Profile → Model credentials.",
+              "Your model key is missing or unusable. Add or update it under Account → Model credentials.",
           },
           { status: 409 }
         )
@@ -714,17 +883,18 @@ describe("the resume studio (WS-37, composition from WS-42)", () => {
     // The API's specific actionable error, verbatim.
     expect(
       await screen.findByText(
-        "Your model credential was rejected by the provider. Register a working key under Profile → Model credentials."
+        "Your model key is missing or unusable. Add or update it under Account → Model credentials."
       )
     ).toBeInTheDocument()
     // The recovery path the error names — the account screen now hosts the
     // model credentials (WS-46), so that is where the link goes (WS-47).
+    const recovery = screen.getByRole("link", {
+      name: "Open Account → Model credentials",
+    })
+    expect(recovery).toHaveAttribute("href", "/app/account?tab=credentials")
     expect(
-      screen.getByRole("link", { name: "Open Profile → Model credentials" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("link", { name: "Open Profile → Model credentials" })
-    ).toHaveAttribute("href", "/app/account")
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -812,8 +982,6 @@ describe("the studio editor (ws-47)", () => {
     expect(putCount).toBe(1)
     expect(putBody).toEqual({
       summary: "Edited summary in the studio.",
-      experience: "Designed the first published algorithm.",
-      cover_letter: "Dear hiring team, I build analytical systems.",
     })
 
     // The chip tells the truth about whose words these now are.
@@ -830,6 +998,77 @@ describe("the studio editor (ws-47)", () => {
     expect(
       screen.queryByLabelText("Professional summary")
     ).not.toBeInTheDocument()
+  })
+
+  it("saves a summary when the draft has no experience entries", async () => {
+    const withoutExperience = tailorResponse({
+      tailored: { ...tailorResponse().tailored, experience: [] },
+    })
+    server.use(
+      http.post(`${BASE}/api/tailor`, () =>
+        HttpResponse.json(withoutExperience)
+      ),
+      http.put(`${BASE}/api/tailored/tailoring-1`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>
+        if (body.experience != null) {
+          return HttpResponse.json(
+            {
+              detail: "The tailored resume has no experience entries to edit.",
+            },
+            { status: 422 }
+          )
+        }
+        return HttpResponse.json({
+          ...editedRecord(),
+          tailored: {
+            ...withoutExperience.tailored,
+            summary: String(body.summary),
+          },
+        })
+      })
+    )
+    const user = await runTailoring()
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    const summary = await screen.findByLabelText("Professional summary")
+    await user.clear(summary)
+    await user.type(summary, "Updated summary without a work history.")
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    expect(await screen.findByText("Diff review · edited by you")).toBeVisible()
+    expect(
+      screen.getByText("Updated summary without a work history.")
+    ).toBeVisible()
+  })
+
+  it("shows the saved cover letter after editing it on Inline diff", async () => {
+    const savedLetter = "Dear hiring team, I write tested software."
+    server.use(
+      http.put(`${BASE}/api/tailored/tailoring-1`, () =>
+        HttpResponse.json({
+          ...editedRecord(),
+          tailored: { ...editedRecord().tailored, cover_letter: savedLetter },
+        })
+      )
+    )
+    const user = await runTailoring()
+    const letterTab = () => screen.getByRole("tab", { name: "Cover letter" })
+    await user.click(letterTab())
+    expect(
+      screen.getByRole("textbox", { name: /Cover letter for/ })
+    ).toHaveValue("Dear hiring team, I build analytical systems.")
+    await user.click(screen.getByRole("tab", { name: "Inline diff" }))
+    await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    const letter = await screen.findByLabelText("Cover letter", {
+      selector: "textarea",
+    })
+    await user.clear(letter)
+    await user.type(letter, savedLetter)
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+    await screen.findByText("Diff review · edited by you")
+    await user.click(letterTab())
+    expect(
+      screen.getByRole("textbox", { name: /Cover letter for/ })
+    ).toHaveValue(savedLetter)
   })
 
   it("discards an edit without saving anything", async () => {
@@ -883,6 +1122,10 @@ describe("the studio editor (ws-47)", () => {
     const user = await runTailoring()
 
     await user.click(screen.getByRole("button", { name: "Edit draft" }))
+    await user.type(
+      await screen.findByLabelText("Professional summary"),
+      " Kubernetes."
+    )
     await user.click(screen.getByRole("button", { name: "Save changes" }))
 
     // The verdict rides above the tabs, exactly as it does after a run…

@@ -1,6 +1,5 @@
 import { useState } from "react"
 
-import { Check, CircleAlert, Sparkles } from "lucide-react"
 import { cn } from "cn"
 
 import { PlainText } from "@/components/common/plain-text"
@@ -43,23 +42,17 @@ import {
 
 type TermState = "hit" | "supported" | "gap"
 
-const STATE_META: Record<
-  TermState,
-  { label: string; icon: typeof Check; chipClass: string }
-> = {
+const STATE_META: Record<TermState, { label: string; chipClass: string }> = {
   hit: {
     label: "In the tailored resume",
-    icon: Check,
     chipClass: "bg-lime-soft text-lime-foreground",
   },
   supported: {
     label: "In your profile, not emphasized",
-    icon: Sparkles,
     chipClass: "bg-terracotta-soft text-terracotta-foreground",
   },
   gap: {
     label: "Not in your source evidence",
-    icon: CircleAlert,
     chipClass: "bg-terracotta-soft text-terracotta-foreground",
   },
 }
@@ -84,7 +77,6 @@ function KeywordChip({
   onToggle: () => void
 }) {
   const meta = STATE_META[state]
-  const Icon = meta.icon
   return (
     <button
       type="button"
@@ -93,33 +85,13 @@ function KeywordChip({
       title={`${term} — ${meta.label}. Select for the evidence.`}
       aria-label={`${term} — ${meta.label}`}
       className={cn(
-        "inline-flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition-colors",
+        "inline-flex max-w-full items-center rounded-[6px] px-[9px] py-1 text-left text-[11px] leading-4 font-semibold wrap-anywhere transition-colors",
         selected ? "bg-primary text-primary-foreground" : meta.chipClass,
         "outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       )}
     >
-      <Icon className="size-3" aria-hidden />
       {term}
     </button>
-  )
-}
-
-/** The three states, named in text — colour and icon are never the only cue. */
-function StateLegend() {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
-      <span className="font-semibold text-foreground">Reading the terms:</span>
-      {(["hit", "supported", "gap"] as TermState[]).map((state) => {
-        const meta = STATE_META[state]
-        const Icon = meta.icon
-        return (
-          <span key={state} className="inline-flex items-center gap-1.5">
-            <Icon className="size-3" aria-hidden />
-            {meta.label}
-          </span>
-        )
-      })}
-    </div>
   )
 }
 
@@ -136,7 +108,7 @@ function CoverageMeter({
   fill: string
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-4">
       <p className="text-[13px] leading-[19px] font-semibold text-primary">
         {label} · {hit} of {total}
       </p>
@@ -213,7 +185,7 @@ function ChipGroup({
 }) {
   if (terms.length === 0) return null
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
       <p
         className={cn("text-[13px] leading-[19px] font-semibold", headingClass)}
       >
@@ -238,11 +210,8 @@ function ChipGroup({
  * The format of the **deliverable**, named for the caption (WS-47).
  *
  * An in-place deliverable keeps the uploaded format (WS-31), so the label is
- * that format. A regenerated deliverable is the renderer's output — a DOCX,
- * except for a text upload the fallback renderer carried through — so the
- * label names what the file really is, never the unknown source. "Check the
- * regenerated document layout" told the candidate nothing; the design's own
- * sentence names the format, and the honest version does too.
+ * that format. A regenerated deliverable is a freshly formatted DOCX,
+ * regardless of the original file's format.
  */
 function deliverableFormat(render: TailorResponse["render"]): string {
   const format = render.source_format.toLowerCase()
@@ -251,9 +220,7 @@ function deliverableFormat(render: TailorResponse["render"]): string {
       ? "document"
       : format.replace(".", "").toUpperCase()
   }
-  if (format === ".txt" || format === ".md") {
-    return format.slice(1).toUpperCase()
-  }
+  // Regenerated output is DOCX even when the original was text or PDF.
   return "DOCX"
 }
 
@@ -263,11 +230,13 @@ export function EvidenceRail({
   profile,
   factuality,
   render,
+  reviewPath,
 }: {
   coverage: KeywordCoverage
   profile: CandidateProfile
   factuality: TailorResponse["factuality"]
   render: TailorResponse["render"]
+  reviewPath: string
 }) {
   const [selected, setSelected] = useState<string | null>(null)
   const skills = profile.skills
@@ -298,13 +267,13 @@ export function EvidenceRail({
     factuality.removed_projects.length
 
   return (
-    <aside className="flex min-w-0 flex-col gap-4 rounded-surface border border-border-surface bg-card p-6">
-      <h2 className="text-[22px] leading-[30px] font-semibold text-primary">
+    <aside className="flex min-w-0 flex-col gap-4 rounded-surface border border-border-surface bg-card p-4 sm:p-5">
+      <h2 className="text-[21px] leading-[30px] font-semibold text-primary">
         Make every claim count.
       </h2>
 
       {measurable ? (
-        <div className="space-y-3.5">
+        <div className="space-y-4">
           <CoverageMeter
             label="Required keywords"
             hit={coverage.required_hit.length}
@@ -335,6 +304,7 @@ export function EvidenceRail({
 
       {measurable ? (
         <>
+          <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
           <ChipGroup
             heading="Matched in your source"
             headingClass="text-primary"
@@ -353,7 +323,7 @@ export function EvidenceRail({
           />
           <ChipGroup
             heading="Not evidenced"
-            headingClass="text-primary"
+            headingClass="text-terracotta-foreground"
             terms={gaps}
             state="gap"
             selected={selected}
@@ -362,20 +332,10 @@ export function EvidenceRail({
           <p className="text-[13px] leading-[19px] text-muted-foreground">
             Missing keywords are gaps, not permission to invent experience.
           </p>
-          <StateLegend />
         </>
       ) : null}
 
-      {selected ? (
-        <EvidenceBlock term={selected} profile={profile} />
-      ) : (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          <Sparkles className="mr-1 inline size-3 align-[-1px]" aria-hidden />
-          “In your profile, not emphasized” marks a term your own résumé
-          supports — the tailoring could surface it, and whether to is your
-          call. Nothing is added automatically.
-        </p>
-      )}
+      {selected ? <EvidenceBlock term={selected} profile={profile} /> : null}
 
       <div className="h-px w-full shrink-0 bg-border-surface" aria-hidden />
 
@@ -386,7 +346,9 @@ export function EvidenceRail({
           </span>
         ) : (
           <span className="inline-flex items-center rounded-[6px] bg-terracotta-soft px-2.5 py-1 text-[11px] font-semibold text-terracotta-foreground">
-            {removed} unsupported claim{removed === 1 ? "" : "s"} stripped
+            {removed > 0
+              ? `${removed} unsupported claim${removed === 1 ? "" : "s"} stripped`
+              : "Wording corrected · see Validation"}
           </span>
         )}
         <p className="text-xs leading-[17px] text-muted-foreground">
@@ -397,7 +359,7 @@ export function EvidenceRail({
       </div>
 
       <div>
-        <LinkButton to="/app/approvals">Continue to review →</LinkButton>
+        <LinkButton to={reviewPath}>Continue to review →</LinkButton>
       </div>
     </aside>
   )

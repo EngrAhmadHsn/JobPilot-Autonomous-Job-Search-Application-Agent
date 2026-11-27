@@ -9,10 +9,8 @@ import { Button } from "@/components/ui/button"
 /*
   The cover letter (WS-37 task 6).
 
-  **Independence:** the letter and the resume are separately versioned on
-  the server, and this editor keeps that true in miniature — its state is
-  the letter's alone. No edit here touches the resume diff, the reports or
-  the delivered file, and no edit anywhere else touches this text.
+  This tab keeps a local copy for quick tweaks and copying. When Edit draft
+  saves a new letter, Studio remounts this panel with the persisted wording.
 
   **What persistence supports, and where it lives:** this tab's draft stays
   in the window — the copy button moves the text where it can be kept, and
@@ -50,12 +48,10 @@ export function CoverLetterPanel({
       <Banner tone="info" title="This draft is not saved on the server">
         <p>
           The tailoring stores the letter as delivered. Edits you make here live
-          only in this window — copy the text out before you leave the page. A
-          new letter comes with a new tailoring run (Tailor again, top of the
-          screen); nothing you type changes the resume, its reports or the
+          only in this window — copy the text out before you leave the page.
+          Nothing you type here changes the résumé, its reports, or the
           delivered file. To save the letter to the server, use Edit draft on
-          the Inline diff tab — a save there revalidates it together with the
-          resume sections.
+          the Inline diff tab.
         </p>
       </Banner>
 
