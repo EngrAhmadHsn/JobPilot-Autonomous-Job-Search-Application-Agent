@@ -25,8 +25,7 @@ const BASE = "http://api.test"
  *   pair;
  * - the privacy panel links to the profile's answers tab, where the
  *   voluntary EEO answers actually live, rather than duplicating them;
- * - the Model credentials tab hosts the same key card, same endpoints, same
- *   behavior it had on Profile.
+ * - the Model credentials tab hosts the saved model connections.
  */
 
 function stubIdentityPatch() {
@@ -62,6 +61,7 @@ function stubCredentials(payload: Record<string, unknown> = {}) {
         platform_configured: true,
         using: "platform",
         credential: null,
+        credentials: [],
         ...payload,
       })
     )
@@ -157,6 +157,16 @@ describe("the account and security screen", () => {
     expect(patches).toEqual([{ password: "s3cure-passphrase" }])
   })
 
+  it("opens the model-key card from a credential recovery link", async () => {
+    stubCredentials()
+    renderScreen(<AccountScreen />, { route: "/app/account?tab=credentials" })
+
+    expect(await screen.findByRole("heading", { name: "Your model connections" })).toBeVisible()
+    expect(
+      screen.getByRole("tab", { name: "Model credentials" })
+    ).toHaveAttribute("aria-selected", "true")
+  })
+
   it("hosts the model key card on its tab", async () => {
     stubCredentials()
     const user = userEvent.setup()
@@ -165,13 +175,10 @@ describe("the account and security screen", () => {
     await user.click(
       await screen.findByRole("tab", { name: "Model credentials" })
     )
-    // The card's title (a `CardTitle`, which is a styled div, not a heading
-    // element — the chip and the description sit beside it).
-    expect(await screen.findByText("Your model key")).toBeInTheDocument()
-    expect(screen.getByTestId("model-key-state")).toHaveTextContent(
-      "No key configured"
-    )
-    expect(screen.getByRole("button", { name: "Save key" })).toBeInTheDocument()
+    const panel = screen.getByRole("tabpanel", { name: "Model credentials" })
+    expect(within(panel).getByRole("heading", { name: "Your model connections" })).toBeInTheDocument()
+    expect(await within(panel).findByText("No saved connections yet.")).toBeInTheDocument()
+    expect(within(panel).getByRole("button", { name: "Add connection" })).toBeEnabled()
   })
 
   it("links the privacy panel to the profile's answers tab", async () => {

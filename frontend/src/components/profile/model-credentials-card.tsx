@@ -3,43 +3,55 @@ import { useState } from "react"
 
 import { Banner } from "@/components/common/banner"
 import { ErrorNotice } from "@/components/common/error-notice"
-import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ApiError } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
-import type { LlmCredentialInput } from "@/lib/api/types"
+import type {
+  LlmCredentialInput,
+  LlmCredentialStatus,
+  LlmCredentialTestResult,
+  LlmCredentialUpdate,
+} from "@/lib/api/types"
 
 /**
- * Model credentials — bring your own key (WS-22 · restyled WS-46).
+ * Model connections — bring your own keys (WS-22; several at once).
  *
- * The user may register their own provider key. When one is stored, every
- * model call their requests make runs on **their** key, their quota and their
- * bill; the deployment's own key is only a fallback (and the deployment may
- * instead *require* a personal key).
- *
- * Three rules this card is built around:
+ * An account may store **more than one** provider key and choose which one
+ * its tailoring and research calls spend. The rules this card is built
+ * around:
  *
  * 1. **The key is write-only.** The read returns a mask (the last four
- *    characters). The field is cleared after a successful save and is never
- *    re-rendered from server data, because the server never has it to send —
- *    which is why the header says "only a masked state is returned after
- *    saving".
- * 2. **Saving does not spend.** Registering a key is free; proving it works
- *    is a separate button, because the test call is a billable provider call
- *    against the user's own quota. The card states that next to the button
- *    rather than letting "save" quietly test.
- * 3. **The state chip states the truth.** "No key configured" or the stored
- *    provider with its masked hint — never the key itself.
- *
- * WS-46 moved this card from the foot of Profile to the Account & Security
- * screen's Model credentials tab. The API surface (`/api/llm/credentials*`)
- * and the behavior are unchanged.
+ *    characters). A key field is never re-rendered from server data — the
+ *    server does not have the key to send — so it starts empty, and an
+ *    omitted key on an edit *keeps* the stored one.
+ * 2. **Saving is not switching.** Adding or editing a connection never
+ *    changes which key a job spends; "Make active" is its own button, and
+ *    removing the active one hands over to the next in the server's order.
+ * 3. **Saving does not spend.** Proving a key works is a separate, billable
+ *    provider call, so it is never run implicitly.
+ * 4. **Server error text is never displayed.** A failure on this form may
+ *    quote the key back, so the card shows its own words for every refusal
+ *    and keeps the server's out of the DOM, the cache and the console.
  */
 
 const labelClass = "text-xs font-medium text-muted-foreground"
@@ -57,28 +69,247 @@ const PROVIDERS = [
   { value: "pollinations", label: "Pollinations (default endpoint)" },
 ] as const
 
-/** Providers whose base URL the user must or may supply. */
-const NEEDS_BASE_URL = new Set(["openai-compatible"])
-const MAY_HAVE_BASE_URL = new Set([
-  "openai-compatible",
-  "openai",
-  "zai",
-  "google",
-  "groq",
-  "tokenharbor",
-  "pollinations",
-])
-/** Providers that already know their endpoint, so an empty URL is normal. */
-const VENDOR_DEFAULT_PROVIDERS = new Set([
-  "google",
-  "openai",
-  "zai",
-  "groq",
-  "tokenharbor",
-  "pollinations",
-])
+const PROVIDER_LABELS = new Map(
+  PROVIDERS.map((entry) => [entry.value, entry.label])
+)
 
-const maskingKey = (hint: string): string => `••••••••${hint}`
+/** Providers whose base URL the user must supply. */
+const NEEDS_BASE_URL: Set<string> = new Set(["openai-compatible"])
+/** Providers that may carry a base URL (a regional endpoint, a proxy). */
+const MAY_HAVE_BASE_URL: Set<string> = new Set(
+  PROVIDERS.map((entry) => entry.value)
+)
+
+const maskingKey = (hint: string): string => `${"•".repeat(8)}${hint}`
+
+const providerLabel = (provider: string): string =>
+  PROVIDER_LABELS.get(provider as (typeof PROVIDERS)[number]["value"]) ??
+  provider
+
+/**
+ * A save failure, in our words.
+ *
+ * The server's own detail is deliberately dropped: this form sends an API
+ * key, and a server that echoes the request back would put that key in the
+ * DOM and in the query cache. The copy is chosen from the *request* instead —
+ * whether it carried a key — so the message is still specific enough to act
+ * on.
+ */
+class CredentialError extends Error {
+  readonly status: number | null
+
+  constructor(message: string, status: number | null = null) {
+    super(message)
+    this.name = "CredentialError"
+    this.status = status
+  }
+}
+
+function credentialError(error: unknown, sentKey: boolean): Error {
+  if (error instanceof ApiError) {
+    if (error.status === 422) {
+      return new CredentialError(
+        sentKey
+          ? "The provider or the endpoint refused that key. Check the provider, the model and the URL, then try again."
+          : "Changing the provider or the endpoint requires a new API key. Paste the key to save this change.",
+        422
+      )
+    }
+    if (error.status === 403) {
+      return new CredentialError(
+        "This deployment has disabled personal model keys.",
+        403
+      )
+    }
+    if (error.status === 503) {
+      return new CredentialError(
+        "This deployment cannot store keys: it has no encryption key material configured.",
+        503
+      )
+    }
+    if (error.status === 404) {
+      return new CredentialError(
+        "That saved connection no longer exists. The list has been refreshed.",
+        404
+      )
+    }
+    return new CredentialError(
+      `The change could not be saved (HTTP ${error.status}). Try again.`,
+      error.status
+    )
+  }
+  return error instanceof Error
+    ? error
+    : new CredentialError("The change could not be saved.")
+}
+
+interface Draft {
+  provider: string
+  model: string
+  apiKey: string
+  baseUrl: string
+}
+
+const emptyDraft = (provider = "google"): Draft => ({
+  provider,
+  model: "",
+  apiKey: "",
+  baseUrl: "",
+})
+
+/** The add-form body: every field, with the vendor's endpoint left implicit. */
+function addBody(draft: Draft): LlmCredentialInput {
+  return {
+    provider: draft.provider,
+    model: draft.model.trim(),
+    base_url: MAY_HAVE_BASE_URL.has(draft.provider)
+      ? draft.baseUrl.trim() || null
+      : null,
+    api_key: draft.apiKey.trim(),
+  }
+}
+
+/**
+ * The edit-form body: **only what changed**.
+ *
+ * Sending the whole row would re-write fields the user did not touch, and an
+ * unchanged `api_key` can only be sent as itself — which the user does not
+ * have. So the body is a diff, and an untouched key is simply absent.
+ */
+function editChanges(row: LlmCredentialStatus, draft: Draft): LlmCredentialUpdate {
+  const changes: LlmCredentialUpdate = {}
+  if (draft.provider !== row.provider) changes.provider = draft.provider
+  const model = draft.model.trim()
+  if (model !== row.model) changes.model = model
+  const baseUrl = draft.baseUrl.trim() || null
+  if (baseUrl !== (row.base_url ?? null)) changes.base_url = baseUrl
+  const key = draft.apiKey.trim()
+  if (key) changes.api_key = key
+  return changes
+}
+
+function ConnectionEditor({
+  title,
+  description,
+  submitLabel,
+  draft,
+  onDraft,
+  onSubmit,
+  onCancel,
+  pending,
+  error,
+  disabledHint,
+}: {
+  title: string
+  description: string
+  submitLabel: string
+  draft: Draft
+  onDraft: (next: Draft) => void
+  onSubmit: () => void
+  onCancel: () => void
+  pending: boolean
+  error: Error | null
+  disabledHint: string | null
+}) {
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className={fieldClass}>
+          <label className={labelClass} htmlFor="credential-provider">
+            Provider
+          </label>
+          <select
+            id="credential-provider"
+            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            value={draft.provider}
+            onChange={(event) => onDraft({ ...draft, provider: event.target.value })}
+          >
+            {PROVIDERS.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className={fieldClass}>
+          <label className={labelClass} htmlFor="credential-model">
+            Model
+          </label>
+          <Input
+            id="credential-model"
+            value={draft.model}
+            onChange={(event) => onDraft({ ...draft, model: event.target.value })}
+          />
+        </div>
+
+        <div className={fieldClass}>
+          <label className={labelClass} htmlFor="credential-api-key">
+            Provider API key
+          </label>
+          <Input
+            id="credential-api-key"
+            type="password"
+            autoComplete="off"
+            placeholder="Paste the key securely"
+            value={draft.apiKey}
+            onChange={(event) => onDraft({ ...draft, apiKey: event.target.value })}
+          />
+          <span className="block text-xs text-muted-foreground">
+            Leave blank to keep the stored key. It is encrypted at rest and
+            never shown again — not in a response, a log or the audit trail.
+          </span>
+        </div>
+
+        {MAY_HAVE_BASE_URL.has(draft.provider) ? (
+          <div className={fieldClass}>
+            <label className={labelClass} htmlFor="credential-base-url">
+              Base URL {NEEDS_BASE_URL.has(draft.provider) ? "" : "(optional)"}
+            </label>
+            <Input
+              id="credential-base-url"
+              placeholder="https://api.z.ai/api/paas/v4"
+              value={draft.baseUrl}
+              onChange={(event) => onDraft({ ...draft, baseUrl: event.target.value })}
+            />
+            {!NEEDS_BASE_URL.has(draft.provider) ? (
+              <span className="block text-xs text-muted-foreground">
+                Leave empty to use this provider's default endpoint.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {disabledHint ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {disabledHint}
+        </p>
+      ) : null}
+
+      {/* Our own words, never the server's — see `credentialError`. */}
+      {error ? (
+        <Banner tone="danger" title="The key was not saved">
+          <p>{error.message}</p>
+        </Banner>
+      ) : null}
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel} disabled={pending}>
+          Cancel
+        </Button>
+        <Button onClick={onSubmit} disabled={pending || disabledHint !== null}>
+          {pending ? "Saving..." : submitLabel}
+        </Button>
+      </DialogFooter>
+    </>
+  )
+}
 
 export function ModelCredentialsCard() {
   const queryClient = useQueryClient()
@@ -88,249 +319,463 @@ export function ModelCredentialsCard() {
     staleTime: 15_000,
   })
 
-  const [provider, setProvider] = useState("google")
-  const [model, setModel] = useState("")
-  const [apiKey, setApiKey] = useState("")
-  const [baseUrl, setBaseUrl] = useState("")
+  const [addOpen, setAddOpen] = useState(false)
+  const [addDraft, setAddDraft] = useState<Draft>(() => emptyDraft())
+  const [editing, setEditing] = useState<LlmCredentialStatus | null>(null)
+  const [editDraft, setEditDraft] = useState<Draft>(() => emptyDraft())
+  const [removing, setRemoving] = useState<LlmCredentialStatus | null>(null)
+  const [testingId, setTestingId] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<
+    Record<string, LlmCredentialTestResult>
+  >({})
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["llm-credentials"] })
 
-  const save = useMutation({
-    mutationFn: (body: LlmCredentialInput) => api.putLlmCredentials(body),
+  /*
+    The mutation functions take **no variables**. React Query stores a
+    mutation's variables in its cache, and the variables here would be the
+    form body — which contains the key. Reading the draft from state instead
+    keeps the secret out of the cache entirely.
+  */
+  const add = useMutation({
+    mutationFn: async () => {
+      const body = addBody(addDraft)
+      try {
+        return await api.createLlmCredential(body)
+      } catch (error) {
+        throw credentialError(error, Boolean(body.api_key))
+      }
+    },
     onSuccess: () => {
-      setApiKey("")
-      invalidate()
+      setAddDraft(emptyDraft())
+      setAddOpen(false)
+      void invalidate()
+    },
+    onError: () => {
+      // A refused key must not stay in the field: the response may have
+      // echoed it, and either way the operator should paste it again after
+      // fixing whatever was refused.
+      setAddDraft((previous) => ({ ...previous, apiKey: "" }))
+    },
+  })
+
+  const edit = useMutation({
+    mutationFn: async () => {
+      if (!editing) throw new CredentialError("No connection is being edited.")
+      const changes = editChanges(editing, editDraft)
+      try {
+        return await api.patchLlmCredential(editing.id, changes)
+      } catch (error) {
+        throw credentialError(error, "api_key" in changes)
+      }
+    },
+    onSuccess: () => {
+      setEditing(null)
+      setEditDraft(emptyDraft())
+      void invalidate()
+    },
+    onError: () => {
+      setEditDraft((previous) => ({ ...previous, apiKey: "" }))
     },
   })
 
   const remove = useMutation({
-    mutationFn: () => api.deleteLlmCredentials(),
-    onSuccess: invalidate,
+    mutationFn: (id: string) => api.deleteLlmCredential(id),
+    onSuccess: () => {
+      setRemoving(null)
+      void invalidate()
+    },
+  })
+
+  const activate = useMutation({
+    mutationFn: (id: string) => api.activateLlmCredential(id),
+    onSuccess: () => {
+      void invalidate()
+    },
   })
 
   const test = useMutation({
-    mutationFn: () => api.testLlmCredentials(),
-    onSuccess: invalidate,
+    mutationFn: (id: string) => api.testLlmCredential(id),
+    onMutate: (id: string) => {
+      setTestingId(id)
+      setTestResults((previous) => {
+        const next = { ...previous }
+        delete next[id]
+        return next
+      })
+    },
+    onSuccess: (result, id) => {
+      setTestResults((previous) => ({ ...previous, [id]: result }))
+    },
+    onSettled: () => {
+      setTestingId(null)
+    },
   })
 
-  const stored = state.data?.credential ?? null
-  const mode = state.data?.mode ?? "optional"
-  const available = state.data?.available ?? false
-
-  const submit = () => {
-    const body: LlmCredentialInput = {
-      provider,
-      model: model.trim(),
-      api_key: apiKey.trim(),
-      base_url: MAY_HAVE_BASE_URL.has(provider) ? baseUrl.trim() || null : null,
-    }
-    save.mutate(body)
-  }
-
-  const canSubmit =
-    model.trim().length > 0 &&
-    apiKey.trim().length >= 8 &&
-    (!NEEDS_BASE_URL.has(provider) || baseUrl.trim().length > 0) &&
-    !save.isPending
-
-  /*
-    The state chip (design `15 · Account & security`): the honest key state
-    at a glance. When a key is stored the chip names the provider and the
-    masked hint — the same mask the read returns, never more.
-  */
-  const stateChip = stored ? (
-    <span
-      data-testid="model-key-state"
-      className="inline-flex items-center rounded-[6px] bg-lime-soft px-2.5 py-1 text-[11px] leading-4 font-semibold text-lime-foreground"
-    >
-      {stored.provider} · {maskingKey(stored.hint)}
-    </span>
-  ) : (
-    <span
-      data-testid="model-key-state"
-      className="inline-flex items-center rounded-[6px] bg-muted px-2.5 py-1 text-[11px] leading-4 font-semibold text-muted-foreground"
-    >
-      No key configured
-    </span>
+  const loading = state.isPending
+  const connections: LlmCredentialStatus[] | null = Array.isArray(
+    state.data?.credentials
   )
+    ? state.data.credentials
+    : null
+
+  const using = state.data?.using ?? "none"
+  const mode = state.data?.mode ?? "optional"
+  const canWrite = Boolean(state.data?.available) && mode !== "disabled"
+  const activeId = state.data?.credential?.id ?? null
+  const isActive = (id: string) => using === "user" && id === activeId
+
+  const summaryTitle =
+    using === "user"
+      ? "Your key is in use"
+      : mode === "required"
+        ? "This deployment requires your own key"
+        : using === "platform"
+          ? "Using the deployment's key"
+          : "No model key is in use"
+
+  const policyNotice =
+    mode === "disabled"
+      ? "Personal keys are disabled on this deployment. Existing connections can be removed, but nothing will spend them."
+      : "This deployment cannot store keys: it has no encryption key material configured. Existing connections can be removed."
 
   return (
     <Card>
-      <CardHeader className="space-y-2.5">
-        <CardTitle>Your model key</CardTitle>
-        {state.isPending ? null : stateChip}
-        <CardDescription>
-          Store, replace, or remove your key. Only a masked state is returned
-          after saving.
-        </CardDescription>
+      <CardHeader className="space-y-2">
+        <h2 className="text-[20px] leading-[29px] font-semibold text-primary">
+          Your model connections
+        </h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Store one or more provider keys. Tailoring and research run on the
+          connection marked as current; adding another never switches to it.
+        </p>
       </CardHeader>
+
       <CardContent className="space-y-5">
-        {state.isPending ? (
-          <p className="text-sm text-muted-foreground">
-            Checking your credentials…
+        {loading ? (
+          <p className="text-sm text-muted-foreground" aria-busy="true">
+            Checking your model connections...
           </p>
         ) : null}
 
         {state.isError ? <ErrorNotice error={state.error} /> : null}
 
-        {state.data ? (
-          <Banner
-            tone={stored ? "success" : "neutral"}
-            title={
-              stored
-                ? "Your key is in use"
-                : mode === "required"
-                  ? "This deployment requires your own key"
-                  : "Using the deployment's key"
-            }
-          >
-            {stored ? (
+        {/* A server that predates multiple connections answers without the
+            list. Saying so is better than rendering "none stored" over rows
+            that exist. */}
+        {state.data && connections === null ? (
+          <Banner tone="warning" title="This API does not support multiple model connections">
+            <p>
+              The console cannot manage saved connections against this server.
+              Update the backend, or manage the single key with the older
+              endpoint.
+            </p>
+          </Banner>
+        ) : null}
+
+        {state.data && connections !== null ? (
+          <>
+            <Banner tone={using === "user" ? "success" : "neutral"} title={summaryTitle}>
               <p>
-                {stored.provider} · {stored.model} · key ending{" "}
-                <span className="font-mono">{stored.hint}</span>
-                {stored.base_url ? ` · ${stored.base_url}` : ""}
+                {using === "user"
+                  ? "Tailoring and research run on your saved connection, spending your own quota."
+                  : mode === "required"
+                    ? "Add a provider key — model calls cannot run without one."
+                    : using === "platform"
+                      ? "Calls use the key this deployment configured. Add your own to spend your own quota instead."
+                      : "No personal key and no deployment key: model calls cannot run yet."}
               </p>
-            ) : (
-              <p>
-                {mode === "required"
-                  ? "Add your own provider key below — tailoring and research cannot run without one."
-                  : "Add your own key below to spend your own quota instead. Until then, calls use the key this deployment configured."}
-              </p>
-            )}
-            {mode === "disabled" ? (
-              <p className="mt-2">
-                Personal keys are disabled on this deployment.
-              </p>
+            </Banner>
+
+            {!canWrite ? (
+              <Banner tone="warning" title="Changes are refused on this deployment">
+                <p>{policyNotice}</p>
+              </Banner>
             ) : null}
-          </Banner>
-        ) : null}
 
-        {!available && mode !== "disabled" ? (
-          <p className="text-sm text-muted-foreground">
-            This deployment cannot store credentials: it has no encryption key
-            material configured.
-          </p>
-        ) : null}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className={fieldClass}>
-            <span className={labelClass}>Provider</span>
-            <select
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-            >
-              {PROVIDERS.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={fieldClass}>
-            <span className={labelClass}>Model</span>
-            <Input
-              placeholder="gemini-3.8-flash"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            />
-          </label>
-          <label className={fieldClass}>
-            <span className={labelClass}>Provider API key</span>
-            <Input
-              type="password"
-              autoComplete="off"
-              placeholder={
-                stored ? maskingKey(stored.hint) : "Paste your key securely"
-              }
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <span className="block text-xs text-muted-foreground">
-              This field is masked after saving. The key is stored encrypted —
-              it is never shown again and never written to a log or the audit
-              trail.
-            </span>
-          </label>
-          {MAY_HAVE_BASE_URL.has(provider) ? (
-            <label className={fieldClass}>
-              <span className={labelClass}>
-                Base URL {NEEDS_BASE_URL.has(provider) ? "" : "(optional)"}
-              </span>
-              <Input
-                placeholder="https://api.z.ai/api/paas/v4"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
-              {provider === "google" ||
-              VENDOR_DEFAULT_PROVIDERS.has(provider) ? (
-                <span className="block text-xs text-muted-foreground">
-                  Leave empty to use this provider's default endpoint.
-                </span>
-              ) : null}
-            </label>
-          ) : null}
-        </div>
-
-        {save.isError ? <ErrorNotice error={save.error} /> : null}
-        {remove.isError ? <ErrorNotice error={remove.error} /> : null}
-        {test.isError ? <ErrorNotice error={test.error} /> : null}
-
-        {test.data ? (
-          <Banner
-            tone={test.data.ok ? "success" : "danger"}
-            title={test.data.ok ? "The key works" : "The key did not work"}
-          >
-            {test.data.ok ? (
-              <p>
-                {test.data.provider} · {test.data.model} answered in{" "}
-                {test.data.latency_ms} ms.
+            {connections.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No saved connections yet.
               </p>
             ) : (
-              <p>
-                {test.data.error_type === "LLMCredentialError"
-                  ? "The provider rejected the key or the endpoint. Check the provider, the model and the URL."
-                  : `The call failed (${test.data.error_type ?? "unknown"}). Try again shortly.`}
-              </p>
+              <ul className="space-y-2">
+                {connections.map((row) => {
+                  const rowActive = isActive(row.id)
+                  const isDefault = row.id === activeId
+                  const result = testResults[row.id]
+                  const rowTesting = testingId === row.id
+                  return (
+                    <li
+                      key={row.id}
+                      aria-label={`${providerLabel(row.provider)} · ${row.model}`}
+                      className="flex flex-wrap items-start justify-between gap-3 rounded-surface bg-muted/40 p-3"
+                    >
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium break-anywhere">
+                            {row.model}
+                          </span>
+                          {rowActive ? (
+                            <span className="rounded-[6px] bg-lime-soft px-2 py-0.5 text-[11px] font-semibold text-lime-foreground">
+                              Active
+                            </span>
+                          ) : isDefault ? (
+                            <span className="rounded-[6px] bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                              Default (not in use)
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          <span>{providerLabel(row.provider)}</span>
+                          <span aria-hidden="true"> · </span>
+                          <span className="font-mono">
+                            {maskingKey(row.hint)}
+                          </span>
+                          {row.base_url ? (
+                            <>
+                              <span aria-hidden="true"> · </span>
+                              <span className="break-all">{row.base_url}</span>
+                            </>
+                          ) : null}
+                        </p>
+                        {result ? (
+                          result.ok ? (
+                            <Banner tone="success" title="The key works">
+                              <p>
+                                {result.provider} · {result.model} answered in{" "}
+                                {result.latency_ms} ms.
+                              </p>
+                            </Banner>
+                          ) : (
+                            <Banner tone="danger" title="The key did not work">
+                              <p>
+                                {result.error_type === "LLMCredentialError"
+                                  ? "The provider rejected the key or the endpoint. Check the provider, the model and the URL."
+                                  : `The call failed (${result.error_type ?? "unknown"}). Try again shortly.`}
+                              </p>
+                            </Banner>
+                          )
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {!rowActive ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Make active: ${row.model}`}
+                            disabled={!canWrite || testingId !== null}
+                            onClick={() => activate.mutate(row.id)}
+                          >
+                            Make active
+                          </Button>
+                        ) : null}
+                        {rowTesting ? (
+                          <Button variant="outline" size="sm" disabled>
+                            Testing...
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Test connection: ${row.model}`}
+                            disabled={!canWrite}
+                            onClick={() => test.mutate(row.id)}
+                          >
+                            Test connection
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Edit ${row.model}`}
+                          disabled={!canWrite}
+                          onClick={() => {
+                            setEditing(row)
+                            setEditDraft({
+                              provider: row.provider,
+                              model: row.model,
+                              apiKey: "",
+                              baseUrl: row.base_url ?? "",
+                            })
+                            edit.reset()
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove ${row.model}`}
+                          disabled={remove.isPending}
+                          onClick={() => setRemoving(row)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
             )}
-          </Banner>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                disabled={!canWrite}
+                onClick={() => {
+                  add.reset()
+                  setAddDraft(emptyDraft())
+                  setAddOpen(true)
+                }}
+              >
+                Add connection
+              </Button>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Testing makes a separate, billable provider call. It never runs
+                when saving.
+              </p>
+            </div>
+          </>
         ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={submit} disabled={!canSubmit}>
-            {save.isPending ? "Saving…" : stored ? "Replace key" : "Save key"}
-          </Button>
-          {stored ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => test.mutate()}
-                disabled={test.isPending}
-              >
-                {test.isPending ? "Testing…" : "Test connection"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => remove.mutate()}
-                disabled={remove.isPending}
-              >
-                {remove.isPending ? "Removing…" : "Remove key"}
-              </Button>
-            </>
-          ) : null}
-        </div>
-
-        {/*
-          The economics, stated where the button is: saving a key is free,
-          and nothing runs a provider call unless the operator presses the
-          test button themselves.
-        */}
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Testing makes a separate, billable provider call. It does not run
-          automatically when saving.
-        </p>
       </CardContent>
+
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open)
+          if (!open) add.reset()
+        }}
+      >
+        <DialogContent>
+          <ConnectionEditor
+            title="Add connection"
+            description="The new connection is saved but does not take over. Make it active when you want jobs to spend it."
+            submitLabel="Save connection"
+            draft={addDraft}
+            onDraft={setAddDraft}
+            pending={add.isPending}
+            error={add.error as Error | null}
+            disabledHint={
+              addDraft.model.trim().length === 0
+                ? "Enter the model id this key serves."
+                : addDraft.apiKey.trim().length < 8
+                  ? "Paste the provider key (at least 8 characters)."
+                  : NEEDS_BASE_URL.has(addDraft.provider) &&
+                      addDraft.baseUrl.trim().length === 0
+                    ? "Enter the endpoint this key serves."
+                    : null
+            }
+            onCancel={() => setAddOpen(false)}
+            onSubmit={() => add.mutate()}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null)
+            edit.reset()
+          }
+        }}
+      >
+        <DialogContent>
+          {editing ? (
+            <ConnectionEditor
+              title="Edit connection"
+              description="Only the fields you change are saved. Leaving the key blank keeps the stored one."
+              submitLabel="Save changes"
+              draft={editDraft}
+              onDraft={(next) => {
+                /*
+                  A different provider means a different key: the stored one
+                  was issued by the old provider, so it is cleared rather
+                  than carried across silently.
+                */
+                if (next.provider !== editDraft.provider) {
+                  setEditDraft({ ...next, apiKey: "" })
+                  return
+                }
+                setEditDraft(next)
+              }}
+              pending={edit.isPending}
+              error={edit.error as Error | null}
+              disabledHint={
+                Object.keys(editChanges(editing, editDraft)).length === 0
+                  ? "Change a field to save."
+                  : editDraft.provider !== editing.provider &&
+                      editDraft.apiKey.trim().length === 0
+                    ? "Enter a new key for the new provider."
+                    : null
+              }
+              onCancel={() => {
+                setEditing(null)
+                edit.reset()
+              }}
+              onSubmit={() => edit.mutate()}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove connection?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removalConsequence(removing, connections, mode, using)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (removing) remove.mutate(removing.id)
+              }}
+            >
+              Remove connection
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
+}
+
+/**
+ * What removing a connection means, said before it happens.
+ *
+ * Removing the connection in use promotes the next one the server listed, so
+ * the sentence names it. Removing a spare changes nothing about what jobs
+ * spend, and says that too — a confirmation that always sounds alarming
+ * trains people to click through it.
+ */
+function removalConsequence(
+  row: LlmCredentialStatus | null,
+  connections: LlmCredentialStatus[] | null,
+  mode: string,
+  using: string
+): string {
+  if (!row) return ""
+  const list = connections ?? []
+  const inUse = using === "user" && list[0]?.id === row.id
+  if (!inUse) {
+    return `${row.model} is not the connection in use: the default connection will not change.`
+  }
+  const next = list[1]
+  if (next) {
+    return `${next.model} will become the default connection and the key your jobs spend.`
+  }
+  return mode === "required"
+    ? `This is the last connection and this deployment requires your own key: model calls cannot run until you add another.`
+    : `This is the last connection. Model calls will fall back to the deployment's key.`
 }

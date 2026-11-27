@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
 
 import { Banner } from "@/components/common/banner"
 import { CardSkeleton } from "@/components/common/card-skeleton"
@@ -64,7 +65,12 @@ type AccountTab = "profile" | "credentials" | "privacy"
  * added by the client, like every other unsafe call.
  */
 export function AccountScreen() {
-  const [tab, setTab] = useState<AccountTab>("profile")
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get("tab")
+  const tab: AccountTab =
+    requestedTab === "credentials" || requestedTab === "privacy"
+      ? requestedTab
+      : "profile"
 
   return (
     <div className="space-y-6">
@@ -76,7 +82,12 @@ export function AccountScreen() {
 
       <Tabs
         value={tab}
-        onValueChange={(next) => setTab(next as AccountTab)}
+        onValueChange={(next) => {
+          const params = new URLSearchParams(searchParams)
+          if (next === "profile") params.delete("tab")
+          else params.set("tab", String(next))
+          setSearchParams(params, { replace: true })
+        }}
         variant="pill"
         className="gap-5"
       >

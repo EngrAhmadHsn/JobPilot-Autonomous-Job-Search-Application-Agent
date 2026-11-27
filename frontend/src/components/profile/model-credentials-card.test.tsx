@@ -1,390 +1,442 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
 
 import { ModelCredentialsCard } from "@/components/profile/model-credentials-card"
+import type { LlmCredentialState, LlmCredentialStatus } from "@/lib/api/types"
 import { renderScreen } from "@/test/render"
 import { server } from "@/test/server"
 
-/**
- * WS-22: the bring-your-own-key card.
- *
- * What these tests pin down, and why each one exists:
- *
- * - the card **never renders the key**: the read returns a mask, and the
- *   input starts empty even when a credential is stored — the server has no
- *   key to send, so the console must not pretend otherwise;
- * - a save sends exactly the documented body (provider, model, key, base
- *   URL), and clears the key field afterwards;
- * - the **test call is a separate action**: saving a key must not spend the
- *   user's quota, so the test endpoint is only called from its own button;
- * - the deployment modes are rendered honestly (`required`, `disabled`, and
- *   "no encryption key material" all say something different);
- * - the base-URL field appears where it is meaningful (required for a bare
- *   openai-compatible endpoint, optional for the vendor aliases).
- */
+const ROUTE = "http://api.test/api/llm/credentials"
+// This synthetic input is only sent to MSW. Stored fixtures contain hints only.
+const DUMMY_KEY = "test-only-value-2020"
 
-const BASE = "http://api.test"
-const ROUTE = `${BASE}/api/llm/credentials`
-const TEST_ROUTE = `${BASE}/api/llm/credentials/test`
-
-interface CapturedPut {
-  body: {
-    provider?: string
-    model?: string
-    api_key?: string
-    base_url?: string | null
-  }
+const primary: LlmCredentialStatus = {
+  id: "connection-1",
+  provider: "google",
+  model: "gemini-standard",
+  base_url: null,
+  hint: "1010",
+  created_at: "2026-11-08T00:00:00Z",
+  updated_at: "2026-11-08T00:00:00Z",
+  last_used_at: null,
 }
 
-function state(overrides: Record<string, unknown> = {}) {
-  return {
+const spare: LlmCredentialStatus = {
+  ...primary,
+  id: "connection-2",
+  model: "gemini-mini",
+  hint: "2020",
+}
+
+function serveState(overrides: Partial<LlmCredentialState> = {}) {
+  const state: LlmCredentialState = {
     mode: "optional",
     available: true,
     encryption: "local_file",
     platform_configured: true,
     using: "platform",
     credential: null,
+    credentials: [],
     ...overrides,
   }
+  server.use(http.get(ROUTE, () => HttpResponse.json(state)))
+  return state
 }
 
-function capturePuts(): CapturedPut[] {
-  const puts: CapturedPut[] = []
-  server.use(
-    http.put(ROUTE, async ({ request }) => {
-      const body = (await request.json()) as CapturedPut["body"]
-      puts.push({ body })
-      return HttpResponse.json({
-        provider: body.provider ?? "google",
-        model: body.model ?? "",
-        base_url: body.base_url ?? null,
-        hint: (body.api_key ?? "").slice(-4),
-        created_at: "2026-11-08T00:00:00Z",
-        updated_at: "2026-11-08T00:00:00Z",
-        last_used_at: null,
-      })
-    })
-  )
-  return puts
+function serveTwoConnections() {
+  return serveState({
+    using: "user",
+    credential: primary,
+    credentials: [primary, spare],
+  })
 }
 
-function serveState(payload: Record<string, unknown>) {
-  server.use(http.get(ROUTE, () => HttpResponse.json(payload)))
+function renderCard() {
+  return renderScreen(<ModelCredentialsCard />, {
+    route: "/app/account?tab=credentials",
+  })
+}
+
+function connection(model: string) {
+  return within(screen.getByRole("listitem", { name: new RegExp(model) }))
+}
+
+async function openAdd(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Add connection" }))
+  return within(screen.getByRole("dialog", { name: "Add connection" }))
+}
+
+async function openEdit(user: ReturnType<typeof userEvent.setup>, model: string) {
+  await screen.findByRole("listitem", { name: new RegExp(model) })
+  await user.click(connection(model).getByRole("button", { name: /^Edit/ }))
+  return within(screen.getByRole("dialog", { name: "Edit connection" }))
+}
+
+async function openRemove(user: ReturnType<typeof userEvent.setup>, model: string) {
+  await screen.findByRole("listitem", { name: new RegExp(model) })
+  await user.click(connection(model).getByRole("button", { name: /^Remove/ }))
+  return within(screen.getByRole("alertdialog", { name: "Remove connection?" }))
 }
 
 describe("the Model credentials card", () => {
-  it("says which key a call would spend, and never renders a stored key", async () => {
-    serveState(
-      state({
-        using: "user",
-        credential: {
-          provider: "google",
-          model: "gemini-3.8-flash",
-          base_url: null,
-          hint: "cret",
-          created_at: "2026-11-08T00:00:00Z",
-          updated_at: "2026-11-08T00:00:00Z",
-          last_used_at: null,
-        },
-      })
-    )
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-
-    expect(await screen.findByText("Your key is in use")).toBeInTheDocument()
-    expect(screen.getByText(/key ending/)).toBeInTheDocument()
-
-    const input = screen.getByLabelText(/API key/) as HTMLInputElement
-    expect(input.value).toBe("")
-    expect(input.type).toBe("password")
-  })
-
-  it("saves the documented body and clears the key field", async () => {
-    serveState(state())
-    const puts = capturePuts()
-    const user = userEvent.setup()
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-
-    await screen.findByText("Using the deployment's key")
-    await user.type(screen.getByLabelText("Model"), "gemini-3.8-flash")
-    await user.type(screen.getByLabelText(/API key/), "sk-my-own-key-123456")
-    await user.click(screen.getByRole("button", { name: "Save key" }))
-
-    await waitFor(() => expect(puts).toHaveLength(1))
-    expect(puts[0]?.body).toEqual({
-      provider: "google",
-      model: "gemini-3.8-flash",
-      api_key: "sk-my-own-key-123456",
-      base_url: null,
+  it("adds a second connection of the same provider without replacing or testing the first", async () => {
+    const state = serveState({
+      using: "user",
+      credential: primary,
+      credentials: [primary],
     })
-    await waitFor(() =>
-      expect((screen.getByLabelText(/API key/) as HTMLInputElement).value).toBe(
-        ""
+    const posts: unknown[] = []
+    const rowActions: string[] = []
+    server.use(
+      http.post(ROUTE, async ({ request }) => {
+        posts.push(await request.json())
+        state.credentials = [primary, spare]
+        return HttpResponse.json(spare, { status: 201 })
+      }),
+      http.post(`${ROUTE}/:id/test`, () => {
+        rowActions.push("test")
+        return HttpResponse.json({ ok: false }, { status: 409 })
+      }),
+      http.post(`${ROUTE}/:id/activate`, () => {
+        rowActions.push("activate")
+        return HttpResponse.json({ detail: "Unexpected activation" }, { status: 409 })
+      })
+    )
+    const user = userEvent.setup()
+    const { queryClient } = renderCard()
+
+    const editor = await openAdd(user)
+    await user.type(editor.getByLabelText("Model"), spare.model)
+    const key = editor.getByLabelText("Provider API key")
+    expect(key).toHaveAttribute("type", "password")
+    expect(key).toHaveValue("")
+    await user.type(key, DUMMY_KEY)
+    await user.click(editor.getByRole("button", { name: "Save connection" }))
+
+    await screen.findByRole("listitem", { name: /gemini-mini/ })
+    expect(posts).toEqual([
+      { provider: "google", model: "gemini-mini", base_url: null, api_key: DUMMY_KEY },
+    ])
+    expect(rowActions).toEqual([])
+    expect(connection(primary.model).getByText("Active")).toBeInTheDocument()
+    expect(connection(spare.model).queryByText("Active")).not.toBeInTheDocument()
+    expect(connection(spare.model).getByText(/••••••••2020/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(screen.queryByDisplayValue(DUMMY_KEY)).not.toBeInTheDocument()
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((entry) => entry.state))).not.toContain(DUMMY_KEY)
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((entry) => entry.state))).not.toContain(DUMMY_KEY)
+  })
+
+  it("PATCHes only the changed model and leaves the saved key alone", async () => {
+    const endpoint = "https://models.example.test/v1"
+    const saved = { ...spare, provider: "openai-compatible", base_url: endpoint }
+    const state = serveState({
+      using: "user",
+      credential: primary,
+      credentials: [primary, saved],
+    })
+    const patches: unknown[] = []
+    server.use(
+      http.patch(`${ROUTE}/connection-2`, async ({ request }) => {
+        patches.push(await request.json())
+        const updated = { ...saved, model: "model-revised" }
+        state.credentials = [primary, updated]
+        return HttpResponse.json(updated)
+      })
+    )
+    const user = userEvent.setup()
+    renderCard()
+
+    const editor = await openEdit(user, spare.model)
+    expect(editor.getByLabelText("Provider")).toHaveValue("openai-compatible")
+    expect(editor.getByLabelText("Model")).toHaveValue(spare.model)
+    expect(editor.getByLabelText(/Base URL/)).toHaveValue(endpoint)
+    expect(editor.getByLabelText("Provider API key")).toHaveValue("")
+    expect(editor.getByText(/leave blank to keep/i)).toBeInTheDocument()
+    expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled()
+    await user.clear(editor.getByLabelText("Model"))
+    await user.type(editor.getByLabelText("Model"), "model-revised")
+    await user.click(editor.getByRole("button", { name: "Save changes" }))
+
+    await screen.findByRole("listitem", { name: /model-revised/ })
+    expect(patches).toEqual([{ model: "model-revised" }])
+    expect(connection("model-revised").getByText(/••••••••2020/)).toBeInTheDocument()
+  })
+
+  it("requires a fresh key when changing the provider", async () => {
+    serveTwoConnections()
+    const user = userEvent.setup()
+    renderCard()
+
+    const editor = await openEdit(user, spare.model)
+    const key = editor.getByLabelText("Provider API key")
+    await user.type(key, DUMMY_KEY)
+    await user.selectOptions(editor.getByLabelText("Provider"), "groq")
+
+    expect(key).toHaveValue("")
+    expect(editor.getByText(/enter a new key.*provider/i)).toBeInTheDocument()
+    expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled()
+    await user.type(key, DUMMY_KEY)
+    expect(editor.getByRole("button", { name: "Save changes" })).toBeEnabled()
+  })
+
+  it("lets the server decide whether an endpoint change needs a new key", async () => {
+    const state = serveTwoConnections()
+    const endpoint = "https://models.example.test/gemini"
+    const patches: unknown[] = []
+    server.use(
+      http.patch(`${ROUTE}/connection-2`, async ({ request }) => {
+        const body = await request.json()
+        patches.push(body)
+        if (patches.length === 1) {
+          return HttpResponse.json({ detail: "A new key is required for the endpoint." }, { status: 422 })
+        }
+        const updated = { ...spare, base_url: endpoint }
+        state.credentials = [primary, updated]
+        return HttpResponse.json(updated)
+      })
+    )
+    const user = userEvent.setup()
+    renderCard()
+
+    const editor = await openEdit(user, spare.model)
+    await user.type(editor.getByLabelText(/Base URL/), endpoint)
+    await user.click(editor.getByRole("button", { name: "Save changes" }))
+    expect(await editor.findByRole("alert")).toHaveTextContent(/new API key/i)
+    expect(editor.getByLabelText(/Base URL/)).toHaveValue(endpoint)
+
+    await user.type(editor.getByLabelText("Provider API key"), DUMMY_KEY)
+    await user.click(editor.getByRole("button", { name: "Save changes" }))
+    expect(await screen.findByText(endpoint)).toBeInTheDocument()
+    expect(patches).toEqual([
+      { base_url: endpoint },
+      { base_url: endpoint, api_key: DUMMY_KEY },
+    ])
+  })
+
+  it("clears a rejected key and never displays validation details that could echo it", async () => {
+    serveState()
+    server.use(
+      http.post(ROUTE, () =>
+        HttpResponse.json({ detail: `The server rejected ${DUMMY_KEY}.` }, { status: 422 })
       )
     )
+    const user = userEvent.setup()
+    const { queryClient } = renderCard()
+
+    const editor = await openAdd(user)
+    await user.type(editor.getByLabelText("Model"), spare.model)
+    await user.type(editor.getByLabelText("Provider API key"), DUMMY_KEY)
+    await user.click(editor.getByRole("button", { name: "Save connection" }))
+
+    expect(await editor.findByRole("alert")).not.toHaveTextContent(DUMMY_KEY)
+    expect(editor.getByLabelText("Provider API key")).toHaveValue("")
+    expect(editor.getByLabelText("Model")).toHaveValue(spare.model)
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((entry) => entry.state))).not.toContain(DUMMY_KEY)
   })
 
-  it("does not spend the user's quota when a key is saved", async () => {
-    serveState(state())
-    capturePuts()
-    let tested = 0
-    server.use(
-      http.post(TEST_ROUTE, () => {
-        tested += 1
-        return HttpResponse.json({
-          ok: true,
-          provider: "google",
-          model: "gemini-3.8-flash",
-          latency_ms: 42,
-        })
-      })
-    )
+  it("requires a base URL for a custom compatible provider but not a vendor default", async () => {
+    serveState()
     const user = userEvent.setup()
+    renderCard()
 
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    await screen.findByText("Using the deployment's key")
-    await user.type(screen.getByLabelText("Model"), "gemini-3.8-flash")
-    await user.type(screen.getByLabelText(/API key/), "sk-my-own-key-123456")
-    await user.click(screen.getByRole("button", { name: "Save key" }))
-
-    await waitFor(() => expect(tested).toBe(0))
-  })
-
-  it("tests a stored key only when asked", async () => {
-    serveState(
-      state({
-        using: "user",
-        credential: {
-          provider: "google",
-          model: "gemini-3.8-flash",
-          base_url: null,
-          hint: "23456",
-          created_at: "2026-11-08T00:00:00Z",
-          updated_at: "2026-11-08T00:00:00Z",
-          last_used_at: null,
-        },
-      })
+    const editor = await openAdd(user)
+    const provider = editor.getByLabelText("Provider")
+    expect(within(provider).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(
+      expect.arrayContaining(["groq", "tokenharbor", "pollinations"])
     )
-    let tested = 0
-    server.use(
-      http.post(TEST_ROUTE, () => {
-        tested += 1
-        return HttpResponse.json({
-          ok: true,
-          provider: "google",
-          model: "gemini-3.8-flash",
-          latency_ms: 42,
-        })
-      })
-    )
-    const user = userEvent.setup()
+    const save = editor.getByRole("button", { name: "Save connection" })
+    await user.selectOptions(provider, "groq")
+    await user.type(editor.getByLabelText("Model"), "sample-groq-model")
+    await user.type(editor.getByLabelText("Provider API key"), DUMMY_KEY)
+    expect(save).toBeEnabled()
 
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    await screen.findByText("Your key is in use")
-    await user.click(screen.getByRole("button", { name: "Test connection" }))
-
-    await waitFor(() => expect(tested).toBe(1))
-    expect(await screen.findByText("The key works")).toBeInTheDocument()
-  })
-
-  it("reports a rejected key as a problem with a next step", async () => {
-    serveState(
-      state({
-        using: "user",
-        credential: {
-          provider: "google",
-          model: "gemini-3.8-flash",
-          base_url: null,
-          hint: "23456",
-          created_at: "2026-11-08T00:00:00Z",
-          updated_at: "2026-11-08T00:00:00Z",
-          last_used_at: null,
-        },
-      })
-    )
-    server.use(
-      http.post(TEST_ROUTE, () =>
-        HttpResponse.json({
-          ok: false,
-          provider: "google",
-          model: "gemini-3.8-flash",
-          latency_ms: null,
-          error_type: "LLMCredentialError",
-        })
-      )
-    )
-    const user = userEvent.setup()
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    await screen.findByText("Your key is in use")
-    await user.click(screen.getByRole("button", { name: "Test connection" }))
-
-    expect(await screen.findByText("The key did not work")).toBeInTheDocument()
-    expect(
-      screen.getByText(/rejected the key or the endpoint/)
-    ).toBeInTheDocument()
-  })
-
-  it("asks for a base URL only where it is needed", async () => {
-    serveState(state())
-    const user = userEvent.setup()
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    await screen.findByText("Using the deployment's key")
-
-    // google: optional, with the default explained
-    expect(screen.getByLabelText(/Base URL/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/Leave empty to use this provider's default endpoint/)
-    ).toBeInTheDocument()
-
-    // a bare openai-compatible endpoint: required
-    await user.selectOptions(
-      screen.getByLabelText("Provider"),
-      "openai-compatible"
-    )
-    expect(screen.getByLabelText(/Base URL/)).toBeInTheDocument()
-
-    const save = screen.getByRole("button", { name: "Save key" })
-    await user.type(screen.getByLabelText("Model"), "gpt-4o-mini")
-    await user.type(screen.getByLabelText(/API key/), "sk-my-own-key-123456")
+    await user.selectOptions(provider, "openai-compatible")
+    await user.type(editor.getByLabelText("Provider API key"), DUMMY_KEY)
     expect(save).toBeDisabled()
-    await user.type(
-      screen.getByLabelText(/Base URL/),
-      "https://api.example.com/v1"
-    )
+    await user.type(editor.getByLabelText(/Base URL/), "https://models.example.test/v1")
     expect(save).toBeEnabled()
   })
 
-  it("offers the fallback providers with their own defaults (WS-30)", async () => {
-    serveState(state())
+  it("makes the selected row active and displays the refreshed server order", async () => {
+    const state = serveTwoConnections()
+    const activations: string[] = []
+    server.use(
+      http.post(`${ROUTE}/:id/activate`, ({ params }) => {
+        activations.push(String(params.id))
+        state.credential = spare
+        state.credentials = [spare, primary]
+        return HttpResponse.json(spare)
+      })
+    )
     const user = userEvent.setup()
+    renderCard()
 
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    await screen.findByText("Using the deployment's key")
+    await screen.findByRole("listitem", { name: /gemini-standard/ })
+    expect(connection(primary.model).queryByRole("button", { name: /^Make active/ })).not.toBeInTheDocument()
+    await user.click(connection(spare.model).getByRole("button", { name: /^Make active/ }))
 
-    const provider = screen.getByLabelText("Provider")
-    const values = Array.from(provider.querySelectorAll("option")).map(
-      (option) => option.getAttribute("value")
-    )
-    // The three the platform's chain uses are registerable by a user too.
-    expect(values).toEqual(
-      expect.arrayContaining(["groq", "tokenharbor", "pollinations"])
-    )
-
-    // A vendor-default provider needs a key and a model, no URL.
-    await user.selectOptions(provider, "groq")
-    await user.type(screen.getByLabelText("Model"), "qwen/qwen3.8-27b")
-    await user.type(screen.getByLabelText(/API key/), "gsk-my-own-key-123456")
-    expect(screen.getByRole("button", { name: "Save key" })).toBeEnabled()
-    expect(
-      screen.getByText(/Leave empty to use this provider's default endpoint/)
-    ).toBeInTheDocument()
+    expect(await connection(spare.model).findByText("Active")).toBeInTheDocument()
+    expect(connection(primary.model).queryByText("Active")).not.toBeInTheDocument()
+    expect(screen.getAllByRole("listitem")[0]).toHaveAccessibleName(/gemini-mini/)
+    expect(activations).toEqual(["connection-2"])
   })
 
-  it("renders the required mode as a demand, and the disabled mode as a fact", async () => {
-    serveState(
-      state({ mode: "required", platform_configured: false, using: "none" })
-    )
-    const first = renderScreen(<ModelCredentialsCard />, {
-      route: "/app/profile",
-    })
-    expect(
-      await screen.findByText("This deployment requires your own key")
-    ).toBeInTheDocument()
-    first.unmount()
-
-    serveState(
-      state({
-        mode: "disabled",
-        available: false,
-        platform_configured: true,
-        using: "platform",
+  it("tests a non-active row only when asked and never makes it active", async () => {
+    serveTwoConnections()
+    const calls: string[] = []
+    let finishTest!: () => void
+    const pendingTest = new Promise<void>((resolve) => { finishTest = resolve })
+    server.use(
+      http.post(`${ROUTE}/:id/test`, async ({ params }) => {
+        calls.push(`test:${params.id}`)
+        await pendingTest
+        return HttpResponse.json({ ok: true, provider: "google", model: spare.model, latency_ms: 42, error_type: null })
+      }),
+      http.post(`${ROUTE}/:id/activate`, ({ params }) => {
+        calls.push(`activate:${params.id}`)
+        return HttpResponse.json(spare)
       })
     )
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-    expect(
-      await screen.findByText("Personal keys are disabled on this deployment.")
-    ).toBeInTheDocument()
+    const user = userEvent.setup()
+    renderCard()
+
+    await screen.findByRole("listitem", { name: /gemini-mini/ })
+    expect(screen.getByText(/billable provider call/i)).toBeInTheDocument()
+    expect(calls).toEqual([])
+    await user.click(connection(spare.model).getByRole("button", { name: /^Test connection/ }))
+    expect(connection(spare.model).getByRole("button", { name: /^Testing/ })).toBeDisabled()
+    expect(connection(spare.model).getByRole("button", { name: /^Make active/ })).toBeDisabled()
+    finishTest()
+
+    expect(await connection(spare.model).findByText(/answered in 42 ms/i)).toBeInTheDocument()
+    expect(connection(primary.model).getByText("Active")).toBeInTheDocument()
+    expect(connection(spare.model).queryByText("Active")).not.toBeInTheDocument()
+    expect(calls).toEqual(["test:connection-2"])
   })
 
-  it("says so when the deployment has no encryption key material", async () => {
-    serveState(
-      state({ available: false, encryption: "none", using: "platform" })
-    )
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-
-    expect(
-      await screen.findByText(/cannot store credentials/)
-    ).toBeInTheDocument()
-  })
-})
-
-/*
-  WS-46 restyled the card into the design's "Your model key" card
-  (`15 · Account & security`): a state chip under the title, the masked-only
-  promise in the description, and the economics of testing stated where the
-  button is. The API surface did not change; these pin the new surface.
-*/
-describe("the Your model key card (WS-46)", () => {
-  it("reads its state chip from the stored credential, never the key", async () => {
-    serveState(state())
-
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
-
-    expect(await screen.findByTestId("model-key-state")).toHaveTextContent(
-      "No key configured"
-    )
-    // The test action needs a key to test; without one it is not offered,
-    // because testing the deployment's own key would spend it unasked.
-    expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull()
-    // The card's own economics line, in the design's words.
-    expect(
-      screen.getByText(
-        "Testing makes a separate, billable provider call. It does not run automatically when saving."
+  it("shows a failed provider test on the tested row without changing the active one", async () => {
+    serveTwoConnections()
+    server.use(
+      http.post(`${ROUTE}/connection-2/test`, () =>
+        HttpResponse.json({ ok: false, provider: "google", model: spare.model, latency_ms: null, error_type: "LLMCredentialError" })
       )
-    ).toBeInTheDocument()
+    )
+    const user = userEvent.setup()
+    renderCard()
+
+    await screen.findByRole("listitem", { name: /gemini-mini/ })
+    await user.click(connection(spare.model).getByRole("button", { name: /^Test connection/ }))
+
+    expect(await connection(spare.model).findByRole("alert")).toHaveTextContent(/rejected the key or the endpoint/i)
+    expect(connection(primary.model).getByText("Active")).toBeInTheDocument()
   })
 
-  it("names the provider and the masked hint when a key is stored", async () => {
-    serveState(
-      state({
-        using: "user",
-        credential: {
-          provider: "google",
-          model: "gemini-3.8-flash",
-          base_url: null,
-          hint: "cret",
-          created_at: "2026-11-08T00:00:00Z",
-          updated_at: "2026-11-08T00:00:00Z",
-          last_used_at: null,
-        },
+  it("confirms active removal with the next saved connection in server order", async () => {
+    const state = serveTwoConnections()
+    const oldest = { ...spare, id: "connection-3", model: "gemini-oldest", hint: "3030", created_at: "2026-11-01T00:00:00Z" }
+    state.credentials = [primary, spare, oldest]
+    const deleted: string[] = []
+    server.use(
+      http.delete(`${ROUTE}/:id`, ({ params }) => {
+        deleted.push(String(params.id))
+        state.credential = spare
+        state.credentials = [spare, oldest]
+        return HttpResponse.json({ removed: true })
       })
     )
+    const user = userEvent.setup()
+    renderCard()
 
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+    const confirmation = await openRemove(user, primary.model)
+    expect(confirmation.getByText(/gemini-mini.*become the default/i)).toBeInTheDocument()
+    expect(deleted).toEqual([])
+    await user.click(confirmation.getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
+    expect(deleted).toEqual([])
 
-    const chip = await screen.findByTestId("model-key-state")
-    expect(chip).toHaveTextContent("google")
-    expect(chip).toHaveTextContent("••••••••cret")
-    // The chip is a mask, not the key: the read only ever returns the hint,
-    // and the chip renders exactly that.
-    expect(chip.textContent).not.toContain("gemini-3.8-flash-key")
+    const reopened = await openRemove(user, primary.model)
+    await user.click(reopened.getByRole("button", { name: "Remove connection" }))
+    expect(await connection(spare.model).findByText("Active")).toBeInTheDocument()
+    expect(screen.queryByRole("listitem", { name: /gemini-standard/ })).not.toBeInTheDocument()
+    expect(connection(oldest.model).queryByText("Active")).not.toBeInTheDocument()
+    expect(deleted).toEqual(["connection-1"])
   })
 
-  it("promises only a masked state after saving, in the description", async () => {
-    serveState(state())
+  it.each([
+    { mode: "optional", consequence: /deployment's key/i, title: "Using the deployment's key", using: "platform" },
+    { mode: "required", consequence: /model calls cannot run/i, title: "This deployment requires your own key", using: "none" },
+  ])("explains the $mode policy before removing the last connection", async ({ mode, consequence, title, using }) => {
+    const state = serveState({ mode, using: "user", credential: primary, credentials: [primary] })
+    server.use(
+      http.delete(`${ROUTE}/connection-1`, () => {
+        state.credential = null
+        state.credentials = []
+        state.using = using
+        return HttpResponse.json({ removed: true })
+      })
+    )
+    const user = userEvent.setup()
+    renderCard()
 
-    renderScreen(<ModelCredentialsCard />, { route: "/app/profile" })
+    const confirmation = await openRemove(user, primary.model)
+    expect(confirmation.getByText(consequence)).toBeInTheDocument()
+    await user.click(confirmation.getByRole("button", { name: "Remove connection" }))
 
-    expect(
-      await screen.findByText(
-        "Store, replace, or remove your key. Only a masked state is returned after saving."
-      )
-    ).toBeInTheDocument()
+    expect(await screen.findByText("No saved connections yet.")).toBeInTheDocument()
+    expect(screen.getByText(title)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^Test connection/ })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { mode: "disabled", encryption: "local_file", policy: /personal keys are disabled/i },
+    { mode: "optional", encryption: "none", policy: /no encryption key material/i },
+  ])("allows removal but not new use when personal connections are $mode with encryption $encryption", async ({ mode, encryption, policy }) => {
+    const state = serveState({ mode, encryption, available: false, using: "platform", credential: primary, credentials: [primary, spare] })
+    server.use(
+      http.delete(`${ROUTE}/connection-2`, () => {
+        state.credentials = [primary]
+        return HttpResponse.json({ removed: true })
+      })
+    )
+    const user = userEvent.setup()
+    renderCard()
+
+    expect(await screen.findByText(policy)).toBeInTheDocument()
+    expect(connection(primary.model).getByText("Default (not in use)")).toBeInTheDocument()
+    expect(screen.queryByText("Active")).not.toBeInTheDocument()
+    for (const name of [/^Add connection/, /^Edit/, /^Make active/, /^Test connection/]) {
+      expect(screen.queryAllByRole("button", { name }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true)
+    }
+
+    const confirmation = await openRemove(user, spare.model)
+    expect(confirmation.getByText(/default connection will not change/i)).toBeInTheDocument()
+    await user.click(confirmation.getByRole("button", { name: "Remove connection" }))
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: /gemini-mini/ })).not.toBeInTheDocument())
+    expect(connection(primary.model).getByText("Default (not in use)")).toBeInTheDocument()
+  })
+
+  it("does not claim a deployment key is in use when none is configured", async () => {
+    serveState({ platform_configured: false, using: "none" })
+    renderCard()
+
+    expect(await screen.findByText("No model key is in use")).toBeInTheDocument()
+    expect(screen.getByText("No saved connections yet.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Add connection" })).toBeEnabled()
+    expect(screen.queryByText("Using the deployment's key")).not.toBeInTheDocument()
+  })
+
+  it("does not mistake a legacy response for an empty list", async () => {
+    server.use(
+      http.get(ROUTE, () => HttpResponse.json({
+        mode: "optional", available: true, encryption: "local_file", using: "platform", platform_configured: true, credential: null,
+      }))
+    )
+    renderCard()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/API does not support multiple model connections/i)
+    expect(screen.queryByRole("button", { name: "Add connection" })).not.toBeInTheDocument()
   })
 })

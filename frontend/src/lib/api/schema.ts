@@ -1175,24 +1175,110 @@ export interface paths {
     }
     /**
      * Get Credentials
-     * @description The caller's credential state — masked, never the key.
+     * @description The caller's connections — masked, never a key.
      */
     get: operations["get_credentials_api_llm_credentials_get"]
     /**
      * Put Credentials
-     * @description Register or replace the caller's own provider credential.
+     * @description Register or **replace the connection in use** (the single-credential contract).
      *
-     *     The key is encrypted before it is stored; the response carries the mask.
-     *     Registering does **not** test the key — that spends the user's quota, so
-     *     it is an explicit action (``POST .../test``).
+     *     Kept for clients that predate multiple connections, and still the right
+     *     call for "this account should have exactly this one key". On an account
+     *     holding several connections it edits the one in use; it never adds a
+     *     second.
      */
     put: operations["put_credentials_api_llm_credentials_put"]
-    post?: never
+    /**
+     * Create Credential
+     * @description Add a connection for the caller.
+     *
+     *     The connection is stored but **not** put in use: a job keeps running on
+     *     whichever connection already was. Registering does not test the key
+     *     either — the test call is billed to the user's own account, so it stays
+     *     an explicit action.
+     */
+    post: operations["create_credential_api_llm_credentials_post"]
     /**
      * Delete Credentials
-     * @description Remove the caller's stored credential (idempotent).
+     * @description Remove the connection in use (the single-credential contract, idempotent).
      */
     delete: operations["delete_credentials_api_llm_credentials_delete"]
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/llm/credentials/{credential_id}": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Delete Saved Credential
+     * @description Remove one of the caller's connections.
+     *
+     *     Removing the connection in use promotes the next one in display order, so
+     *     this route needs no follow-up call. Allowed even when the deployment has
+     *     refused new writes: a user must always be able to take their key back.
+     */
+    delete: operations["delete_saved_credential_api_llm_credentials__credential_id__delete"]
+    options?: never
+    head?: never
+    /**
+     * Patch Credential
+     * @description Edit one of the caller's connections.
+     *
+     *     An omitted ``api_key`` keeps the stored key, so editing a model name does
+     *     not ask for a secret the user may not have to hand. Changing the provider
+     *     or the endpoint **does** require one — see
+     *     :func:`src.llm.credentials.update_credential`.
+     */
+    patch: operations["patch_credential_api_llm_credentials__credential_id__patch"]
+    trace?: never
+  }
+  "/api/llm/credentials/{credential_id}/activate": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Activate Saved Credential
+     * @description Make one of the caller's connections the one their calls spend.
+     */
+    post: operations["activate_saved_credential_api_llm_credentials__credential_id__activate_post"]
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  "/api/llm/credentials/{credential_id}/test": {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Test Saved Credential
+     * @description Exercise **one named** connection and report the outcome.
+     *
+     *     Testing a spare provider answers a question about it and nothing else: it
+     *     does not make it the connection in use, and it spends the user's quota on
+     *     the key they asked about.
+     */
+    post: operations["test_saved_credential_api_llm_credentials__credential_id__test_post"]
+    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -2192,6 +2278,8 @@ export interface components {
       /** Available */
       available: boolean
       credential?: components["schemas"]["LlmCredentialStatus"] | null
+      /** Credentials */
+      credentials?: components["schemas"]["LlmCredentialStatus"][]
       /** Encryption */
       encryption: string
       /** Mode */
@@ -2690,10 +2778,15 @@ export interface components {
     }
     /**
      * LlmCredentialStatus
-     * @description The stored credential, described — never disclosed.
+     * @description One stored connection, described — never disclosed.
      *
      *     ``hint`` is the last four characters of the key, enough for the owner to
-     *     recognise which key is registered.
+     *     recognise which key is registered. ``id`` is what the per-connection
+     *     routes take; it is the connection's own name, not the owner's.
+     *
+     *     The timestamps are nullable because a row written before those columns
+     *     existed has none — the API says "not recorded" rather than inventing a
+     *     date.
      */
     LlmCredentialStatus: {
       /** Base Url */
@@ -2702,9 +2795,11 @@ export interface components {
        * Created At
        * Format: date-time
        */
-      created_at: string
+      created_at?: string | null
       /** Hint */
       hint: string
+      /** Id */
+      id: string
       /** Last Used At */
       last_used_at?: string | null
       /** Model */
@@ -2715,7 +2810,26 @@ export interface components {
        * Updated At
        * Format: date-time
        */
-      updated_at: string
+      updated_at?: string | null
+    }
+    /**
+     * LlmCredentialUpdate
+     * @description A partial edit of one stored connection (``PATCH``).
+     *
+     *     Every field is optional and an omitted field keeps its stored value. The
+     *     distinction that matters is between **omitting** ``api_key`` (keep the
+     *     stored key — the common case, editing a model name) and **supplying** one
+     *     (rotate it).
+     */
+    LlmCredentialUpdate: {
+      /** Api Key */
+      api_key?: string | null
+      /** Base Url */
+      base_url?: string | null
+      /** Model */
+      model?: string | null
+      /** Provider */
+      provider?: string | null
     }
     /**
      * MatchesHistoryResponse
@@ -4936,6 +5050,167 @@ export interface operations {
         }
         content: {
           "application/json": components["schemas"]["CredentialDeleteAck"]
+        }
+      }
+    }
+  }
+  create_credential_api_llm_credentials_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LlmCredentialInput"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["LlmCredentialStatus"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  delete_saved_credential_api_llm_credentials__credential_id__delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        credential_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["CredentialDeleteAck"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  patch_credential_api_llm_credentials__credential_id__patch: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        credential_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LlmCredentialUpdate"]
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["LlmCredentialStatus"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  activate_saved_credential_api_llm_credentials__credential_id__activate_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        credential_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["LlmCredentialStatus"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
+        }
+      }
+    }
+  }
+  test_saved_credential_api_llm_credentials__credential_id__test_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        credential_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["CredentialTestResult"]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"]
         }
       }
     }

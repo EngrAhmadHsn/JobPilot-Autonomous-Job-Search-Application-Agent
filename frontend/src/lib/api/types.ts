@@ -221,12 +221,17 @@ export type EeoProfile = DeepRequired<components["schemas"]["EeoProfile"]>
 export type EeoResponse = DeepRequired<components["schemas"]["EeoResponse"]>
 
 /**
- * The caller's own model credential (WS-22).
+ * The caller's own model connections (WS-22).
  *
  * `LlmCredentialState` is the read: the deployment mode, whether the feature
- * is available, which key a call would spend, and the stored credential —
- * **masked**. The API never returns the key, and there is no field here that
- * could carry it.
+ * is available, which key a call would spend, and **every** stored
+ * connection — masked. The API never returns a key, and there is no field
+ * here that could carry one.
+ *
+ * `credential` is the connection a call would use (the top of
+ * `credentials`); `LlmCredentialStatus.id` is what the per-connection routes
+ * take. The timestamps are nullable because a connection stored before those
+ * columns existed has none.
  */
 export type LlmCredentialState = DeepRequired<
   components["schemas"]["CredentialState"]
@@ -235,6 +240,8 @@ export type LlmCredentialStatus = DeepRequired<
   components["schemas"]["LlmCredentialStatus"]
 >
 export type LlmCredentialInput = components["schemas"]["LlmCredentialInput"]
+/** A partial edit: an omitted field keeps its stored value. */
+export type LlmCredentialUpdate = components["schemas"]["LlmCredentialUpdate"]
 export type LlmCredentialDeleteAck =
   components["schemas"]["CredentialDeleteAck"]
 export type LlmCredentialTestResult = DeepRequired<

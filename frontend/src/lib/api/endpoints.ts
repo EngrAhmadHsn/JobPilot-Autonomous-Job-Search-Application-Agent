@@ -41,6 +41,7 @@ import type {
   LlmCredentialStatus,
   LlmCredentialState,
   LlmCredentialTestResult,
+  LlmCredentialUpdate,
   MatchesHistory,
   QuestionGapsResponse,
   ResumeProfileResponse,
@@ -264,9 +265,23 @@ export const api = {
       timeoutMs: 20_000,
     }),
 
-  /** The caller's own model credential (WS-22) — masked, never the key. */
+  /** Every one of the caller's model connections (WS-22) — masked, never a key. */
   getLlmCredentials: (signal?: AbortSignal) =>
     request<LlmCredentialState>("/api/llm/credentials", {
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /**
+   * Store **another** model connection (WS-22).
+   *
+   * The new connection is saved but not put in use: the key a job spends only
+   * changes through `activateLlmCredential`.
+   */
+  createLlmCredential: (body: LlmCredentialInput, signal?: AbortSignal) =>
+    request<LlmCredentialStatus>("/api/llm/credentials", {
+      method: "POST",
+      json: body,
       signal,
       timeoutMs: 20_000,
     }),
@@ -280,6 +295,46 @@ export const api = {
       timeoutMs: 20_000,
     }),
 
+  /**
+   * Edit one stored connection (WS-22).
+   *
+   * Only the fields present in the body change, and an omitted `api_key`
+   * keeps the stored key — so renaming a model does not ask for a secret.
+   */
+  patchLlmCredential: (
+    id: string,
+    body: LlmCredentialUpdate,
+    signal?: AbortSignal
+  ) =>
+    request<LlmCredentialStatus>(`/api/llm/credentials/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      json: body,
+      signal,
+      timeoutMs: 20_000,
+    }),
+
+  /** Make one stored connection the one the caller's calls spend (WS-22). */
+  activateLlmCredential: (id: string, signal?: AbortSignal) =>
+    request<LlmCredentialStatus>(
+      `/api/llm/credentials/${encodeURIComponent(id)}/activate`,
+      {
+        method: "POST",
+        signal,
+        timeoutMs: 20_000,
+      }
+    ),
+
+  /** Remove one stored connection (WS-22). */
+  deleteLlmCredential: (id: string, signal?: AbortSignal) =>
+    request<LlmCredentialDeleteAck>(
+      `/api/llm/credentials/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+        signal,
+        timeoutMs: 20_000,
+      }
+    ),
+
   /** Remove the caller's stored credential (WS-22) — idempotent. */
   deleteLlmCredentials: (signal?: AbortSignal) =>
     request<LlmCredentialDeleteAck>("/api/llm/credentials", {
@@ -287,6 +342,23 @@ export const api = {
       signal,
       timeoutMs: 20_000,
     }),
+
+  /**
+   * Exercise one stored connection with one small call (WS-22).
+   *
+   * It spends the caller's own provider quota, so it is an explicit action
+   * and it is given a live call's time budget. Testing a connection does not
+   * make it the one in use.
+   */
+  testLlmCredential: (id: string, signal?: AbortSignal) =>
+    request<LlmCredentialTestResult>(
+      `/api/llm/credentials/${encodeURIComponent(id)}/test`,
+      {
+        method: "POST",
+        signal,
+        timeoutMs: 60_000,
+      }
+    ),
 
   /**
    * Exercise the stored credential with one small call (WS-22).
