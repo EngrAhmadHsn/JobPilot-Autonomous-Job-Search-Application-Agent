@@ -46,7 +46,10 @@ export function SignInScreen() {
   const signIn = useMutation({
     mutationFn: () => api.signIn(email, password),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["identity"] })
+      // A new cookie may belong to a different account in the same tab.
+      // Discard the previous account's private data before rendering the console.
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== "identity" })
+      void queryClient.invalidateQueries({ queryKey: ["identity"] })
       // The console is the destination once a session exists. This is a
       // convenience, not a gate: `/app/*` asks the server who the caller
       // is on its own.
