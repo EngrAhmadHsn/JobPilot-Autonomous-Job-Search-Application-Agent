@@ -1,4 +1,4 @@
-# Autonomous AI Job Application Agent
+# JARVIS: Job Application and Resume Vetting Intelligent System
 
 A backend system that reads a resume, finds matching jobs on public job-board APIs, ranks
 them with an explained score, tailors the resume without inventing facts, and prepares
@@ -51,7 +51,7 @@ workstream-by-workstream record is in
 - Tailor a resume for one job (`POST /api/tailor`) and get back the tailored content, the
   ATS analysis, a **factuality report listing every claim the validator removed**, and a
   **style report** on the delivered wording (AI jargon, filler phrases, quantified bullets).
-- **Bring your own model key** (`PUT /api/llm/credentials`): your calls then run on your own
+- **Bring your own model keys** (`POST /api/llm/credentials`, then `.../{id}/activate`): your calls then run on your own
   provider key, your quota and your bill. The key is encrypted at rest, never returned by an
   endpoint, and the tailoring prompt carries no candidate identity (names, e-mails, phones and
   links are masked to placeholders and restored afterwards).
@@ -267,17 +267,32 @@ development. To point the console at another API, set `VITE_API_BASE_URL`.
 | Screen | What it is for |
 |---|---|
 | Resume | Upload a resume, and see what the parser understood — and what it could not state |
-| Matches | Search the stored corpus, with the eight component scores (including the occupational-role match) and the explanation behind each rank |
-| Tailor | Tailor a resume for one job: the tailored text, the factuality report, the ATS report, the grounded insights |
-| Approvals | Prepare an application, read exactly what will be submitted, then approve or reject it |
+| Matches | Search the corpus, inspect employer questions on a posting, and open **Prepare application** |
+| Prepare application | Use an original résumé or a saved draft for the same role, answer the employer's available questions, and review the packet |
+| Tailor | Optionally tailor a résumé for one job and review the factuality and ATS reports |
+| Profile | Edit general application details and company-specific answers grouped by employer and role |
+| Approvals | Prepare, approve, or reject a run against the local test board |
 | Tracker | Every application, its full ordered history, its evidence, and the human outcome |
 | Operations | Run the corpus refresh and read what it fetched, persisted and embedded |
 
-The console makes the safety model visible: the approve button is the only
-irreversible control, it says so, and no screen ever claims an outcome the API
-did not return. Every string the API returns is rendered as plain text — an
-ESLint rule forbids `dangerouslySetInnerHTML` and `innerHTML` in the console's
-source, so "no HTML injection path" is enforced by the toolchain.
+For real postings, open **Discover → Prepare application**. The original résumé is
+available without a model key; tailoring is optional. When the job board publishes
+its application form (currently supported Greenhouse postings), JARVIS shows the
+actual questions and lets you save supported answers. Find them again under
+**Profile → Application answers → Company-specific answers**. They are only reused
+for the same posting and unchanged question. Consent, demographic and unsupported
+fields stay on the employer site. Reopen a saved packet from Tracker, download the
+résumé and refer to your saved answers while you finish the employer form yourself.
+For supported Greenhouse postings in a local development checkout, **Assisted
+Autofill** issues a code after you authorize the reviewed packet. Run
+`.\env\Scripts\python.exe -m scripts.fill_review` on the same machine and paste
+the code at the hidden prompt. The helper enters supported fields; review what it
+filled, answer the rest, and press Submit yourself. Otherwise use **Open employer
+site** and complete the form manually. This workflow never submits to a real
+employer or marks the application as submitted.
+
+The console renders returned strings as plain text. An ESLint rule forbids
+`dangerouslySetInnerHTML` and `innerHTML` in the console source.
 
 The console's own tests:
 
@@ -301,6 +316,8 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `POST /api/jobs/refresh` | Accept a durable corpus refresh (`202` + a run id; a worker executes it) | WS-02, WS-04, WS-18 |
 | `POST /api/jobs/search` | Rank the stored corpus for a profile (query, location and workplace filters apply before ranking; workplace is one of remote/hybrid/onsite over the corpus's remote policy) | WS-04, WS-44 |
 | `GET /api/jobs/{job_id}` | Read one stored listing | WS-04 |
+| `GET /api/jobs/{job_id}/application-form` | Read a supported employer form and the caller’s saved answers | Application preparation |
+| `PUT /api/jobs/{job_id}/application-form/answers` | Save answers to the posting’s current question versions | Application preparation |
 | `GET /api/jobs/suggest` | Autocomplete the query field from the corpus's own job titles | WS-20 |
 | `GET /api/jobs/locations` | The distinct locations the stored corpus carries, with their listing counts (feeds the filters dialog's Location select) | WS-44 |
 | `GET /api/jobs/sources` | The corpus's source registry and freshness (watched boards, last completed refresh, stored count) — shared like the corpus | WS-42 |
@@ -314,17 +331,27 @@ both have to be running (`python scripts/serve_fake_ats.py` for the ATS).
 | `DELETE /api/profiles/{profile_id}/eeo` | Delete the EEO selections outright | WS-20 |
 | `GET /api/profiles/{profile_id}/question-gaps` | The questions the boards actually ask that this profile cannot answer, ranked by frequency | WS-25b |
 | `GET /api/profiles/countries` | The countries a profile may state for work eligibility, for a country picker | WS-25c |
+| `GET /api/profiles/employer-answers` | List the caller’s saved employer answers | Application preparation |
+| `PUT /api/profiles/employer-answers/{answer_id}` | Edit one saved employer answer | Application preparation |
+| `DELETE /api/profiles/employer-answers/{answer_id}` | Remove an answer from the reusable library | Application preparation |
 | `POST /api/tailor` | Tailor a resume for a job, with a factuality report | WS-05 |
 | `GET /api/tailored/{tailoring_id}` | Read a stored tailoring run | WS-05 |
 | `PUT /api/tailored/{tailoring_id}` | Save the studio's section edits, revalidated against the profile (factuality, ATS, deliverable) | WS-47 |
 | `GET /api/tailored/{tailoring_id}/download` | Download the rendered DOCX of a tailoring | WS-13 |
 | `GET /api/documents` | The account's document library (uploaded and tailored résumés) | WS-13 |
 | `GET /api/documents/{document_id}/download` | Download one of the account's documents | WS-13 |
-| `GET /api/llm/credentials` | The caller's model-credential state (masked; never the key) | WS-22 |
-| `PUT /api/llm/credentials` | Register or replace the caller's own provider key (encrypted at rest) | WS-22 |
-| `DELETE /api/llm/credentials` | Remove the caller's stored credential | WS-22 |
-| `POST /api/llm/credentials/test` | Exercise the stored credential with one small call | WS-22 |
-| `POST /api/applications/prepare` | Check the target, select the adapter, create an approval request | WS-06 |
+| `GET /api/llm/credentials` | The caller's connections, masked, with the one in use first | WS-22 |
+| `POST /api/llm/credentials` | Add another provider connection (stored, not put in use) | WS-22 |
+| `PUT /api/llm/credentials` | Register or replace the connection in use (encrypted at rest) | WS-22 |
+| `PATCH /api/llm/credentials/{credential_id}` | Edit one connection, keeping its key unless a new one is supplied | WS-22 |
+| `POST /api/llm/credentials/{credential_id}/activate` | Make one stored connection the one jobs spend | WS-22 |
+| `DELETE /api/llm/credentials/{credential_id}` | Remove one stored connection; removing the active one promotes the next | WS-22 |
+| `DELETE /api/llm/credentials` | Remove the connection in use (idempotent) | WS-22 |
+| `POST /api/llm/credentials/{credential_id}/test` | Exercise one named connection with a small, billable call | WS-22 |
+| `POST /api/llm/credentials/test` | Exercise the connection in use with one small call | WS-22 |
+| `POST /api/applications/prepare` | Save a review for a stored posting or prepare the original two-phase application flow | WS-06, Application preparation |
+| `GET /api/applications/{application_id}/posting-review` | Reopen the caller’s saved real-posting review | Application preparation |
+| `POST /api/applications/{application_id}/authorize-fill` | Authorize one fill-only local session for the reviewed posting; no submission or worker run | Application preparation |
 | `POST /api/applications/{approval_id}/approve` | Record a human approval and execute | WS-06 |
 | `POST /api/applications/{approval_id}/reject` | Record a human rejection | WS-06 |
 | `GET /api/applications/approvals/{approval_id}` | Read the state of an approval request | WS-06 |
@@ -378,25 +405,38 @@ uses the **cookie** (an `HttpOnly`, `SameSite=Lax` session cookie, with a double
 (`Authorization: Bearer …`). Both resolve to the same account, and a session is a
 server-side row, so it can be revoked the moment it is revoked.
 
-### Bring your own model key (WS-22)
+### Bring your own model keys (WS-22)
 
 The deployment has its own model key (`LLM_API_KEY`); a user may register **their own**
 instead, so their tailoring and research calls run on their key, their quota and their bill.
+An account may hold **several connections at once** — a work key and a personal one, a
+Gemini key and a self-hosted endpoint — and chooses which one is in use.
 
-- The console has a **Model credentials** card on the Profile page; the API is
-  `GET/PUT/DELETE /api/llm/credentials` plus `POST /api/llm/credentials/test`.
-- The key is **encrypted at rest** (Fernet; the encryption key comes from
+- The console has a **Model credentials** tab on Account & Security. It lists every
+  stored connection, the one in use first, and offers Add, Edit, Make active, Test and
+  Remove. The API is `GET/POST/PUT/PATCH/DELETE /api/llm/credentials[/{id}]` plus
+  `POST /api/llm/credentials[/{id}]/test`; `PUT` and the route without an id remain the
+  single-connection contract for older clients.
+- **Saving is not switching.** Adding or editing a connection does not change which key
+  a job spends; only **Make active** does. Removing the active one promotes the next
+  connection in the list, or falls back to deployment policy when it was the last.
+- Each key is **encrypted at rest** (Fernet; the encryption key comes from
   `BYOK_ENCRYPTION_KEY`, else HKDF over `AUTH_SECRET`, else — development only — a local
   `data/secrets/byok.key`). No route returns it; the read shows a mask and the last four
-  characters.
+  characters. Editing a model name keeps the stored key; changing the provider or endpoint
+  requires pasting the key again, because a key issued for one provider must not be sent
+  to another.
 - **Registering a key does not spend it.** Proving it works is a separate button, because
-  the test call is billed to the user's own account.
+  a test call is billed to the user's own account — even when it targets a spare
+  connection, which testing does not make active.
 - `BYOK_MODE=required` refuses the platform key for user requests and says so in the
-  tailoring response (HTTP 409 with the fix); `disabled` hides the feature.
-- A user's stored key that fails **never silently falls back** to the platform key, its
-  circuit breaker and rate-limit bucket are their own, and the prompts it feeds carry no
-  candidate identity: names, e-mails, phone numbers and links are masked to placeholders
-  before the call and restored from the answer.
+  tailoring response (HTTP 409 with the fix); `disabled` refuses every write that could
+  spend a key but still lets a user remove a stored one.
+- A user's stored key that fails **never silently falls back** to the platform key or to
+  another of the user's connections. Its circuit breaker and rate-limit bucket are the
+  **connection's** own (`llm:byok:<owner>:<id>`), so one broken key cannot gate another —
+  and the prompts it feeds carry no candidate identity: names, e-mails, phone numbers and
+  links are masked to placeholders before the call and restored from the answer.
 
 ### Verified sponsorship registers (WS-22)
 

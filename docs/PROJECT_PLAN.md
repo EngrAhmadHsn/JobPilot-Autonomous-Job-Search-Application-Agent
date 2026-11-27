@@ -1,10 +1,10 @@
-# Autonomous AI Job Application Agent
+# JARVIS: Job Application and Resume Vetting Intelligent System
 
 ## Master Architecture, Research, Implementation & Engineering Plan
 
 You are acting as a senior AI Engineer, Agentic AI Architect, Backend Engineer, and browser-automation engineer.
 
-I want to build a **serious, production-oriented Autonomous AI Job Application Agent** that can eventually:
+I want to build a **serious, production-oriented Job Application and Resume Vetting Intelligent System (JARVIS)** that can eventually:
 
 1. Accept a user's resume.
 2. Parse and understand the candidate's profile.

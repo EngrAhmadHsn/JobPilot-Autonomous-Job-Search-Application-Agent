@@ -1,4 +1,4 @@
-# Security Model for the Autonomous AI Job Application Agent
+# Security Model for the Job Application and Resume Vetting Intelligent System (JARVIS)
 
 This document defines the security model for the autonomous job application system. It is a living document and must be updated whenever a new control is added, removed, or changed.
 

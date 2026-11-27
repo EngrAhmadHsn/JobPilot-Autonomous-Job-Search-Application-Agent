@@ -1,4 +1,4 @@
-# Autonomous AI Job Application Agent - Architecture Document
+# JARVIS: Job Application and Resume Vetting Intelligent System - Architecture Document
 
 Status: **reconciled 2026-11-16 (through WS-32)** · Supersedes the status sections written on
 2026-10-21 (WS-11) and 2026-09-13
@@ -22,7 +22,7 @@ Status: **reconciled 2026-11-16 (through WS-32)** · Supersedes the status secti
 
 ## 1. System Overview
 
-The Autonomous AI Job Application Agent is a production-oriented system that:
+JARVIS, the Job Application and Resume Vetting Intelligent System, is a production-oriented system that:
 
 - Accepts candidate resumes and parses them into a validated `CandidateProfile`
 - Searches and normalizes job listings from multiple public job-board APIs

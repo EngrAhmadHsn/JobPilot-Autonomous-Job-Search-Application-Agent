@@ -230,7 +230,7 @@ A refresh that is already queued or running is joined, not duplicated.
 
 ```ini
 [Unit]
-Description=JobPilot background worker
+Description=JARVIS background worker
 After=network-online.target
 
 [Service]
