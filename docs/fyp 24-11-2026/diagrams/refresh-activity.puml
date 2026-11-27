@@ -1,0 +1,19 @@
+@startuml refresh-activity
+!include _theme.puml
+' Worker stages; a completed refresh parent does not mean every vector is ready.
+start
+:Claim refresh; fetch changed listings or full feeds;
+:Drop incomplete listings; deduplicate, screen and limit admissions;
+:Commit job rows and any child indexing work\ntogether; checkpoint the parent refresh;
+if (Child items queued?) then (no)
+  stop
+else (yes)
+  :Claim batch; compute or reuse vectors; upsert to Chroma;
+endif
+if (Stored content hash matches?) then (yes)
+  :Complete the item\nunder its lease;
+else (no)
+  :Record retry or failure;\ndo not mark complete;
+endif
+stop
+@enduml

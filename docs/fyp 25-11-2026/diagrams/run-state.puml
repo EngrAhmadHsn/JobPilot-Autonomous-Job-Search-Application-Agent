@@ -1,0 +1,35 @@
+@startuml run-state
+!include _theme.puml
+hide empty description
+' Forward moves are drawn; every waiting state has one named way back, listed below.
+left to right direction
+state "QUEUED" as Q
+state "RUNNING" as R
+state "COMPLETED" as D
+state "PARTIAL" as X
+state "FAILED" as F
+state "RETRY_WAIT" as W
+state "PAUSED" as P
+state "RECOVERABLE" as C
+state "CANCELLED" as Z
+
+[*] --> Q
+Q --> R : worker adopts
+R --> D : all items settled
+R --> X : some items failed
+R --> F : the run failed
+R --> W : retryable failure
+R --> C : lease expired
+R --> P : budget exhausted
+Q --> Z : cancelled
+R --> Z : cancelled
+D --> [*]
+Z --> [*]
+
+legend bottom
+  <b>Ways back to QUEUED</b>
+  RETRY_WAIT when its next attempt is due.
+  PAUSED, RECOVERABLE, FAILED and PARTIAL only when an administrator resumes.
+  <b>Terminal:</b> COMPLETED and CANCELLED. Neither leaves.
+endlegend
+@enduml

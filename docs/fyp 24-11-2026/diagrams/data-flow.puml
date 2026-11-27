@@ -1,0 +1,21 @@
+@startuml data-flow
+!include _theme.puml
+' Level-one discovery data flow. Arrows name data, not triggers or control states.
+rectangle "Candidate" as Person
+rectangle "Public job boards" as Board
+usecase "Parse resume" as Parse
+usecase "Refresh corpus" as Refresh
+database "Private profile" as Private
+database "Shared listings" as Shared
+usecase "Score and rank" as Score
+database "Private matches" as Matches
+
+Person -down-> Parse : upload
+Board -down-> Refresh : job postings
+Parse -down-> Private : profile facts
+Refresh -down-> Shared : normalized jobs
+Private -down-> Score : candidate facts
+Shared -down-> Score : job features
+Score -right-> Matches : top scores\nand reasons
+Person -[hidden]right-> Board
+@enduml

@@ -1,0 +1,68 @@
+@startuml timing
+!include _theme.puml
+' Event positions are ordinal, not measurements: this is the stale-worker unit-test scenario.
+' Q/R/REC are expanded in the key to keep the short event intervals legible.
+' Timing rows take their ink from the timingDiagram style, not from the colour
+' skinparams the other diagram types use. The default style draws a dark-green
+' line on a lavender band; this block pins the row and axis to black on white.
+<style>
+timingDiagram {
+  LineColor #000000
+  FontColor #000000
+  concise {
+    LineColor #000000
+    BackgroundColor #FFFFFF
+  }
+  robust {
+    LineColor #000000
+    BackgroundColor #FFFFFF
+  }
+  clock {
+    LineColor #000000
+  }
+  highlight {
+    BackgroundColor #F2F2F2
+  }
+  arrow {
+    LineColor #000000
+  }
+  constraintArrow {
+    LineColor #000000
+    FontColor #000000
+  }
+  timeline {
+    LineColor #000000
+    FontStyle plain
+  }
+}
+</style>
+concise "Embedding run" as R
+concise "Work item" as I
+concise "Lease owner" as L
+scale 1 as 94 pixels
+@0
+R is Q
+I is Q
+L is "none"
+@1
+R is R
+I is R
+L is A
+@2
+R is REC
+I is Q
+L is "none"
+@3
+R is Q
+@4
+R is R
+I is R
+L is B
+@5
+legend bottom
+  <b>Ordinal events, not elapsed time</b>
+  Q = queued; R = running; REC = recoverable.
+  0 Enqueue · 1 A claims · 2 Reap expired lease and stale run
+  3 Admin resumes · 4 B claims · 5 Reject A's stale write
+endlegend
+@enduml

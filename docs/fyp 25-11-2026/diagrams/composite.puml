@@ -1,0 +1,22 @@
+@startuml composite
+!include _theme.puml
+' Composite-structure equivalent for one Worker. The two middle boxes are parts;
+' the two «port» boxes are named interfaces on the Worker boundary. Ports are
+' interfaces, not classes. The wording on a port says what arrives or leaves, so
+' no connector has to carry a label across the frame. The parts are laid out in
+' two rows so the figure fills the print column without a narrow single stack.
+skinparam packageStyle rectangle
+component "SQL work queue" as Q
+component "Application graph" as G
+package "Worker execution (approved work)" as W {
+  component "«port» queue\nreceives a claimed item" as In
+  component "Poll and dispatch\nrun_once()" as D
+  component "Approval handler\n_execute_submission()" as H
+  component "«port» adapter\nreturns the approved packet" as Out
+  In -right-> D
+  D -down-> H
+  H -left-> Out
+}
+Q -right-> In
+Out -left-> G
+@enduml

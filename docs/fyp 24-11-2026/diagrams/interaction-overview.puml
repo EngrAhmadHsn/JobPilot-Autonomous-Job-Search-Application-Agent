@@ -1,0 +1,18 @@
+@startuml interaction-overview
+!include _theme.puml
+' Call-style action nodes reference the named interactions; the two targets are not interchangeable.
+start
+if (Application target?) then (live Greenhouse)
+  :<b>ref</b>  Live Greenhouse preparation\nHand off; no proven receipt|
+  stop
+else (local fake ATS)
+  :<b>ref</b>  Packet preparation\nPersist the reviewable fields|
+endif
+if (Human decision?) then (approve)
+  :<b>ref</b>  Approve fake ATS run\nCommit and return 202; worker claims and submits|
+  :<b>ref</b>  Evidence assessment\nCheck confirmation and cited files|
+else (reject)
+  :Record rejection;\nno run or submission;
+endif
+stop
+@enduml

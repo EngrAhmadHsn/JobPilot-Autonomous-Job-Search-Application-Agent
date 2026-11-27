@@ -1,0 +1,82 @@
+{
+  "SRS": {
+    "kind": "Software Requirements Specification",
+    "project": "Autonomous AI Job Application Agent",
+    "student": "Ahmad Hassan",
+    "roll": "F23BDOCS1M01089",
+    "supervisor": "Miss Mareena Rasheed",
+    "programme": "BSCS Computer Science",
+    "session": "Session 2023-2027",
+    "university": "The Islamia University of Bahawalpur",
+    "department": "Department of Computer Science",
+    "history": [
+      [
+        "17 Oct 2026",
+        "Version 1.0",
+        "Ahmad Hassan",
+        "First revision"
+      ],
+      [
+        "22 Oct 2026",
+        "Version 2.0",
+        "Ahmad Hassan",
+        "Identity, isolation, the operator console and the second attack-surface pass"
+      ]
+    ],
+    "approval": [
+      [
+        "",
+        "Miss Mareena",
+        "Supervisor, Department of Computer Science",
+        ""
+      ],
+      [
+        "",
+        "Ahmad Hassan",
+        "Student, BSCS 2023-2027",
+        ""
+      ]
+    ],
+    "source_sha256": "80f77234576234e220b69cc46041db170096754be993fb3d288d1339e02f9f53"
+  },
+  "SDD": {
+    "kind": "Software Design Document",
+    "project": "Autonomous AI Job Application Agent",
+    "student": "AHMAD HASSAN",
+    "roll": "F23BDOC1M1089",
+    "supervisor": "Dr. Muhammad Omar",
+    "programme": "BSCS Computer Science",
+    "session": "Session 2023-2027",
+    "university": "The Islamia University of Bahawalpur",
+    "department": "DEPARTMENT OF COMPUTER SCIENCE",
+    "history": [
+      [
+        "17 Oct 2026",
+        "Version 1.0 (SRS)",
+        "Ahmad Hassan",
+        "The requirements this design answers"
+      ],
+      [
+        "22 Oct 2026",
+        "Version 1.0 (SDD)",
+        "Ahmad Hassan",
+        "First revision of the design document"
+      ]
+    ],
+    "approval": [
+      [
+        "",
+        "Dr. Muhammad Omar",
+        "Supervisor, Department of Computer Science",
+        ""
+      ],
+      [
+        "",
+        "Ahmad Hassan",
+        "Student, BSCS 2023-2027",
+        ""
+      ]
+    ],
+    "source_sha256": "c8f0df96c84ffde21802eecb8e4b7480a20878b81484ea8e9de2fbe9f4673419"
+  }
+}

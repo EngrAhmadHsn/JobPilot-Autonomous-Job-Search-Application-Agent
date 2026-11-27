@@ -1,0 +1,19 @@
+@startuml refresh-sequence
+!include _theme.puml
+hide footbox
+participant Console as C
+participant API as A
+database "Run store" as Q
+participant Worker as W
+
+C -> A : POST /api/jobs/refresh
+A -> Q : Create refresh or\nreuse active run
+A --> C : 202 + run ID
+W -> Q : Claim refresh item
+W -> W : Fetch and\nscreen\nlistings
+W -> Q : Commit jobs and any\nchild indexing work
+W -> Q : Checkpoint refresh
+C -> A : GET /api/runs/{run_id}
+A -> Q : Read run state
+A --> C : Progress and child ID, if any
+@enduml

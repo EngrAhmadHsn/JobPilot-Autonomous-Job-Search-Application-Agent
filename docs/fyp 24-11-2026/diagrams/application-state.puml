@@ -1,0 +1,28 @@
+@startuml application-state
+!include _theme.puml
+' The drawn prepare path starts where create_application actually creates its row.
+' The key supplies all other entries of tracking.ALLOWED_TRANSITIONS at 7190151.
+left to right direction
+skinparam LegendFontSize 15
+state "prepared" as P
+state "awaiting_approval" as A
+state "submitted" as S
+state "verified" as V
+[*] --> P
+P --> A
+A --> P : revise
+A --> S
+S --> A : not verified
+S --> V : evidence\nchecked
+
+legend bottom
+  <b>Other permitted tracker moves</b>
+  discovered ↔ matched ↔ shortlisted ↔ prepared
+  discovered or awaiting_approval → rejected
+  verified → interview, offer, rejected or withdrawn
+  interview → offer, rejected or withdrawn
+  offer → rejected or withdrawn
+  <b>Human only:</b> interview, offer, rejected and withdrawn.
+  Rejected and withdrawn have no outgoing moves.
+endlegend
+@enduml

@@ -1,0 +1,18 @@
+@startuml context
+!include _theme.puml
+' System boundary at 7190151; job feeds and application targets have different roles.
+actor Candidate as Person
+actor Administrator as Admin
+rectangle "Public job-board\nAPIs" as Feeds
+rectangle "<b>JobPilot</b>\nConsole, API and worker" as System
+rectangle "Language-model\nprovider" as Model
+rectangle "Live Greenhouse\nform" as Live
+rectangle "Local fake ATS" as Fixture
+
+Person -down-> System : résumé, answers\nand decisions
+Admin -down-> System : worker and\nrecovery controls
+Feeds -right-> System : listings
+System -right-> Model : masked\nprompt
+System -down-> Live : fill and hand off;\nno agent submit
+System -down-> Fixture : approved submit;\ncheck confirmation
+@enduml

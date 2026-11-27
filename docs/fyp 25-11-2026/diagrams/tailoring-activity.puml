@@ -1,0 +1,14 @@
+@startuml tailoring-activity
+!include _theme.puml
+start
+:Load the owned profile and stored job;\nground job insights in the listing;
+:Mask personal details; generate a structured\nrésumé and cover letter; restore known values;
+:Check draft claims against the profile;\nstrip unsupported skills, employers or titles;
+if (Original document editable?) then (yes)
+  :Edit a copy of the original;
+else (no)
+  :Regenerate and report fallback;
+endif
+:Analyze the delivered résumé for ATS fit;\nsave the file, factuality and ATS reports;
+stop
+@enduml

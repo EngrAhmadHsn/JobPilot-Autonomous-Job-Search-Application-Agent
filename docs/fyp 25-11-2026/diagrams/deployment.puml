@@ -1,0 +1,17 @@
+@startuml deployment
+!include _theme.puml
+' One runnable local development arrangement, not a production topology.
+node "Local development host" {
+  node "Browser" as Browser
+  node "Vite dev server\n:5173" as Vite
+  node "Uvicorn / FastAPI\n:8000" as Api
+  database "SQLite\napplication and queue" as Sql
+  node "Python worker\nseparate process" as Worker
+  node "Fake ATS · optional\nloopback :8901" as Fake
+}
+Browser -right-> Vite : HTTP
+Vite -down-> Api : /api proxy
+Api -left-> Sql : SQL
+Worker -up-> Sql : leases
+Worker -right-> Fake : test browser
+@enduml

@@ -1,0 +1,49 @@
+@startuml identity-classes
+!include _theme.puml
+hide circle
+' Mapped classes that carry identity. A request scope is derived, not stored here.
+' The gap keeps the edge labels clear of the package border.
+skinparam nodesep 70
+skinparam ranksep 40
+class User {
+  id : str
+  hashed_password : str
+}
+package "Revocable records" {
+  class AccessToken {
+    token : str
+    user_id : str
+  }
+  class LLMCredential {
+    owner_id : str
+    encrypted_key : str
+  }
+  ' One column, so both edges enter below the package title instead of arcing over it.
+  AccessToken -[hidden]down- LLMCredential
+}
+class CandidateProfile {
+  id : str
+  owner_id : str
+  profile_json : JSON
+}
+class CandidateEeo {
+  profile_id : str
+  data : JSON
+}
+class AuditEvent {
+  actor_kind : str
+  actor_id : str
+  action : str
+  outcome : str
+}
+User -right-> AccessToken : opens
+User -right-> LLMCredential : stores
+User -down-> CandidateProfile : owns
+CandidateProfile -down-> CandidateEeo : opt-in only
+AuditEvent -down-> User : names an actor
+
+legend bottom
+  Every private row carries the owning account.
+  Voluntary EEO data is kept apart from the profile it belongs to.
+endlegend
+@enduml

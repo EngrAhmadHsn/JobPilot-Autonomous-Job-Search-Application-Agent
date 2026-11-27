@@ -1,0 +1,39 @@
+@startuml workflow-erd
+!include _theme.puml
+hide circle
+' Schema projections for private records. The question plan is JSON, not a table.
+entity "approval_requests" as P {
+  id «PK»
+  status
+  form_questions : JSON
+}
+entity "applications" as A {
+  id «PK»
+  approval_id
+  workflow_id
+}
+entity "application_answers" as Q {
+  id «PK»
+  application_id
+  question_key
+  answer_text
+}
+entity "application_events" as E {
+  id «PK»
+  application_id
+  event_type
+}
+entity "application_evidence" as V {
+  id «PK»
+  application_id : nullable
+  workflow_id
+}
+P .right. A : approval_id
+A .down. Q
+A .down. E
+A .down. V
+legend bottom
+  All five tables carry owner_id. Dotted = logical link, not FK.
+  One answer per (owner_id, application_id, question_key).
+endlegend
+@enduml

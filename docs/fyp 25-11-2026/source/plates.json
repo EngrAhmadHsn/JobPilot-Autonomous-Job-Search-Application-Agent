@@ -1,0 +1,39 @@
+{
+ "home": {
+  "type": "Recorded console capture",
+  "caption": "Overview: what the agent did, and what is still zero",
+  "alt": "Overview shows one tracked application, one awaiting approval, zero verified submissions and one hundred recorded actions. A next-actions card asks for a resume to work from.",
+  "evidence": [
+   "frontend/src/screens/overview-screen.tsx"
+  ],
+  "provenance": "Captured at 1440 by 1000 during the WS-33 console audit on 17 November 2026, against the stored corpus. The account is an audit account, so the counts belong to it."
+ },
+ "discover": {
+  "type": "Recorded console capture",
+  "caption": "Discover: a weakened score set is disclosed rather than hidden",
+  "alt": "Discover lists 50 matches ranked against 8,558 saved jobs. A notice says semantic scoring was unavailable for part of the corpus, so these scores are weaker than a full run. Each row carries a score and an expandable reason.",
+  "evidence": [
+   "frontend/src/screens/matches-screen.tsx",
+   "frontend/src/screens/discover/results-list.tsx"
+  ],
+  "provenance": "Captured at 1440 by 1000 during the WS-33 console audit on 17 November 2026. The notice reports the state of that run; it is not a claim about the ranker's normal output."
+ },
+ "tailor": {
+  "type": "Recorded console capture",
+  "caption": "Tailor: one profile, one job, one draft at a time",
+  "alt": "Tailor explains that the agent uses only what the resume already says. A list of jobs already matched to the profile follows, one row per job with its most recent score.",
+  "evidence": [
+   "frontend/src/screens/tailor-screen.tsx"
+  ],
+  "provenance": "Captured at 1440 by 1000 during the WS-33 console audit on 17 November 2026. The date in each row is the match timestamp recorded for that account."
+ },
+ "review": {
+  "type": "Recorded console capture",
+  "caption": "Review: the promise made before a packet is prepared",
+  "alt": "Two cards. The first says preparing checks the target domain and builds a payload without contacting the employer or submitting. The second says the agent cannot answer unsupported questions, bypass a challenge or submit without a human decision.",
+  "evidence": [
+   "frontend/src/screens/approvals-screen.tsx"
+  ],
+  "provenance": "A crop of the Review screen's two explanatory cards, supplied with the 22 November 2026 pack and carried forward. It shows interface copy, not a submitted application."
+ }
+}

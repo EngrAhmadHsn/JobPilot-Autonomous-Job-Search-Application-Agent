@@ -1,0 +1,23 @@
+@startuml approval-sequence
+!include _theme.puml
+' An executable fake-ATS packet; no live board has the submit capability.
+hide footbox
+participant "Candidate" as C
+participant API as A
+database "SQL" as Q
+participant Worker as W
+participant "Fake ATS" as F
+
+C -> A : Approve
+A -> Q : Commit decision\nand queued run
+A --> C : 202 + run ID
+W -> Q : Claim; read packet
+alt Prior marker, no outcome
+  W -> Q : submission.uncertain\nStop; no resend
+else First attempt, policy permits
+  W -> Q : Commit marker
+  W -> F : Submit packet
+  F --> W : Confirmation
+  W -> Q : Check confirmation and\ncited files; store result
+end
+@enduml

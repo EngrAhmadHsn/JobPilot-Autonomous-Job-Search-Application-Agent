@@ -1,0 +1,32 @@
+@startuml er-overview
+!include _theme.puml
+hide circle
+hide empty methods
+hide empty attributes
+top to bottom direction
+skinparam nodesep 46
+skinparam ranksep 54
+' Logical entities and cardinalities only. Keys and columns are in the SDD.
+entity "Account" as Account
+entity "Job listing" as Job
+entity "Profile" as Profile
+entity "Match" as Match
+entity "Tailored draft" as Draft
+entity "Review packet" as Packet
+entity "Application case" as Case
+entity "Work run" as Run
+
+Account -down-> Profile : owns
+Profile -down-> Match : produces
+Job -down-> Match : assessed in
+Profile -down-> Draft : requests
+Draft -down-> Packet : feeds
+Job -right-> Packet : addressed to
+Packet -down-> Case : becomes
+Case -down-> Run : executed as
+
+legend bottom
+  A case is created from a review packet, never directly from a listing.
+  One listing appears in many matches and drafts, one per account.
+endlegend
+@enduml

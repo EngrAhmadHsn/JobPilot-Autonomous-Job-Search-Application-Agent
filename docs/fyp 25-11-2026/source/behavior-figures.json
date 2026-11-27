@@ -1,0 +1,187 @@
+{
+ "context": {
+  "type": "System context diagram",
+  "caption": "System context: two application targets, only one may submit",
+  "alt": "Candidates and administrators use JARVIS, which reads job feeds, calls a model with masked prompts and distinguishes a live form handoff from a tested local submission.",
+  "evidence": [
+   "docs/ARCHITECTURE.md",
+   "src/jobs/registry.py",
+   "src/resume/tailor.py",
+   "src/security/registry_setup.py",
+   "scripts/pilot_assist.py"
+  ]
+ },
+ "use-cases": {
+  "type": "UML use case diagram",
+  "caption": "Use cases: candidates decide, administrators recover",
+  "alt": "Candidates manage their profile, search, tailor, review and track applications; a candidate or scheduler can request a refresh, while an administrator can recover an embedding run.",
+  "evidence": [
+   "frontend/src/routes.tsx",
+   "src/api/routes/jobs.py",
+   "src/api/routes/applications.py",
+   "src/api/routes/tracking.py",
+   "src/runs/service.py",
+   "src/api/routes/admin.py"
+  ]
+ },
+ "function-scope": {
+  "type": "Functional scope diagram",
+  "caption": "Function scope: implemented work beside the submission limits",
+  "alt": "The workspace and platform functions are implemented, but only the local fake ATS supports an approved submission with verification; the live Greenhouse assist path stops at handoff.",
+  "evidence": [
+   "docs/ARCHITECTURE.md",
+   "src/runs/worker.py",
+   "src/applications/questions.py",
+   "src/evaluation/runner.py",
+   "src/retention.py",
+   "src/security/registry_setup.py",
+   "docs/evaluations/ws32-pilot-2026-11-15/README.md"
+  ]
+ },
+ "application-state": {
+  "type": "UML state machine diagram with transition key",
+  "caption": "Application states: outcomes require a human actor",
+  "alt": "The prepare route creates a prepared tracker row; the arrows and key together cover all legal tracker transitions, including verification rollback and human-only outcomes, without mixing in run or approval states.",
+  "evidence": [
+   "src/applications/tracking.py",
+   "src/api/routes/applications.py",
+   "src/graph/nodes.py",
+   "tests/test_tracking.py"
+  ]
+ },
+ "refresh-sequence": {
+  "type": "UML sequence diagram",
+  "caption": "Refresh: acceptance is 202, completion is later",
+  "alt": "HTTP 202 identifies a new or existing durable refresh; a separate worker claims the item, persists the listings and any child indexing work, and exposes progress for later polling.",
+  "evidence": [
+   "src/api/routes/jobs.py",
+   "src/runs/service.py",
+   "src/runs/worker.py",
+   "src/runs/embedding.py",
+   "tests/test_runs_api.py"
+  ]
+ },
+ "refresh-activity": {
+  "type": "UML activity diagram",
+  "caption": "Refresh and indexing: a finished parent is not ready vectors",
+  "alt": "The worker filters listings and commits rows with any child indexing work, then credits an embedding only when its stored content hash matches and the worker still holds the lease.",
+  "evidence": [
+   "src/graph/job_executor.py",
+   "src/runs/embedding.py",
+   "src/runs/queue.py",
+   "src/runs/worker.py",
+   "src/rag/chroma_store.py"
+  ]
+ },
+ "approval-sequence": {
+  "type": "UML sequence diagram",
+  "caption": "Approval: the decision commits before the 202 returns",
+  "alt": "Approval returns HTTP 202 before the worker executes the stored fake-ATS packet; on redelivery an attempt marker without an outcome triggers human review instead of another submission.",
+  "evidence": [
+   "src/api/routes/applications.py",
+   "src/runs/service.py",
+   "src/runs/worker.py",
+   "src/graph/nodes.py",
+   "tests/test_ws32_durable_submission.py"
+  ]
+ },
+ "tailoring-activity": {
+  "type": "UML activity diagram",
+  "caption": "Tailoring: claims are checked before the draft is delivered",
+  "alt": "The pipeline grounds the draft in a stored profile and listing, strips unsupported content, records whether the original document could be edited and reports ATS fit without submitting anything.",
+  "evidence": [
+   "src/api/routes/tailoring.py",
+   "src/research/engine.py",
+   "src/resume/tailor.py",
+   "src/resume/pipeline.py",
+   "src/resume/edit.py",
+   "src/resume/ats.py"
+  ]
+ },
+ "nav": {
+  "type": "Navigation map",
+  "caption": "Console routes: four workspaces inside one signed-in shell",
+  "alt": "Public landing and sign-in pages lead to the console, where matches and approvals have dedicated routes and each tracked application has its own questions page.",
+  "evidence": [
+   "frontend/src/routes.tsx",
+   "frontend/src/components/layout/app-shell.tsx",
+   "frontend/src/screens/admin-screen.tsx",
+   "frontend/src/screens/questions-screen.tsx",
+   "frontend/src/lib/console-navigation.test.ts"
+  ]
+ },
+ "communication": {
+  "type": "UML communication diagram",
+  "caption": "Communication: numbers separate the reply from later evidence",
+  "alt": "Numbered messages on object links separate the console’s accepted decision from the worker’s claim, durable attempt marker, local submission and evidence-backed result.",
+  "evidence": [
+   "src/api/routes/applications.py",
+   "src/runs/service.py",
+   "src/runs/worker.py",
+   "src/graph/executor.py",
+   "src/applications/fake_ats_adapter.py",
+   "src/graph/nodes.py"
+  ]
+ },
+ "interaction-overview": {
+  "type": "Interaction overview diagram (PlantUML activity equivalent)",
+  "caption": "Interaction overview: two targets, two endings",
+  "alt": "Live Greenhouse preparation ends at human handoff, while a fake-ATS packet can proceed from a recorded approval to worker execution and a separate evidence check.",
+  "evidence": [
+   "src/applications/assist_adapter.py",
+   "scripts/pilot_assist.py",
+   "src/api/routes/applications.py",
+   "src/runs/worker.py",
+   "src/graph/application_workflow.py",
+   "src/security/registry_setup.py"
+  ]
+ },
+ "timing": {
+  "type": "UML timing diagram",
+  "caption": "Lease timing: ordinal events, not measured seconds",
+  "alt": "Ordinal events show an expired lease and stale run, an explicit administrator resume, and a new claim whose token prevents the previous worker from committing.",
+  "evidence": [
+   "src/runs/queue.py",
+   "src/runs/service.py",
+   "src/runs/state.py",
+   "tests/test_durable_queue.py"
+  ]
+ },
+ "run-state": {
+  "type": "UML state machine diagram",
+  "caption": "Run states: an administrator resumes a stalled run",
+  "alt": "A run starts queued and becomes running. From running it reaches completed, partial, failed, retry wait, paused or recoverable, and completed and cancelled are final. An administrator may return a paused, retry wait, recoverable, failed or partial run to the queue; no worker adopts a stalled run by itself.",
+  "evidence": [
+   "src/runs/state.py",
+   "src/runs/queue.py",
+   "src/runs/worker.py",
+   "tests/test_durable_queue.py",
+   "tests/test_worker_recovery.py"
+  ]
+ },
+ "upload-sequence": {
+  "type": "UML sequence diagram",
+  "caption": "Intake: a refusal names its cause, and a failed parse leaves no profile",
+  "alt": "The console posts a file. The route validates extension, size and archive structure. A file refused there is never written. An accepted file is stored, then parsed; a parse failure removes the stored file and returns a refusal with its reason, while a readable one returns its fields with warnings.",
+  "evidence": [
+   "src/api/validation.py",
+   "src/api/routes/resumes.py",
+   "src/resume/parser.py",
+   "src/storage/paths.py",
+   "tests/test_resumes_api.py"
+  ]
+ },
+ "tailoring-sequence": {
+  "type": "UML sequence diagram",
+  "caption": "Tailoring call: the chain walks inside one logical call",
+  "alt": "The tailoring route grounds facts in the listing, sends a masked prompt to the fallback provider, validates the returned claims, renders the document and returns the draft with its reports.",
+  "evidence": [
+   "src/api/routes/tailoring.py",
+   "src/llm/fallback.py",
+   "src/resume/tailor.py",
+   "src/resume/pipeline.py",
+   "src/resume/edit.py",
+   "tests/test_tailoring_api.py"
+  ]
+ }
+}

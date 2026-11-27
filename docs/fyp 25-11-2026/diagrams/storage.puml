@@ -1,0 +1,16 @@
+@startuml storage
+!include _theme.puml
+' Group headings describe scope, not extra subdirectories. Paths are relative to data/.
+frame "Default data/ directory" {
+  folder "users/{id}/ · private" as Owned {
+    rectangle "resumes/ · uploads\ntailored/ · edited files\nevidence/ · screenshots and traces" as Files
+  }
+  rectangle "**Shared retrieval data**\nchroma/ · job vectors\nembedding_cache.sqlite · job cache\nfastembed/ · model weights" as Shared
+  database "app.db\nOwner-scoped and platform tables" as Sql
+  folder "outbound/\nLocal token mailbox" as Outbound
+}
+Owned -[hidden]right-> Shared
+Owned -[hidden]down-> Sql
+Shared -[hidden]down-> Outbound
+Sql -[hidden]right-> Outbound
+@enduml

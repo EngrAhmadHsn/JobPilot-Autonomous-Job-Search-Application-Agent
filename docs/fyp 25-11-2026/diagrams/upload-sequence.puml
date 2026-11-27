@@ -1,0 +1,30 @@
+@startuml upload-sequence
+!include _theme.puml
+hide footbox
+' Intake stops at the first refusal; a readable document with missing sections is not a refusal.
+participant "Console" as C
+participant "Resume route" as A
+participant "Validator" as V
+participant "Parser" as P
+database "Private store" as S
+
+C -> A : POST /api/resumes\nfile and declared type
+A -> V : extension, size,\narchive structure
+alt refused at validation
+  V --> A : reason
+  A --> C : 400 and reason
+else accepted
+  V -> S : write owned source
+  V --> A : stored path
+  A -> P : extract sections
+  alt unreadable text
+    P --> A : parse error
+    A -> S : remove stored file
+    A --> C : 400 and reason
+  else parsed
+    P --> A : fields and warnings
+    A -> S : profile row
+    A --> C : profile with warnings
+  end
+end
+@enduml

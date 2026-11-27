@@ -1,0 +1,207 @@
+{
+ "packages": {
+  "type": "UML package diagram",
+  "caption": "Backend packages: the API enqueues, the graph resolves an adapter",
+  "alt": "The API queues durable work and plans questions; the worker dispatches to graph code that uses application adapters and matching models.",
+  "evidence": [
+   "src/api/routes/applications.py",
+   "src/runs/worker.py",
+   "src/graph/executor.py",
+   "src/graph/job_workflow.py",
+   "src/matching/engine.py"
+  ]
+ },
+ "components": {
+  "type": "UML component diagram",
+  "caption": "Runtime components: one queue separates the request from the work",
+  "alt": "The console calls one API for scoring and drafting, while a database queue separates the request from background refresh and approved execution.",
+  "evidence": [
+   "frontend/src/lib/api/client.ts",
+   "src/main.py",
+   "src/api/routes/jobs.py",
+   "src/api/routes/tailoring.py",
+   "src/api/routes/applications.py",
+   "src/runs/service.py",
+   "src/runs/worker.py"
+  ]
+ },
+ "deployment": {
+  "type": "UML deployment diagram",
+  "caption": "Local deployment: one host, two processes and a loopback fixture",
+  "alt": "On one development machine Vite proxies browser requests to FastAPI, and a separate worker leases SQLite work and can drive the optional loopback test board.",
+  "evidence": [
+   "RUNNING.md",
+   "frontend/vite.config.ts",
+   "src/main.py",
+   "src/config/settings.py",
+   "scripts/run_worker.py",
+   "scripts/serve_fake_ats.py",
+   "src/applications/fake_ats_adapter.py"
+  ]
+ },
+ "domain-classes": {
+  "type": "UML class diagram",
+  "caption": "Candidate, listing and match: the result holds neither input",
+  "alt": "Search state retains the private candidate profile and a collection of pairs, each joining one listing to its score and explanation.",
+  "evidence": [
+   "src/graph/job_state.py",
+   "src/resume/profile.py",
+   "src/resume/application_profile.py",
+   "src/jobs/contracts.py",
+   "src/matching/contracts.py"
+  ]
+ },
+ "drafting-classes": {
+  "type": "UML class diagram",
+  "caption": "Draft and reports: three checks answer three questions",
+  "alt": "A tailored resume for one profile and job, with three separate reports: factuality, ATS readability and rendering.",
+  "evidence": [
+   "src/resume/pipeline.py",
+   "src/resume/tailor.py",
+   "src/resume/ats.py",
+   "src/resume/style.py",
+   "src/resume/edit.py",
+   "src/research/engine.py"
+  ]
+ },
+ "application-classes": {
+  "type": "UML class diagram",
+  "caption": "Adapter contracts: a capability is granted, not inherited",
+  "alt": "The adapter prepares a request and returns a result that may carry evidence; implementing the adapter interface does not grant permission to submit.",
+  "evidence": [
+   "src/applications/contracts.py",
+   "src/graph/executor.py",
+   "src/security/registry_setup.py",
+   "src/applications/assist_adapter.py"
+  ]
+ },
+ "object-example": {
+  "type": "UML object diagram",
+  "caption": "A synthetic packet: three identifiers answer three questions",
+  "alt": "A saved reply belongs to the example application, but the packet retains its original question verdict and neither approval nor submission has occurred.",
+  "evidence": [
+   "src/db/approval.py",
+   "src/db/applications.py",
+   "src/db/application_answers.py",
+   "src/applications/form_plan.py",
+   "src/api/routes/applications.py",
+   "tests/test_ws45_questions_page.py"
+  ]
+ },
+ "account-erd": {
+  "type": "Logical entity–relationship diagram",
+  "caption": "Account tables: dotted links are lookups, not foreign keys",
+  "alt": "Session records identify a user, and private profiles, saved matches and drafts carry owner identifiers that accessors check rather than SQL foreign keys.",
+  "evidence": [
+   "src/db/users.py",
+   "src/auth/tokens.py",
+   "src/db/profiles.py",
+   "src/db/matches.py",
+   "src/db/tailored.py",
+   "src/api/scope.py",
+   "src/db/access.py"
+  ]
+ },
+ "workflow-erd": {
+  "type": "Logical entity–relationship diagram",
+  "caption": "Workflow tables: the question plan is stored JSON",
+  "alt": "A private application identifies its approval packet, which stores the question plan as JSON, while saved answers, events and optional evidence links use application identifiers rather than foreign keys.",
+  "evidence": [
+   "src/db/applications.py",
+   "src/db/approval.py",
+   "src/db/application_answers.py",
+   "src/db/evidence.py",
+   "migrations/versions/b9c8d7e6f5a4_ws45_application_answers.py",
+   "migrations/versions/d3e4f5a6b7c8_ws45_approval_form_questions.py",
+   "src/api/routes/applications.py"
+  ]
+ },
+ "storage": {
+  "type": "Storage layout diagram",
+  "caption": "Storage layout: private files sit apart from shared retrieval data",
+  "alt": "Each account has its own upload, draft and evidence directories, separate from the shared job retrieval data, application database and local account-token mailbox.",
+  "evidence": [
+   "src/storage/paths.py",
+   "src/config/settings.py",
+   "src/llm/embeddings.py",
+   "src/rag/chroma_store.py",
+   "src/auth/delivery.py",
+   "src/applications/assist_adapter.py"
+  ]
+ },
+ "data-flow": {
+  "type": "Data flow diagram",
+  "caption": "Discovery data flow: what moves, and who owns the result",
+  "alt": "Ranking combines facts from a private candidate profile with shared listing data and saves the resulting scores and reasons for that account.",
+  "evidence": [
+   "src/api/routes/resumes.py",
+   "src/resume/parser.py",
+   "src/graph/job_executor.py",
+   "src/matching/engine.py",
+   "src/api/routes/jobs.py",
+   "src/db/matches.py"
+  ]
+ },
+ "composite": {
+  "type": "UML composite structure equivalent",
+  "caption": "Worker internals: a claimed item enters by one port, the packet leaves by the other",
+  "alt": "A lease supplies a work item to the worker's dispatcher, which delegates approved execution to a handler that restores the reviewed packet for the application graph.",
+  "evidence": [
+   "src/runs/queue.py",
+   "src/runs/worker.py",
+   "src/graph/executor.py",
+   "src/graph/application_workflow.py",
+   "src/security/registry_setup.py"
+  ]
+ },
+ "profile": {
+  "type": "UML profile diagram",
+  "caption": "Local stereotypes: labels for the document, not runtime grants",
+  "alt": "Two documentary stereotypes extend the UML Class and Component metaclasses; the mapped answer class and assist component illustrate the labels but are not their Python subclasses.",
+  "evidence": [
+   "src/db/application_answers.py",
+   "src/db/access.py",
+   "src/applications/assist_adapter.py",
+   "src/security/registry_setup.py"
+  ]
+ },
+ "deployment-queued": {
+  "type": "UML deployment diagram",
+  "caption": "Queued deployment: PostgreSQL carries records and the queue",
+  "alt": "A browser reaches the static console build, which calls the API process over HTTPS. The API and the supervised worker share PostgreSQL; the worker alone writes the Chroma directory and the data volume, and only the worker opens a browser context.",
+  "evidence": [
+   "src/config/settings.py",
+   "src/runs/queue.py",
+   "src/rag/chroma_store.py",
+   "src/storage/paths.py",
+   "scripts/run_worker.py"
+  ]
+ },
+ "identity-classes": {
+  "type": "UML class diagram",
+  "caption": "Account records: every private row names its owner",
+  "alt": "User owns access tokens and a model credential, and owns a candidate profile with its optional equal-opportunity record. Audit events name an actor.",
+  "evidence": [
+   "src/db/users.py",
+   "src/auth/tokens.py",
+   "src/db/byok.py",
+   "src/db/profiles.py",
+   "src/security/audit.py",
+   "src/api/scope.py"
+  ]
+ },
+ "er-overview": {
+  "type": "Logical entity-relationship diagram",
+  "caption": "Logical entities: a case begins at a packet, not a listing",
+  "alt": "An account owns a profile. The profile produces matches and drafts; a listing is assessed in a match. A draft feeds a review packet addressed to a listing, the packet becomes an application case, and the case is executed as a work run.",
+  "evidence": [
+   "src/db/users.py",
+   "src/db/profiles.py",
+   "src/db/matches.py",
+   "src/db/tailored.py",
+   "src/db/approval.py",
+   "src/db/applications.py",
+   "src/runs/queue.py"
+  ]
+ }
+}

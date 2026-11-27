@@ -1,0 +1,24 @@
+@startuml use-cases
+!include _theme.puml
+left to right direction
+actor Candidate as C
+actor Administrator as A
+actor Scheduler as S
+rectangle "JobPilot" {
+  usecase "Maintain résumé\nand profile" as Profile
+  usecase "Find ranked jobs" as Search
+  usecase "Tailor job documents" as Tailor
+  usecase "Approve or reject a packet" as Decide
+  usecase "Track outcomes" as Track
+  usecase "Refresh the corpus" as Refresh
+  usecase "Recover indexing" as Recover
+}
+C -- Profile
+C -- Search
+C -- Tailor
+C -- Decide
+C -- Track
+C -- Refresh
+Refresh -- S
+Recover -- A
+@enduml

@@ -1,0 +1,32 @@
+@startuml domain-classes
+!include _theme.puml
+hide circle
+' Actual model fields. The result does not contain either input object.
+class JobSearchState {
+  top_n : int
+}
+class CandidateProfile {
+  skills : list[str]
+  experience : list[ExperienceEntry]
+}
+class ApplicationProfile {
+  answers : ApplicationAnswers
+  confirmed_fields : list[str]
+}
+class JobMatchPair
+class JobListing {
+  title : str
+  required_skills : list[str]
+}
+class JobMatchResult {
+  overall_score : float
+  component_states : dict
+  explanation : str
+}
+JobSearchState -right-> CandidateProfile : profile
+CandidateProfile -down-> ApplicationProfile : application_profile
+JobSearchState -down-> JobMatchPair : matches [0..*]
+JobMatchPair -down-> JobMatchResult : match
+JobMatchPair -right-> JobListing : job
+ApplicationProfile -[hidden]down-> JobListing
+@enduml

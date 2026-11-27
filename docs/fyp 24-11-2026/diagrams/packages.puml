@@ -1,0 +1,19 @@
+@startuml packages
+!include _theme.puml
+' Selected Python packages; each dashed arrow points to an imported package.
+package api
+package runs
+package graph
+package applications
+package matching
+package resume
+package jobs
+
+api ..right.> runs : enqueue work
+api ..down.> applications : plan questions
+runs ..down.> graph : dispatch work
+graph ..left.> applications : resolve adapters
+graph ..down.> matching : score listings
+matching ..left.> resume : profile types
+matching ..right.> jobs : listing type
+@enduml

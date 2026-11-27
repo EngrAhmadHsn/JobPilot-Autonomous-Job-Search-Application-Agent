@@ -1,0 +1,1307 @@
+[
+ {
+  "id": "FR-1.1",
+  "group": 1,
+  "requirement": "Accept DOCX, UTF-8 TXT and Markdown resumes; reject unsupported formats.",
+  "acceptance": "Each supported file reaches the parser. An unsupported extension returns HTTP 400. PDF support is specified in FR-1.8.",
+  "status": "Implemented",
+  "design": "validate_resume_upload",
+  "test": "tests/test_upload_validation.py"
+ },
+ {
+  "id": "FR-1.2",
+  "group": 1,
+  "requirement": "Reject empty, oversized or unreadable resumes and explain the cause.",
+  "acceptance": "An empty file, a file above 5 MiB within the request limit, or an unparseable document returns HTTP 400. The outer request limit is separate.",
+  "status": "Implemented",
+  "design": "upload_resume",
+  "test": "tests/test_resumes_api.py"
+ },
+ {
+  "id": "FR-1.3",
+  "group": 1,
+  "requirement": "Extract the stated name, title, contacts, summary, categorized skills, education, experience, projects, certifications and achievements.",
+  "acceptance": "Recognized sections retain the candidate's wording; the parser splits headings and bullets into fields and leaves absent sections empty.",
+  "status": "Implemented",
+  "design": "parse_resume",
+  "test": "tests/test_resume_parser.py"
+ },
+ {
+  "id": "FR-1.4",
+  "group": 1,
+  "requirement": "Extract work mode, preferred locations, minimum salary, work authorization and employment types only from explicit statements.",
+  "acceptance": "A preference line or explicit summary statement supplies a value. An employer's location or a skill alone does not establish a preference.",
+  "status": "Implemented",
+  "design": "_extract_work_preferences",
+  "test": "tests/test_profile_preferences.py"
+ },
+ {
+  "id": "FR-1.5",
+  "group": 1,
+  "requirement": "Warn consistently about a missing name, email, skill list, summary or work history.",
+  "acceptance": "Missing or invalid email and empty core fields produce named warnings. The work-history warning requires both experience and projects to be absent.",
+  "status": "Limited",
+  "design": "validate_candidate_profile",
+  "test": "src/resume/profile.py"
+ },
+ {
+  "id": "FR-1.6",
+  "group": 1,
+  "requirement": "Persist the extracted profile and return an identifier for later retrieval.",
+  "acceptance": "The owner can use the returned profile ID to retrieve the same structured data without uploading again.",
+  "status": "Implemented",
+  "design": "CandidateProfileDB",
+  "test": "tests/test_resumes_api.py"
+ },
+ {
+  "id": "FR-1.7",
+  "group": 1,
+  "requirement": "Validate document contents and store each upload under a server-generated name.",
+  "acceptance": "DOCX must open as a Word ZIP package; TXT and MD must decode as UTF-8. The client filename does not select the stored path.",
+  "status": "Implemented",
+  "design": "validate_resume_upload",
+  "test": "tests/test_upload_validation.py"
+ },
+ {
+  "id": "FR-1.8",
+  "group": 1,
+  "requirement": "Parse PDF resumes into candidate profiles.",
+  "acceptance": "A readable text-layer PDF yields a profile. Encrypted, damaged, image-only or undecodable PDFs receive a reason; no OCR is provided.",
+  "status": "Limited",
+  "design": "_read_pdf_lines",
+  "test": "tests/test_ws32_pdf_resume.py"
+ },
+ {
+  "id": "FR-1.9",
+  "group": 1,
+  "requirement": "Keep an uploaded resume in the caller's directory and prevent another account from retrieving it.",
+  "acceptance": "Two ordinary accounts receive different storage roots; a foreign document ID cannot download the file.",
+  "status": "Implemented",
+  "design": "user_dir",
+  "test": "tests/test_user_storage.py"
+ },
+ {
+  "id": "FR-1.10",
+  "group": 1,
+  "requirement": "Let the candidate confirm work eligibility for named countries separately from sponsorship and citizenship.",
+  "acceptance": "Eligibility for one country does not establish eligibility elsewhere. Without a usable country or a relevant declaration, the answer remains unknown.",
+  "status": "Implemented",
+  "design": "WorkAuthorizationInfo",
+  "test": "tests/test_ws25c_work_eligibility.py"
+ },
+ {
+  "id": "FR-1.11",
+  "group": 1,
+  "requirement": "Keep voluntary equal-opportunity information separate from ordinary profile facts.",
+  "acceptance": "Nonempty selections require opt-in, can be deleted, and are excluded from ranking and tailoring. Declining to answer is not selected automatically.",
+  "status": "Implemented",
+  "design": "EeoProfile",
+  "test": "tests/test_eeo.py"
+ },
+ {
+  "id": "FR-2.1",
+  "group": 2,
+  "requirement": "Retrieve listings only from the public Greenhouse, Lever, Ashby and Remotive APIs.",
+  "acceptance": "The source registry contains those four adapters. Listing discovery does not scrape employer pages.",
+  "status": "Implemented",
+  "design": "jobs.registry",
+  "test": "src/jobs/registry.py"
+ },
+ {
+  "id": "FR-2.2",
+  "group": 2,
+  "requirement": "Construct discovery URLs from provider hosts and validated board or posting identifiers.",
+  "acceptance": "An invalid Greenhouse token or Lever slug issues no request; a board name cannot replace the adapter's host.",
+  "status": "Implemented",
+  "design": "GreenhouseJobAdapter",
+  "test": "tests/test_jobs.py"
+ },
+ {
+  "id": "FR-2.3",
+  "group": 2,
+  "requirement": "Refuse non-HTTP(S) source URLs and destinations that resolve to nonpublic addresses before fetching them.",
+  "acceptance": "A loopback, private, link-local or reserved result in the DNS answer causes refusal before the HTTP request.",
+  "status": "Implemented",
+  "design": "assert_url_allowed",
+  "test": "tests/test_http_client.py"
+ },
+ {
+  "id": "FR-2.4",
+  "group": 2,
+  "requirement": "Pace requests to each host and retry only transient source failures.",
+  "acceptance": "The default interval is one second. Transport errors, 429 and 5xx permit two retries with backoff; redirects and other 4xx fail without retry.",
+  "status": "Implemented",
+  "design": "jobs.http_client",
+  "test": "tests/test_http_client.py"
+ },
+ {
+  "id": "FR-2.5",
+  "group": 2,
+  "requirement": "Normalize each accepted posting to a JobListing with a canonical ID, title and company.",
+  "acceptance": "A posting missing an identifier, title or company does not enter the corpus; source identity remains available on the stored row.",
+  "status": "Implemented",
+  "design": "JobListing",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-2.6",
+  "group": 2,
+  "requirement": "Extract skills from listing text with a fixed vocabulary.",
+  "acceptance": "A recognized term or alias produces its canonical skill; the extractor does not add an unrelated skill from the job title or occupation alone.",
+  "status": "Implemented",
+  "design": "extract_skills",
+  "test": "tests/test_skills.py"
+ },
+ {
+  "id": "FR-2.7",
+  "group": 2,
+  "requirement": "Remove duplicate listings and insert or update each posting by its canonical ID.",
+  "acceptance": "Refreshing the same source records twice updates existing rows without increasing the job count.",
+  "status": "Implemented",
+  "design": "deduplicate",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-2.8",
+  "group": 2,
+  "requirement": "Embed only new or changed listing text and preserve completed work when a quota ends the run.",
+  "acceptance": "Unchanged indexed text incurs no new embedding. An interrupted refresh reports partial progress and can continue with outstanding texts.",
+  "status": "Implemented",
+  "design": "ChromaVectorStore",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-2.9",
+  "group": 2,
+  "requirement": "Continue a refresh when one source fails and identify that source in the report.",
+  "acceptance": "A failing source has a named error; listings returned by other configured sources remain eligible for storage.",
+  "status": "Implemented",
+  "design": "search_all_detailed",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-2.10",
+  "group": 2,
+  "requirement": "Keep the LinkedIn source adapter unregistered.",
+  "acceptance": "Normal discovery cannot select LinkedIn and makes no LinkedIn request.",
+  "status": "Implemented",
+  "design": "jobs.registry",
+  "test": "src/jobs/registry.py"
+ },
+ {
+  "id": "FR-2.11",
+  "group": 2,
+  "requirement": "Screen likely machine-generated or repetitive listings before storing or embedding them.",
+  "acceptance": "The deterministic screen drops entries that meet its spam rules and reports a count; the verdict does not establish who authored a posting.",
+  "status": "Implemented",
+  "design": "screen_listings",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-2.12",
+  "group": 2,
+  "requirement": "Limit new listings per source, per refresh and across the corpus; report exclusions.",
+  "acceptance": "The admission report counts listings denied by each applicable bound. Existing rows can still receive updates.",
+  "status": "Implemented",
+  "design": "admit_listings",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-2.13",
+  "group": 2,
+  "requirement": "At capacity, evict eligible listings in order of their last sighting.",
+  "acceptance": "Eviction is bounded. A referenced listing, one never seen, or one from a failed source is not removed to make room.",
+  "status": "Implemented",
+  "design": "job_executor",
+  "test": "tests/test_ws23_corpus.py"
+ },
+ {
+  "id": "FR-2.14",
+  "group": 2,
+  "requirement": "Budget embeddings by cache miss, share work across sources and stop at the daily limit.",
+  "acceptance": "Cache hits consume no work allowance. With several sources waiting, the refresh allocates work across them and reports a partial run on exhaustion.",
+  "status": "Implemented",
+  "design": "job_executor",
+  "test": "tests/test_ws15_hardening.py"
+ },
+ {
+  "id": "FR-2.15",
+  "group": 2,
+  "requirement": "Neutralize board HTML in one bounded, forward scan.",
+  "acceptance": "Long malformed markup does not trigger repeated scans of the remaining string. Retained text can be displayed without interpreting the source markup.",
+  "status": "Implemented",
+  "design": "neutralize_html",
+  "test": "tests/test_ws15_hardening.py"
+ },
+ {
+  "id": "FR-2.16",
+  "group": 2,
+  "requirement": "Queue a refresh durably and expose its progress independently of the initiating request.",
+  "acceptance": "POST /api/jobs/refresh returns HTTP 202 and a run ID. Closing the browser does not cancel the worker's stored work items.",
+  "status": "Implemented",
+  "design": "enqueue_refresh",
+  "test": "tests/test_runs_api.py"
+ },
+ {
+  "id": "FR-2.17",
+  "group": 2,
+  "requirement": "Merge equivalent postings returned by different sources without merging separate IDs from a single source on that basis.",
+  "acceptance": "Matching normalized company, title and location can produce one surviving posting. Provider-specific change stamps do not transfer to another provider.",
+  "status": "Implemented",
+  "design": "merge_cross_source",
+  "test": "tests/test_ws26_dedup.py"
+ },
+ {
+  "id": "FR-3.1",
+  "group": 3,
+  "requirement": "Search stored listings without contacting a job board.",
+  "acceptance": "With adapters unavailable, search still ranks matching local records; an empty corpus returns an empty result set.",
+  "status": "Implemented",
+  "design": "search_stored_jobs",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-3.2",
+  "group": 3,
+  "requirement": "Score semantic similarity, skills, experience, seniority, location and preferences on a 0 to 100 scale with published default weights.",
+  "acceptance": "The original weights (0.20, 0.30, 0.20, 0.10, 0.10, 0.10) are superseded. The current eight-component distribution is given in section 3.2.3.",
+  "status": "Limited",
+  "design": "DEFAULT_WEIGHTS",
+  "test": "src/matching/weights.py"
+ },
+ {
+  "id": "FR-3.3",
+  "group": 3,
+  "requirement": "Accept only a complete set of positive weight overrides totaling 1.0 within 0.01.",
+  "acceptance": "Startup rejects incomplete, extra or nonpositive weights and totals outside tolerance. Overrides now require eight named components instead of six.",
+  "status": "Implemented",
+  "design": "validate_weights",
+  "test": "src/matching/weights.py"
+ },
+ {
+  "id": "FR-3.4",
+  "group": 3,
+  "requirement": "Distinguish missing inputs from hard conflicts when scoring a component.",
+  "acceptance": "The proposed neutral 70 is not used: missing inputs contribute zero with an unknown state. Explicit conflicts such as incompatible work mode can score 25.",
+  "status": "Limited",
+  "design": "ComponentScore",
+  "test": "src/matching/engine.py"
+ },
+ {
+  "id": "FR-3.5",
+  "group": 3,
+  "requirement": "Derive semantic scores from cosine similarity between the candidate's query vector and listing vectors.",
+  "acceptance": "For a nondegenerate vector pair, cosine similarity times 100 is clamped to 0 to 100; a measured zero is distinguishable from a missing vector.",
+  "status": "Implemented",
+  "design": "ChromaVectorStore",
+  "test": "tests/test_ws28_vector_matrix.py"
+ },
+ {
+  "id": "FR-3.6",
+  "group": 3,
+  "requirement": "Return a degraded ranking when embeddings are unavailable.",
+  "acceptance": "The original fallback redistributed the semantic weight. The current blend keeps it in the denominator, contributes zero for the missing vector and reports reduced coverage.",
+  "status": "Limited",
+  "design": "blend",
+  "test": "tests/test_score_states.py"
+ },
+ {
+  "id": "FR-3.7",
+  "group": 3,
+  "requirement": "Explain each returned result with component scores, matched skills and missing skills.",
+  "acceptance": "The result includes component states, a readable explanation and evidence coverage, even when no semantic score is available.",
+  "status": "Implemented",
+  "design": "JobMatchResult",
+  "test": "tests/test_matching.py"
+ },
+ {
+  "id": "FR-3.8",
+  "group": 3,
+  "requirement": "Filter stored jobs by query terms and a case-insensitive location substring.",
+  "acceptance": "Any query token of at least two characters in the title or description satisfies the text filter. The location filter applies independently.",
+  "status": "Implemented",
+  "design": "search_stored_jobs",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-3.9",
+  "group": 3,
+  "requirement": "Return the highest overall scores in descending order and store a match per returned result.",
+  "acceptance": "A top-N search returns up to N results in score order and links the corresponding match rows to the requesting profile.",
+  "status": "Implemented",
+  "design": "search_stored_jobs",
+  "test": "tests/test_refresh_and_stored_search.py"
+ },
+ {
+  "id": "FR-3.10",
+  "group": 3,
+  "requirement": "Retrieve a listing by ID and return the profile's matches in chronological order.",
+  "acceptance": "The default history is newest first, not the original oldest-first order. Ranked mode selects the latest match per job and sorts by score.",
+  "status": "Limited",
+  "design": "get_profile_matches",
+  "test": "src/api/routes/jobs.py"
+ },
+ {
+  "id": "FR-3.11",
+  "group": 3,
+  "requirement": "Do not let missing skill requirements confer a ranking advantage over a genuine partial skill match.",
+  "acceptance": "With other components held equal, no stated skills earns zero skill credit; a positive partial match earns credit. Other evidence may still change the overall order.",
+  "status": "Implemented",
+  "design": "_skill_component",
+  "test": "tests/test_score_states.py"
+ },
+ {
+  "id": "FR-3.12",
+  "group": 3,
+  "requirement": "Measure lexical overlap and occupational fit as separate sources of ranking evidence.",
+  "acceptance": "BM25 scores posting text; role relevance compares the posting's job family with candidate targets. A classified hard role mismatch caps the overall score at 25.",
+  "status": "Implemented",
+  "design": "calculate_match",
+  "test": "src/matching/engine.py"
+ },
+ {
+  "id": "FR-4.1",
+  "group": 4,
+  "requirement": "Extract job requirements from structured fields and skill mentions without calling a language model.",
+  "acceptance": "Preserve stated requirements and identify candidate skills actually mentioned in the description. Missing fields do not generate new requirements.",
+  "status": "Implemented",
+  "design": "extract_requirements",
+  "test": "tests/test_requirements.py"
+ },
+ {
+  "id": "FR-4.2",
+  "group": 4,
+  "requirement": "Request a structured draft based on candidate facts with provider-side storage disabled.",
+  "acceptance": "Gemini requests set store=false. Compatible chat endpoints receive a schema and JSON instructions; their retention policy is not established by this setting.",
+  "status": "Limited",
+  "design": "GeminiProvider",
+  "test": "src/llm/providers.py"
+ },
+ {
+  "id": "FR-4.3",
+  "group": 4,
+  "requirement": "Remove unsupported skills, employers, projects and inflated claims of years of experience; identify removals.",
+  "acceptance": "The validator checks named entries against profile lists and removes excessive years when a numeric profile bound exists. It cannot verify arbitrary prose or infer an absent bound.",
+  "status": "Limited",
+  "design": "tailor_resume",
+  "test": "src/resume/tailor.py"
+ },
+ {
+  "id": "FR-4.4",
+  "group": 4,
+  "requirement": "Return a cleaned draft and a factuality report when the validator removes content.",
+  "acceptance": "A detected violation appears in the report; the caller receives the remaining draft rather than an error solely because a claim was removed.",
+  "status": "Implemented",
+  "design": "FactualityReport",
+  "test": "tests/test_tailor.py"
+ },
+ {
+  "id": "FR-4.5",
+  "group": 4,
+  "requirement": "Extract responsibilities, technologies, seniority signals and culture statements only from supplied listing text.",
+  "acceptance": "The grounding check drops an insight without textual support. An employer URL is not fetched to supply missing facts.",
+  "status": "Implemented",
+  "design": "research_job",
+  "test": "tests/test_research.py"
+ },
+ {
+  "id": "FR-4.6",
+  "group": 4,
+  "requirement": "Calculate an ATS estimate from keywords, sections, title alignment and format safety.",
+  "acceptance": "Use weights 0.45, 0.20, 0.20 and 0.15 respectively. Required and preferred keyword coverage carry relative weights of 1.0 and 0.5 when both exist.",
+  "status": "Implemented",
+  "design": "analyze_ats",
+  "test": "tests/test_ats.py"
+ },
+ {
+  "id": "FR-4.7",
+  "group": 4,
+  "requirement": "Report missing keywords as advice without inserting unsupported skills into the resume.",
+  "acceptance": "An absent required keyword is listed as supported or unsupported by the profile. Computing the ATS report does not alter the draft.",
+  "status": "Implemented",
+  "design": "analyze_ats",
+  "test": "tests/test_ats.py"
+ },
+ {
+  "id": "FR-4.8",
+  "group": 4,
+  "requirement": "Produce a parseable tailored DOCX that retains the candidate's identity, employers and validated bullets.",
+  "acceptance": "Reparsing a rendered DOCX recovers these fields on the supported layout. Text uploads may instead retain their original format under FR-4.11.",
+  "status": "Implemented",
+  "design": "render_tailored_docx",
+  "test": "tests/test_render.py"
+ },
+ {
+  "id": "FR-4.9",
+  "group": 4,
+  "requirement": "Persist tailoring results and make them retrievable by identifier.",
+  "acceptance": "POST /api/tailor returns an ID; GET /api/tailored/{id} returns the owner's draft and reports. An inaccessible record returns 404.",
+  "status": "Implemented",
+  "design": "TailoredResumeDB",
+  "test": "tests/test_tailoring_api.py"
+ },
+ {
+  "id": "FR-4.10",
+  "group": 4,
+  "requirement": "Bound untrusted employer input and separate each such prompt block from model instructions with a nonce.",
+  "acceptance": "Listing fields, extracted requirements and listing-derived insights remain inside capped, nonce-delimited blocks. The default cap is 20,000 characters per block.",
+  "status": "Implemented",
+  "design": "fence_untrusted",
+  "test": "tests/test_ws15_hardening.py"
+ },
+ {
+  "id": "FR-4.11",
+  "group": 4,
+  "requirement": "Preserve the uploaded document's structure where a safe edit is possible and report any fallback.",
+  "acceptance": "Edit a copy of DOCX, TXT or MD; leave unsafe paragraphs or tables alone. For an unsupported source such as PDF, generate a DOCX and identify it as regenerated.",
+  "status": "Implemented",
+  "design": "deliver_tailored_resume",
+  "test": "tests/test_ws31_in_place_edit.py"
+ },
+ {
+  "id": "FR-4.12",
+  "group": 4,
+  "requirement": "Let an owner revise a saved summary, experience or project bullets, or cover letter without making another model call.",
+  "acceptance": "PUT /api/tailored/{id} rechecks the edit, refreshes the ATS report and deliverable, and timestamps the same record. A cleaned violation returns HTTP 200 with its report.",
+  "status": "Implemented",
+  "design": "edit_tailored",
+  "test": "tests/test_tailored_edit.py"
+ },
+ {
+  "id": "FR-4.13",
+  "group": 4,
+  "requirement": "Remove contact details and mask identifying text before sharing a draft request with a model provider.",
+  "acceptance": "Known identity strings are replaced before transmission and restored locally. A sentence containing an unresolvable placeholder is removed and reported.",
+  "status": "Implemented",
+  "design": "PiiVault",
+  "test": "tests/test_ws22_pii.py"
+ },
+ {
+  "id": "FR-5.1",
+  "group": 5,
+  "requirement": "Select a permitted application adapter by job URL.",
+  "acceptance": "Preparation returns HTTP 400 for a disallowed host or an allowed URL that no registered adapter supports.",
+  "status": "Implemented",
+  "design": "select_adapter_for_url",
+  "test": "src/api/routes/applications.py"
+ },
+ {
+  "id": "FR-5.2",
+  "group": 5,
+  "requirement": "Keep preparation, approval, submission and verification separate and reach submission only after approval.",
+  "acceptance": "The application graph routes a negative decision away from submit. Only the local fake ATS can exercise the entire automated sequence.",
+  "status": "Implemented",
+  "design": "build_application_workflow",
+  "test": "tests/test_application_workflow.py"
+ },
+ {
+  "id": "FR-5.3",
+  "group": 5,
+  "requirement": "Refuse execution when no affirmative approval decision exists.",
+  "acceptance": "A pending, absent or negative decision cannot authorize the submit node; preparing an application alone makes no submission.",
+  "status": "Implemented",
+  "design": "approval_node",
+  "test": "tests/test_approval_flow.py"
+ },
+ {
+  "id": "FR-5.4",
+  "group": 5,
+  "requirement": "Verify a submission from confirmation-page text before reporting success.",
+  "acceptance": "The fake ATS must expose a recognized confirmation marker. Without confirmation, the result is unknown or verification failed, not verified.",
+  "status": "Implemented",
+  "design": "FakeAtsPlaywrightAdapter.verify",
+  "test": "tests/test_evidence.py"
+ },
+ {
+  "id": "FR-5.5",
+  "group": 5,
+  "requirement": "Store evidence of each submission, including URL, confirmation text, status and metadata.",
+  "acceptance": "The evidence row identifies the job URL and workflow. A failed evidence write is recorded as missing when tracking is available; an evidence row is not guaranteed during a database failure.",
+  "status": "Limited",
+  "design": "ApplicationEvidenceDB",
+  "test": "src/graph/nodes.py"
+ },
+ {
+  "id": "FR-5.6",
+  "group": 5,
+  "requirement": "Store a pending approval at preparation; record the authenticated approver, reason and UTC decision time in a separate approve or reject call.",
+  "acceptance": "The preparation has its own approval ID. A decision updates that record; rejection queues no execution.",
+  "status": "Implemented",
+  "design": "ApprovalRequestDB",
+  "test": "src/api/routes/applications.py"
+ },
+ {
+  "id": "FR-5.7",
+  "group": 5,
+  "requirement": "Support PREPARE_ONLY and the default REQUIRE_APPROVAL policy; refuse AUTO_SUBMIT.",
+  "acceptance": "Prepare-only cannot execute, the default requires a recorded decision, and choosing AUTO_SUBMIT does not grant permission to act.",
+  "status": "Implemented",
+  "design": "SubmissionPolicy",
+  "test": "tests/test_policy.py"
+ },
+ {
+  "id": "FR-5.8",
+  "group": 5,
+  "requirement": "Allow only an approved host or its subdomain and check the resulting URL after browser navigation.",
+  "acceptance": "An unexpected redirect stops the run. Literal localhost requires the explicit development exception for the local fixture.",
+  "status": "Implemented",
+  "design": "assert_navigation_allowed",
+  "test": "tests/test_allowlist.py"
+ },
+ {
+  "id": "FR-5.9",
+  "group": 5,
+  "requirement": "Allow only an adapter explicitly granted the submit capability to send a form.",
+  "acceptance": "The fake ATS has submit permission. Greenhouse, Lever and the separate assist adapter do not; an approved request cannot grant it.",
+  "status": "Implemented",
+  "design": "PermissionRegistry",
+  "test": "tests/test_ws32_adapter_selfcheck.py"
+ },
+ {
+  "id": "FR-5.10",
+  "group": 5,
+  "requirement": "Capture confirmation text, a screenshot, an ordered action trace and a Playwright trace archive for a submission.",
+  "acceptance": "A missing screenshot or action trace prevents verified success. The browser archive is captured when tracing succeeds; its absence alone does not fail verification.",
+  "status": "Limited",
+  "design": "FakeAtsPlaywrightAdapter",
+  "test": "src/applications/fake_ats_adapter.py"
+ },
+ {
+  "id": "FR-5.11",
+  "group": 5,
+  "requirement": "Stop at CAPTCHA or multi-factor authentication without interacting with the challenge.",
+  "acceptance": "A recognized challenge produces blocked_human_review. The browser does not answer the challenge or click through it.",
+  "status": "Implemented",
+  "design": "inspect_page",
+  "test": "tests/test_page_guards.py"
+ },
+ {
+  "id": "FR-5.12",
+  "group": 5,
+  "requirement": "Pause an application when a required form question has no grounded answer.",
+  "acceptance": "The browser reports needs_human and names unresolved questions. Neither a missing fact nor an unfamiliar control authorizes a guessed answer.",
+  "status": "Implemented",
+  "design": "build_form_plan",
+  "test": "tests/test_form_plan.py"
+ },
+ {
+  "id": "FR-5.13",
+  "group": 5,
+  "requirement": "Append a sanitized audit event for prepare, approve, reject, submit and verify.",
+  "acceptance": "Audit metadata drops credential fields and masks email addresses and phone numbers. Writes are best effort if the audit store fails; ordinary operations do not rewrite events.",
+  "status": "Limited",
+  "design": "record_audit",
+  "test": "src/security/audit.py"
+ },
+ {
+  "id": "FR-5.14",
+  "group": 5,
+  "requirement": "Locate and operate form controls through accessible labels and roles.",
+  "acceptance": "The browser uses named controls rather than screen coordinates. Visible labels with a required-field marker can differ from accessible names on live boards.",
+  "status": "Limited",
+  "design": "FakeAtsPlaywrightAdapter",
+  "test": "tests/test_locator_policy.py"
+ },
+ {
+  "id": "FR-5.15",
+  "group": 5,
+  "requirement": "Make the Greenhouse and Lever application adapters refuse a direct submit call.",
+  "acceptance": "Both adapters can prepare data. Calling submit without the capability produces a refusal even outside the graph.",
+  "status": "Implemented",
+  "design": "GreenhouseAdapter / LeverAdapter",
+  "test": "tests/test_ws32_adapter_selfcheck.py"
+ },
+ {
+  "id": "FR-5.16",
+  "group": 5,
+  "requirement": "Attribute decisions to the authenticated principal, not a name supplied in a request body.",
+  "acceptance": "A different body-supplied approver is ignored and the attempt is audited. The decision retains the authenticated user's identity.",
+  "status": "Implemented",
+  "design": "approve_application",
+  "test": "tests/test_tenant_isolation_api.py"
+ },
+ {
+  "id": "FR-5.17",
+  "group": 5,
+  "requirement": "Execute the stored payload the person approved, without rebuilding it from current profile data.",
+  "acceptance": "The worker restores the prepared application. A payload that no longer validates cannot be replaced silently by a newly assembled one.",
+  "status": "Implemented",
+  "design": "execute_approved",
+  "test": "tests/test_approval_flow.py"
+ },
+ {
+  "id": "FR-5.18",
+  "group": 5,
+  "requirement": "Accept a valid approval asynchronously and commit the decision with its submission work item.",
+  "acceptance": "Approval returns HTTP 202 and a run ID, not a receipt. A full queue returns 503 and leaves the decision pending. The worker checks policy again before acting.",
+  "status": "Implemented",
+  "design": "enqueue_submission",
+  "test": "tests/test_ws32_durable_submission.py"
+ },
+ {
+  "id": "FR-5.19",
+  "group": 5,
+  "requirement": "Prevent automatic resubmission after a worker stops during a possible submission.",
+  "acceptance": "An attempt marker with no durable outcome produces submission.uncertain for a person to reconcile. A recorded outcome is reused without another form submission.",
+  "status": "Implemented",
+  "design": "Worker",
+  "test": "tests/test_ws32_durable_submission.py"
+ },
+ {
+  "id": "FR-5.20",
+  "group": 5,
+  "requirement": "Validate the Greenhouse identity and resume fields locally before an eligible browser action.",
+  "acceptance": "Missing first name, last name, email, phone or both resume alternatives is reported. The published contract is used for validation, not for an application POST.",
+  "status": "Implemented",
+  "design": "validate_against_contract",
+  "test": "tests/test_ws32_payload_contract.py"
+ },
+ {
+  "id": "FR-5.21",
+  "group": 5,
+  "requirement": "Store the board's question plan and the owner's permitted answers for each prepared application.",
+  "acceptance": "The questions view retains posting order and shows a saved answer on the next read. EEO and legal-attestation answers submitted to the application-answer API return 422.",
+  "status": "Implemented",
+  "design": "ApplicationAnswerDB",
+  "test": "tests/test_ws45_questions_page.py"
+ },
+ {
+  "id": "FR-5.22",
+  "group": 5,
+  "requirement": "In assist mode, fill only supported real-board controls and reserve the final submit action for the candidate.",
+  "acceptance": "A complete supported form stays open for the person. The shipped live pilot stopped before typing; a separate diagnostic filled nine fields and submitted nothing.",
+  "status": "Limited",
+  "design": "AssistAdapter",
+  "test": "docs/evaluations/ws32-pilot-2026-11-15/README.md"
+ },
+ {
+  "id": "FR-5.23",
+  "group": 5,
+  "requirement": "Refuse expired approvals and block execution when the board establishes that the posting has closed.",
+  "acceptance": "The default approval window is 168 hours from creation. Expiry or a known closure returns 409; an unreachable board is not proof of closure.",
+  "status": "Implemented",
+  "design": "approve_application",
+  "test": "tests/test_ws25_approval_expiry.py"
+ },
+ {
+  "id": "FR-6.1",
+  "group": 6,
+  "requirement": "Store the application, its profile and job references, workflow, status and timestamps.",
+  "acceptance": "A tracked application has a stable ID and job reference. A supplied profile is linked; absent optional references and future submission dates remain empty.",
+  "status": "Implemented",
+  "design": "ApplicationDB",
+  "test": "tests/test_tracking.py"
+ },
+ {
+  "id": "FR-6.2",
+  "group": 6,
+  "requirement": "Allow only transitions in the application lifecycle.",
+  "acceptance": "An illegal transition returns HTTP 409 and does not alter the existing status.",
+  "status": "Implemented",
+  "design": "transition",
+  "test": "tests/test_tracking_api.py"
+ },
+ {
+  "id": "FR-6.3",
+  "group": 6,
+  "requirement": "Append an event with actor and metadata for each status transition; do not edit history during normal operation.",
+  "acceptance": "A legal transition adds one event with its previous and new states. Updating the status does not overwrite an earlier event; retention is a separate operation.",
+  "status": "Implemented",
+  "design": "ApplicationEventDB",
+  "test": "tests/test_tracking.py"
+ },
+ {
+  "id": "FR-6.4",
+  "group": 6,
+  "requirement": "Reserve interview, offer, rejection and withdrawal outcomes for a named human.",
+  "acceptance": "A machine actor cannot record these outcomes. A signed-in person may report one only from a state that permits it.",
+  "status": "Implemented",
+  "design": "HUMAN_OUTCOME_STATUSES",
+  "test": "tests/test_tracking.py"
+ },
+ {
+  "id": "FR-6.5",
+  "group": 6,
+  "requirement": "List applications with status filters and pagination, and return the ordered events for one application.",
+  "acceptance": "Limit and offset affect the owner's list. Detail includes that application's history; a status filter does not broaden the list to other statuses.",
+  "status": "Implemented",
+  "design": "list_applications",
+  "test": "tests/test_tracking_api.py"
+ },
+ {
+  "id": "FR-6.6",
+  "group": 6,
+  "requirement": "Link each submission evidence record to its tracked application.",
+  "acceptance": "Normal tracked writes include application_id. The column remains nullable for legacy evidence or when tracking cannot supply an application ID.",
+  "status": "Limited",
+  "design": "ApplicationEvidenceDB",
+  "test": "src/db/evidence.py"
+ },
+ {
+  "id": "FR-6.7",
+  "group": 6,
+  "requirement": "Return lifecycle events in append order, not in timestamp order.",
+  "acceptance": "Events sort by increasing event ID, so equal or out-of-order timestamps do not rearrange the history.",
+  "status": "Implemented",
+  "design": "list_application_events",
+  "test": "src/db/access.py"
+ },
+ {
+  "id": "FR-7.1",
+  "group": 7,
+  "requirement": "Measure extraction accuracy, skill F1, deduplication precision and recall, ranking quality, factuality agreement, ATS coverage change, lifecycle fidelity, browser completion and security.",
+  "acceptance": "Report nDCG@10 and precision@5. Separate instruments measure lifecycle, browser and four security indicators; the offline report names unavailable families.",
+  "status": "Implemented",
+  "design": "evaluation harness",
+  "test": "tests/test_eval_runner.py"
+ },
+ {
+  "id": "FR-7.2",
+  "group": 7,
+  "requirement": "Provide a repeatable offline evaluation with fixed data and canned model responses.",
+  "acceptance": "The same dataset and configuration yield identical metric values without a provider key. The report identifies substitute models or channels.",
+  "status": "Implemented",
+  "design": "run_offline",
+  "test": "tests/test_eval_runner.py"
+ },
+ {
+  "id": "FR-7.3",
+  "group": 7,
+  "requirement": "Record the dataset identity and run configuration in each evaluation report.",
+  "acceptance": "The Markdown and JSON reports identify the dataset hash, evaluation mode and provider or substitute used.",
+  "status": "Implemented",
+  "design": "run_eval",
+  "test": "tests/test_eval_runner.py"
+ },
+ {
+  "id": "FR-7.4",
+  "group": 7,
+  "requirement": "Make the threshold check return a nonzero exit code when a measured metric violates an enabled bound.",
+  "acceptance": "A value below a minimum or above an enabled maximum is named as a failure. A metric not measured is not counted as a pass.",
+  "status": "Implemented",
+  "design": "check_thresholds",
+  "test": "tests/test_eval_runner.py"
+ },
+ {
+  "id": "FR-7.5",
+  "group": 7,
+  "requirement": "Run the golden-dataset threshold gate in continuous integration.",
+  "acceptance": "CI selects the pytest case that invokes run_eval.py --check. There is no separate workflow step that gates all live, browser and security measurements together.",
+  "status": "Implemented",
+  "design": "CI gate / run_eval",
+  "test": "tests/test_eval_runner.py"
+ },
+ {
+  "id": "FR-8.1",
+  "group": 8,
+  "requirement": "Register an account using an email address and password and store only an Argon2 password hash.",
+  "acceptance": "Registration writes a hash, not plaintext. A subsequent login verifies the password against that hash.",
+  "status": "Implemented",
+  "design": "UserManager",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.2",
+  "group": 8,
+  "requirement": "Require a valid session cookie or bearer token on protected routes.",
+  "acceptance": "An anonymous caller or a caller presenting a revoked credential receives HTTP 401. Registration and designated public routes remain reachable.",
+  "status": "Implemented",
+  "design": "current_active_user",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.3",
+  "group": 8,
+  "requirement": "Keep sessions on the server so revocation takes effect on the next protected request.",
+  "acceptance": "Revoking the session removes its token row. Reusing that cookie or bearer credential no longer authenticates the caller.",
+  "status": "Implemented",
+  "design": "AccessTokenDB",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.4",
+  "group": 8,
+  "requirement": "Use HttpOnly and SameSite=Lax session cookies and require Secure in production.",
+  "acceptance": "A production configuration with Secure explicitly disabled refuses to start. The authentication cookie cannot be read by page script.",
+  "status": "Implemented",
+  "design": "auth.backends",
+  "test": "tests/test_production_posture.py"
+ },
+ {
+  "id": "FR-8.5",
+  "group": 8,
+  "requirement": "Require a matching X-CSRF-Token for state-changing requests authenticated by session cookie.",
+  "acceptance": "On a protected unsafe method, a missing header or one that differs from the CSRF cookie returns HTTP 403.",
+  "status": "Implemented",
+  "design": "auth.csrf",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.6",
+  "group": 8,
+  "requirement": "Exempt bearer-only requests from the cookie-session CSRF check.",
+  "acceptance": "A valid bearer request without the session cookie can use a protected write route without a CSRF header.",
+  "status": "Implemented",
+  "design": "auth.csrf",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.7",
+  "group": 8,
+  "requirement": "Let account holders change their email, display name or password and revoke other sessions after a password change.",
+  "acceptance": "An authenticated account update changes only that user's data; changing the password invalidates other sessions.",
+  "status": "Implemented",
+  "design": "update_me",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.8",
+  "group": 8,
+  "requirement": "List the caller's sessions with at most eight token characters and support revoking one, the others or all.",
+  "acceptance": "The list returns a prefix, never the full token. Single-session revocation requires the exact owned token; the bulk actions do not.",
+  "status": "Implemented",
+  "design": "auth.sessions",
+  "test": "src/auth/routes.py"
+ },
+ {
+  "id": "FR-8.9",
+  "group": 8,
+  "requirement": "Deactivate an account and end its sessions immediately on deletion request; defer irreversible purge until the grace period ends.",
+  "acceptance": "After deactivation the account cannot sign in. The scheduled purge selects eligible accounts after the configured grace period, 30 days by default.",
+  "status": "Implemented",
+  "design": "request_account_deletion",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.10",
+  "group": 8,
+  "requirement": "Deliver reset and verification tokens to the configured mailbox directory without logging the token value.",
+  "acceptance": "The local delivery record contains the token; the audit records the operation without it. Mailbox delivery does not imply SMTP delivery.",
+  "status": "Implemented",
+  "design": "auth.delivery",
+  "test": "src/auth/delivery.py"
+ },
+ {
+  "id": "FR-8.11",
+  "group": 8,
+  "requirement": "Do not seed an account, default password or administrator.",
+  "acceptance": "A new installation requires registration. The first registered account does not automatically receive administrative privileges.",
+  "status": "Implemented",
+  "design": "UserManager",
+  "test": "tests/test_auth.py"
+ },
+ {
+  "id": "FR-8.12",
+  "group": 8,
+  "requirement": "Use a signing secret of at least 32 characters for production reset and verification tokens.",
+  "acceptance": "Production startup refuses a missing or shorter AUTH_SECRET before the identity service can issue tokens.",
+  "status": "Implemented",
+  "design": "Settings",
+  "test": "tests/test_production_posture.py"
+ },
+ {
+  "id": "FR-8.13",
+  "group": 8,
+  "requirement": "Let an owner store and remove a personal model-provider key without disclosing it in subsequent reads.",
+  "acceptance": "The server stores ciphertext, returns a mask and isolates the key by owner. A failing personal key does not fall back to a platform-funded provider.",
+  "status": "Implemented",
+  "design": "LlmCredentialDB",
+  "test": "tests/test_ws22_byok.py"
+ },
+ {
+  "id": "FR-9.1",
+  "group": 9,
+  "requirement": "Identify and index the owner of private records while leaving the public job corpus shared.",
+  "acceptance": "Private business records carry an owner key. Sessions use user_id; platform runs may have no owner and work items inherit scope from their run. Jobs have no tenant owner.",
+  "status": "Limited",
+  "design": "UserScope",
+  "test": "tests/test_ws14_a0_verification.py"
+ },
+ {
+  "id": "FR-9.2",
+  "group": 9,
+  "requirement": "Read private business records through scoped accessors and prohibit direct route queries on governed tables.",
+  "acceptance": "Ordinary reads apply the caller's owner filter. The route-source check rejects direct access patterns for the governed models.",
+  "status": "Implemented",
+  "design": "db.access",
+  "test": "tests/test_tenant_isolation.py"
+ },
+ {
+  "id": "FR-9.3",
+  "group": 9,
+  "requirement": "Make another account's private record indistinguishable from a missing record.",
+  "acceptance": "For the same requested ID, a foreign record and an absent record produce HTTP 404 with the same response body.",
+  "status": "Implemented",
+  "design": "db.access",
+  "test": "tests/test_tenant_isolation_api.py"
+ },
+ {
+  "id": "FR-9.4",
+  "group": 9,
+  "requirement": "Derive owner scope from the authenticated principal rather than an owner field supplied by the client.",
+  "acceptance": "Changing a request body or query parameter cannot select another user's scope; current_scope derives the user ID from authenticated identity.",
+  "status": "Implemented",
+  "design": "current_scope",
+  "test": "src/api/scope.py"
+ },
+ {
+  "id": "FR-9.5",
+  "group": 9,
+  "requirement": "Exercise every user-scoped endpoint with two accounts and require zero cross-user disclosures.",
+  "acceptance": "The security metric checks an enumerated endpoint inventory; additional routes have separate owner tests. A complete inventory of every later route is not established by that metric.",
+  "status": "Limited",
+  "design": "evaluation.security",
+  "test": "src/evaluation/security.py"
+ },
+ {
+  "id": "FR-9.6",
+  "group": 9,
+  "requirement": "Allow the first registered account to claim legacy records once when legacy claiming is enabled.",
+  "acceptance": "Only records bearing the legacy owner marker transfer. A second registration cannot reclaim records already assigned to a person.",
+  "status": "Implemented",
+  "design": "claim_legacy_rows",
+  "test": "tests/test_ws14_a0_verification.py"
+ },
+ {
+  "id": "FR-9.7",
+  "group": 9,
+  "requirement": "Attribute audit events to a user, agent or system principal and derive the readable actor label from that identity.",
+  "acceptance": "A stored event has an actor kind and identifier as well as its display label. Account deletion anonymizes the identifying fields.",
+  "status": "Implemented",
+  "design": "Actor",
+  "test": "tests/test_audit_identity.py"
+ },
+ {
+  "id": "FR-9.8",
+  "group": 9,
+  "requirement": "Strip control characters from audit strings before persistence.",
+  "acceptance": "C0 controls and DEL are removed from the recorded action, resource, actor identifier and string metadata values.",
+  "status": "Implemented",
+  "design": "strip_control_characters",
+  "test": "tests/test_audit_identity.py"
+ },
+ {
+  "id": "FR-10.1",
+  "group": 10,
+  "requirement": "Isolate each account's resumes, tailored documents, evidence and sessions.",
+  "acceptance": "Files live under data/users/{account}/resumes, tailored or evidence. Sessions are account-linked access_tokens rows, not files in a sessions directory.",
+  "status": "Limited",
+  "design": "storage.paths / AccessTokenDB",
+  "test": "src/storage/paths.py"
+ },
+ {
+  "id": "FR-10.2",
+  "group": 10,
+  "requirement": "Contain caller-selected file paths within the owner's permitted storage.",
+  "acceptance": "Preparation refuses a path outside the owner's root. Downloads require an owned record and containment, with a separate rule for migrated legacy files.",
+  "status": "Implemented",
+  "design": "assert_within_user_root",
+  "test": "tests/test_user_storage.py"
+ },
+ {
+  "id": "FR-10.3",
+  "group": 10,
+  "requirement": "Purge expired records and corresponding files according to their retention class, and report removals.",
+  "acceptance": "The purge returns counts per class. Expired evidence and its referenced artifacts are removed while records inside their windows remain.",
+  "status": "Implemented",
+  "design": "purge_expired",
+  "test": "tests/test_retention.py"
+ },
+ {
+  "id": "FR-10.4",
+  "group": 10,
+  "requirement": "Purge the deleting account's profiles, tailorings, applications, events, evidence, approvals and sessions after the grace period.",
+  "acceptance": "The cascade targets those records and the user's files, not a second account's data. It does not explicitly delete later per-application answer rows.",
+  "status": "Implemented",
+  "design": "purge_user",
+  "test": "src/retention.py"
+ },
+ {
+  "id": "FR-10.5",
+  "group": 10,
+  "requirement": "Anonymize a deleted user's audit events while retaining action, outcome and time.",
+  "acceptance": "Purge removes identifying values without deleting the historical audit row or altering the event's action and outcome.",
+  "status": "Implemented",
+  "design": "anonymize_audit_rows",
+  "test": "tests/test_retention.py"
+ },
+ {
+  "id": "FR-10.6",
+  "group": 10,
+  "requirement": "Make repeated purges idempotent for the same records and cutoff.",
+  "acceptance": "After the first purge, the second reports no further eligible records or files from the same set.",
+  "status": "Implemented",
+  "design": "purge_expired",
+  "test": "tests/test_retention.py"
+ },
+ {
+  "id": "FR-10.7",
+  "group": 10,
+  "requirement": "Encrypt the data directory and database at rest with per-tenant keys.",
+  "acceptance": "Deferred: a tenant's stored documents and database contents would require its own key to read. Encryption of model credentials alone does not meet this criterion.",
+  "status": "Deferred",
+  "design": "Storage and database",
+  "test": "docs/SECURITY.md"
+ },
+ {
+  "id": "FR-10.8",
+  "group": 10,
+  "requirement": "Keep candidate query text and its vector out of the shared persistent embedding cache.",
+  "acceptance": "A posting vector may enter the disk cache; embedding a candidate query does not create a reusable candidate entry there.",
+  "status": "Implemented",
+  "design": "EmbeddingCache",
+  "test": "tests/test_tenant_privacy.py"
+ },
+ {
+  "id": "FR-11.1",
+  "group": 11,
+  "requirement": "Provide console access to resume upload, ranked matches, job detail, tailoring, approval, tracking and refresh.",
+  "acceptance": "Each of the seven tasks has a route or action. The console is no longer limited to seven screens; account settings and per-application questions have separate routes.",
+  "status": "Implemented",
+  "design": "console routes",
+  "test": "frontend/src/routes.tsx"
+ },
+ {
+  "id": "FR-11.2",
+  "group": 11,
+  "requirement": "Use the browser's session cookie and CSRF token for console authentication; do not persist credentials in the client.",
+  "acceptance": "The API client sends cookies and the CSRF header without storing a bearer token. A personal model key entered for setup is sent to the server, not saved by the console.",
+  "status": "Implemented",
+  "design": "API client",
+  "test": "frontend/src/lib/api/client.ts"
+ },
+ {
+  "id": "FR-11.3",
+  "group": 11,
+  "requirement": "Wait for the server before showing the outcome of approve, reject, status, search, tailor or refresh operations.",
+  "acceptance": "A pending indicator is allowed. A 202 approval displays a queued run, not a submitted application; a failed operation must not display success.",
+  "status": "Implemented",
+  "design": "ApprovalsScreen",
+  "test": "frontend/src/screens/approvals-screen.test.tsx"
+ },
+ {
+  "id": "FR-11.4",
+  "group": 11,
+  "requirement": "Render text supplied by the backend as text, not executable markup.",
+  "acceptance": "Markup-like content in a listing remains visible as characters. Rendering it does not create an active HTML element.",
+  "status": "Implemented",
+  "design": "PlainText",
+  "test": "frontend/src/components/common/plain-text.test.tsx"
+ },
+ {
+  "id": "FR-11.5",
+  "group": 11,
+  "requirement": "Give each API status a readable label and an appropriate next step.",
+  "acceptance": "Mapped statuses distinguish queued, submitted and verified. An unmapped status retains the server's literal value and gets a generic explanation, not an invented outcome.",
+  "status": "Limited",
+  "design": "status presentation",
+  "test": "frontend/src/lib/status.test.ts"
+ },
+ {
+  "id": "FR-11.6",
+  "group": 11,
+  "requirement": "Distinguish HTTP, network, cancellation and timeout errors and honor the retry delay on a 429.",
+  "acceptance": "Rate-limit responses produce a retry message using Retry-After when present. A timeout is identified separately from a server rejection.",
+  "status": "Implemented",
+  "design": "API client / errors",
+  "test": "frontend/src/lib/errors.test.ts"
+ },
+ {
+  "id": "FR-11.7",
+  "group": 11,
+  "requirement": "Let the user choose a document from the library without typing a server path.",
+  "acceptance": "The picker lists the caller's uploads and tailored documents and returns the selected entry for the next action.",
+  "status": "Implemented",
+  "design": "DocumentPicker",
+  "test": "frontend/src/components/documents/document-picker.test.tsx"
+ },
+ {
+  "id": "FR-11.8",
+  "group": 11,
+  "requirement": "Use the profile associated with a selected library document and explain inaccessible documents in plain language.",
+  "acceptance": "Selecting an entry supplies its profile ID. A missing or foreign selection prompts recovery without revealing another owner's document.",
+  "status": "Implemented",
+  "design": "DocumentPicker",
+  "test": "frontend/src/screens/document-accessibility.test.tsx"
+ },
+ {
+  "id": "FR-11.9",
+  "group": 11,
+  "requirement": "Restrict production scripts to trusted application code and serve the console with protective response headers.",
+  "acceptance": "The production policy allows self and the approved inline script hash; the configured server adds nosniff, DENY framing, no-referrer and a restrictive Permissions-Policy.",
+  "status": "Implemented",
+  "design": "Vite CSP configuration",
+  "test": "frontend/vite.config.ts"
+ },
+ {
+  "id": "FR-11.10",
+  "group": 11,
+  "requirement": "Allow external console links only with an HTTP or HTTPS scheme.",
+  "acceptance": "A javascript: or data: address from a listing does not become a navigable external link.",
+  "status": "Implemented",
+  "design": "safe-url",
+  "test": "frontend/src/lib/safe-url.test.ts"
+ },
+ {
+  "id": "FR-11.11",
+  "group": 11,
+  "requirement": "Refuse API responses that exceed the console's read limit.",
+  "acceptance": "The client rejects a declared length over 8 MiB. Without a length it checks the decoded text length after reading; this is not a streaming byte cap.",
+  "status": "Limited",
+  "design": "API client",
+  "test": "frontend/src/lib/api/client.ts"
+ },
+ {
+  "id": "FR-11.12",
+  "group": 11,
+  "requirement": "Keep navigation usable at narrow widths and provide a drawer for destinations that do not fit.",
+  "acceptance": "On a phone, primary destinations remain in the bottom bar and More opens the navigation drawer. The desktop rail is not required to reach a screen.",
+  "status": "Implemented",
+  "design": "AppShell / NavDrawer",
+  "test": "frontend/src/components/layout/nav-drawer.test.tsx"
+ },
+ {
+  "id": "FR-12.1",
+  "group": 12,
+  "requirement": "Reject request bodies larger than 8 MiB by default, including requests without a length header.",
+  "acceptance": "An oversized declared length or bytes exceeding the cap during receipt produces HTTP 413.",
+  "status": "Implemented",
+  "design": "BodySizeLimitMiddleware",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-12.2",
+  "group": 12,
+  "requirement": "Limit a client address to 60 requests per minute by default.",
+  "acceptance": "Exceeding the window yields HTTP 429 with a Retry-After header, rather than admitting more requests from that address.",
+  "status": "Implemented",
+  "design": "RateLimitMiddleware",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-12.3",
+  "group": 12,
+  "requirement": "Bound concurrency across heavy routes, including refresh, search, tailoring and approval.",
+  "acceptance": "With two such requests running under default limits, the next heavy request receives HTTP 503 rather than starting work.",
+  "status": "Implemented",
+  "design": "ConcurrencyLimitMiddleware",
+  "test": "src/api/middleware.py"
+ },
+ {
+  "id": "FR-12.4",
+  "group": 12,
+  "requirement": "Limit a process to 64 in-flight requests by default, with a bounded wait for a slot.",
+  "acceptance": "A further request waits at most five seconds under default settings; if no slot opens it receives HTTP 503.",
+  "status": "Implemented",
+  "design": "InFlightLimitMiddleware",
+  "test": "tests/test_ws15_hardening.py"
+ },
+ {
+  "id": "FR-12.5",
+  "group": 12,
+  "requirement": "Keep board text in a prompt data block whose fresh nonce is absent from the surrounding instruction template.",
+  "acceptance": "A new nonce identifies the block and copied delimiter text is removed from its contents. Board wording cannot define the tool or navigation target.",
+  "status": "Implemented",
+  "design": "fence_untrusted",
+  "test": "tests/test_injection_policy.py"
+ },
+ {
+  "id": "FR-12.6",
+  "group": 12,
+  "requirement": "Remove recognized embedded instructions from tailored bullets and reject an unsupported job title.",
+  "acceptance": "An instruction matching the detector is stripped and reported; a title that fails the profile-title check is not retained as a candidate position.",
+  "status": "Implemented",
+  "design": "tailor_resume",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-12.7",
+  "group": 12,
+  "requirement": "Bound the input length of the single-pass HTML neutralizer.",
+  "acceptance": "The scanner considers at most 1,000,000 input characters per call; normalized listing fields have separate length limits.",
+  "status": "Implemented",
+  "design": "neutralize_html",
+  "test": "src/security/html.py"
+ },
+ {
+  "id": "FR-12.8",
+  "group": 12,
+  "requirement": "Check a file's resolved path against its authorized root.",
+  "acceptance": "A path that resolves outside the permitted directory is refused even if the supplied string begins inside it.",
+  "status": "Implemented",
+  "design": "assert_within_user_root",
+  "test": "tests/test_user_storage.py"
+ },
+ {
+  "id": "FR-12.9",
+  "group": 12,
+  "requirement": "Apply a common rule for forbidden IP addresses to outbound requests and refuse internal destinations before access.",
+  "acceptance": "The board HTTP client checks resolved addresses; the navigation guard shares the IP predicate but does not resolve hostnames. This is not a universal guarantee for every SDK request.",
+  "status": "Limited",
+  "design": "is_forbidden_ip",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-12.10",
+  "group": 12,
+  "requirement": "Expose interactive API documentation only in development.",
+  "acceptance": "In production, the interactive documentation routes are disabled; their development settings do not expose the API explorer.",
+  "status": "Implemented",
+  "design": "FastAPI application",
+  "test": "tests/test_production_posture.py"
+ },
+ {
+  "id": "FR-12.11",
+  "group": 12,
+  "requirement": "Bound the persistent vector cache and evict its oldest entries at capacity.",
+  "acceptance": "Adding entries beyond the configured limit removes old entries. The default limit is 50,000 cached vectors.",
+  "status": "Implemented",
+  "design": "EmbeddingCache",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-12.12",
+  "group": 12,
+  "requirement": "Check a DOCX archive's entry count and total uncompressed size before opening it as a document.",
+  "acceptance": "By default, more than 2,000 entries or more than 50 MiB of declared uncompressed content causes rejection.",
+  "status": "Implemented",
+  "design": "_assert_not_a_zip_bomb",
+  "test": "tests/test_ws12_hardening.py"
+ },
+ {
+  "id": "FR-11.13",
+  "group": 11,
+  "requirement": "Discover narrows the stored corpus by workplace and location, and shows the active filters as removable chips.",
+  "acceptance": "Applying a filter changes the request, the visible chips and the addressable URL together. Cancelling or pressing Escape discards the draft without searching.",
+  "status": "Implemented",
+  "design": "Discover filters dialog",
+  "test": "frontend/src/screens/discover/filters-dialog.test.tsx"
+ },
+ {
+  "id": "FR-11.14",
+  "group": 11,
+  "requirement": "The profile document library pages through owned originals and tailored copies instead of loading the whole library.",
+  "acceptance": "The library shows five documents per page with the shared pager, renders no pager while everything fits, and restarts paging when the library changes underneath it.",
+  "status": "Implemented",
+  "design": "Profile documents tab",
+  "test": "frontend/src/screens/profile-screen.test.tsx"
+ },
+ {
+  "id": "FR-11.15",
+  "group": 11,
+  "requirement": "Account and Security is the one place a candidate reads identity, changes credentials and manages a personal model key.",
+  "acceptance": "The screen offers the three tabs the backend supports and no Sessions tab, fills the identity card from the authenticated record, and hosts the model-key card. The profile shows no credential card on any tab.",
+  "status": "Implemented",
+  "design": "Account and Security screen",
+  "test": "frontend/src/screens/account-screen.test.tsx"
+ },
+ {
+  "id": "FR-11.16",
+  "group": 11,
+  "requirement": "The ranked list states when it is showing a slice of a larger ranked set.",
+  "acceptance": "When the server returns a full page, the screen says the list is a slice and gives the ranked total. A short page is not described as a slice.",
+  "status": "Implemented",
+  "design": "Match results list",
+  "test": "frontend/src/screens/matches-screen.test.tsx"
+ }
+]

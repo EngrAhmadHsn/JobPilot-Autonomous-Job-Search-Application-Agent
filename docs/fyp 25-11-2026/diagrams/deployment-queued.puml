@@ -1,0 +1,21 @@
+@startuml deployment-queued
+!include _theme.puml
+' The queued deployment. Everything below the browser runs on one host.
+node "Operator workstation\nbrowser with session cookie" as Browser
+node "Console build\nstatic files" as Console
+node "API process\nUvicorn" as Api
+node "Worker process\nsupervised, repeatable" as Worker
+database "PostgreSQL\nrecords and work queue" as Pg
+node "Chroma directory\nrebuildable vectors" as Chroma
+folder "Data volume\nusers/ and evidence/" as Disk
+
+Browser --> Console : HTTPS
+Console --> Api : /api
+Api --> Pg : SQL
+Worker --> Pg : claim, settle
+Worker --> Chroma : upsert, read
+Worker --> Disk : write artifacts
+legend bottom
+  Only the worker opens a browser context, and only for approved work.
+endlegend
+@enduml

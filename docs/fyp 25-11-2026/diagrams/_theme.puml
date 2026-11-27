@@ -1,0 +1,116 @@
+' JARVIS FYP print master. Monochrome, Times New Roman, no shadow.
+!ifdef FYP_DPI
+skinparam dpi FYP_DPI
+!else
+skinparam dpi 96
+!endif
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundcorner 4
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 13
+skinparam ArrowColor #000000
+skinparam ArrowFontName "Times New Roman"
+skinparam ArrowFontSize 12
+skinparam ArrowThickness 1.2
+skinparam LineColor #000000
+skinparam LineThickness 1.2
+skinparam packageStyle rectangle
+skinparam packageFontName "Times New Roman"
+skinparam packageFontSize 13
+skinparam packageBorderColor #000000
+skinparam packageBackgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam componentFontName "Times New Roman"
+skinparam componentFontSize 13
+skinparam componentBorderColor #000000
+skinparam componentBackgroundColor #FFFFFF
+skinparam classAttributeIconSize 0
+skinparam classBackgroundColor #FFFFFF
+skinparam classBorderColor #000000
+skinparam classFontName "Times New Roman"
+skinparam classFontSize 13
+skinparam classFontColor #000000
+skinparam classHeaderBackgroundColor #EFEFEF
+skinparam classStereotypeFontColor #000000
+skinparam classAttributeFontStyle plain
+skinparam classMethodFontStyle plain
+skinparam classFontStyle bold
+skinparam entityAttributeIconSize 0
+skinparam entityBackgroundColor #FFFFFF
+skinparam entityBorderColor #000000
+skinparam entityFontName "Times New Roman"
+skinparam entityFontSize 12
+skinparam entityFontColor #000000
+skinparam entityHeaderBackgroundColor #EFEFEF
+skinparam entityStereotypeFontColor #000000
+skinparam objectAttributeIconSize 0
+skinparam objectBackgroundColor #FFFFFF
+skinparam objectBorderColor #000000
+skinparam objectFontName "Times New Roman"
+skinparam objectFontSize 12
+skinparam objectFontColor #000000
+skinparam objectHeaderBackgroundColor #EFEFEF
+skinparam stateFontName "Times New Roman"
+skinparam stateFontSize 13
+skinparam stateBackgroundColor #FFFFFF
+skinparam stateBorderColor #000000
+skinparam startStateFontName "Times New Roman"
+skinparam endStateFontName "Times New Roman"
+skinparam activityFontName "Times New Roman"
+skinparam activityFontSize 13
+skinparam activityBackgroundColor #FFFFFF
+skinparam activityBorderColor #000000
+skinparam activityDiamondBackgroundColor #FFFFFF
+skinparam activityDiamondBorderColor #000000
+skinparam participantFontName "Times New Roman"
+skinparam participantFontSize 12
+skinparam participantBackgroundColor #FFFFFF
+skinparam participantBorderColor #000000
+skinparam actorFontName "Times New Roman"
+skinparam actorFontSize 12
+skinparam sequenceFontName "Times New Roman"
+skinparam sequenceFontSize 11
+skinparam sequenceGroupFontSize 11
+skinparam sequenceLifeLineBorderColor #000000
+skinparam sequenceGroupBorderColor #000000
+skinparam sequenceGroupBackgroundColor #FFFFFF
+skinparam usecaseFontName "Times New Roman"
+skinparam usecaseFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #000000
+skinparam usecaseStereotypeFontColor #000000
+skinparam noteFontName "Times New Roman"
+skinparam noteFontSize 11
+skinparam noteBackgroundColor #FFFFFF
+skinparam noteBorderColor #000000
+skinparam legendFontName "Times New Roman"
+skinparam legendFontSize 11
+skinparam legendBackgroundColor #FFFFFF
+skinparam legendBorderColor #000000
+skinparam databaseBackgroundColor #FFFFFF
+skinparam databaseBorderColor #000000
+skinparam nodeBackgroundColor #FFFFFF
+skinparam nodeBorderColor #000000
+skinparam cloudBackgroundColor #FFFFFF
+skinparam cloudBorderColor #000000
+skinparam folderBackgroundColor #FFFFFF
+skinparam folderBorderColor #000000
+skinparam frameBackgroundColor #FFFFFF
+skinparam frameBorderColor #000000
+skinparam artifactBackgroundColor #FFFFFF
+skinparam artifactBorderColor #000000
+' A plain rectangle otherwise keeps PlantUML's grey default, which shows up in
+' the console-route, storage and scope figures.
+skinparam rectangleBackgroundColor #FFFFFF
+skinparam rectangleBorderColor #000000
+' Timing diagrams take their ink from a timingDiagram style block in the source
+' (see timing.puml); the timing*Color skinparams have no effect in this version.
+skinparam stateAttributeFontSize 12
+skinparam sequenceArrowFontName "Times New Roman"
+skinparam sequenceArrowFontSize 11
+skinparam sequenceReferenceFontSize 11
+skinparam sequenceDividerFontSize 11
+skinparam sequenceMessageAlign left
+skinparam nodesep 28
+skinparam ranksep 30

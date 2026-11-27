@@ -1,0 +1,33 @@
+@startuml drafting-classes
+!include _theme.puml
+hide circle
+' A single returned value contains the draft and independently inspectable reports.
+class TailoringOutcome {
+  docx_path : str
+  insights : JobInsights
+  style : StyleReport
+}
+class TailoredResume {
+  summary : str
+  experience : list[TailoredExperience]
+  projects : list[TailoredProject]
+  cover_letter : str
+}
+class FactualityReport {
+  passed : bool
+  removed_skills : list[str]
+  violations : list[str]
+}
+class AtsReport {
+  score : float
+  format_risks : list[str]
+}
+class RenderReport {
+  mode : str
+  source_format : str
+}
+TailoringOutcome *-right- TailoredResume : tailored
+TailoringOutcome *-down- FactualityReport : factuality
+TailoringOutcome *-down- AtsReport : ats_report
+TailoringOutcome *-down- RenderReport : render
+@enduml

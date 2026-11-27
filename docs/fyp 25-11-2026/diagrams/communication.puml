@@ -1,0 +1,15 @@
+@startuml communication
+!include _theme.puml
+' UML communication view: a link is a channel; each numbered message has its own direction.
+object "<u>review : Console</u>" as C
+object "<u>api : Approval route</u>" as A
+object "<u>store : SQL store</u>" as Q
+object "<u>runner : Worker</u>" as W
+object "<u>target : Local fake ATS</u>" as F
+
+C -right- A : → 1: approve packet\n← 3: 202 + run ID
+A -down-> Q : 2: commit decision\nand queued run
+W -right-> Q : 4: claim approved work\n5: commit attempt marker\n8: store verified result
+W -down- F : ↓ 6: submit reviewed fields\n↑ 7: return confirmation
+C -[hidden]down-> W
+@enduml

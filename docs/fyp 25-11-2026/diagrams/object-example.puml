@@ -1,0 +1,31 @@
+@startuml object-example
+!include _theme.puml
+' Projected fields from synthetic rows, not an observed candidate or submission.
+object "<u>packet : ApprovalRequestDB</u>" as Packet {
+  id = "p1"
+  status = "pending"
+  approver = null
+}
+object "<u>case : ApplicationDB</u>" as App {
+  id = "a1"
+  owner_id = "demo"
+  approval_id = "p1"
+  status = "awaiting_approval"
+  submitted_at = null
+}
+object "<u>reply : ApplicationAnswerDB</u>" as Answer {
+  application_id = "a1"
+  owner_id = "demo"
+  category = "notice_period"
+  answer_text = "14 days"
+}
+object "<u>question : QuestionPlan</u>" as Plan {
+  label = "Notice period?"
+  required = true
+  verdict = "needs_human"
+}
+Packet -right- App : approval_id
+App -down- Answer : application_id
+Packet -down- Plan : serialized in\nform_questions
+Plan -[hidden]right- Answer
+@enduml

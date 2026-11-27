@@ -1,0 +1,19 @@
+@startuml profile
+!include _theme.puml
+hide circle
+' Documentary UML profile; extensions relate stereotypes to UML metaclasses only.
+package "JobPilot · documentation only" <<profile>> {
+  class OwnerScoped <<stereotype>>
+  class PrepareOnly <<stereotype>>
+}
+class "UML Class" as MetaClass <<metaclass>>
+class "UML Component" as MetaComponent <<metaclass>>
+OwnerScoped -down-> MetaClass : «extends»
+PrepareOnly -down-> MetaComponent : «extends»
+legend bottom
+  **Examples of model elements**
+  «OwnerScoped» ApplicationAnswerDB · a mapped class
+  «PrepareOnly» Assist adapter · a modeled component
+  These labels neither subclass Python types nor grant permissions.
+endlegend
+@enduml

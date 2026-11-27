@@ -1,0 +1,38 @@
+@startuml account-erd
+!include _theme.puml
+hide circle
+' Dotted connectors are logical lookups, not database-enforced constraints.
+entity "users" as U {
+  id «PK»
+  email «unique»
+}
+entity "access_tokens" as T {
+  token «PK»
+  user_id
+}
+entity "candidate_profiles" as P {
+  id «PK»
+  owner_id
+  profile_json
+  application_json
+}
+entity "job_matches" as M {
+  id «PK»
+  owner_id
+  profile_id · job_id
+  scores
+}
+entity "tailored_resumes" as D {
+  id «PK»
+  owner_id
+  profile_id · job_id
+  factuality
+}
+T .left. U : user_id
+U .down. P : owner_id
+P .down. M : profile_id
+P .down. D : profile_id
+legend bottom
+  Dotted = logical lookup, not a foreign key.
+endlegend
+@enduml

@@ -1,0 +1,16 @@
+@startuml nav
+!include _theme.puml
+' Exact route tree at 7190151. A colon marks a dynamic path segment.
+rectangle "<b>Public pages</b>\n/  (landing)     /sign-in\nUnknown paths return to /" as Public
+package "Signed-in console  ·  /app (overview)" as Shell {
+  rectangle "<b>Personal workspace</b>\n/app/resume\n/app/profile\n/app/account" as Personal
+  rectangle "<b>Discover and tailor</b>\n/app/matches\n/app/matches/:jobId\n/app/tailor\n/app/tailor/:jobId" as Find
+  rectangle "<b>Review and track</b>\n/app/approvals\n/app/tracker\n/app/tracker/:applicationId\n/app/tracker/:applicationId/questions" as Track
+  rectangle "<b>Operate</b>\n/app/activity\n/app/operations\n/app/admin (superuser functions)" as Tools
+}
+Public -down-> Shell : session required
+Personal -[hidden]right-> Find
+Track -[hidden]right-> Tools
+Personal -[hidden]down-> Track
+Find -[hidden]down-> Tools
+@enduml

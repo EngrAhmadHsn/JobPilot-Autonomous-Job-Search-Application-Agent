@@ -1,0 +1,24 @@
+@startuml tailoring-sequence
+!include _theme.puml
+hide footbox
+' One logical model call. The chain walks inside it, so budget and breaker apply once.
+participant "Console" as C
+participant "Tailoring route" as A
+participant "Fallback provider" as F
+participant "Validator" as V
+participant "Renderer" as D
+
+C -> A : POST /api/tailor
+A -> A : ground facts\nin the listing
+A -> F : masked prompt
+alt first link answers
+  F --> A : structured draft
+else retryable or breaker open
+  F -> F : next link
+  F --> A : draft or failure
+end
+A -> V : check claims
+V --> A : unsupported removed
+A -> D : edit or regenerate
+A --> C : draft and reports
+@enduml

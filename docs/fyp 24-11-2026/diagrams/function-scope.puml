@@ -1,0 +1,16 @@
+@startuml function-scope
+!include _theme.puml
+' Functional scope, grouped by delivery boundary rather than forced into a serial pipeline.
+package "Implemented functions" {
+  rectangle "<b>Candidate workspace</b>\nRésumé intake and profile\nRanked search with reasons\nTailoring, ATS checks and export\nQuestions, review and tracking" as Workspace
+  rectangle "<b>Platform operations</b>\nDurable refresh and indexing\nSessions and account isolation\nAudit, retention and deletion\nOffline evaluation" as Operations
+}
+package "Application execution by target" {
+  rectangle "<b>Local fake ATS only</b>\nRecorded human approval\nQueued submission\nConfirmation and artifact checks" as Fixture
+  rectangle "<b>Live Greenhouse assist</b>\nPREPARE capability only\nFill and hand over the browser\nNo proven employer receipt" as Pilot
+}
+Workspace -[hidden]right-> Operations
+Fixture -[hidden]right-> Pilot
+Workspace -[hidden]down-> Fixture
+Operations -[hidden]down-> Pilot
+@enduml

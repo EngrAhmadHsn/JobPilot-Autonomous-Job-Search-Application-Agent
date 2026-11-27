@@ -1,0 +1,20 @@
+@startuml components
+!include _theme.puml
+' Logical components, not separate services. Durable work crosses the SQL queue.
+component "Operator console" as Console
+component "FastAPI routes" as Api
+component "Match scoring" as Match
+component "Resume tailoring" as Tailor
+database "Durable work queue" as Queue
+component "Background worker" as Worker
+component "Job refresh" as Refresh
+component "Approved execution" as Execute
+
+Console -down-> Api : HTTP
+Api -left-> Match : score
+Api -right-> Tailor : draft
+Api -down-> Queue : enqueue
+Worker -up-> Queue : lease work
+Worker -left-> Refresh : fetch jobs
+Worker -right-> Execute : restore packet
+@enduml

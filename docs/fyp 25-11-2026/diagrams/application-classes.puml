@@ -1,0 +1,39 @@
+@startuml application-classes
+!include _theme.puml
+hide circle
+' A capability is an independent grant, not a consequence of implementing a method.
+abstract class ApplicationAdapter {
+  require_capability(level)
+  supports_url(url)
+  prepare(request)
+  submit(prepared)
+  verify(result)
+}
+class ApplicationRequest {
+  job_url : str
+  profile_facts : dict
+}
+class PreparedApplication {
+  owner_id : str | None
+  workflow_id : str | None
+}
+class ApplicationResult {
+  success : bool
+  status : str
+}
+class SubmissionEvidence {
+  url : str
+  status : str
+  trace_path : str | None
+}
+PreparedApplication -right-> "1" ApplicationRequest : request
+ApplicationAdapter ..up.> PreparedApplication : prepares
+ApplicationAdapter ..down.> ApplicationResult : returns
+ApplicationResult -right-> "0..1" SubmissionEvidence : evidence
+note bottom of ApplicationAdapter
+  Declaring submit() grants nothing.
+  The worker calls require_capability()
+  before it acts, and only the local fake
+  ATS holds SUBMIT and VERIFY.
+endnote
+@enduml

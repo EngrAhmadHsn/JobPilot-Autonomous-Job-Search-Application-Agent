@@ -1,0 +1,20 @@
+{
+  "discover": {
+    "type": "Recorded console capture",
+    "caption": "Discover: Reading a ranked match",
+    "alt": "Discover lists 10 of 50 ranked matches for “backend engineer”. The first visible card shows a score of 58.2, SQL and Python skill tags, and a View link. Dark bars hide identifying listing details.",
+    "evidence": [
+      "docs/design/ws42/browser/discover-impl.png"
+    ],
+    "provenance": "Capture from the WS-42 Discover browser check, cropped to the results count and first card. Opaque bars cover the specific role wording, employer and location. The capture predates the 22 November 2026 exhibits; the score shown is not a new measurement."
+  },
+  "review": {
+    "type": "Recorded console capture",
+    "caption": "Review: What approval does",
+    "alt": "“Before you prepare” says preparation stores an approval request without contacting the employer. Approval queues work rather than submitting. “You remain in control” links to the audit trail.",
+    "evidence": [
+      "docs/design/ws42/browser/ws42b-review-impl.png"
+    ],
+    "provenance": "Capture from the WS-42 Review browser check before preparation, cropped to the two guidance panels. The capture predates the 22 November 2026 exhibits; it shows neither a candidate packet nor an approval or submission outcome."
+  }
+}
