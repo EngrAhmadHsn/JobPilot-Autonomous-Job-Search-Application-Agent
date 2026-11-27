@@ -291,6 +291,22 @@ class TestTheDeletionCascade:
         )
         assert session.get(UserDB, OTHER) is not None
 
+    def test_all_provider_connections_are_purged_for_just_the_deleted_account(
+        self, session
+    ) -> None:
+        from src.db.byok import LlmCredentialDB
+
+        session.add_all(
+            LlmCredentialDB(
+                owner_id=owner, provider="google", model=model, encrypted_key="fake-test-token"
+            )
+            for owner, model in [(OWNER, "first"), (OWNER, "second"), (OTHER, "keep")]
+        )
+        session.commit()
+        removed = purge_user(session, OWNER)
+        assert removed["llm_credentials"] == 2
+        assert [row.model for row in session.query(LlmCredentialDB).all()] == ["keep"]
+
     def test_the_files_are_removed(self, session) -> None:
         files = _seed(session, age_days=1)
         purge_user(session, OWNER)

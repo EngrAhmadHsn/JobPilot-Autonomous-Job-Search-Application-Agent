@@ -63,12 +63,14 @@ from src.db.users import LEGACY_OWNER_ID, UserDB
 __all__ = [
     "LEGACY_SCOPE",
     "UserScope",
+    "activate_llm_credential",
     "claim_legacy_rows",
     "count_applications",
     "count_distinct_owned",
     "count_jobs",
     "count_owned",
     "count_users",
+    "create_llm_credential",
     "delete_llm_credential",
     "get_application",
     "get_application_by_approval",
@@ -83,12 +85,14 @@ __all__ = [
     "list_applications",
     "list_applications_for_job",
     "list_audit_events",
+    "list_llm_credentials",
     "list_profiles",
     "list_run_events",
     "list_runs",
     "list_tailored",
     "list_work_items",
     "touch_llm_credential",
+    "update_llm_credential",
     "upsert_application_answers",
     "upsert_llm_credential",
 ]
@@ -781,11 +785,30 @@ def list_run_events(db: Session, scope: UserScope, run_id: str) -> list[JobRunEv
         ).scalars()
     )
 
-    # -- the caller's own model credential (WS-22) --------------------------------
+    # -- the caller's own model credentials (WS-22) -------------------------------
 
 
-def get_llm_credential(db: Session, scope: UserScope) -> LlmCredentialDB | None:
-    """The caller's own stored provider credential, if any.
+#: The ``created_at`` a row may be missing. Rows written before the timestamps
+#: existed read back as ``NULL`` (the column is nullable in the migration that
+#: added it), and ``NULL`` sorts differently by default on SQLite and
+#: PostgreSQL. The order therefore asks for ``NULLS FIRST`` explicitly, which
+#: both dialects accept, rather than substituting a sentinel instant.
+def _credential_order():
+    """The order the console shows, and the order that answers "who is next".
+
+    The connection in use first (highest activation rank), then the ones that
+    would take over if it were removed — oldest first, so the order is stable
+    across calls and the same on every deployment.
+    """
+    return (
+        LlmCredentialDB.activation_rank.desc(),
+        LlmCredentialDB.created_at.asc().nulls_first(),
+        LlmCredentialDB.id.asc(),
+    )
+
+
+def list_llm_credentials(db: Session, scope: UserScope) -> list[LlmCredentialDB]:
+    """Every connection this scope owns, the one in use first.
 
     **A superuser scope reads no more than an ordinary one here.** The
     platform's cross-owner view is a legitimate exception for audit rows and
@@ -793,9 +816,120 @@ def get_llm_credential(db: Session, scope: UserScope) -> LlmCredentialDB | None:
     filter is therefore on the scope's own id, never relaxed.
     """
     if not scope.user_id:
+        return []
+    statement = (
+        select(LlmCredentialDB)
+        .where(LlmCredentialDB.owner_id == scope.user_id)
+        .order_by(*_credential_order())
+    )
+    return list(db.execute(statement).scalars())
+
+
+def get_llm_credential(
+    db: Session, scope: UserScope, credential_id: str | None = None
+) -> LlmCredentialDB | None:
+    """One of the caller's stored connections.
+
+    Without *credential_id*: the connection in use (``None`` when the caller
+    has none). With one: that connection, **only if the caller owns it** — a
+    row that belongs to somebody else reads as absent, so the routes answer
+    404 and the API never becomes an existence oracle.
+    """
+    if not scope.user_id:
         return None
-    statement = select(LlmCredentialDB).where(LlmCredentialDB.owner_id == scope.user_id)
+    if credential_id is None:
+        rows = list_llm_credentials(db, scope)
+        return rows[0] if rows else None
+    statement = select(LlmCredentialDB).where(
+        LlmCredentialDB.owner_id == scope.user_id,
+        LlmCredentialDB.id == credential_id,
+    )
     return db.execute(statement).scalar_one_or_none()
+
+
+def create_llm_credential(
+    db: Session,
+    scope: UserScope,
+    *,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    encrypted_key: str,
+    hint: str,
+) -> LlmCredentialDB:
+    """Add a connection for the caller (the caller commits).
+
+    The rank is 0, which is also every existing row's rank: a new connection
+    therefore does **not** become the one in use. An older row wins the tie
+    on ``created_at``, so adding a second provider leaves the first in use
+    until the owner says otherwise.
+    """
+    row = LlmCredentialDB(
+        owner_id=scope.user_id,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        encrypted_key=encrypted_key,
+        hint=hint,
+        activation_rank=0,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def update_llm_credential(
+    db: Session,
+    scope: UserScope,
+    credential_id: str,
+    *,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    encrypted_key: str | None,
+    hint: str | None,
+) -> LlmCredentialDB | None:
+    """Edit one of the caller's connections; ``None`` when there is no such row.
+
+    ``encrypted_key`` and ``hint`` are ``None`` to **keep the stored key** —
+    editing a model or a display name must not require re-entering a secret
+    the user may not have to hand. The service decides when a new key is
+    required and passes it here.
+    """
+    row = get_llm_credential(db, scope, credential_id)
+    if row is None:
+        return None
+    row.provider = provider
+    row.model = model
+    row.base_url = base_url
+    if encrypted_key is not None:
+        row.encrypted_key = encrypted_key
+    if hint is not None:
+        row.hint = hint
+    db.flush()
+    return row
+
+
+def activate_llm_credential(
+    db: Session, scope: UserScope, credential_id: str
+) -> LlmCredentialDB | None:
+    """Put one of the caller's connections in use; ``None`` when it is not theirs.
+
+    Rank is raised above the owner's current maximum rather than being a
+    boolean flag: "in use" is then a single value no two writers can
+    disagree about, and a rank can keep climbing without a reset step.
+    """
+    row = get_llm_credential(db, scope, credential_id)
+    if row is None:
+        return None
+    current_max = db.execute(
+        select(func.max(LlmCredentialDB.activation_rank)).where(
+            LlmCredentialDB.owner_id == scope.user_id
+        )
+    ).scalar()
+    row.activation_rank = (current_max or 0) + 1
+    db.flush()
+    return row
 
 
 def upsert_llm_credential(
@@ -808,16 +942,24 @@ def upsert_llm_credential(
     encrypted_key: str,
     hint: str,
 ) -> LlmCredentialDB:
-    """Insert or replace the caller's credential (the caller commits).
+    """Insert or **replace the connection in use** (the caller commits).
 
-    The row is keyed by the caller's own id, so one user can never write
-    over another's credential — there is nothing to pass that says whose row
-    to touch.
+    The pre-multi-connection contract, kept for the ``PUT`` route: there is
+    one credential, and registering another replaces it. With several
+    connections the same call edits the one in use, or creates the first one
+    when the account has none — it never adds a second.
     """
     row = get_llm_credential(db, scope)
     if row is None:
-        row = LlmCredentialDB(owner_id=scope.user_id)
-        db.add(row)
+        return create_llm_credential(
+            db,
+            scope,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            encrypted_key=encrypted_key,
+            hint=hint,
+        )
     row.provider = provider
     row.model = model
     row.base_url = base_url
@@ -827,9 +969,16 @@ def upsert_llm_credential(
     return row
 
 
-def delete_llm_credential(db: Session, scope: UserScope) -> bool:
-    """Delete the caller's credential; True when one existed."""
-    row = get_llm_credential(db, scope)
+def delete_llm_credential(db: Session, scope: UserScope, credential_id: str | None = None) -> bool:
+    """Delete one of the caller's connections; True when it was there.
+
+    With no *credential_id* the connection **in use** is the one removed —
+    the pre-multi-connection meaning of the call. Removing it promotes
+    nothing by hand: the next row in :func:`list_llm_credentials` order
+    already has the highest remaining rank, so the fallback is the same
+    answer the console displays.
+    """
+    row = get_llm_credential(db, scope, credential_id)
     if row is None:
         return False
     db.delete(row)
@@ -837,13 +986,16 @@ def delete_llm_credential(db: Session, scope: UserScope) -> bool:
     return True
 
 
-def touch_llm_credential(db: Session, scope: UserScope) -> None:
-    """Record that the credential was just used (``last_used_at``)."""
-    row = get_llm_credential(db, scope)
+def touch_llm_credential(db: Session, scope: UserScope, credential_id: str | None = None) -> None:
+    """Record that a connection was just used (``last_used_at``).
+
+    Without an id it stamps the connection in use; with one it stamps exactly
+    that connection, so exercising an inactive provider does not make it look
+    like the one that answered a real call.
+    """
+    row = get_llm_credential(db, scope, credential_id)
     if row is None:
         return
-    from datetime import UTC, datetime
-
     row.last_used_at = datetime.now(UTC)
     db.flush()
 

@@ -290,3 +290,191 @@ class TestIsolationOverHttp:
         api.put(ROUTE, json=_put_body(api_key="sk-bob-9876543210-alsosecret"))
         rows = list(api.db.execute(select(LlmCredentialDB)).scalars())  # type: ignore[attr-defined]
         assert {row.owner_id for row in rows} == {ALICE, BOB}
+
+
+class TestMultipleConnections:
+    def add(self, api: TestClient, **overrides) -> dict:
+        response = api.post(ROUTE, json=_put_body(**overrides))
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    def test_adding_another_provider_leaves_the_first_active(self, api: TestClient) -> None:
+        google = self.add(api)
+        other = self.add(
+            api,
+            provider="openai-compatible",
+            model="other-model",
+            base_url="http://127.0.0.1:8901/v1",
+            api_key="fake-second-connection-secret",
+        )
+        response = api.get(ROUTE)
+        state = response.json()
+        assert google["id"] != other["id"]
+        assert state["using"] == "user"
+        assert state["credential"]["id"] == google["id"]
+        assert [row["id"] for row in state["credentials"]] == [google["id"], other["id"]]
+        assert ALICE_KEY not in response.text
+        assert "fake-second-connection-secret" not in response.text
+        assert "encrypted_key" not in response.text
+
+    def test_editing_a_model_keeps_that_connections_key(self, api: TestClient) -> None:
+        first = self.add(api)
+        second_key = "fake-second-connection-secret"
+        second = self.add(api, model="other-model", api_key=second_key)
+        url = f"{ROUTE}/{second['id']}"
+        response = api.patch(url, json={"model": "revised-model"})
+        assert response.status_code == 200, response.text
+        assert response.json()["model"] == "revised-model"
+        assert response.json()["hint"] == second_key[-4:]
+        assert api.get(ROUTE).json()["credential"]["id"] == first["id"]
+        rotated = api.patch(url, json={"api_key": "fake-rotated-connection-1234"})
+        assert rotated.status_code == 200, rotated.text
+        assert rotated.json()["id"] == second["id"]
+        assert rotated.json()["hint"] == "1234"
+
+    def test_endpoint_changes_require_a_fresh_key(self, api: TestClient) -> None:
+        row = self.add(api)
+        url = f"{ROUTE}/{row['id']}"
+        proposed = {"base_url": "http://127.0.0.1:8901/v1"}
+        refused = api.patch(url, json=proposed)
+        assert refused.status_code == 422
+        assert "new API key" in refused.text
+        # The refused change was not half-applied: the stored row is untouched.
+        state = api.get(ROUTE).json()
+        assert state["credential"]["base_url"] is None
+        assert state["credential"]["model"] == "gemini-3.8-flash"
+        changed = api.patch(url, json={**proposed, "api_key": "fake-new-connection-key"})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["base_url"] == proposed["base_url"]
+
+    def test_a_provider_change_also_requires_a_fresh_key(self, api: TestClient) -> None:
+        row = self.add(api)
+        url = f"{ROUTE}/{row['id']}"
+        assert api.patch(url, json={"provider": "groq"}).status_code == 422
+        assert api.get(ROUTE).json()["credential"]["provider"] == "google"
+        rotated = api.patch(url, json={"provider": "groq", "api_key": ALICE_KEY})
+        assert rotated.status_code == 200, rotated.text
+        assert rotated.json()["provider"] == "groq"
+        assert rotated.json()["hint"] == ALICE_KEY[-4:]
+
+    def test_switching_and_deleting_active_promotes_the_next_connection(
+        self, api: TestClient
+    ) -> None:
+        first, second = self.add(api), self.add(api, model="other-model")
+        url = f"{ROUTE}/{second['id']}"
+        assert api.post(f"{url}/activate").status_code == 200
+        assert api.get(ROUTE).json()["credential"]["id"] == second["id"]
+        assert api.delete(url).json() == {"removed": True}
+        assert api.get(ROUTE).json()["credential"]["id"] == first["id"]
+        assert api.delete(f"{ROUTE}/{first['id']}").status_code == 200
+        state = api.get(ROUTE).json()
+        assert state["credentials"] == []
+        assert state["credential"] is None
+        assert state["using"] == "none"
+
+    def test_testing_an_inactive_provider_targets_only_that_connection(
+        self, api: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        first, second = self.add(api), self.add(api, model="other-model")
+        seen: list[str] = []
+
+        def fake_provider(_provider: str, *, model: str, **_options) -> _FakeProvider:
+            seen.append(model)
+            return _FakeProvider()
+
+        monkeypatch.setattr(creds, "build_provider", fake_provider)
+        test = api.post(f"{ROUTE}/{second['id']}/test")
+        assert test.status_code == 200, test.text
+        assert test.json()["ok"] is True
+        assert seen == ["other-model"]
+        state = api.get(ROUTE).json()
+        assert state["credential"]["id"] == first["id"]
+        assert state["credentials"][0]["last_used_at"] is None
+        assert state["credentials"][1]["last_used_at"] is not None
+
+    @pytest.mark.parametrize("is_superuser", [False, True])
+    def test_guessed_connection_ids_are_not_writable_or_testable(
+        self, api: TestClient, is_superuser: bool
+    ) -> None:
+        from src.main import app
+
+        row = self.add(api)
+        url = f"{ROUTE}/{row['id']}"
+        app.dependency_overrides[current_scope] = lambda: UserScope(
+            user_id=BOB, is_superuser=is_superuser
+        )
+        assert api.get(ROUTE).json()["credentials"] == []
+        assert api.patch(url, json={"model": "not-mine"}).status_code == 404
+        assert api.post(f"{url}/activate").status_code == 404
+        assert api.post(f"{url}/test").status_code == 404
+        assert api.delete(url).status_code == 404
+        _as(api, ALICE)
+        assert api.get(ROUTE).json()["credential"]["model"] == "gemini-3.8-flash"
+
+    def test_disabled_mode_blocks_spend_but_allows_deletion(
+        self, api: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.config.settings import get_settings
+
+        row = self.add(api)
+        url = f"{ROUTE}/{row['id']}"
+        monkeypatch.setenv("BYOK_MODE", "disabled")
+        monkeypatch.setenv("LLM_API_KEY", "fake-platform-key")
+        get_settings.cache_clear()
+        try:
+            assert api.get(ROUTE).json()["using"] == "platform"
+            assert api.post(f"{url}/activate").status_code == 403
+            assert api.post(f"{url}/test").status_code == 403
+            assert api.post(f"{ROUTE}/test").status_code == 403
+            assert api.patch(url, json={"model": "new-model"}).status_code == 403
+            assert api.delete(url).json() == {"removed": True}
+        finally:
+            monkeypatch.setenv("BYOK_MODE", "optional")
+            get_settings.cache_clear()
+
+    def test_explicit_connection_test_is_subject_to_the_heavy_request_gate(self) -> None:
+        from src.api.middleware import heavy_path_matcher
+
+        assert heavy_path_matcher(f"{ROUTE}/any-saved-id/test")
+        assert not heavy_path_matcher(f"{ROUTE}/any-saved-id/activate")
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+def test_invalid_credential_bodies_do_not_echo_input(
+    api: TestClient, method: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A rejected key must not be repeated back, in the body or in a log.
+
+    FastAPI's default validation handler echoes the offending value under
+    ``input``. For a secret that is the one place it must not appear: the
+    response goes to a devtools pane, a proxy log or an error tracker.
+    """
+    invalid_key = "too-few"
+    response = api.request(method, ROUTE, json=_put_body(api_key=invalid_key))
+    assert response.status_code == 422
+    assert invalid_key not in response.text
+    assert invalid_key not in caplog.text
+    response = api.request(method, ROUTE, json={"api_key": ALICE_KEY})
+    assert response.status_code == 422
+    assert ALICE_KEY not in response.text
+
+
+def test_a_refused_base_url_is_not_echoed_back(api: TestClient) -> None:
+    """The URL that failed the SSRF guard is refused without repeating it.
+
+    A URL can carry a credential in its query string, so the rejection names
+    the *host* it refused and nothing more.
+    """
+    supplied_secret = "fake-url-secret"
+    response = api.put(
+        ROUTE,
+        json=_put_body(
+            provider="openai-compatible",
+            model="gpt-4o-mini",
+            base_url=f"http://169.254.169.254/v1?token={supplied_secret}",
+        ),
+    )
+    assert response.status_code == 422
+    assert "169.254.169.254" in response.text  # the reason is still useful
+    assert supplied_secret not in response.text
+    assert api.get(ROUTE).json()["credential"] is None

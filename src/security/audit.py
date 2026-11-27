@@ -79,6 +79,10 @@ ACTION_WORKER_STOP = "worker.stop"
 ACTION_LLM_CREDENTIAL_SET = "llm.credential.set"
 ACTION_LLM_CREDENTIAL_DELETE = "llm.credential.delete"
 ACTION_LLM_CREDENTIAL_TEST = "llm.credential.test"
+# WS-22 follow-up: with several connections stored, which one a job spends is
+# a decision worth its own row — it is the action that changes what the next
+# call costs and where it is sent.
+ACTION_LLM_CREDENTIAL_ACTIVATE = "llm.credential.activate"
 
 # Outcomes.
 OUTCOME_SUCCESS = "success"

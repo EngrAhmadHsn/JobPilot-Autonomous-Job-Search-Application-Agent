@@ -84,7 +84,13 @@ def heavy_path_matcher(path: str) -> bool:
     """True when *path* is one of the expensive endpoints."""
     if any(path.startswith(prefix) for prefix in HEAVY_PATH_PREFIXES):
         return True
-    return any(path.endswith(suffix) for suffix in HEAVY_PATH_SUFFIXES)
+    if path.endswith(HEAVY_PATH_SUFFIXES):
+        return True
+    # WS-22 follow-up: with several saved connections, exercising *one named*
+    # connection (`/api/llm/credentials/{id}/test`) is the same billable
+    # provider call as exercising the default one. The prefix above matches
+    # only the collection route, so the per-connection form is named here.
+    return path.startswith("/api/llm/credentials/") and path.endswith("/test")
 
 
 # -- rate limiting ------------------------------------------------------------

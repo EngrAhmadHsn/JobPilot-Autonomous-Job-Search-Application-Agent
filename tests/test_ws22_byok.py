@@ -401,8 +401,27 @@ class TestResolution:
         _store(wired.session, ALICE, ALICE_KEY)
         with tenant_scope(ALICE):
             client = creds.resolve_client()
-        assert client._breaker_key() == f"llm:byok:{ALICE}"
+        assert client._breaker_key().startswith(f"llm:byok:{ALICE}:")
         assert client._spend_source == SPEND_BYOK
+
+    def test_switching_providers_uses_a_different_client_and_breaker(self, wired: DbEnv) -> None:
+        from src.llm.credentials import activate_credential, add_credential
+        from src.llm.resilience import get_breaker
+
+        first = _store(wired.session, ALICE, ALICE_KEY, model="first-model")
+        second = add_credential(wired.session, ALICE, _payload(BOB_KEY, model="second-model"))
+        with tenant_scope(ALICE):
+            original = creds.resolve_client()
+        get_breaker(original._breaker_key()).record_failure()
+        activate_credential(wired.session, ALICE, second.id)
+        with tenant_scope(ALICE):
+            active = creds.resolve_client()
+        assert active.model == "second-model"
+        assert active._breaker_key() != original._breaker_key()
+        assert get_breaker(active._breaker_key()).failure_count == 0
+        activate_credential(wired.session, ALICE, first.id)
+        with tenant_scope(ALICE):
+            assert creds.resolve_client().model == "first-model"
 
     def test_an_undecryptable_row_is_a_clear_error_not_a_fallback(self, wired: DbEnv) -> None:
         _store(wired.session, ALICE, ALICE_KEY)
@@ -471,7 +490,7 @@ class TestCredentialExercise:
             client = creds.resolve_client()
             client.generate_text("hello")
         message = str(caught.value)
-        assert "Profile → Model credentials" in message
+        assert "Account → Model credentials" in message
         assert "the provider rejected the API key" not in message
 
     def test_testing_without_a_stored_key_is_a_configuration_error(self, db: DbEnv) -> None:

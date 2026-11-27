@@ -43,6 +43,7 @@ from src.db.application_answers import ApplicationAnswerDB
 from src.db.applications import ApplicationDB, ApplicationEventDB
 from src.db.approval import ApprovalRequestDB
 from src.db.audit import AuditEventDB
+from src.db.byok import LlmCredentialDB
 from src.db.employer_answers import EmployerAnswerDB, LocalFillGrantDB
 from src.db.evidence import ApplicationEvidenceDB
 from src.db.matches import JobMatchDB
@@ -361,6 +362,7 @@ def purge_user(
         "approvals": 0,
         "matches": 0,
         "sessions": 0,
+        "llm_credentials": 0,
         "files": 0,
         "audit_anonymized": 0,
     }
@@ -390,7 +392,15 @@ def purge_user(
     db.execute(delete(LocalFillGrantDB).where(LocalFillGrantDB.owner_id == user_id))
     db.execute(delete(EmployerAnswerDB).where(EmployerAnswerDB.owner_id == user_id))
     db.execute(delete(ApplicationAnswerDB).where(ApplicationAnswerDB.owner_id == user_id))
-    # The applications.
+    # The stored model keys (WS-22). A deleted account's credentials are rows
+    # the platform is holding on nobody's behalf — they go with the account,
+    # encryption at rest notwithstanding, because there is no owner left to
+    # consent to keeping them. Every stored connection goes, not just the one
+    # in use.
+    credential_rows = db.query(LlmCredentialDB).filter(LlmCredentialDB.owner_id == user_id).all()
+    for row in credential_rows:
+        db.delete(row)
+    removed["llm_credentials"] = len(credential_rows)
     application_rows = db.query(ApplicationDB).filter(ApplicationDB.owner_id == user_id).all()
     for row in application_rows:
         db.delete(row)

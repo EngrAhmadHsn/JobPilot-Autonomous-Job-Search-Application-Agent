@@ -5,8 +5,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.api.middleware import (
     BodySizeLimitMiddleware,
@@ -181,3 +183,34 @@ async def root() -> dict[str, str]:
         "status": "ok",
         "environment": settings.app_env,
     }
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Answer a malformed request without repeating what it contained.
+
+    FastAPI's default handler echoes the offending value back under
+    ``input`` — which is right for a number that is out of range and wrong
+    for anything else. The bring-your-own-key routes accept an API key in the
+    body, so a one-character-too-short key used to come back in the 422 and
+    land in whatever reads that response: a browser devtools pane, a proxy
+    log, an error tracker. The value is dropped from every error on every
+    route, because a field that *happens* to hold a secret today will hold
+    one tomorrow.
+
+    The shape is otherwise FastAPI's own — ``loc``, ``msg``, ``type`` — so a
+    client that reads validation errors keeps working.
+    """
+    errors = [
+        {
+            "loc": error.get("loc", ()),
+            "msg": error.get("msg", "Invalid value"),
+            "type": error.get("type", "value_error"),
+        }
+        for error in exc.errors()
+    ]
+    logger.info(
+        "Request validation failed",
+        extra={"path": request.url.path, "errors": [error["type"] for error in errors]},
+    )
+    return JSONResponse(status_code=422, content={"detail": errors})

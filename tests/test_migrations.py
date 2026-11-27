@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from src.db.session import ensure_sqlite_parent_dir
 
@@ -591,6 +591,163 @@ JOB_WORK_ITEM_COLUMNS = {
     "last_error_kind",
     "metadata",
 }
+
+
+def _llm_credentials_rows(url: str) -> list[dict]:
+    """Every stored model connection, as raw values (the ciphertext included)."""
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            result = connection.execute(
+                text(
+                    "SELECT id, owner_id, provider, model, encrypted_key, hint, "
+                    "activation_rank FROM llm_credentials ORDER BY id"
+                )
+            )
+            return [dict(row._mapping) for row in result]
+    finally:
+        engine.dispose()
+
+
+def _insert_legacy_credential(url: str, owner_id: str, token: str) -> None:
+    """Write a row in the shape the table had before the multi-connection change."""
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO llm_credentials "
+                    "(owner_id, provider, model, base_url, encrypted_key, hint, "
+                    " created_at, updated_at, last_used_at) "
+                    "VALUES (:owner, 'google', 'gemini-3.8-flash', NULL, :token, "
+                    " '7890', '2026-11-08 00:00:00', '2026-11-08 00:00:00', NULL)"
+                ),
+                {"owner": owner_id, "token": token},
+            )
+    finally:
+        engine.dispose()
+
+
+def test_ws22_stored_credentials_survive_the_multi_connection_upgrade(
+    migration_env: tuple[Config, str],
+) -> None:
+    """One account's existing key is moved, not re-derived and not lost.
+
+    The rebuild copies the row: the ciphertext, the hint and the provider come
+    across untouched, ``id`` becomes the key, and the row is still the
+    connection in use (rank 0, the only row).
+    """
+    cfg, url = migration_env
+    command.upgrade(cfg, "e4f5a6b7c8d9")
+    _insert_legacy_credential(url, "alice", "fernet-token-alice")
+    command.upgrade(cfg, "head")
+
+    rows = _llm_credentials_rows(url)
+    assert len(rows) == 1
+    assert rows[0]["owner_id"] == "alice"
+    assert rows[0]["encrypted_key"] == "fernet-token-alice"
+    assert rows[0]["hint"] == "7890"
+    assert rows[0]["activation_rank"] == 0
+    assert rows[0]["id"]
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        primary_key = inspector.get_pk_constraint("llm_credentials")
+        assert primary_key["constrained_columns"] == ["id"]
+        columns = {col["name"] for col in inspector.get_columns("llm_credentials")}
+        assert {"id", "owner_id", "activation_rank"} <= columns
+        indexes = {ix["name"] for ix in inspector.get_indexes("llm_credentials")}
+        assert "ix_llm_credentials_owner_id" in indexes
+    finally:
+        engine.dispose()
+
+
+def test_ws22_a_second_connection_per_account_is_allowed(
+    migration_env: tuple[Config, str],
+) -> None:
+    """Two rows for one owner, which the previous primary key made impossible."""
+    cfg, url = migration_env
+    command.upgrade(cfg, "head")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            for credential_id, model in [("c1", "first"), ("c2", "second")]:
+                connection.execute(
+                    text(
+                        "INSERT INTO llm_credentials "
+                        "(id, owner_id, provider, model, encrypted_key, hint, "
+                        " activation_rank) VALUES (:id, 'alice', 'google', :model, "
+                        " 'token', 'abcd', 0)"
+                    ),
+                    {"id": credential_id, "model": model},
+                )
+    finally:
+        engine.dispose()
+
+    assert {row["id"] for row in _llm_credentials_rows(url)} == {"c1", "c2"}
+
+
+def test_ws22_the_downgrade_refuses_rather_than_deletes_a_connection(
+    migration_env: tuple[Config, str],
+) -> None:
+    """The earlier schema holds one row per account, so a downgrade must not run.
+
+    It fails with the affected account named, and — the part that matters —
+    it fails **before** touching the data: the rows are all still there.
+    """
+    cfg, url = migration_env
+    command.upgrade(cfg, "head")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            for credential_id in ("c1", "c2"):
+                connection.execute(
+                    text(
+                        "INSERT INTO llm_credentials "
+                        "(id, owner_id, provider, model, encrypted_key, hint, "
+                        " activation_rank) VALUES (:id, 'alice', 'google', 'm', "
+                        " 'token', 'abcd', 0)"
+                    ),
+                    {"id": credential_id},
+                )
+    finally:
+        engine.dispose()
+
+    with pytest.raises(RuntimeError, match="alice"):
+        command.downgrade(cfg, "e4f5a6b7c8d9")
+    assert len(_llm_credentials_rows(url)) == 2
+
+
+def test_ws22_the_downgrade_reverses_cleanly_when_nothing_would_be_lost(
+    migration_env: tuple[Config, str],
+) -> None:
+    """An account with a single connection downgrades back to the old schema."""
+    cfg, url = migration_env
+    command.upgrade(cfg, "e4f5a6b7c8d9")
+    _insert_legacy_credential(url, "alice", "fernet-token-alice")
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "e4f5a6b7c8d9")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        primary_key = inspector.get_pk_constraint("llm_credentials")
+        assert primary_key["constrained_columns"] == ["owner_id"]
+    finally:
+        engine.dispose()
+    # Read shape-agnostically: after the downgrade there is no ``id`` column to
+    # name, and the point of the assertion is that the ciphertext came back.
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            tokens = [
+                row[0]
+                for row in connection.execute(text("SELECT encrypted_key FROM llm_credentials"))
+            ]
+    finally:
+        engine.dispose()
+    assert tokens == ["fernet-token-alice"]
 
 
 def test_ws20_application_profile_and_eeo(migration_env: tuple[Config, str]) -> None:
