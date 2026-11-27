@@ -1,4 +1,5 @@
 import { Search } from "lucide-react"
+import type { Ref } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { cn } from "cn"
 
@@ -52,13 +53,20 @@ export function sectionLabelFor(pathname: string): string {
   return match?.label ?? "Home"
 }
 
-export function TopBar({ className }: { className?: string }) {
+export function TopBar({
+  className,
+  ref,
+}: {
+  className?: string
+  ref?: Ref<HTMLElement>
+}) {
   const pathname = useLocation().pathname
   const section = sectionLabelFor(pathname)
   const profileId = useCurrentProfileId()
 
   return (
     <header
+      ref={ref}
       className={cn(
         "sticky top-0 z-30 hidden h-[68px] shrink-0 items-center gap-4",
         "border-b border-border-surface bg-card px-8 lg:flex",

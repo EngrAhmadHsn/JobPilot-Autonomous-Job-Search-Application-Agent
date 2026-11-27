@@ -35,7 +35,8 @@ import { TopBar } from "./top-bar"
 */
 export function AppShell() {
   const headerRef = useRef<HTMLElement>(null)
-  useHeaderHeight(headerRef)
+  const desktopHeaderRef = useRef<HTMLElement>(null)
+  useHeaderHeight(headerRef, desktopHeaderRef)
   /*
     The rail's expanded state lives here, not in the rail: the shell is what
     knows a navigation happened (WS-43's auto-collapse) and what the rail
@@ -185,9 +186,7 @@ export function AppShell() {
         rail moving.
       */}
       <div className="lg:pl-[72px]">
-        <div className="hidden lg:block">
-          <TopBar />
-        </div>
+        <TopBar ref={desktopHeaderRef} />
         <main
           id="main-content"
           className="min-w-0 scroll-mt-[calc(var(--header-height,3.5rem)+1rem)]"

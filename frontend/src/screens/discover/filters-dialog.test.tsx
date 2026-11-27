@@ -137,7 +137,7 @@ describe("the job filters dialog (WS-44)", () => {
     await user.click(screen.getByRole("button", { name: "Apply filters" }))
 
     // The request the dialog produced — every filter on its contract field.
-    await screen.findByRole("heading", { name: "Role 0" })
+    await screen.findByRole("button", { name: /Role 0/ })
     expect(bodies).toHaveLength(1)
     expect(bodies[0]).toMatchObject({
       profile_id: "profile-1",
@@ -163,16 +163,16 @@ describe("the job filters dialog (WS-44)", () => {
       screen.getByRole("button", { name: /Reset the ranked slice to 50/ })
     ).toBeInTheDocument()
 
-    // The filters live in the URL alongside the selection, so the narrowed
-    // search is an address, not a memory.
+    // Open a result. Selecting a job must not discard the addressed filters.
+    await user.click(screen.getByRole("button", { name: /Role 1/ }))
+    await screen.findByRole("heading", { name: "Role 1" })
     const search = router.state.location.search
     expect(search).toContain("workplace=remote")
     // URLSearchParams encodes the space as `+` in query position.
     expect(search).toContain("location=United+Kingdom")
     expect(search).toContain("skills=Python")
     expect(search).toContain("top_n=25")
-    // And WS-44's default selection is in the same address.
-    expect(search).toContain("job=job-0")
+    expect(search).toContain("job=job-1")
   })
 
   it("cancel and Escape discard the draft without searching", async () => {
@@ -223,7 +223,7 @@ describe("the job filters dialog (WS-44)", () => {
     )
     await user.selectOptions(screen.getByLabelText("Workplace"), "remote")
     await user.click(screen.getByRole("button", { name: "Apply filters" }))
-    await screen.findByRole("heading", { name: "Role 0" })
+    await screen.findByRole("button", { name: /Role 0/ })
     expect(bodies).toHaveLength(1)
 
     // The narrowing chip's × clears the workplace and the location, and the
@@ -292,7 +292,7 @@ describe("the job filters dialog (WS-44)", () => {
 
     // And running the search posts the addressed filters, not defaults.
     await user.click(screen.getByRole("button", { name: "Search jobs" }))
-    await screen.findByRole("heading", { name: "Role 0" })
+    await screen.findByRole("button", { name: /Role 0/ })
     expect(bodies).toHaveLength(1)
     expect(bodies[0]).toMatchObject({
       workplace: "remote",
@@ -304,42 +304,7 @@ describe("the job filters dialog (WS-44)", () => {
   })
 })
 
-/*
-  WS-44, the pane scroll: at `lg`+ the screen is a fixed-height flex under
-  the 68 px top bar — the header block does not scroll, and the results and
-  detail panes each scroll internally, so the page itself never scrolls.
-  jsdom cannot measure layout, so this pins the classes that carry the
-  behaviour (the real boxes are measured in the ws41-audit browser probe).
-*/
-describe("the Discover pane scroll (WS-44)", () => {
-  it("fixes the screen to the viewport and scrolls the panes internally", async () => {
-    withProfile()
-    captureSearches()
-    const user = userEvent.setup()
-    const { container } = renderScreen(<MatchesScreen />)
-
-    await user.click(screen.getByRole("button", { name: "Search jobs" }))
-    await screen.findByRole("heading", { name: "Role 0" })
-
-    const root = container.querySelector('[data-testid="discover-screen"]')
-    expect(root).not.toBeNull()
-    expect(root?.className).toContain("lg:h-[calc(100dvh-68px)]")
-    expect(root?.className).toContain("lg:overflow-hidden")
-    expect(root?.className).toContain("lg:flex-col")
-
-    // The results pane scrolls inside itself; its heading stays put.
-    const resultsScroll = container.querySelector(
-      '[data-testid="results-scroll"]'
-    )
-    expect(resultsScroll?.className).toContain("lg:overflow-y-auto")
-    expect(resultsScroll?.className).toContain("lg:flex-1")
-
-    // The detail pane scrolls inside itself too.
-    const detail = screen.getByRole("region", { name: "The selected job" })
-    expect(detail.className).toContain("lg:overflow-y-auto")
-    expect(detail.className).toContain("lg:min-h-0")
-  })
-
+describe("Discover result navigation", () => {
   it("keeps the focused row visible while the keyboard walks the list", async () => {
     withProfile()
     captureSearches()

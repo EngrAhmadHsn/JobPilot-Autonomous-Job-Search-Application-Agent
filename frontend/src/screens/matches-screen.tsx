@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState, type ReactNode } from "react"
-import { useSearchParams } from "react-router-dom"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { cn } from "cn"
 import { motion } from "motion/react"
 import {
@@ -14,8 +20,11 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { LinkButton } from "@/components/ui/link-button"
 import { PageHeader, Section } from "@/components/ui/page-header"
-import { MousePointerClickIcon } from "lucide-react"
+import { ArrowLeftIcon, MousePointerClickIcon } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { api } from "@/lib/api/endpoints"
 import { useCurrentProfileId } from "@/lib/profile"
 import type {
@@ -35,6 +44,11 @@ import {
   SearchPanel,
   workplaceLabel,
 } from "@/screens/discover/search-panel"
+
+import "@/screens/discover/results-scroll.css"
+
+// The split starts at the same `lg` breakpoint as the console chrome.
+const DESKTOP_SPLIT = "(min-width: 64rem)"
 
 /**
  * How many matches the console shows at once.
@@ -229,6 +243,36 @@ function describeSearch(
   return filter.length > 0 ? `${scope} Filtered ${filter.join(" ")}.` : scope
 }
 
+function revealSelectedJob(
+  heading: HTMLHeadingElement,
+  panel: HTMLElement | null,
+  isDesktop: boolean
+) {
+  // Match results-scroll.css: in short windows the list isn't pinned, so
+  // revealing the detail can scroll the focused result out of view.
+  const listStaysPinned =
+    isDesktop && window.matchMedia("(min-height: 36rem)").matches
+  if (!listStaysPinned) {
+    heading.focus({ preventScroll: true })
+    // On phones, include the Back button above the title.
+    panel?.scrollIntoView({ block: "start" })
+    return
+  }
+
+  // Keep keyboard focus on the result and only move the page if the title
+  // is out of sight. The sticky list keeps its own scroll position.
+  const chromeHeight =
+    parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        "--header-height"
+      )
+    ) || 68
+  const { top, bottom } = heading.getBoundingClientRect()
+  if (top < chromeHeight || bottom > window.innerHeight) {
+    panel?.scrollIntoView({ block: "start" })
+  }
+}
+
 /** What the URL's filter params say, read once at mount. */
 function filtersFromParams(searchParams: URLSearchParams): SearchFilters {
   const topN = topNFromParam(searchParams.get("top_n"))
@@ -251,33 +295,30 @@ function filtersFromParams(searchParams: URLSearchParams): SearchFilters {
  * actions (Tailor, open the full listing). There is no save/shortlist action
  * because there is no save endpoint to wire it to.
  *
- * The selection lives in the URL (`?job=<id>`), so a refresh or a shared
- * link keeps it — and when ranked results are on screen with no `?job=`
- * addressed, the top-ranked match is selected by default and written to the
- * URL (replaced, not pushed), so the screen's first paint already shows the
- * "why". A selected job that is not in the loaded slice — a deep link, or a
- * selection that survived a new search — is resolved by its own reads: the
- * listing from `GET /api/jobs/{id}` (the same cache key the job route uses)
- * and its match from the persisted match history, rebuilt through the same
- * safe-accessor mirror the job route uses.
+ * The selection lives in `?job=<id>`, so a refresh or a shared link keeps
+ * it. The desktop split defaults to the first rank (replace, not push);
+ * the single-column view opens on the list unless a job is addressed. A
+ * selection outside the ranked slice resolves the listing and match under
+ * the same cache keys as the complete listing page.
  *
- * The search runs against the **stored** corpus (the backend's FU-1
- * store-only search): no board is fetched while the operator is looking at
- * the screen. The screen's job is to show the ranking *and the reason for
- * it*, and to be honest about a degraded run.
- *
- * WS-44, the pane scroll: at `lg`+ the screen is a fixed-height flex under
- * the 68 px top bar — the header block (search row + chips) never scrolls,
- * and the results column and the detail column each scroll internally, so
- * the page itself never scrolls. Below `lg` the stacked layout keeps the
- * page scroll it always had. (`-mt-10 -mb-12` cancels the shell container's
- * desktop vertical padding, which the fixed height spans.)
+ * Search ranks the stored corpus. The detail flows with the page; only
+ * the desktop results list has its own scrollport.
  */
 export function MatchesScreen() {
   const profileId = useCurrentProfileId()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const fromResults = (
+    useLocation().state as { fromDiscoverResults?: boolean } | null
+  )?.fromDiscoverResults
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedId = searchParams.get("job")
+  const isDesktop = useMediaQuery(DESKTOP_SPLIT)
+  const detailPanelRef = useRef<HTMLElement>(null)
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null)
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null)
+  const returnRowRef = useRef<HTMLButtonElement | null>(null)
+  const revealRef = useRef<{ jobId: string | null } | null>(null)
   /*
     The boot snapshot: the stored search this browser has for this profile,
     and the filters the URL addresses. The URL is the addressed state — a
@@ -437,19 +478,11 @@ export function MatchesScreen() {
     : null
   const lookupListing: JobListing | null = lookupJob.data?.job ?? null
 
-  // -- The default selection. ------------------------------------------------
-  /*
-    When ranked results are on screen and no `?job=` is addressed, the top
-    match is the selection: the screen's first paint shows the list *and*
-    the "why" beside it, which is what the design's split view is for. The
-    write is a **replace**, not a push — landing here is not a navigation
-    the operator made, so back must not walk through it. A URL that already
-    carries `?job=` is never overridden: a deep link, valid or not, resolves
-    by its own reads exactly as it always has.
-  */
+  // Desktop can show the first match without hiding the list. Mobile starts
+  // at the results; a job in the URL always wins in either layout.
   const firstRankedId = data?.results[0]?.job.id ?? null
   useEffect(() => {
-    if (!firstRankedId || selectedId) return
+    if (!isDesktop || !firstRankedId || selectedId) return
     setSearchParams(
       (prev) => {
         if (prev.get("job")) return prev
@@ -459,7 +492,30 @@ export function MatchesScreen() {
       },
       { replace: true }
     )
-  }, [firstRankedId, selectedId, setSearchParams])
+  }, [firstRankedId, isDesktop, selectedId, setSearchParams])
+
+  useLayoutEffect(() => {
+    if (search.isPending) return
+    const reveal = revealRef.current
+
+    if (!selectedId && (reveal?.jobId === null || returnRowRef.current)) {
+      revealRef.current = null
+      const row = returnRowRef.current
+      returnRowRef.current = null
+      const target = row?.isConnected
+        ? row
+        : (resultsHeadingRef.current ?? document.getElementById("search-query"))
+      target?.focus({ preventScroll: true })
+      target?.scrollIntoView({ block: "nearest" })
+      return
+    }
+
+    if (!reveal || reveal.jobId !== selectedId) return
+    const heading = detailHeadingRef.current
+    if (!heading) return
+    revealRef.current = null
+    revealSelectedJob(heading, detailPanelRef.current, isDesktop)
+  }, [isDesktop, lookupListing, search.isPending, selectedId, selectedPair])
 
   function runSearch(overrides?: Partial<SearchFilters>) {
     if (!profileId) return
@@ -540,12 +596,39 @@ export function MatchesScreen() {
     runSearch({ topN: MAX_TOP_N })
   }
 
-  function selectJob(jobId: string) {
-    setSearchParams({ job: jobId })
+  function selectJob(jobId: string, row: HTMLButtonElement) {
+    if (jobId === selectedId) {
+      const heading = detailHeadingRef.current
+      if (heading) revealSelectedJob(heading, detailPanelRef.current, isDesktop)
+      return
+    }
+    if (!isDesktop) returnRowRef.current = row
+    revealRef.current = { jobId }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set("job", jobId)
+        return next
+      },
+      isDesktop ? undefined : { state: { fromDiscoverResults: true } }
+    )
   }
 
   function clearSelection() {
-    setSearchParams({})
+    revealRef.current = { jobId: null }
+    // Return to our own list entry, not an unrelated history entry.
+    if (fromResults) {
+      void navigate(-1)
+      return
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("job")
+        return next
+      },
+      { replace: true }
+    )
   }
 
   const total = data?.results.length ?? 0
@@ -588,7 +671,7 @@ export function MatchesScreen() {
       <MatchDetail
         job={selectedPair.job}
         match={selectedPair.match}
-        onBack={clearSelection}
+        titleRef={detailHeadingRef}
       />
     )
   } else if (lookupJob.isPending) {
@@ -609,10 +692,31 @@ export function MatchesScreen() {
         match={lookupMatch}
         matchReadFailed={lookupHistory.isError}
         onRetryMatch={() => void lookupHistory.refetch()}
-        onBack={clearSelection}
+        titleRef={detailHeadingRef}
       />
     )
   }
+
+  const selectedPanel = (
+    <section
+      ref={detailPanelRef}
+      className={cn("min-w-0 space-y-3", !selectedId && "hidden lg:block")}
+      aria-label="The selected job"
+    >
+      {selectedId ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-h-11 lg:hidden"
+          onClick={clearSelection}
+        >
+          <ArrowLeftIcon aria-hidden="true" className="size-4" />
+          Back to results
+        </Button>
+      ) : null}
+      {detail}
+    </section>
+  )
 
   if (!profileId) {
     return (
@@ -634,10 +738,7 @@ export function MatchesScreen() {
   }
 
   return (
-    <div
-      data-testid="discover-screen"
-      className="space-y-5 lg:-mt-10 lg:-mb-12 lg:flex lg:h-[calc(100dvh-68px)] lg:flex-col lg:gap-5 lg:space-y-0 lg:overflow-hidden"
-    >
+    <div data-testid="discover-screen" className="space-y-5">
       {/*
         WS-42: the design leads this screen with its statement, "Find your
         kind of work." (node `47:73`), and gives the suggestions state its
@@ -646,7 +747,6 @@ export function MatchesScreen() {
         contract's "Discover · JobPilot" is unchanged.
       */}
       <PageHeader
-        className="lg:shrink-0"
         title={suggesting ? "Find the right words." : "Find your kind of work."}
         documentTitle="Discover"
         description={
@@ -656,30 +756,23 @@ export function MatchesScreen() {
         }
       />
 
-      {/*
-        WS-44, the pane scroll: the header block does not scroll. At `lg`+
-        everything below it lives in the screen's own height, and the panes
-        scroll inside themselves.
-      */}
-      <div className="lg:shrink-0">
-        <SearchPanel
-          query={query}
-          onQueryChange={setQuery}
-          workplace={workplace}
-          location={location}
-          topN={topN}
-          onApplyFilters={applyFilters}
-          onClearNarrowing={clearNarrowing}
-          onClearSkills={clearSkills}
-          onClearTopN={clearTopN}
-          onSubmit={() => runSearch()}
-          isPending={search.isPending}
-          recentSearches={recentQueries}
-          onPickRecent={pickRecent}
-          onRemoveRecent={removeRecent}
-          onSuggestingChange={setSuggesting}
-        />
-      </div>
+      <SearchPanel
+        query={query}
+        onQueryChange={setQuery}
+        workplace={workplace}
+        location={location}
+        topN={topN}
+        onApplyFilters={applyFilters}
+        onClearNarrowing={clearNarrowing}
+        onClearSkills={clearSkills}
+        onClearTopN={clearTopN}
+        onSubmit={() => runSearch()}
+        isPending={search.isPending}
+        recentSearches={recentQueries}
+        onPickRecent={pickRecent}
+        onRemoveRecent={removeRecent}
+        onSuggestingChange={setSuggesting}
+      />
 
       {search.isError ? <ErrorNotice error={search.error} /> : null}
 
@@ -694,7 +787,6 @@ export function MatchesScreen() {
       */}
       {search.isPending ? (
         <Section
-          className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
           title="Ranking your saved jobs"
           description="Scoring every listing against your profile."
         >
@@ -704,133 +796,79 @@ export function MatchesScreen() {
         <>
           <SearchBanners data={data} />
 
-          {
-            <motion.div
-              initial={arrivedFromSkeleton ? { opacity: 0 } : false}
-              animate={{ opacity: 1, transition: settle }}
-              className="grid gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] lg:grid-rows-[minmax(0,1fr)]"
+          <motion.div
+            initial={arrivedFromSkeleton ? { opacity: 0 } : false}
+            animate={{ opacity: 1, transition: settle }}
+            className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)]"
+          >
+            {/* The desktop list stays within reach as the detail scrolls. On
+                phones the list and the detail take turns in the same flow. */}
+            <section
+              className={cn(
+                "discover-results-rail min-w-0 lg:flex lg:flex-col",
+                selectedId && "hidden"
+              )}
+              aria-label="Ranked matches"
             >
-              {/*
-                The list column. On a phone the columns take turns: the
-                results lead, and a selected job replaces the list with a
-                full-height panel and a way back — never a squeezed column.
-
-                WS-42: the ratio is the design's (node 49:865 — a ~398 px list
-                beside an ~882 px detail, so about 0.62 : 1.38). The earlier
-                1 : 1.4 made the list read as wide as the answer it introduces.
-
-                WS-44: at `lg` the column is a fixed pane — its heading stays,
-                and the rows scroll inside the pane below it.
-              */}
-              <section
-                className={cn(
-                  "min-w-0 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden",
-                  selectedId ? "hidden" : null
-                )}
-                aria-label="Ranked matches"
-              >
-                <div className="mb-3">
-                  <h2 className="type-section">
-                    {total > 0 ? `${total} matches` : "Ranked matches"}
-                  </h2>
-                  <p className="type-caption mt-1">
-                    {describeSearch(data, { query, workplace, location, topN })}
-                  </p>
-                  {/*
-                    The sort affordance, as the design draws it (node `49:869`:
-                    "Best match first ↓" under the count heading). The console
-                    has exactly one ordering — the server always returns the
-                    slice ranked best first, and no endpoint offers another —
-                    so the affordance states that fact rather than offering a
-                    menu of sorts that do not exist. The window line beside it
-                    stays the honest "Showing X of Y".
-                  */}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="inline-flex h-[37px] items-center rounded-lg px-2.5 text-[13px] leading-[19px] font-semibold text-forest">
-                      Best match first ↓
-                    </span>
-                    <p role="status" className="type-caption tabular-nums">
-                      Showing {Math.min(visibleCount, total)} of {total} ranked
-                      matches.
-                    </p>
-                  </div>
-                </div>
-                <div
-                  data-testid="results-scroll"
-                  className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+              <div className="mb-3 shrink-0">
+                <h2
+                  ref={resultsHeadingRef}
+                  tabIndex={-1}
+                  className="type-section"
                 >
-                  <ResultsList
-                    pairs={data.results}
-                    visibleCount={visibleCount}
-                    onShowMore={() => {
-                      setVisibleCount((count) => count + PAGE_SIZE)
-                    }}
-                    selectedId={selectedId}
-                    onSelect={selectJob}
-                    pageSize={PAGE_SIZE}
-                  />
+                  {total} matches
+                </h2>
+                <p className="type-caption mt-1 wrap-anywhere">
+                  {describeSearch(data, { query, workplace, location, topN })}
+                </p>
+                {/* The server provides one order, not a choice of sorts. */}
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="inline-flex h-[37px] items-center rounded-lg px-2.5 text-[13px] leading-[19px] font-semibold text-forest">
+                    Best match first ↓
+                  </span>
+                  <p role="status" className="type-caption tabular-nums">
+                    Showing {Math.min(visibleCount, total)} of {total} ranked
+                    matches.
+                  </p>
                 </div>
-              </section>
-
-              {/*
-                The detail column, and its own scroll at `lg`: the answer to
-                one job is often taller than the viewport, and the list must
-                not lose its place because of it.
-              */}
-              <section
-                className={cn(
-                  "min-w-0 lg:min-h-0 lg:overflow-y-auto",
-                  selectedId ? null : "hidden lg:block"
-                )}
-                aria-label="The selected job"
+              </div>
+              <div
+                data-testid="results-scroll"
+                className="discover-results-scroll"
               >
-                {detail}
-              </section>
-            </motion.div>
-          }
+                <ResultsList
+                  pairs={data.results}
+                  visibleCount={visibleCount}
+                  onShowMore={() => {
+                    setVisibleCount((count) => count + PAGE_SIZE)
+                  }}
+                  selectedId={selectedId}
+                  onSelect={selectJob}
+                  pageSize={PAGE_SIZE}
+                />
+              </div>
+            </section>
+            {selectedPanel}
+          </motion.div>
         </>
-      ) : selectedId && lookupJob.isPending ? (
-        // A deep link into this screen (or a selection whose slice is gone):
-        // the listing is on the way, so the panel's bones reserve the shape.
-        <div className="max-w-[42rem] lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <CardSkeleton rows={4} />
-        </div>
-      ) : selectedId && lookupJob.isError ? (
-        <ErrorState
-          error={lookupJob.error}
-          onRetry={() => void lookupJob.refetch()}
-        />
-      ) : selectedId && lookupListing ? (
-        // The deep-linked job outside any loaded slice: the detail stands on
-        // its own until a search gives it a list to sit beside.
-        <div className="max-w-[42rem] lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <MatchDetail
-            job={lookupListing}
-            match={lookupMatch}
-            matchReadFailed={lookupHistory.isError}
-            onRetryMatch={() => void lookupHistory.refetch()}
-            onBack={clearSelection}
-          />
-        </div>
+      ) : selectedId ? (
+        // A job addressed outside any loaded slice has the whole column.
+        <div className="max-w-[42rem]">{selectedPanel}</div>
       ) : data ? (
-        <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <EmptyState
-            title="No stored jobs match"
-            message="No stored listing matches this profile and filter. Try broader terms, or refresh the corpus from Operations to widen what the agent can rank."
-            action={
-              <LinkButton to="/app/operations" variant="outline" size="sm">
-                Open Operations
-              </LinkButton>
-            }
-          />
-        </div>
+        <EmptyState
+          title="No stored jobs match"
+          message="No stored listing matches this profile and filter. Try broader terms, or refresh the corpus from Operations to widen what the agent can rank."
+          action={
+            <LinkButton to="/app/operations" variant="outline" size="sm">
+              Open Operations
+            </LinkButton>
+          }
+        />
       ) : (
-        <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <EmptyState
-            title="No search yet"
-            message="Run a search to rank the stored corpus against your profile. Every result arrives with the reason for its score."
-          />
-        </div>
+        <EmptyState
+          title="No search yet"
+          message="Run a search to rank the stored corpus against your profile. Every result arrives with the reason for its score."
+        />
       )}
     </div>
   )

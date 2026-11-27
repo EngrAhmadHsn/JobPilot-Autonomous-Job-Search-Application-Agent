@@ -90,7 +90,7 @@ function ResultRow({
   pair: JobMatchPair
   selected: boolean
   tabbable: boolean
-  onSelect: (jobId: string) => void
+  onSelect: (jobId: string, trigger: HTMLButtonElement) => void
   refCallback: (element: HTMLButtonElement | null) => void
 }) {
   const { job, match } = pair
@@ -116,7 +116,7 @@ function ResultRow({
         ref={refCallback}
         tabIndex={tabbable ? 0 : -1}
         aria-current={selected || undefined}
-        onClick={() => onSelect(job.id)}
+        onClick={(event) => onSelect(job.id, event.currentTarget)}
         className={cn(
           "relative isolate w-full space-y-2 rounded-[var(--radius-surface)] border bg-card p-4 text-start transition-colors duration-150",
           selected
@@ -225,12 +225,13 @@ export function ResultsList({
   /** Extend the window by the caller's page size. */
   onShowMore: () => void
   selectedId: string | null
-  onSelect: (jobId: string) => void
+  onSelect: (jobId: string, trigger: HTMLButtonElement) => void
   /** The window step, named in the control's label. */
   pageSize: number
 }) {
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
   const visible = pairs.slice(0, visibleCount)
+  const hasVisibleSelection = visible.some(({ job }) => job.id === selectedId)
   const remaining = pairs.length - visible.length
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLUListElement>) {
@@ -258,14 +259,8 @@ export function ResultsList({
     } else {
       next = buttons.length - 1
     }
-    buttons[next]?.focus()
-    /*
-      WS-44, the pane scroll: the list scrolls inside its pane now, so a
-      keyboard walk can move focus to a row the pane has scrolled away —
-      and a focused row the operator cannot see is a silent lie. "nearest"
-      moves the pane only as far as the row needs, so single-stepping never
-      jumps the window.
-    */
+    // Keep the ring in view with the smallest possible scroll in either layout.
+    buttons[next]?.focus({ preventScroll: true })
     buttons[next]?.scrollIntoView({ block: "nearest" })
   }
 
@@ -282,7 +277,8 @@ export function ResultsList({
             pair={pair}
             selected={pair.job.id === selectedId}
             tabbable={
-              pair.job.id === selectedId || (selectedId === null && index === 0)
+              pair.job.id === selectedId ||
+              (!hasVisibleSelection && index === 0)
             }
             onSelect={onSelect}
             refCallback={(element) => {

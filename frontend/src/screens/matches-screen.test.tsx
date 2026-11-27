@@ -1,7 +1,7 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { MatchesScreen } from "@/screens/matches-screen"
 import { jobListing, jobSearchResponse, matchPair } from "@/test/factories"
@@ -468,15 +468,8 @@ describe("the Discover split view", () => {
     expect(screen.queryByText("No search yet")).not.toBeInTheDocument()
   })
 
-  it("renders the detail panel without ever executing board HTML", async () => {
-    /*
-      Every field in the panel is board-supplied, so the hostile-input pin
-      holds no matter which fields render. WS-42 folds the listing's
-      description out of the panel — the route `/app/matches/:jobId` is the
-      complete record, and the route keeps its own hostile-description pin —
-      so the payload cannot even appear here; but no markup may be created
-      and no handler executed either way.
-    */
+  it("shows board-supplied descriptions literally without creating markup", async () => {
+    const description = '<img src=x onerror="window.__pwned = true">'
     withProfile()
     server.use(
       http.post(`${BASE}/api/jobs/search`, () =>
@@ -484,9 +477,7 @@ describe("the Discover split view", () => {
           jobSearchResponse({
             results: [
               matchPair({
-                job: jobListing({
-                  description: '<img src=x onerror="window.__pwned = true">',
-                }),
+                job: jobListing({ description }),
               }),
             ],
           })
@@ -504,7 +495,7 @@ describe("the Discover split view", () => {
       ).toBeInTheDocument()
     })
     expect(container.querySelector("img")).toBeNull()
-    expect(container.textContent).not.toContain("<img")
+    expect(screen.getByText(description)).toBeInTheDocument()
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()
   })
 
@@ -551,7 +542,19 @@ describe("the Discover split view", () => {
   already carries `?job=` is never overridden: deep-linked and invalid
   selections resolve by their own reads exactly as they always have.
 */
-describe("the default selection (WS-44)", () => {
+describe("the desktop default selection (WS-44)", () => {
+  beforeEach(() => {
+    const matchMedia = window.matchMedia.bind(window)
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: query === "(min-width: 64rem)",
+    }))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   /** A stored search whose ranked slice holds `count` listings. */
   function storedSearch(count: number) {
     return {

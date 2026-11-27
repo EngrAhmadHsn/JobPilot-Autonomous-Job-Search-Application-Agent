@@ -1,0 +1,32 @@
+/* Only the result rows scroll independently. On short windows let the
+   whole list flow rather than leaving one cramped row below the count. */
+@media (min-width: 64rem) and (min-height: 36rem) {
+  .discover-results-rail {
+    --discover-rail-inset: calc(var(--header-height, 68px) + 1rem);
+    position: sticky;
+    inset-block-start: var(--discover-rail-inset);
+    /* Leave the same clearance at the bottom as the desktop shell (pb-12). */
+    max-block-size: calc(100dvh - var(--discover-rail-inset) - 3rem);
+  }
+
+  .discover-results-scroll {
+    min-block-size: 0;
+    overflow-y: auto;
+    /* Keep the focus ring inside the scrollport without indenting the rows. */
+    margin-inline-start: -0.25rem;
+    padding: 0.25rem;
+    scroll-padding-block: 0.25rem;
+  }
+
+  @media (forced-colors: none) {
+    .discover-results-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(
+          in srgb,
+          var(--muted-foreground) 76%,
+          var(--background)
+        )
+        transparent;
+    }
+  }
+}

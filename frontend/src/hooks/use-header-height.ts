@@ -13,28 +13,41 @@ import { useEffect, type RefObject } from "react"
  * and the sticky panels read it. It is a measurement, not a state: nothing
  * re-renders because of it.
  */
-export function useHeaderHeight(ref: RefObject<HTMLElement | null>) {
+export function useHeaderHeight(
+  ref: RefObject<HTMLElement | null>,
+  desktopRef: RefObject<HTMLElement | null>
+) {
   useEffect(() => {
-    const element = ref.current
-    if (!element) return
+    const headers = [ref.current, desktopRef.current].filter(
+      (element) => element !== null
+    )
+    const style = document.documentElement.style
 
     const apply = () => {
-      const height = Math.round(element.getBoundingClientRect().height)
-      document.documentElement.style.setProperty(
-        "--header-height",
-        `${height}px`
+      // The inactive header is display:none, so only the visible one contributes.
+      const height = Math.max(
+        0,
+        ...headers.map((header) => header.getBoundingClientRect().height)
       )
+      if (height > 0) style.setProperty("--header-height", `${height}px`)
+      else style.removeProperty("--header-height")
     }
 
     apply()
 
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", apply)
-      return () => window.removeEventListener("resize", apply)
+      return () => {
+        window.removeEventListener("resize", apply)
+        style.removeProperty("--header-height")
+      }
     }
 
     const observer = new ResizeObserver(apply)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [ref])
+    headers.forEach((header) => observer.observe(header))
+    return () => {
+      observer.disconnect()
+      style.removeProperty("--header-height")
+    }
+  }, [ref, desktopRef])
 }
