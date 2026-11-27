@@ -24,7 +24,7 @@ import type {
   RunSummary,
   StoredTailoring,
   TailorResponse,
-} from "@/lib/api/types"
+} from "../lib/api/types"
 
 export function healthResponse() {
   return { status: "ok", service: "agentic-job-applier", environment: "test" }

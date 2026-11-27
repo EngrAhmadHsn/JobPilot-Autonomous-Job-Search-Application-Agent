@@ -16,8 +16,9 @@ const RESUME = join(HERE, "fixtures", "resume.txt")
  *
  * The test asserts what the console must do, and it asserts the *truth*:
  * the tailoring step passes when the tailored resume is ready **or** when
- * the console says the model is unavailable. A console that hid a provider
- * failure would fail this test, which is the point.
+ * the console reports that the model is unavailable. That branch checks
+ * honest outage handling, not successful tailoring; the isolated Studio
+ * browser spec covers the successful journey independently.
  *
  * WS-22: the "or unavailable" branch needs the time the API itself is
  * allowed to spend. A provider that stalls (rather than refusing) costs the
@@ -73,18 +74,30 @@ test("the operator can go from a resume to a tracked application", async ({
 
   // 3. Tailor for the job the search found --------------------------------
   await firstMatch.click()
-  await page.getByRole("link", { name: "Tailor for this job" }).click()
+  await page.getByRole("link", { name: "Tailor for this role →" }).click()
   await page.getByRole("button", { name: "Tailor this resume" }).click()
 
-  const tailored = page.getByText("The tailored resume is ready")
+  const preview = page.getByRole("tab", { name: /^Preview / })
   const modelUnavailable = page.getByText(
-    "The language model is unavailable; try again later."
+    /^The language model(?: is unavailable| is rate-limiting requests| timed out while generating| did not return a usable tailored draft|'s daily quota)/
   )
-  // The API's own worst case (LLM_TIMEOUT × (1 + LLM_MAX_RETRIES) + backoff)
-  // is ~190 s; wait past it rather than failing on the provider's latency.
-  await expect(tailored.or(modelUnavailable)).toBeVisible({ timeout: 260_000 })
-  if (await tailored.isVisible()) {
-    await expect(page.getByText("Factuality report")).toBeVisible()
+  // A provider refusal is an observable outcome of the live smoke, not
+  // evidence that it generated a draft. The Studio spec requires success.
+  await expect(preview.or(modelUnavailable)).toBeVisible({ timeout: 260_000 })
+  if (await preview.isVisible()) {
+    await preview.click()
+    await expect(
+      page
+        .getByRole("tabpanel", { name: /^Preview / })
+        .getByText("The tailored resume is ready")
+    ).toBeVisible()
+
+    await page.getByRole("tab", { name: "Validation" }).click()
+    await expect(
+      page
+        .getByRole("tabpanel", { name: "Validation" })
+        .getByText("Factuality report", { exact: true })
+    ).toBeVisible()
   }
 
   // 4. Prepare an application against the fake ATS -------------------------
