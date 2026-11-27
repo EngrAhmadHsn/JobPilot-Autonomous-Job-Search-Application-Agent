@@ -16,10 +16,13 @@ deliverable are deterministic, so the whole flow is offline.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from io import BytesIO
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from docx import Document
+from docx.document import Document as DocxDocument
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -37,7 +40,9 @@ from src.db.users import LEGACY_OWNER_ID, UserDB
 from src.main import app
 from src.resume.ats import AtsReport, KeywordCoverage
 from src.resume.pipeline import apply_tailored_edit, revalidate_tailored
+from src.resume.render import tailored_docx_path
 from src.resume.tailor import FactualityReport, TailoredExperience, TailoredProject, TailoredResume
+from src.storage.paths import KIND_TAILORED, user_dir
 from tests.test_tailoring_api import (
     JOB,
     PROFILE,
@@ -64,6 +69,7 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_generate_fn] = lambda: _fake_generate()
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path / "data"))
     monkeypatch.setattr(get_settings(), "tailored_dir", str(tmp_path / "tailored"))
     # The seed helpers write through the same database the app serves.
     app.state.db_factory = factory
@@ -187,6 +193,154 @@ def test_a_cover_letter_edit_persists(api: TestClient) -> None:
     # An edit that changes one section leaves the others exactly as stored.
     assert body["tailored"]["summary"] == created["tailored"]["summary"]
     assert body["tailored"]["experience"] == created["tailored"]["experience"]
+
+
+# -- deliverable identity --------------------------------------------------------
+
+
+def _download(api: TestClient, tailoring_id: str) -> bytes:
+    response = api.get(f"/api/tailored/{tailoring_id}/download")
+    assert response.status_code == 200, response.text
+    return response.content
+
+
+def _document_text(data: bytes) -> str:
+    return "\n".join(p.text for p in Document(BytesIO(data)).paragraphs)
+
+
+def test_two_runs_for_the_same_profile_and_job_have_distinct_downloads(
+    api: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile_id, job_id = _seed(api)
+    first_summary = "AI engineer building agent pipelines."
+    second_summary = "AI engineer building APIs with FastAPI."
+    summaries = iter((first_summary, second_summary))
+    fake = _fake_generate()
+
+    def generate(prompt, schema):
+        result = fake(prompt, schema)
+        if schema is TailoredResume:
+            result.summary = next(summaries)
+        return result
+
+    monkeypatch.setitem(app.dependency_overrides, get_generate_fn, lambda: generate)
+    first = _tailor(api, profile_id, job_id)
+    first_bytes = _download(api, first["tailoring_id"])
+    second = _tailor(api, profile_id, job_id)
+
+    assert first["docx_path"] != second["docx_path"]
+    for record in (first, second):
+        tailoring_id = record["tailoring_id"]
+        assert UUID(tailoring_id).version == 4
+        expected = user_dir(LEGACY_OWNER_ID, KIND_TAILORED) / f"{tailoring_id}.docx"
+        assert Path(record["docx_path"]) == expected.resolve()
+        assert record["job_id"] == job_id
+    assert _download(api, first["tailoring_id"]) == first_bytes
+    second_bytes = _download(api, second["tailoring_id"])
+    assert first_bytes != second_bytes
+    assert first_summary in _document_text(first_bytes)
+    assert second_summary in _document_text(second_bytes)
+
+
+def test_edit_changes_only_the_addressed_drafts_download(api: TestClient) -> None:
+    profile_id, job_id = _seed(api)
+    first = _tailor(api, profile_id, job_id)
+    second = _tailor(api, profile_id, job_id)
+    second_id = second["tailoring_id"]
+    second_bytes = _download(api, second_id)
+    summary = "AI engineer building APIs with FastAPI."
+
+    response = api.put(f"/api/tailored/{first['tailoring_id']}", json={"summary": summary})
+
+    assert response.status_code == 200, response.text
+    assert _download(api, second_id) == second_bytes
+    assert summary in _document_text(_download(api, first["tailoring_id"]))
+    assert response.json()["docx_path"] == first["docx_path"]
+    second_stored = api.get(f"/api/tailored/{second_id}").json()
+    assert second_stored["docx_path"] == second["docx_path"]
+    assert second_stored["edited_at"] is None
+    assert second_stored["tailored"] == second["tailored"]
+
+
+def test_legacy_shared_artifact_is_left_in_place_when_one_row_is_edited(api: TestClient) -> None:
+    profile_id, job_id = _seed(api)
+    directory = user_dir(LEGACY_OWNER_ID, KIND_TAILORED)
+    directory.mkdir(parents=True)
+    legacy_path = tailored_docx_path(profile_id, job_id, directory)
+    document = Document()
+    document.add_paragraph("Legacy bytes shared by both records.")
+    document.save(str(legacy_path))
+    legacy_bytes = legacy_path.read_bytes()
+    with app.state.db_factory() as db:
+        first, second = [
+            build_tailored_row(
+                profile_id=profile_id,
+                job_id=job_id,
+                tailored=_fake_generate()("", TailoredResume),
+                factuality=FactualityReport(passed=True),
+                ats_report=AtsReport(keyword_coverage=KeywordCoverage(), section_completeness={}),
+                docx_path=str(legacy_path.resolve()),
+            )
+            for _ in range(2)
+        ]
+        # The historical IDs were 12 hex characters rather than full UUIDs.
+        first.id = "0123456789ab"
+        second.id = "0123456789cd"
+        db.add_all((first, second))
+        db.commit()
+        first_id, second_id = first.id, second.id
+    assert _download(api, first_id) == _download(api, second_id) == legacy_bytes
+    summary = "AI engineer building APIs with FastAPI."
+
+    response = api.put(f"/api/tailored/{first_id}", json={"summary": summary})
+
+    assert response.status_code == 200, response.text
+    edited_path = directory / f"{first_id}.docx"
+    assert Path(response.json()["docx_path"]) == edited_path.resolve()
+    assert summary in _document_text(_download(api, first_id))
+    assert legacy_path.read_bytes() == _download(api, second_id) == legacy_bytes
+    second_stored = api.get(f"/api/tailored/{second_id}").json()
+    assert Path(second_stored["docx_path"]) == legacy_path.resolve()
+    assert second_stored["edited_at"] is None
+
+
+@pytest.mark.parametrize("failure", ["partial-write", "replace"])
+def test_failed_artifact_publication_preserves_saved_document_and_row(
+    api: TestClient, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    profile_id, job_id = _seed(api)
+    created = _tailor(api, profile_id, job_id)
+    tailoring_id = created["tailoring_id"]
+    before = api.get(f"/api/tailored/{tailoring_id}").json()
+    before_bytes = _download(api, tailoring_id)
+    saved_path = Path(before["docx_path"])
+    directory = saved_path.parent
+    initial_files = set(directory.iterdir())
+
+    if failure == "partial-write":
+
+        def fail_save(self, path):
+            Path(path).write_bytes(b"incomplete document")
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(DocxDocument, "save", fail_save)
+    else:
+        original_replace = Path.replace
+
+        def fail_replace(self, target):
+            if Path(target).resolve() == saved_path:
+                raise PermissionError("simulated destination in use")
+            return original_replace(self, target)
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+
+    http = TestClient(app, raise_server_exceptions=False)
+    response = http.put(f"/api/tailored/{tailoring_id}", json={"summary": "AI engineer."})
+
+    assert response.status_code == 500
+    assert _download(api, tailoring_id) == before_bytes
+    assert api.get(f"/api/tailored/{tailoring_id}").json() == before
+    assert set(directory.iterdir()) == initial_files
 
 
 # -- honesty: violations are reported, never blocked ----------------------------
@@ -336,9 +490,7 @@ def _structured() -> TailoredResume:
         summary="Original summary.",
         highlighted_skills=["python"],
         experience=[
-            TailoredExperience(
-                company="Agentic Labs", title="AI Engineer", bullets=["One", "Two"]
-            ),
+            TailoredExperience(company="Agentic Labs", title="AI Engineer", bullets=["One", "Two"]),
             TailoredExperience(company="Northstar", title="Backend Engineer", bullets=["Three"]),
         ],
         projects=[TailoredProject(name="Job Agent", bullets=["Built"])],

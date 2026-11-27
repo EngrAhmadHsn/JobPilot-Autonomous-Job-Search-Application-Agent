@@ -8,12 +8,13 @@ the pipeline, the persistence and the rendered file are all real.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 import src.db.tailored  # noqa: F401
@@ -23,15 +24,29 @@ from src.db.base import Base
 from src.db.jobs import JobDB
 from src.db.profiles import build_profile_row
 from src.db.session import get_db
+from src.db.tailored import TailoredResumeDB
+from src.db.users import LEGACY_OWNER_ID
 from src.jobs.contracts import JobListing
+from src.llm.errors import (
+    LLMConfigError,
+    LLMCredentialError,
+    LLMDailyQuotaExhausted,
+    LLMError,
+    LLMInvalidOutput,
+    LLMRateLimited,
+    LLMTimeout,
+    LLMUnavailable,
+)
 from src.main import app
+from src.research.engine import JobInsights
 from src.resume.profile import (
     CandidateProfile,
     ExperienceEntry,
     PersonalInformation,
     ProjectEntry,
 )
-from src.resume.tailor import TailoredExperience, TailoredProject
+from src.resume.tailor import TailoredExperience, TailoredProject, TailoredResume
+from src.storage.paths import KIND_TAILORED, user_dir
 
 PROFILE = CandidateProfile(
     personal_information=PersonalInformation(
@@ -136,6 +151,7 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_generate_fn] = lambda: _fake_generate()
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path / "data"))
     monkeypatch.setattr(get_settings(), "tailored_dir", str(tmp_path / "tailored"))
     # The seed helper writes through the same database the app serves.
     app.state.db_factory = factory
@@ -317,6 +333,150 @@ def _write_resume_docx(path: Path) -> Path:
     return path
 
 
+# -- optional research, required draft generation -----------------------------
+
+
+_PROVIDER_DETAIL = "private provider detail"
+_LISTING_SUMMARY = "AI Engineer at Acme AI — 2 required and 1 preferred skills listed."
+
+
+@pytest.mark.parametrize("failure", ["timeout", "invalid-output", "invalid-payload"])
+def test_research_failure_uses_listing_only_insights_for_a_real_draft(
+    api: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failure: str
+) -> None:
+    fake = _fabricating_generate()
+    draft_prompts = []
+
+    def generate(prompt, schema):
+        if schema is JobInsights:
+            if failure == "timeout":
+                raise LLMTimeout(_PROVIDER_DETAIL)
+            if failure == "invalid-output":
+                raise LLMInvalidOutput(_PROVIDER_DETAIL)
+            return {"summary": {"invalid": _PROVIDER_DETAIL}}
+        assert schema is TailoredResume
+        draft_prompts.append(prompt)
+        return fake(prompt, schema)
+
+    monkeypatch.setitem(app.dependency_overrides, get_generate_fn, lambda: generate)
+    profile_id, job_id = _seed(api)
+    with caplog.at_level(logging.DEBUG, logger="src.resume.pipeline"):
+        http = TestClient(app, raise_server_exceptions=False)
+        response = http.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["insights"] == {
+        "summary": _LISTING_SUMMARY,
+        "responsibilities": [],
+        "tech_stack": [],
+        "seniority_signals": [],
+        "culture_flags": [],
+    }
+    assert len(draft_prompts) == 1
+    assert _LISTING_SUMMARY in draft_prompts[0]
+    assert _PROVIDER_DETAIL not in draft_prompts[0] + response.text + caplog.text
+    assert (
+        body["tailored"]["summary"]
+        == "AI engineer with 5 years building agent pipelines in Python."
+    )
+    assert body["factuality"]["passed"] is False
+    assert body["factuality"]["removed_skills"] == ["kubernetes"]
+    assert body["tailored"]["highlighted_skills"] == ["python"]
+    assert Path(body["docx_path"]).is_file()
+    stored = api.get(f"/api/tailored/{body['tailoring_id']}").json()
+    assert stored["insights"] == body["insights"]
+
+
+def _assert_no_draft() -> None:
+    with app.state.db_factory() as db:
+        assert db.scalars(select(TailoredResumeDB)).first() is None
+    assert not list(user_dir(LEGACY_OWNER_ID, KIND_TAILORED).glob("*"))
+
+
+@pytest.mark.parametrize(
+    ("research_fails", "draft_error", "expected_detail"),
+    [
+        pytest.param(False, LLMTimeout, "timed out", id="draft-timeout"),
+        pytest.param(False, LLMInvalidOutput, "usable tailored draft", id="draft-invalid-output"),
+        pytest.param(True, LLMUnavailable, "unavailable", id="draft-fails-after-fallback"),
+    ],
+)
+def test_failed_draft_generation_returns_a_safe_error_and_saves_nothing(
+    api: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    research_fails: bool,
+    draft_error: type[LLMError],
+    expected_detail: str,
+) -> None:
+    fake = _fake_generate()
+    drafted = False
+
+    def generate(prompt, schema):
+        nonlocal drafted
+        if schema is JobInsights:
+            if research_fails:
+                raise LLMTimeout(_PROVIDER_DETAIL)
+            return fake(prompt, schema)
+        drafted = True
+        raise draft_error(_PROVIDER_DETAIL)
+
+    monkeypatch.setitem(app.dependency_overrides, get_generate_fn, lambda: generate)
+    profile_id, job_id = _seed(api)
+    response = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id})
+
+    assert drafted  # including when the optional stage failed
+    assert response.status_code == 503, response.text
+    assert expected_detail in response.json()["detail"]
+    assert _PROVIDER_DETAIL not in response.text
+    _assert_no_draft()
+
+
+@pytest.mark.parametrize(
+    ("failure", "detail", "status", "expected_detail"),
+    [
+        pytest.param(
+            LLMCredentialError,
+            "Update under Profile → Model credentials.",
+            409,
+            "Account → Model credentials",
+            id="byok",
+        ),
+        pytest.param(
+            LLMConfigError, "LLM_API_KEY is not set", 503, "no API key is set", id="missing-key"
+        ),
+        pytest.param(
+            LLMConfigError, "LLM rejected the API key", 503, "rejected", id="rejected-key"
+        ),
+        pytest.param(LLMDailyQuotaExhausted, "429", 503, "daily quota", id="daily-quota"),
+        pytest.param(LLMRateLimited, "429", 503, "rate-limiting", id="rate-limit"),
+        pytest.param(LLMUnavailable, "503", 503, "unavailable", id="provider-unavailable"),
+    ],
+)
+def test_nonrecoverable_research_errors_stop_before_drafting(
+    api: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: type[LLMError],
+    detail: str,
+    status: int,
+    expected_detail: str,
+) -> None:
+    def generate(prompt, schema):
+        assert schema is JobInsights, "This failure must stop before drafting."
+        raise failure(f"{detail} ({_PROVIDER_DETAIL})")
+
+    monkeypatch.setitem(app.dependency_overrides, get_generate_fn, lambda: generate)
+    profile_id, job_id = _seed(api)
+    with caplog.at_level(logging.DEBUG, logger="src.api.routes.tailoring"):
+        response = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id})
+
+    assert response.status_code == status, response.text
+    assert expected_detail in response.json()["detail"]
+    assert _PROVIDER_DETAIL not in response.text + caplog.text
+    _assert_no_draft()
+
+
 def test_the_route_edits_the_callers_own_upload(api: TestClient, tmp_path: Path) -> None:
     from docx import Document
 
@@ -359,6 +519,31 @@ def test_a_text_upload_is_edited_and_comes_back_as_text(api: TestClient, tmp_pat
     text = delivered.read_text(encoding="utf-8")
     assert "Technical Skills" in text
     assert "- Built agent pipelines with LangGraph" in text
+
+
+def test_an_unreadable_text_upload_falls_back_to_a_real_docx(
+    api: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from docx import Document
+
+    profile_id, job_id, upload = _seed_with_upload(api, tmp_path, suffix=".txt")
+    original_open = Path.open
+
+    def fail_to_read_upload(self, *args, **kwargs):
+        if self == upload:
+            raise OSError("simulated read failure")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_to_read_upload)
+    response = api.post("/api/tailor", json={"profile_id": profile_id, "job_id": job_id})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["render"]["mode"] == "regenerated"
+    assert body["render"]["source_format"] == ".txt"
+    delivered = Path(body["docx_path"])
+    assert delivered.name == f"{body['tailoring_id']}.docx"
+    assert "Professional Summary" in [p.text for p in Document(str(delivered)).paragraphs]
 
 
 def test_the_render_report_survives_the_round_trip(api: TestClient, tmp_path: Path) -> None:

@@ -90,8 +90,8 @@ class StoredTailoring(BaseModel):
 
 
 def generate_tailoring_id() -> str:
-    """Short opaque id used as the primary key of a tailoring record."""
-    return uuid.uuid4().hex[:12]
+    """Allocate an opaque UUID for a tailoring row and its deliverable."""
+    return str(uuid.uuid4())
 
 
 def build_tailored_row(
@@ -106,10 +106,11 @@ def build_tailored_row(
     style: StyleReport | None = None,
     insights: JobInsights | None = None,
     render: RenderReport | None = None,
+    tailoring_id: str | None = None,
 ) -> TailoredResumeDB:
-    """Map a tailoring result onto a new row (the caller owns the session)."""
+    """Map a result onto a new row, using its already allocated ID when supplied."""
     return TailoredResumeDB(
-        id=generate_tailoring_id(),
+        id=tailoring_id if tailoring_id is not None else generate_tailoring_id(),
         owner_id=owner_id,
         profile_id=profile_id,
         job_id=job_id,

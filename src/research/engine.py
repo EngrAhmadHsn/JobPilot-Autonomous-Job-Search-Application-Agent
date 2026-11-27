@@ -19,11 +19,12 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from src.core.text import content_tokens, normalize, tokenize
 from src.jobs.contracts import JobListing
 from src.llm.credentials import resolve_client
+from src.llm.errors import LLMInvalidOutput
 from src.security.injection import fence_rules, fence_untrusted, is_injection
 
 logger = logging.getLogger(__name__)
@@ -167,13 +168,23 @@ def _filter_items(
 
 
 def _fallback_summary(job: JobListing) -> str:
-    """Deterministic, listing-derived summary used when no sentence grounds."""
-    required = len(job.required_skills or [])
-    preferred = len(job.preferred_skills or [])
-    parts = [f"{job.title} at {job.company}"]
+    """Summarize listing fields, without carrying instruction-like metadata."""
+    role = " at ".join(
+        value
+        for value in (job.title.strip(), job.company.strip())
+        if value and not _is_injection(value)
+    )
+    parts = [role] if role and not _is_injection(role) else []
+    required = len(job.required_skills)
+    preferred = len(job.preferred_skills)
     if required or preferred:
         parts.append(f"{required} required and {preferred} preferred skills listed")
-    return " — ".join(parts) + "."
+    return " — ".join(parts) + "." if parts else "No listing summary available."
+
+
+def listing_only_insights(job: JobListing) -> JobInsights:
+    """Keep a listing-derived summary without claiming any facts were extracted."""
+    return JobInsights(summary=_fallback_summary(job))
 
 
 def _ground_summary(summary: str, listing_tokens: set[str], job: JobListing) -> str:
@@ -247,9 +258,14 @@ def research_job(job: JobListing, *, generate: GenerateFn | None = None) -> JobI
     """
     generate_fn = generate if generate is not None else _default_generate
     listing_tokens = set(tokenize(_listing_text(job)))
-    raw = generate_fn(_build_research_prompt(job), JobInsights)
-
-    insights = raw if isinstance(raw, JobInsights) else JobInsights.model_validate(raw)
+    prompt = _build_research_prompt(job)
+    try:
+        raw = generate_fn(prompt, JobInsights)
+        insights = raw if isinstance(raw, JobInsights) else JobInsights.model_validate(raw)
+    except ValidationError as exc:
+        # An injected generator may return a raw payload rather than raising
+        # the provider client's typed error. Do not expose validation input.
+        raise LLMInvalidOutput("Research output did not match JobInsights") from exc
 
     return JobInsights(
         responsibilities=_filter_items(

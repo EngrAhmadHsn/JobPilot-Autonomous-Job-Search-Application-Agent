@@ -24,7 +24,8 @@ from pydantic import BaseModel, Field
 
 from src.config.settings import ensure_dir, get_settings
 from src.jobs.contracts import JobListing
-from src.research.engine import JobInsights, research_job
+from src.llm.errors import LLMInvalidOutput, LLMTimeout
+from src.research.engine import JobInsights, listing_only_insights, research_job
 from src.resume.ats import AtsReport, analyze_ats
 from src.resume.edit import RenderReport, deliver_tailored_resume
 from src.resume.profile import CandidateProfile
@@ -77,8 +78,12 @@ def run_tailoring(
     profile_id: str = "profile",
     job_id: str | None = None,
     upload_path: str | Path | None = None,
+    artifact_id: str | None = None,
 ) -> TailoringOutcome:
     """Tailor a resume for one job and produce the deliverable.
+
+    Research may fall back to the stored listing after a timeout or invalid
+    output. A model-generated, fact-checked draft is still required.
 
     Args:
         profile: The candidate profile to tailor from.
@@ -87,13 +92,15 @@ def run_tailoring(
             (prompt, schema) -> schema instance; defaults to the configured LLM.
         out_dir: Where the deliverable is written; defaults to the configured
             ``tailored`` directory.
-        profile_id: Id used in the file name.
+        profile_id: Id used for logging and in the default filename.
         job_id: Id of the target job; defaults to ``job.id``.
         upload_path: WS-31 — the résumé the profile was parsed from. When it is
             still on disk the deliverable is the candidate's **own document
             edited in place** (its fonts, section order and extra sections
             preserved); otherwise a fresh document is rendered and the
             outcome's ``render`` report says so.
+        artifact_id: Optional tailoring record id for a draft-specific filename.
+            Without it, keep the existing profile/job naming for direct callers.
 
     Returns:
         TailoringOutcome with the tailored content, the factuality report, the
@@ -103,7 +110,13 @@ def run_tailoring(
     target_id = job_id or job.id
     directory = Path(out_dir) if out_dir is not None else default_tailored_dir()
 
-    insights = research_job(job, generate=generate)
+    try:
+        insights = research_job(job, generate=generate)
+    except (LLMTimeout, LLMInvalidOutput) as exc:
+        # The client has already applied its retry/repair policy. Research
+        # enriches the listing; it is not a substitute for the required draft.
+        logger.warning("Using listing-only insights after research failed (%s)", type(exc).__name__)
+        insights = listing_only_insights(job)
     result = tailor_resume(profile, job, generate=generate, insights=insights)
 
     # WS-31: the deliverable is the candidate's own file with the tailored
@@ -117,6 +130,7 @@ def run_tailoring(
         out_dir=directory,
         profile_id=profile_id,
         job_id=target_id,
+        artifact_id=artifact_id,
     )
 
     report = analyze_ats(result.tailored, profile, job, docx_path=path)
@@ -285,9 +299,7 @@ def revalidate_tailored(
     years_values = [e.years for e in profile.experience if isinstance(e.years, int)]
     max_years: int | None = max(years_values) if years_values else None
 
-    removed_skills = [
-        s for s in tailored.highlighted_skills if not _skill_known(s, profile_skills)
-    ]
+    removed_skills = [s for s in tailored.highlighted_skills if not _skill_known(s, profile_skills)]
     kept_skills = [s for s in tailored.highlighted_skills if _skill_known(s, profile_skills)]
 
     kept_experience: list[TailoredExperience] = []
@@ -312,7 +324,9 @@ def revalidate_tailored(
             for bullet in entry.bullets
         ]
         kept_experience.append(
-            TailoredExperience(company=entry.company, title=title, bullets=[b for b in bullets if b])
+            TailoredExperience(
+                company=entry.company, title=title, bullets=[b for b in bullets if b]
+            )
         )
 
     kept_projects: list[TailoredProject] = []

@@ -33,14 +33,25 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from src.api.scope import UserScope, current_scope
-from src.config.settings import ensure_dir
 from src.db import access
 from src.db.jobs import JobDB, listing_from_row
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
-from src.db.tailored import StoredTailoring, build_tailored_row, stored_from_row
-from src.llm.client import LLMError
-from src.llm.errors import LLMConfigError, LLMCredentialError
+from src.db.tailored import (
+    StoredTailoring,
+    build_tailored_row,
+    generate_tailoring_id,
+    stored_from_row,
+)
+from src.llm.errors import (
+    LLMConfigError,
+    LLMCredentialError,
+    LLMDailyQuotaExhausted,
+    LLMError,
+    LLMInvalidOutput,
+    LLMRateLimited,
+    LLMTimeout,
+)
 from src.research.engine import JobInsights
 from src.resume.ats import AtsReport, analyze_ats
 from src.resume.edit import RenderReport, deliver_tailored_resume
@@ -181,63 +192,69 @@ def tailor_resume_endpoint(
     # SEC-13 audit hook (ids only, never the resume text).
     logger.info("Tailoring requested", extra={"profile_id": req.profile_id, "job_id": req.job_id})
 
+    # Use the same identity for the new row and its file, not the job id:
+    # separate runs for the same profile/job must not share a deliverable.
+    tailoring_id = generate_tailoring_id()
     try:
         outcome = run_tailoring(
             profile,
             job,
             generate=generate,
-            # WS-14 · Phase B: the rendered resume belongs to the caller,
-            # so it is written into the caller's own directory.
-            out_dir=ensure_dir(user_dir(scope.user_id, KIND_TAILORED)),
+            out_dir=user_dir(scope.user_id, KIND_TAILORED),
             profile_id=req.profile_id,
             job_id=req.job_id,
-            # WS-31: the deliverable is the caller's own uploaded résumé with
-            # the tailored wording edited into it, so its formatting survives.
-            # The row's path is the stored upload; a row whose file is gone
-            # falls back to a fresh render, reported in ``outcome.render``.
+            artifact_id=tailoring_id,
             upload_path=profile_row.file_path,
         )
     except LLMCredentialError as exc:
-        # WS-22: the caller's own credential is missing or rejected. The
-        # message is ours and actionable ("register a key under Profile →
-        # Model credentials"), so it is shown verbatim — the one
-        # configuration error the caller can fix from the console.
         logger.warning("Tailoring refused: the caller's model credential is unusable")
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Your model key is missing or unusable. Add or update it under "
+                "Account → Model credentials."
+            ),
+        ) from exc
     except LLMConfigError as exc:
-        # WS-27: the model is misconfigured — no provider selected, or the
-        # deployment's key is missing or was rejected. This is not an outage
-        # and waiting will not fix it, so it must not be reported as one.
-        #
-        # "Not set" and "rejected" are separated because they are different
-        # repairs: one is a blank or absent setting, the other is a key that
-        # exists and the provider refuses. The provider's own body (which
-        # carries the 403 text) stays in the log, where the operator who owns
-        # the key can read it, and never reaches the caller.
+        # Distinguish repairs without relaying or logging the provider body.
         message = str(exc)
-        if "not set" in message:
+        if message.startswith("LLM_API_KEY is not set"):
             detail = (
                 "The language model is not configured: no API key is set. "
                 "An operator needs to set LLM_API_KEY (and LLM_PROVIDER). "
                 "Retrying will not help."
             )
-        else:
+        elif message.startswith("LLM rejected the API key"):
             detail = (
                 "The language model is not configured correctly: the provider "
                 "rejected the deployment's API key. An operator needs to check "
                 "LLM_API_KEY and LLM_PROVIDER. Retrying will not help."
             )
+        else:
+            detail = (
+                "The language model is not configured correctly. An operator needs "
+                "to check the deployment's model settings. Retrying will not help."
+            )
         logger.warning("Tailoring refused: the model is misconfigured (%s)", type(exc).__name__)
-        logger.debug("Tailoring configuration detail: %s", message)
         raise HTTPException(status_code=503, detail=detail) from exc
     except LLMError as exc:
-        # The message never carries request content or the API key.
-        logger.warning("Tailoring failed: LLM unavailable (%s)", type(exc).__name__)
-        raise HTTPException(
-            status_code=503, detail="The language model is unavailable; try again later."
-        ) from exc
+        if isinstance(exc, LLMDailyQuotaExhausted):
+            detail = (
+                "The language model's daily quota is exhausted; try again after the quota resets."
+            )
+        elif isinstance(exc, LLMRateLimited):
+            detail = "The language model is rate-limiting requests; try again later."
+        elif isinstance(exc, LLMTimeout):
+            detail = "The language model timed out while generating the tailored draft; try again."
+        elif isinstance(exc, LLMInvalidOutput):
+            detail = "The language model did not return a usable tailored draft; try again."
+        else:
+            detail = "The language model is unavailable; try again later."
+        logger.warning("Tailoring failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail=detail) from exc
 
     row = build_tailored_row(
+        tailoring_id=tailoring_id,
         owner_id=scope.user_id,
         profile_id=req.profile_id,
         job_id=req.job_id,
@@ -318,8 +335,8 @@ def edit_tailored(
     The edit is treated exactly like a generation, minus the model: the
     edited sections are validated against the stored profile (the pipeline's
     own validator — no new claims), the ATS report is re-run, and the
-    deliverable is re-produced through the WS-31 in-place path onto the same
-    file. Everything is persisted on the same row and stamped ``edited_at``.
+    deliverable is re-produced at the addressed draft's own path. The same
+    row is updated and stamped ``edited_at``.
 
     A factuality violation is **not** an error: the stripped content plus the
     report is the save's result, and the response answers 200 with it. A
@@ -371,18 +388,16 @@ def edit_tailored(
 
     tailored, factuality = revalidate_tailored(edited, profile)
 
-    # The deliverable is re-produced through the same path the run used: the
-    # caller's own uploaded résumé edited in place where that is possible,
-    # with the rendered fallback reported. The file name derives from
-    # (profile, job), so the edit overwrites the previous deliverable and the
-    # download link keeps working unchanged.
+    # Never write through the stored path: a legacy file may be shared with
+    # another row. Render from the original upload into this draft's own file.
     path, render = deliver_tailored_resume(
         tailored,
         profile,
         upload_path=profile_row.file_path,
-        out_dir=ensure_dir(user_dir(scope.user_id, KIND_TAILORED)),
+        out_dir=user_dir(scope.user_id, KIND_TAILORED),
         profile_id=row.profile_id,
         job_id=row.job_id,
+        artifact_id=row.id,
     )
     ats_report = analyze_ats(tailored, profile, job, docx_path=path)
     style = analyze_tailored(tailored)

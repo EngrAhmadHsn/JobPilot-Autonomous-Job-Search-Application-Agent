@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -717,85 +718,74 @@ def deliver_tailored_resume(
     out_dir: Path,
     profile_id: str,
     job_id: str,
+    artifact_id: str | None = None,
 ) -> tuple[Path, RenderReport]:
     """Produce the deliverable, editing the candidate's own file when possible.
 
-    This is the one function the pipeline calls. It tries the in-place editor
-    first and falls back to the from-scratch renderer, **reporting** which
-    happened and why:
+    If the upload is missing, unreadable or unsupported, render a fresh DOCX
+    and report why. Drafts saved by the API have their own filename; callers
+    without an artifact id retain the profile/job naming convention.
 
-    - the upload is missing → nothing to edit;
-    - the file cannot be opened → nothing to trust;
-    - an unsupported extension → no editor for it.
-
-    In each case the delivered file is a correctly rendered résumé — the fallback
-    is not a degraded mode, it is the WS-05 renderer — but the report says
-    ``regenerated``, so a rewrite is never presented to the candidate as an edit
-    of their own document.
-
-    Args:
-        tailored: The validated tailored content.
-        profile: The candidate profile the content came from.
-        upload_path: The résumé the profile was parsed from, if it is still there.
-        out_dir: The directory the deliverable is written to.
-        profile_id, job_id: Used for the file name.
-
-    Returns:
-        The written path and the report describing how it was produced.
+    Stage in the destination directory and replace only after the renderer has
+    finished. A failed render or replace leaves the previous file untouched.
     """
-    source = Path(upload_path) if upload_path else None
-    suffix = source.suffix.lower() if source is not None else ""
-    target = tailored_docx_path(profile_id, job_id, out_dir)
+    directory = Path(out_dir)
+    if artifact_id is None:
+        target = tailored_docx_path(profile_id, job_id, directory)
+    else:
+        # Both UUIDs and historical short ids fit; reject unsafe components
+        # rather than sanitizing two distinct ids into the same filename.
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", artifact_id):
+            raise ValueError("The tailoring artifact id is not a usable file name")
+        target = directory / f"{artifact_id}.docx"
 
+    source = Path(upload_path) if upload_path else None
+    directory.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=directory) as staging:
+        rendered, report = _render_deliverable(
+            tailored, profile, source, Path(staging) / target.name
+        )
+        target = target.with_suffix(rendered.suffix)
+        # Same filesystem, no writes through the destination while it is being
+        # downloaded. Replacing an open file can fail (e.g. on Windows); let
+        # it fail rather than pretending another render format would help.
+        rendered.replace(target)
+    return target, report
+
+
+def _render_deliverable(
+    tailored: TailoredResume,
+    profile: CandidateProfile,
+    source: Path | None,
+    docx_path: Path,
+) -> tuple[Path, RenderReport]:
+    """Write to staging, keeping text formats only when their in-place edit works."""
     if source is None or not source.is_file():
-        report = RenderReport(mode=MODE_REGENERATED, source_format="none")
+        report = RenderReport()
         report.note(
             "The uploaded résumé is not available, so a freshly formatted "
             "document was generated instead of editing yours"
         )
-        _render_new(tailored, profile, target)
-        return target, report
-
-    # The deliverable keeps the candidate's format: a text résumé comes back as
-    # text, which is what "edit in place" means for that file.
-    if suffix in (".txt", ".md"):
-        target = target.with_suffix(suffix)
-        try:
-            report = edit_text_in_place(tailored, profile, source, target)
-        except Exception as exc:  # noqa: BLE001 - an uneditable file is reported
-            logger.warning("In-place text edit failed: %s", exc)
-            report = RenderReport(mode=MODE_REGENERATED, source_format=suffix)
+    else:
+        suffix = source.suffix.lower()
+        report = RenderReport(source_format=suffix or "none")
+        if suffix in (".docx", ".txt", ".md"):
+            edit = edit_docx_in_place if suffix == ".docx" else edit_text_in_place
+            edited_path = docx_path.with_suffix(suffix)
+            try:
+                return edited_path, edit(tailored, profile, source, edited_path)
+            except Exception as exc:  # noqa: BLE001 - an uneditable file is reported
+                reason = type(exc).__name__
+                logger.warning("In-place résumé edit failed (%s)", reason)
+                report.note(
+                    "Your résumé could not be edited in place, so a freshly "
+                    "formatted document was generated instead"
+                )
+                report.skipped.append(f"the original file could not be edited: {reason}")
+        else:
             report.note(
-                "Your résumé could not be edited in place, so a freshly "
-                "formatted document was generated instead"
+                f"A {suffix or 'unknown'}-format résumé cannot be edited in place, so a "
+                "freshly formatted document was generated instead"
             )
-            report.skipped.append(f"the original file could not be edited: {type(exc).__name__}")
-            _render_new(tailored, profile, target)
-        return target, report
 
-    if suffix == ".docx":
-        try:
-            report = edit_docx_in_place(tailored, profile, source, target)
-        except Exception as exc:  # noqa: BLE001 - an uneditable file is reported
-            logger.warning("In-place DOCX edit failed: %s", exc)
-            report = RenderReport(mode=MODE_REGENERATED, source_format=suffix)
-            report.note(
-                "Your résumé could not be edited in place, so a freshly "
-                "formatted document was generated instead"
-            )
-            report.skipped.append(f"the original file could not be edited: {type(exc).__name__}")
-            _render_new(tailored, profile, target)
-        return target, report
-
-    report = RenderReport(mode=MODE_REGENERATED, source_format=suffix or "none")
-    report.note(
-        f"A {suffix or 'unknown'}-format résumé cannot be edited in place, so a "
-        "freshly formatted document was generated instead"
-    )
-    _render_new(tailored, profile, target)
-    return target, report
-
-
-def _render_new(tailored: TailoredResume, profile: CandidateProfile, target: Path) -> None:
-    """The WS-05 renderer, used as the reported fallback."""
-    render_tailored_docx(tailored, profile, target)
+    return render_tailored_docx(tailored, profile, docx_path), report
