@@ -57,6 +57,16 @@ const JobDetailScreen = lazy(() =>
     default: module.JobDetailScreen,
   }))
 )
+const PostingApplicationScreen = lazy(() =>
+  import("@/screens/posting-application-screen").then((module) => ({
+    default: module.PostingApplicationScreen,
+  }))
+)
+const PostingReviewScreen = lazy(() =>
+  import("@/screens/posting/posting-review-screen").then((module) => ({
+    default: module.PostingReviewScreen,
+  }))
+)
 const TailorIndexScreen = lazy(() =>
   import("@/screens/tailor-screen").then((module) => ({
     default: module.TailorIndexScreen,
@@ -159,6 +169,10 @@ export const routes: RouteObject[] = [
       { path: "account", element: frame(<AccountScreen />) },
       { path: "matches", element: frame(<MatchesScreen />) },
       { path: "matches/:jobId", element: frame(<JobDetailScreen />) },
+      {
+        path: "matches/:jobId/prepare",
+        element: frame(<PostingApplicationScreen />),
+      },
       { path: "tailor", element: frame(<TailorIndexScreen />) },
       { path: "tailor/:jobId", element: frame(<TailorJobScreen />) },
       { path: "approvals", element: frame(<ApprovalsScreen />) },
@@ -166,6 +180,10 @@ export const routes: RouteObject[] = [
       {
         path: "tracker/:applicationId",
         element: frame(<TrackerDetailScreen />),
+      },
+      {
+        path: "tracker/:applicationId/review",
+        element: frame(<PostingReviewScreen />),
       },
       {
         path: "tracker/:applicationId/questions",

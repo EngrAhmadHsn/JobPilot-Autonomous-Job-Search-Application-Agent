@@ -279,9 +279,9 @@ export function OverviewScreen() {
     attentionItems.push({
       key: "questions",
       title: `${gapCount} employer question${gapCount === 1 ? "" : "s"} the profile does not answer`,
-      body: "Unlock approval. No answer is inferred.",
-      to: "/app/profile",
-      label: "Open Profile",
+      body: "Review the application details you can confirm in Profile.",
+      to: "/app/profile?tab=answers",
+      label: "Open application answers",
     })
   }
 
@@ -471,7 +471,7 @@ export function OverviewScreen() {
           firstAwaiting.company_name ? ` · ${firstAwaiting.company_name}` : ""
         }`,
         consequence:
-          "Review the tailored résumé and the employer's answers. Nothing leaves JobPilot without your decision.",
+          "Review the selected résumé and employer answers before taking the next step.",
         to: "/app/approvals",
         label: "Review application →",
         chip:
@@ -498,7 +498,7 @@ export function OverviewScreen() {
             subject: `${gapCount} employer question${gapCount === 1 ? "" : "s"} appear${gapCount === 1 ? "s" : ""} most often in this corpus.`,
             consequence:
               "A missing answer stops form filling instead of triggering a guess, so answering them is what unlocks approval.",
-            to: "/app/profile",
+            to: "/app/profile?tab=answers",
             label: "Answer questions →",
             chip: `${gapCount} to answer`,
           }

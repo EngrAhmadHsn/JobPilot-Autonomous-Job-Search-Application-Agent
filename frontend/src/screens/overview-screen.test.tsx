@@ -231,10 +231,9 @@ describe("the Home dashboard", () => {
         /3 employer questions the profile does not answer/
       )
     ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /Open Profile/ })).toHaveAttribute(
-      "href",
-      "/app/profile"
-    )
+    expect(
+      screen.getByRole("link", { name: /Open application answers/ })
+    ).toHaveAttribute("href", "/app/profile?tab=answers")
   })
 
   it("never claims all-clear while an attention source is unreadable", async () => {

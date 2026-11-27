@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { api } from "@/lib/api/endpoints"
+import { preparePath } from "@/lib/api/posting-application"
 import { formatDateTime, formatList } from "@/lib/format"
 import { useCurrentProfileId } from "@/lib/profile"
 import { isSafeLinkUrl } from "@/lib/safe-url"
@@ -21,6 +22,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 
 import { MatchReasoning, fitVerdict } from "@/screens/discover/match-reasoning"
 import { matchFromHistoryEntry } from "@/screens/discover/match-history"
+import { PostingQuestionsPreview } from "@/screens/posting/questions-preview"
 
 import type { JobListing, JobMatchResult } from "@/lib/api/types"
 
@@ -320,7 +322,11 @@ export function JobDetailScreen() {
               : "Back to Discover"}
           </Link>
           {match ? <OverallScore value={match.overall_score} /> : null}
-          <LinkButton to={`/app/tailor/${encodeURIComponent(listing.id)}`}>
+          <LinkButton to={preparePath(listing.id)}>Prepare application</LinkButton>
+          <LinkButton
+            to={`/app/tailor/${encodeURIComponent(listing.id)}`}
+            variant="outline"
+          >
             Tailor for this role →
           </LinkButton>
           {/*
@@ -339,6 +345,8 @@ export function JobDetailScreen() {
           ) : null}
         </div>
       </header>
+
+      <PostingQuestionsPreview jobId={listing.id} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
         <div className="min-w-0 space-y-6">

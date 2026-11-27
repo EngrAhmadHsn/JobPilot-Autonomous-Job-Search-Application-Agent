@@ -9,6 +9,7 @@ import {
 } from "@animate-ui/react/utils/motion"
 
 import { ApplicationAnswersPanel } from "@/components/profile/application-profile-panel"
+import { EmployerAnswersPanel } from "@/components/profile/employer-answers-panel"
 import { WorkPreferencesCard } from "@/components/profile/work-preferences-card"
 import { ProfileView } from "@/components/profile/profile-view"
 import { ErrorNotice } from "@/components/common/error-notice"
@@ -250,6 +251,22 @@ export function ProfileScreen() {
         />
       ) : null}
 
+      {!storedProfile.data && !loadingProfile ? (
+        <div className="space-y-4">
+          <Button
+            variant="outline"
+            aria-expanded={tab === "answers"}
+            aria-controls="profile-account-answers"
+            onClick={() => setTab(tab === "answers" ? "documents" : "answers")}
+          >
+            Application answers
+          </Button>
+          <div id="profile-account-answers" hidden={tab !== "answers"}>
+            {tab === "answers" ? <EmployerAnswersPanel /> : null}
+          </div>
+        </div>
+      ) : null}
+
       {storedProfile.data ? (
         <motion.div
           initial={
@@ -383,9 +400,10 @@ export function ProfileScreen() {
                                 </span>
                               </a>
                               {document.kind === "tailored" &&
-                              document.job_id ? (
+                              document.job_id &&
+                              document.id.startsWith("tailored-") ? (
                                 <LinkButton
-                                  to={`/app/tailor/${encodeURIComponent(document.job_id)}`}
+                                  to={`/app/tailor/${encodeURIComponent(document.job_id)}?draft=${encodeURIComponent(document.id.slice("tailored-".length))}`}
                                   variant="ghost"
                                   size="sm"
                                 >
@@ -553,9 +571,12 @@ export function ProfileScreen() {
             </TabsContent>
 
             <TabsContent value="answers">
-              <ApplicationAnswersPanel
-                profileId={storedProfile.data.profile_id}
-              />
+              <div className="space-y-6">
+                <ApplicationAnswersPanel
+                  profileId={storedProfile.data.profile_id}
+                />
+                <EmployerAnswersPanel />
+              </div>
             </TabsContent>
 
             <TabsContent value="preferences">

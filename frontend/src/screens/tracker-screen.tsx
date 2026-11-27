@@ -16,6 +16,7 @@ import { StatusExplainer } from "@/components/ui/status-badge"
 import { apiUrl } from "@/lib/api/client"
 import { api } from "@/lib/api/endpoints"
 import { formatDateTime, formatTimeOfDay, pluralize } from "@/lib/format"
+import { preparePath } from "@/lib/api/posting-application"
 import { asString } from "@/lib/safe"
 import { describeStatus, type StatusTone } from "@/lib/status"
 import type { ApplicationDetail } from "@/lib/api/types"
@@ -212,11 +213,14 @@ export function TrackerDetailScreen() {
       : `on ${formatDateTime(iso)}`
   }
 
-  const approvalValue = approvalEvent
-    ? `Recorded by you ${decisionStamp(approvalEvent.recorded_at)}`
-    : declinedEvent
-      ? `Declined by you ${decisionStamp(declinedEvent.recorded_at)}`
-      : "Waiting for your decision"
+  const manualHandoff = record.adapter_name === "manual-handoff"
+  const approvalValue = manualHandoff
+    ? "No approval run · finish on the employer site"
+    : approvalEvent
+      ? `Recorded by you ${decisionStamp(approvalEvent.recorded_at)}`
+      : declinedEvent
+        ? `Declined by you ${decisionStamp(declinedEvent.recorded_at)}`
+        : "Waiting for your decision"
 
   const executed = Boolean(record.submitted_at)
   const executionValue = executed
@@ -246,15 +250,11 @@ export function TrackerDetailScreen() {
     { label: "Evidence", value: evidenceValue },
   ]
 
-  /*
-    The intro line names the adapter honestly (the design's sentence,
-    "Real-board assist · final submission stays with you.", is written for
-    the real-board path — a fake-ATS run is the local playground and says
-    so, in the same slot).
-  */
   const introLine = isLocalTestBoard(record.adapter_name)
     ? "Fake ATS playground · the flow runs end to end against the local test board."
-    : "Real-board assist · final submission stays with you."
+    : manualHandoff
+      ? "Saved review · complete and submit the form on the employer site."
+      : "Real posting · final submission stays with you."
 
   /*
     The record card's fields: the ids and paths this console holds for
@@ -359,22 +359,27 @@ export function TrackerDetailScreen() {
           this link could only point at the console-wide Review screen,
           which is not where *this* application's questions live.
         */}
-        <LinkButton
-          variant="outline"
-          to={`/app/tracker/${applicationId}/questions`}
-        >
-          Questions →
-        </LinkButton>
-        {/*
-          WS-45: an application still waiting for the human's decision is
-          the one state where the packet itself can still be authorized.
-        */}
-        {record.status === "awaiting_approval" ||
-        record.status === "prepared" ? (
-          <LinkButton variant="outline" to="/app/approvals">
-            Review &amp; authorize →
-          </LinkButton>
-        ) : null}
+        {manualHandoff ? (
+          <>
+            <LinkButton to={`/app/tracker/${applicationId}/review`}>
+              Open saved review
+            </LinkButton>
+            <LinkButton variant="outline" to={`${preparePath(record.job_id)}#employer-questions`}>
+              Edit employer questions
+            </LinkButton>
+          </>
+        ) : (
+          <>
+            <LinkButton variant="outline" to={`/app/tracker/${applicationId}/questions`}>
+              Questions →
+            </LinkButton>
+            {record.status === "awaiting_approval" || record.status === "prepared" ? (
+              <LinkButton variant="outline" to="/app/approvals">
+                Review &amp; authorize →
+              </LinkButton>
+            ) : null}
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
@@ -507,7 +512,7 @@ export function TrackerDetailScreen() {
             </CardContent>
           </Card>
 
-          <OutcomeEditor application={record} />
+          {manualHandoff ? null : <OutcomeEditor application={record} />}
 
           {/*
             The record card: the ids, URLs and document links this console

@@ -135,6 +135,12 @@ export const server = setupServer(
     })
   ),
   http.get(`${BASE}/api/jobs/:jobId`, () => HttpResponse.json(jobDetail())),
+  http.get(`${BASE}/api/jobs/:jobId/application-form`, () =>
+    HttpResponse.json({ state: "unsupported", questions: [] })
+  ),
+  http.get(`${BASE}/api/profiles/employer-answers`, () =>
+    HttpResponse.json({ items: [], next_offset: null })
+  ),
   http.get(`${BASE}/api/profiles/:profileId/matches`, () =>
     HttpResponse.json(matchesHistory())
   ),

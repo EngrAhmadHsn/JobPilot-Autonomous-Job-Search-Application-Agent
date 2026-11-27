@@ -68,6 +68,23 @@ function boardPage(
 */
 const LIST_ROUTE = "/?view=list"
 
+describe("a real posting review in Tracker", () => {
+  it("returns directly to the saved packet and the posting's question editor", async () => {
+    server.use(http.get(`${BASE}/api/applications/:id`, () => HttpResponse.json({
+      ...applicationDetail(), id: "real-1", job_id: "greenhouse:1",
+      adapter_name: "manual-handoff", status: "prepared", submitted_at: null, verified_at: null,
+    })))
+    renderApp({ route: "/app/tracker/real-1" })
+    expect(await screen.findByRole("link", { name: /open saved review/i })).toHaveAttribute(
+      "href", "/app/tracker/real-1/review"
+    )
+    expect(screen.getByRole("link", { name: /edit employer questions/i })).toHaveAttribute(
+      "href", "/app/matches/greenhouse%3A1/prepare#employer-questions"
+    )
+    expect(screen.queryByRole("link", { name: /review & authorize/i })).not.toBeInTheDocument()
+  })
+})
+
 describe("the tracker list", () => {
   it("lists the tracked applications", async () => {
     renderScreen(<TrackerScreen />, { route: LIST_ROUTE })

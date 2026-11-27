@@ -232,6 +232,9 @@ describe("the design's tabbed profile (WS-42, from WS-40)", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("ORIGINAL")).toBeInTheDocument()
     expect(screen.getByText("TAILORED")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Open in Studio" })
+    ).toHaveAttribute("href", "/app/tailor/greenhouse%3A1?draft=tailoring-1")
     expect(screen.getAllByText("In use").length).toBeGreaterThan(0)
 
     // The source-facts reveal opens onto the parsed résumé.
