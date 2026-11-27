@@ -308,6 +308,11 @@ def update_application_status(
     if row is None:
         raise HTTPException(status_code=404, detail="Application not found")
 
+    if row.adapter_name == "manual-handoff":
+        if row.owner_id != scope.user_id:
+            raise HTTPException(404, "Application not found")
+        raise HTTPException(409, "This review has no verified submission or outcome to update.")
+
     try:
         target = ApplicationStatus(req.status)
     except ValueError as exc:

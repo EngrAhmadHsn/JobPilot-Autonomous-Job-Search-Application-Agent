@@ -20,18 +20,29 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
+from src.api.posting_assist import FillRefused, assist_available, authorize_local_fill
+from src.api.posting_review import (
+    PostingReview,
+    build_posting_review,
+    document_is_current,
+    review_answers_are_current,
+    select_posting_document,
+)
+from src.api.routes.posting_applications import require_stored_job
 from src.api.scope import UserScope, current_scope
 from src.applications.contracts import (
     ApplicationRequest,
     PreparedApplication,
 )
 from src.applications.form import facts_from_profile
+from src.applications.posting_form import PostingForm
 from src.applications.tracking import (
     AGENT_ACTOR,
     EVENT_APPROVAL_GRANTED,
@@ -43,12 +54,14 @@ from src.applications.tracking import (
     transition,
 )
 from src.db import access
+from src.db.applications import build_application_row
 from src.db.approval import (
     ApprovalRequestDB,
     ApprovalStatus,
     build_approval_row,
     profile_version_for,
 )
+from src.db.jobs import JobDB
 from src.db.profiles import profile_from_row
 from src.db.session import get_db
 from src.graph.executor import (
@@ -113,6 +126,8 @@ class ApplicationPrepareRequest(BaseModel):
     job_title: str = Field(..., description="Job title from the posting")
     company_name: str = Field(..., description="Company name")
     job_url: str = Field(..., description="URL of the job posting")
+    job_id: str | None = Field(None, min_length=1, max_length=300)
+    document_id: str | None = Field(None, min_length=1, max_length=100)
 
     candidate_name: str = Field(..., description="Full name of the candidate")
     email: str = Field(..., description="Email address")
@@ -151,6 +166,8 @@ class PreparedSummary(BaseModel):
     profile_fact_names: list[str] = Field(default_factory=list)
     resume_path: str | None = None
     requires_manual_review: bool = False
+    document_id: str | None = None
+    document_filename: str | None = None
 
 
 class BoardQuestion(BaseModel):
@@ -207,6 +224,32 @@ class ApplicationPrepareResponse(BaseModel):
         default_factory=list,
         description="Required questions the profile does not answer",
     )
+    assist_available: bool = False
+    posting_form: PostingForm | None = None
+    on_employer_site: list[str] = Field(default_factory=list)
+
+
+class PostingContact(BaseModel):
+    candidate_name: str
+    email: str
+    phone: str
+
+
+class StoredPostingReviewResponse(BaseModel):
+    application_id: str
+    approval_id: str
+    job_id: str
+    job_title: str
+    company_name: str
+    job_url: str
+    prepared_summary: PreparedSummary
+    posting_form: PostingForm
+    blocking_questions: list[str]
+    on_employer_site: list[str]
+    contact: PostingContact
+    document_current: bool
+    review_current: bool
+    assist_available: bool
 
 
 class SavedAnswerView(BaseModel):
@@ -584,6 +627,25 @@ def prepare_application(
             ),
         )
 
+    if req.job_id is not None:
+        job = require_stored_job(db, req.job_id)
+        url = job.application_url or ""
+        try:
+            target = urlsplit(url)
+            is_http = (
+                target.scheme in {"https", "http"}
+                and target.hostname
+                and not target.username
+                and not target.password
+            )
+        except ValueError:
+            is_http = False
+        if not is_http:
+            raise HTTPException(422, "This posting has no usable employer application link.")
+        return _prepare_posting_review(req, job, db, scope)
+    if req.document_id is not None:
+        raise HTTPException(422, "A stored posting is required when selecting a document by ID.")
+
     # SEC-06: the target domain is checked before anything else.
     try:
         assert_job_url_allowed(req.job_url)
@@ -767,6 +829,166 @@ def prepare_application(
         form_questions=plan_as_dicts(form_plans),
         blocking_questions=[plan.label for plan in blockers],
     )
+
+
+def _posting_summary(review: PostingReview, request: ApplicationRequest) -> PreparedSummary:
+    return PreparedSummary(
+        job_title=request.job_title,
+        company_name=request.company_name,
+        job_url=request.job_url,
+        adapter_name="manual-handoff",
+        field_names=["candidate_name", "email", "phone", "resume"],
+        requires_manual_review=True,
+        document_id=review.document_id,
+        document_filename=review.document_filename,
+    )
+
+
+def _prepare_posting_review(
+    req: ApplicationPrepareRequest, job: JobDB, db: Session, scope: UserScope
+) -> ApplicationPrepareResponse:
+    """Persist a local review, not an executable request to the employer."""
+    if not req.document_id or req.resume_path or req.custom_fields:
+        raise HTTPException(422, "Select a résumé from your documents for this posting.")
+    name, email, phone = (req.candidate_name.strip(), req.email.strip(), req.phone.strip())
+    if (
+        not name
+        or len(name) > 200
+        or not email
+        or len(email) > 254
+        or "@" not in email
+        or len(phone) > 100
+    ):
+        raise HTTPException(422, "Enter your name and a valid email address before preparing.")
+    document = select_posting_document(db, scope, job.id, req.document_id)
+    request = ApplicationRequest(
+        job_title=job.title,
+        company_name=job.company,
+        job_url=job.application_url or "",
+        candidate_name=name,
+        email=email,
+        phone=phone,
+        resume_path=str(document.path),
+    )
+    review = build_posting_review(db, scope, job, request, document)
+    workflow_id = new_workflow_id()
+    prepared = PreparedApplication(
+        request=request,
+        resume_path=str(document.path),
+        requires_manual_review=True,
+        workflow_id=workflow_id,
+        owner_id=scope.user_id,
+    )
+    row = build_approval_row(
+        owner_id=scope.user_id,
+        workflow_id=workflow_id,
+        adapter_name="manual-handoff",
+        prepared=prepared,
+    )
+    row.payload = {**row.payload, "posting_review": review.model_dump(mode="json")}
+    # Commit the tracker entry with its packet; a failure must not orphan a review.
+    application = build_application_row(
+        owner_id=scope.user_id,
+        workflow_id=workflow_id,
+        job_id=job.id,
+        adapter_name=row.adapter_name,
+        job_url=request.job_url,
+        job_title=job.title,
+        company_name=job.company,
+        status=ApplicationStatus.PREPARED.value,
+        approval_id=row.id,
+        profile_id=document.profile_id,
+        tailored_resume_id=document.tailored_id,
+    )
+    db.add_all([row, application])
+    db.commit()
+    _record_tracking_event(
+        db,
+        application.id,
+        "application_created",
+        owner_id=scope.user_id,
+        actor=AGENT_ACTOR,
+        metadata={"mode": "manual-handoff"},
+    )
+    record_audit(
+        "application.posting_review_prepared",
+        actor=Actor.user(scope.user_id),
+        resource=application.id,
+        owner_id=scope.user_id,
+        outcome=OUTCOME_SUCCESS,
+        workflow_id=workflow_id,
+        metadata={"count": len(review.answers)},
+    )
+    return ApplicationPrepareResponse(
+        approval_id=row.id,
+        workflow_id=workflow_id,
+        adapter_name=row.adapter_name,
+        status="blocked_human_review" if review.missing else "prepared",
+        prepared_summary=_posting_summary(review, request),
+        application_id=application.id,
+        blocking_questions=review.missing,
+        posting_form=review.form,
+        assist_available=assist_available(request.job_url, review),
+        on_employer_site=review.on_employer_site,
+    )
+
+
+@router.get("/{application_id}/posting-review", response_model=StoredPostingReviewResponse)
+def read_posting_review(
+    application_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[UserScope, Depends(current_scope)],
+    response: Response,
+) -> StoredPostingReviewResponse:
+    response.headers["Cache-Control"] = "private, no-store"
+    application = _require_owned_application(application_id, db, scope)
+    if not application.approval_id or application.adapter_name != "manual-handoff":
+        raise HTTPException(404, "Posting review not found")
+    row = _load_approval(application.approval_id, db, scope)
+    if row.owner_id != scope.user_id:
+        raise HTTPException(404, "Posting review not found")
+    prepared = PreparedApplication.model_validate(row.payload)
+    review = PostingReview.model_validate(row.payload.get("posting_review"))
+    return StoredPostingReviewResponse(
+        application_id=application.id,
+        approval_id=row.id,
+        job_id=review.job_id,
+        job_title=application.job_title,
+        company_name=application.company_name,
+        job_url=application.job_url,
+        prepared_summary=_posting_summary(review, prepared.request),
+        posting_form=review.form,
+        blocking_questions=review.missing,
+        on_employer_site=review.on_employer_site,
+        contact=PostingContact.model_validate(prepared.request.model_dump()),
+        document_current=document_is_current(db, scope, review),
+        review_current=review_answers_are_current(db, scope, review),
+        assist_available=assist_available(application.job_url, review),
+    )
+
+
+class FillDecision(BaseModel):
+    purpose: Literal["fill_only"]
+
+
+class LocalFillAuthorization(BaseModel):
+    code: str = Field(repr=False)
+    expires_at: datetime
+
+
+@router.post("/{application_id}/authorize-fill", response_model=LocalFillAuthorization)
+def authorize_posting_fill(
+    application_id: str, decision: FillDecision,
+    db: Annotated[Session, Depends(get_db)], scope: Annotated[UserScope, Depends(current_scope)],
+    response: Response,
+) -> LocalFillAuthorization:
+    """Authorize one local fill of the reviewed packet; never launch a browser on the API host."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        code, expiry = authorize_local_fill(db, scope, application_id)
+    except FillRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return LocalFillAuthorization(code=code, expires_at=expiry)
 
 
 def _validated_custom_fields(custom_fields: dict) -> dict[str, str]:
@@ -1053,6 +1275,10 @@ def approve_application(
             written and the approval is still pending, so the caller may retry.
     """
     row = _load_approval(approval_id, db, scope)
+    if row.adapter_name == "manual-handoff":
+        raise HTTPException(
+            409, "This application is for manual handoff. Submit it on the employer's site."
+        )
     if row.status != ApprovalStatus.PENDING:
         raise HTTPException(
             status_code=409,
@@ -1555,7 +1781,9 @@ def put_application_answers(
             category, or answers a never-autofilled (EEO/attestation)
             question.
     """
-    _require_owned_application(application_id, db, scope)
+    application = _require_owned_application(application_id, db, scope)
+    if application.adapter_name == "manual-handoff":
+        raise HTTPException(409, "Edit these answers from the job posting or your Profile.")
     items = _validated_answer_items(body.answers)
     rows = access.upsert_application_answers(db, scope, application_id, items)
     if rows is None:
